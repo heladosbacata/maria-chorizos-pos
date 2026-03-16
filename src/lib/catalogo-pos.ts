@@ -39,15 +39,17 @@ function toProductoPOS(item: PosProductoItem): ProductoPOS | null {
 
 /**
  * Obtiene el catálogo de productos para venta en el POS desde el WMS.
- * Llama a GET [NEXT_PUBLIC_WMS_URL]/api/pos/productos/listar (fallback a maria-chorizos-wms.vercel.app).
+ * En el navegador usa /api/productos_listar (proxy del POS) para evitar CORS.
+ * En el servidor llama directo al WMS.
  * Respuesta esperada: { ok: true, data: [...], productos: [...] }; cada ítem: sku, skuBarcode, descripcion, categoria, precioUnitario, unidad, urlImagen.
  */
 export async function getCatalogoPOS(
   idToken?: string | null
 ): Promise<CatalogoPOSResult> {
-  const baseUrl: string = WMS_URL || "https://maria-chorizos-wms.vercel.app";
-  const base = baseUrl.replace(/\/$/, "");
-  const url = `${base}/api/pos/productos/listar`;
+  const isBrowser = typeof window !== "undefined";
+  const url = isBrowser
+    ? "/api/productos_listar"
+    : `${(WMS_URL || "https://maria-chorizos-wms.vercel.app").replace(/\/$/, "")}/api/pos/productos/listar`;
   const headers: HeadersInit = {};
   if (idToken) {
     headers.Authorization = `Bearer ${idToken}`;
@@ -65,7 +67,17 @@ export async function getCatalogoPOS(
       return { ok: false, message: msg };
     }
 
-    const raw = data?.data ?? data?.productos ?? (Array.isArray(data) ? data : []);
+    // Si la API devolvió 200 pero ok: false (ej. WMS no disponible), tratar como error
+    if (data && data.ok === false) {
+      return { ok: false, message: data.message ?? "No se pudo cargar el catálogo." };
+    }
+
+    const raw =
+      data?.data ??
+      data?.productos ??
+      data?.result ??
+      data?.items ??
+      (Array.isArray(data) ? data : []);
     const productos: ProductoPOS[] = [];
     for (const item of raw) {
       const p = toProductoPOS(item as PosProductoItem);

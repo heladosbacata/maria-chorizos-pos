@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 
-const WMS_URL = process.env.NEXT_PUBLIC_WMS_URL;
+const WMS_URL =
+  process.env.NEXT_PUBLIC_WMS_URL || "https://maria-chorizos-wms.vercel.app";
 
 export default async function handler(
   req: NextApiRequest,
@@ -10,13 +11,8 @@ export default async function handler(
     return res.status(405).json({ ok: false, message: "Method not allowed" });
   }
 
-  if (!WMS_URL) {
-    return res
-      .status(500)
-      .json({ ok: false, message: "NEXT_PUBLIC_WMS_URL no está configurada" });
-  }
-
-  const url = `${WMS_URL.replace(/\/$/, "")}/api/pos/productos/listar`;
+  const base = WMS_URL.replace(/\/$/, "");
+  const url = `${base}/api/pos/productos/listar`;
   const headers: HeadersInit = {};
   const auth = req.headers.authorization;
   if (auth) headers.Authorization = auth;
@@ -36,8 +32,14 @@ export default async function handler(
 
     return res.status(200).json(data);
   } catch (err) {
+    const code = err instanceof Error && "code" in err ? String((err as NodeJS.ErrnoException).code) : "";
     const message =
-      err instanceof Error ? err.message : "Error al conectar con el WMS";
-    return res.status(502).json({ ok: false, message });
+      code === "ECONNREFUSED" || code === "ENOTFOUND"
+        ? "No se pudo conectar con el WMS. Compruebe que esté en ejecución (ej. http://localhost:3002 si usa .env.local)."
+        : err instanceof Error
+          ? err.message
+          : "Error al conectar con el WMS";
+    // Devolver 200 con ok: false para que la app no muestre 502 en consola y el usuario vea el mensaje y pueda reintentar
+    return res.status(200).json({ ok: false, message, productos: [] });
   }
 }
