@@ -45,7 +45,8 @@ function toProductoPOS(item: PosProductoItem): ProductoPOS | null {
 export async function getCatalogoPOS(
   idToken?: string | null
 ): Promise<CatalogoPOSResult> {
-  const base = (WMS_URL || "").replace(/\/$/, "");
+  const baseUrl: string = WMS_URL || "https://maria-chorizos-wms.vercel.app";
+  const base = baseUrl.replace(/\/$/, "");
   const url = `${base}/api/pos/productos/listar`;
   const headers: HeadersInit = {};
   if (idToken) {
