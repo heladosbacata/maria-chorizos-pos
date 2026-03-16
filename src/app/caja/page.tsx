@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { enviarReporteVenta } from "@/lib/enviar-venta";
@@ -51,9 +52,9 @@ export default function CajaPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-primary-50">
-        <div className="h-14 w-14 animate-spin rounded-full border-4 border-primary-500 border-t-transparent" />
-        <p className="text-lg font-medium text-gray-700">Cargando...</p>
+      <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-white">
+        <div className="h-12 w-12 animate-spin rounded-full border-4 border-primary-500 border-t-transparent" />
+        <p className="text-base font-medium text-gray-600">Cargando...</p>
       </div>
     );
   }
@@ -72,35 +73,48 @@ export default function CajaPage() {
   });
 
   return (
-    <div className="min-h-screen bg-primary-50 p-4 md:p-6 lg:p-8">
-      <div className="mx-auto max-w-2xl">
-        {/* Header */}
-        <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 md:text-3xl">
-              Dashboard de Caja
-            </h1>
-            <p className="mt-1 text-gray-600 capitalize">{fechaFormateada}</p>
+    <div className="flex min-h-screen flex-col bg-white">
+      {/* Header estilo Siigo */}
+      <header className="sticky top-0 z-10 border-b border-gray-200 bg-white shadow-sm">
+        <div className="mx-auto flex max-w-4xl items-center justify-between px-4 py-4 md:px-6">
+          <div className="flex items-center gap-4">
+            <Image
+              src="/images/logo-red-bg.png"
+              alt="Maria Chorizos"
+              width={140}
+              height={48}
+              className="h-10 w-auto object-contain"
+            />
+            <div className="hidden sm:block">
+              <h1 className="text-lg font-bold text-gray-900">
+                Dashboard de Caja
+              </h1>
+              <p className="text-sm text-gray-500 capitalize">
+                {fechaFormateada}
+              </p>
+            </div>
           </div>
           <div className="flex items-center gap-3">
-            <span className="rounded-full bg-primary-100 px-4 py-2 text-sm font-medium text-primary-800">
+            <span className="rounded-full bg-primary-100 px-4 py-2 text-sm font-semibold text-primary-700">
               {user.puntoVenta}
             </span>
             <button
               onClick={handleCerrarSesion}
-              className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
             >
               Cerrar sesión
             </button>
           </div>
-        </header>
+        </div>
+      </header>
 
-        {/* Card principal */}
-        <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-lg md:p-8">
-          <div className="mb-6">
+      {/* Contenido principal */}
+      <main className="flex-1 p-4 md:p-8">
+        <div className="mx-auto max-w-2xl">
+          <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-lg md:p-10">
             <label
               htmlFor="valorVenta"
-              className="mb-2 block text-lg font-medium text-gray-700"
+              className="mb-3 block text-base font-semibold text-gray-700"
             >
               Valor de Venta del Día
             </label>
@@ -111,46 +125,45 @@ export default function CajaPage() {
               value={valorVenta}
               onChange={(e) => setValorVenta(e.target.value)}
               placeholder="0"
-              className="input-tablet text-3xl font-bold md:text-4xl"
+              className="input-tablet mb-6 border-2 border-gray-200 text-3xl font-bold text-gray-900 focus:border-primary-500 md:text-4xl"
               disabled={estado === "enviando"}
             />
+
+            <button
+              onClick={handleEnviar}
+              disabled={estado === "enviando"}
+              className="btn-tablet w-full bg-primary-500 text-white shadow-lg shadow-primary-500/25 transition-all hover:bg-primary-600 hover:shadow-primary-500/30 disabled:opacity-50"
+            >
+              {estado === "enviando" ? "Enviando..." : "Enviar Reporte"}
+            </button>
+
+            {/* Feedback */}
+            {estado !== "idle" && (
+              <div
+                className={`mt-6 rounded-xl p-4 ${
+                  estado === "exito"
+                    ? "border border-green-200 bg-green-50 text-green-800"
+                    : estado === "error"
+                      ? "border border-red-200 bg-red-50 text-red-800"
+                      : "bg-gray-50 text-gray-700"
+                }`}
+              >
+                {estado === "exito" && (
+                  <span className="mr-2 text-xl">✓</span>
+                )}
+                {estado === "error" && (
+                  <span className="mr-2 text-xl">✕</span>
+                )}
+                {mensaje}
+              </div>
+            )}
           </div>
 
-          <button
-            onClick={handleEnviar}
-            disabled={estado === "enviando"}
-            className="btn-tablet w-full bg-primary-500 text-white hover:bg-primary-600 disabled:opacity-50"
-          >
-            {estado === "enviando" ? "Enviando..." : "Enviar Reporte"}
-          </button>
-
-          {/* Feedback */}
-          {estado !== "idle" && (
-            <div
-              className={`mt-6 rounded-xl p-4 ${
-                estado === "exito"
-                  ? "bg-green-50 text-green-800"
-                  : estado === "error"
-                    ? "bg-red-50 text-red-800"
-                    : "bg-gray-50 text-gray-700"
-              }`}
-            >
-              {estado === "exito" && (
-                <span className="mr-2 text-xl">✓</span>
-              )}
-              {estado === "error" && (
-                <span className="mr-2 text-xl">✕</span>
-              )}
-              {mensaje}
-            </div>
-          )}
+          <p className="mt-4 text-center text-sm text-gray-500">
+            Fecha del reporte: {fechaHoy}
+          </p>
         </div>
-
-        {/* Info adicional */}
-        <p className="mt-4 text-center text-sm text-gray-500">
-          Fecha del reporte: {fechaHoy}
-        </p>
-      </div>
+      </main>
     </div>
   );
 }
