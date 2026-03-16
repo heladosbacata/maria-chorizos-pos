@@ -1,0 +1,140 @@
+"use client";
+
+import React, { createContext, useContext, useEffect, useState } from "react";
+import {
+  User,
+  signInWithEmailAndPassword,
+  signOut as firebaseSignOut,
+  onAuthStateChanged,
+} from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
+import { auth, db } from "@/lib/firebase";
+
+export interface AuthUser {
+  uid: string;
+  email: string | null;
+  puntoVenta: string | null;
+  necesitaSeleccionarPunto: boolean;
+}
+
+interface AuthContextType {
+  user: AuthUser | null;
+  loading: boolean;
+  signIn: (email: string, password: string) => Promise<void>;
+  signOut: () => Promise<void>;
+  setPuntoVentaSeleccionado: (punto: string) => void;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [puntoVentaManual, setPuntoVentaManual] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!auth) {
+      setLoading(false);
+      return;
+    }
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setFirebaseUser(user);
+      if (!user) {
+        setAuthUser(null);
+        setPuntoVentaManual(null);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        if (!db) {
+          setAuthUser({
+            uid: user.uid,
+            email: user.email ?? null,
+            puntoVenta: null,
+            necesitaSeleccionarPunto: true,
+          });
+          setLoading(false);
+          return;
+        }
+        const userDoc = await getDoc(doc(db, "users", user.uid));
+        const data = userDoc.data();
+        const puntoVentaFirestore = data?.puntoVenta as string | undefined;
+
+        if (puntoVentaFirestore) {
+          setAuthUser({
+            uid: user.uid,
+            email: user.email ?? null,
+            puntoVenta: puntoVentaFirestore,
+            necesitaSeleccionarPunto: false,
+          });
+          setPuntoVentaManual(null);
+        } else {
+          setAuthUser({
+            uid: user.uid,
+            email: user.email ?? null,
+            puntoVenta: puntoVentaManual ?? null,
+            necesitaSeleccionarPunto: true,
+          });
+        }
+      } catch {
+        setAuthUser({
+          uid: user.uid,
+          email: user.email ?? null,
+          puntoVenta: puntoVentaManual ?? null,
+          necesitaSeleccionarPunto: true,
+        });
+      }
+      setLoading(false);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    if (!firebaseUser || !authUser) return;
+    if (authUser.necesitaSeleccionarPunto && puntoVentaManual) {
+      setAuthUser((prev) =>
+        prev
+          ? { ...prev, puntoVenta: puntoVentaManual, necesitaSeleccionarPunto: false }
+          : null
+      );
+    }
+  }, [puntoVentaManual, firebaseUser, authUser?.necesitaSeleccionarPunto]);
+
+  const signIn = async (email: string, password: string) => {
+    if (!auth) throw new Error("Firebase no está inicializado");
+    await signInWithEmailAndPassword(auth, email, password);
+  };
+
+  const signOut = async () => {
+    if (auth) await firebaseSignOut(auth);
+    setPuntoVentaManual(null);
+  };
+
+  const setPuntoVentaSeleccionado = (punto: string) => {
+    setPuntoVentaManual(punto);
+    setAuthUser((prev) =>
+      prev ? { ...prev, puntoVenta: punto, necesitaSeleccionarPunto: false } : null
+    );
+  };
+
+  const value: AuthContextType = {
+    user: authUser,
+    loading,
+    signIn,
+    signOut,
+    setPuntoVentaSeleccionado,
+  };
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error("useAuth debe usarse dentro de AuthProvider");
+  }
+  return context;
+}
