@@ -301,7 +301,7 @@ export default function ChatPage() {
                   <button
                     type="submit"
                     disabled={sending || !inputText.trim()}
-                    className="rounded-xl bg-primary-500 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary-600 disabled:opacity-50"
+                    className="rounded-xl bg-brand-yellow px-4 py-2.5 text-sm font-medium text-gray-900 transition-colors hover:opacity-90 disabled:opacity-50"
                   >
                     {sending ? "..." : "Enviar"}
                   </button>

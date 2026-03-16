@@ -87,7 +87,7 @@ export default function LoginForm() {
             <button
               type="button"
               onClick={handleCerrarSesion}
-              className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+              className="rounded-lg bg-brand-yellow px-4 py-2 text-sm font-medium text-gray-900 transition-colors hover:opacity-90"
             >
               Cerrar sesión
             </button>
@@ -108,7 +108,7 @@ export default function LoginForm() {
                   key={punto}
                   type="button"
                   onClick={() => handleSeleccionarPunto(punto)}
-                  className="group rounded-xl border-2 border-gray-200 bg-white px-6 py-4 text-lg font-semibold text-gray-800 shadow-sm transition-all hover:border-primary-500 hover:bg-primary-50 hover:text-primary-600"
+                  className="group rounded-xl border-2 border-brand-yellow/50 bg-brand-yellow px-6 py-4 text-lg font-semibold text-gray-900 shadow-sm transition-all hover:opacity-90"
                 >
                   {punto}
                 </button>

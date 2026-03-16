@@ -239,7 +239,7 @@ export default function CajaPage() {
             type="button"
             onClick={() => setModuloActivo("ventas")}
             className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
-              moduloActivo === "ventas" ? "bg-primary-50 text-primary-600" : "text-gray-600 hover:bg-gray-50"
+              moduloActivo === "ventas" ? "bg-brand-yellow/25 text-gray-900 border border-brand-yellow/50" : "text-gray-600 hover:bg-gray-50"
             }`}
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -251,7 +251,7 @@ export default function CajaPage() {
             type="button"
             onClick={() => setModuloActivo("turnos")}
             className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
-              moduloActivo === "turnos" ? "bg-primary-50 text-primary-600" : "text-gray-600 hover:bg-gray-50"
+              moduloActivo === "turnos" ? "bg-brand-yellow/25 text-gray-900 border border-brand-yellow/50" : "text-gray-600 hover:bg-gray-50"
             }`}
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -263,7 +263,7 @@ export default function CajaPage() {
             type="button"
             onClick={() => setModuloActivo("reportes")}
             className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
-              moduloActivo === "reportes" ? "bg-primary-50 text-primary-600" : "text-gray-600 hover:bg-gray-50"
+              moduloActivo === "reportes" ? "bg-brand-yellow/25 text-gray-900 border border-brand-yellow/50" : "text-gray-600 hover:bg-gray-50"
             }`}
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -275,7 +275,7 @@ export default function CajaPage() {
             type="button"
             onClick={() => setModuloActivo("mas")}
             className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
-              moduloActivo === "mas" ? "bg-primary-50 text-primary-600" : "text-gray-600 hover:bg-gray-50"
+              moduloActivo === "mas" ? "bg-brand-yellow/25 text-gray-900 border border-brand-yellow/50" : "text-gray-600 hover:bg-gray-50"
             }`}
           >
             <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -329,7 +329,7 @@ export default function CajaPage() {
             <button
               type="button"
               onClick={abrirModalPerfil}
-              className="group relative flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-gray-200 bg-gray-100 ring-2 ring-white shadow-md transition-all hover:border-primary-300 hover:ring-primary-100 focus:outline-none focus:ring-2 focus:ring-primary-400"
+              className="group relative flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-gray-200 bg-gray-100 ring-2 ring-white shadow-md transition-all hover:border-brand-yellow hover:ring-brand-yellow/30 focus:outline-none focus:ring-2 focus:ring-brand-yellow"
               title="Ver mensaje de agradecimiento"
             >
               {fotoPerfil ? (
@@ -347,14 +347,14 @@ export default function CajaPage() {
             <button
               type="button"
               onClick={() => inputFotoRef.current?.click()}
-              className="text-xs font-medium text-primary-600 hover:text-primary-700 hover:underline"
+              className="text-xs font-medium text-gray-700 hover:text-gray-900 hover:underline"
             >
               Cambiar foto
             </button>
             <button
               type="button"
               onClick={abrirModalPerfil}
-              className="rounded-lg border border-primary-200 bg-primary-50 px-3 py-2 text-sm font-medium text-primary-700 transition-colors hover:bg-primary-100"
+              className="rounded-lg bg-brand-yellow px-3 py-2 text-sm font-medium text-gray-900 transition-colors hover:opacity-90"
             >
               Perfil del usuario
             </button>

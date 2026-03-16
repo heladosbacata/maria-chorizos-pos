@@ -1,9 +1,7 @@
 import type { ProductoPOS } from "@/types";
 
-const WMS_URL = process.env.NEXT_PUBLIC_WMS_URL;
-
-/** Usar proxy del POS para evitar CORS: el navegador llama a /api/catalogo y el servidor POS llama al WMS. */
-const USE_PROXY = true;
+const WMS_URL: string =
+  process.env.NEXT_PUBLIC_WMS_URL || "https://maria-chorizos-wms.vercel.app";
 
 export interface CatalogoPOSResult {
   ok: boolean;
@@ -41,20 +39,14 @@ function toProductoPOS(item: PosProductoItem): ProductoPOS | null {
 
 /**
  * Obtiene el catálogo de productos para venta en el POS desde el WMS.
- * Única fuente: GET [NEXT_PUBLIC_WMS_URL]/api/pos/productos/listar.
- * Los productos creados en "Productos POS" del WMS se muestran aquí.
- * Si el WMS exige autorización, pasar idToken.
+ * Llama a GET [NEXT_PUBLIC_WMS_URL]/api/pos/productos/listar (fallback a maria-chorizos-wms.vercel.app).
+ * Respuesta esperada: { ok: true, data: [...], productos: [...] }; cada ítem: sku, skuBarcode, descripcion, categoria, precioUnitario, unidad, urlImagen.
  */
 export async function getCatalogoPOS(
   idToken?: string | null
 ): Promise<CatalogoPOSResult> {
-  if (!USE_PROXY && !WMS_URL) {
-    return { ok: false, message: "NEXT_PUBLIC_WMS_URL no está configurada" };
-  }
-
-  const url = USE_PROXY
-    ? "/api/catalogo"
-    : `${WMS_URL.replace(/\/$/, "")}/api/pos/productos/listar`;
+  const base = (WMS_URL || "").replace(/\/$/, "");
+  const url = `${base}/api/pos/productos/listar`;
   const headers: HeadersInit = {};
   if (idToken) {
     headers.Authorization = `Bearer ${idToken}`;

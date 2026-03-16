@@ -2,10 +2,6 @@ import type { NextApiRequest, NextApiResponse } from "next";
 
 const WMS_URL = process.env.NEXT_PUBLIC_WMS_URL;
 
-/**
- * Proxy GET /api/catalogo → WMS GET /api/pos/productos/listar.
- * Evita CORS: el navegador llama a este endpoint (mismo origen) y el servidor llama al WMS.
- */
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
