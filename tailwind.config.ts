@@ -13,6 +13,8 @@ const config: Config = {
           red: "#C41E3A",
           "red-dark": "#9E1830",
           "red-light": "#E63946",
+          /** Amarillo de referencia: rgb(255, 200, 28) */
+          yellow: "#FFC81C",
           white: "#FFFFFF",
         },
         primary: {
