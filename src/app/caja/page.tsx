@@ -222,67 +222,8 @@ export default function CajaPage() {
 
   return (
     <div className="flex min-h-screen bg-gray-100/90">
-      {/* Barra superior: solo con tabs de precuenta cuando el módulo es Ventas e ingresos */}
-      <header className="fixed left-0 right-0 top-0 z-20 flex h-16 items-stretch bg-brand-yellow shadow-lg">
-        <div className="flex min-w-0 items-center border-r border-gray-800/20 pl-4 pr-4">
-          <Image
-            src="/images/logo-red-bg.png"
-            alt="Maria Chorizos"
-            width={200}
-            height={72}
-            className="h-12 w-auto object-contain"
-            priority
-          />
-        </div>
-        {moduloActivo === "ventas" ? (
-          <div className="flex flex-1 items-center gap-1 overflow-x-auto px-2 py-2">
-            {precuentas.map((p) => (
-              <div
-                key={p.id}
-                role="tab"
-                aria-selected={activePrecuentaId === p.id}
-                className={`flex cursor-pointer items-center gap-1.5 rounded-t-lg border px-3 py-2 transition-colors ${
-                  activePrecuentaId === p.id
-                    ? "border-gray-800/30 border-b-gray-800/40 bg-black/10 text-gray-900"
-                    : "border-transparent text-gray-800 hover:bg-black/5"
-                }`}
-                onClick={() => setActivePrecuentaId(p.id)}
-              >
-                <span className="text-sm font-medium">{p.nombre}</span>
-                {precuentas.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={(e) => cerrarPrecuenta(p.id, e)}
-                    className="rounded p-0.5 text-gray-700 hover:bg-black/10 hover:text-gray-900"
-                    aria-label={`Cerrar ${p.nombre}`}
-                  >
-                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                )}
-              </div>
-            ))}
-            <button
-              type="button"
-              onClick={agregarPrecuenta}
-              className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border border-gray-800/40 text-gray-800 transition-colors hover:bg-black/10"
-              aria-label="Nueva pre-cuenta"
-            >
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-            </button>
-          </div>
-        ) : (
-          <div className="flex flex-1 items-center px-4">
-            <span className="text-lg font-semibold text-gray-900">{tituloModulo}</span>
-          </div>
-        )}
-      </header>
-
       {/* Sidebar izquierdo */}
-      <aside className="fixed left-0 top-16 z-10 flex w-52 flex-col border-r border-gray-200 bg-white shadow-sm">
+      <aside className="fixed left-0 top-0 z-10 flex w-52 flex-col border-r border-gray-200 bg-white shadow-sm">
         <div className="flex flex-col items-center gap-1 border-b border-gray-100 bg-white px-3 py-4">
           <Image
             src="/images/logo-red-bg.png"
@@ -468,7 +409,7 @@ export default function CajaPage() {
             <button
               type="button"
               onClick={() => setShowModalAgradecimiento(false)}
-              className="w-full rounded-xl bg-primary-500 py-3 font-semibold text-white transition-colors hover:bg-primary-600"
+              className="w-full rounded-xl bg-brand-yellow py-3 font-semibold text-gray-900 transition-all hover:opacity-90"
             >
               Cerrar
             </button>
@@ -477,11 +418,85 @@ export default function CajaPage() {
       )}
 
       {/* Área central: contenido según módulo activo */}
-      <main className="flex-1 pl-52 pt-16">
+      <main className="flex-1 pl-52 pt-0">
         <div className="p-6">
           {moduloActivo === "ventas" ? (
             <div className="space-y-6">
-              {/* Catálogo de productos desde WMS */}
+              {/* Pestaña de pre-cuenta: herramienta encima del catálogo */}
+              <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+                <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-gray-100 pb-4">
+                  <span className="text-sm font-medium text-gray-500">Pre-cuenta activa:</span>
+                  {precuentas.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setActivePrecuentaId(p.id)}
+                      className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
+                        activePrecuentaId === p.id
+                          ? "border-brand-yellow bg-brand-yellow/20 text-gray-900"
+                          : "border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
+                      }`}
+                    >
+                      {p.nombre}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={agregarPrecuenta}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-dashed border-gray-300 text-gray-500 hover:border-brand-yellow hover:text-gray-700"
+                    aria-label="Nueva pre-cuenta"
+                  >
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                    </svg>
+                  </button>
+                </div>
+                <h2 className="mb-4 text-lg font-semibold text-gray-800">
+                  Valor de venta del día — {precuentas.find((p) => p.id === activePrecuentaId)?.nombre}
+                </h2>
+                <input
+                  id="valorVenta"
+                  type="text"
+                  inputMode="decimal"
+                  value={activeDatos.valorVenta}
+                  onChange={(e) =>
+                    setPrecuentaDatos((prev) => ({
+                      ...prev,
+                      [activePrecuentaId]: {
+                        ...(prev[activePrecuentaId] ?? { valorVenta: "", estado: "idle" as EnvioEstado, mensaje: "" }),
+                        valorVenta: e.target.value,
+                      },
+                    }))
+                  }
+                  placeholder="0"
+                  className="mb-4 w-full rounded-xl border-2 border-gray-200 px-4 py-4 text-3xl font-bold text-gray-900 placeholder:text-gray-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100 md:text-4xl"
+                  disabled={activeDatos.estado === "enviando"}
+                />
+                <button
+                  onClick={handleEnviar}
+                  disabled={activeDatos.estado === "enviando"}
+                  className="w-full rounded-xl bg-brand-yellow px-6 py-4 text-lg font-semibold text-gray-900 shadow-md transition-all hover:opacity-90 disabled:opacity-50"
+                >
+                  {activeDatos.estado === "enviando" ? "Enviando..." : "Enviar reporte"}
+                </button>
+                {activeDatos.estado !== "idle" && (
+                  <div
+                    className={`mt-4 rounded-lg p-3 text-sm ${
+                      activeDatos.estado === "exito"
+                        ? "bg-green-50 text-green-800"
+                        : activeDatos.estado === "error"
+                          ? "bg-red-50 text-red-800"
+                          : "bg-gray-50 text-gray-700"
+                    }`}
+                  >
+                    {activeDatos.estado === "exito" && <span className="mr-2">✓</span>}
+                    {activeDatos.estado === "error" && <span className="mr-2">✕</span>}
+                    {activeDatos.mensaje}
+                  </div>
+                )}
+              </div>
+
+              {/* Catálogo de productos desde WMS (debajo de la pre-cuenta) */}
               <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
                 <h2 className="mb-3 text-lg font-semibold text-gray-800">Catálogo de productos</h2>
                 <p className="mb-4 text-sm text-gray-500">
@@ -500,7 +515,10 @@ export default function CajaPage() {
                   </div>
                 )}
                 {catalogoError && (
-                  <div className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{catalogoError}</div>
+                  <div className="rounded-lg border border-brand-yellow/40 bg-brand-yellow/10 p-4 text-sm text-gray-700">
+                    <p className="font-medium">{catalogoError}</p>
+                    <p className="mt-1 text-gray-600">Puedes usar el reporte de venta del día aquí arriba.</p>
+                  </div>
                 )}
                 {!catalogoLoading && !catalogoError && (
                   <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -544,53 +562,6 @@ export default function CajaPage() {
                     {busquedaCatalogo.trim() ? "No hay productos que coincidan con la búsqueda." : "No hay productos en el catálogo."}
                   </p>
                 )}
-              </div>
-
-              {/* Valor de venta del día y reporte */}
-              <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
-              <h2 className="mb-4 text-lg font-semibold text-gray-800">
-                Valor de venta del día — {precuentas.find((p) => p.id === activePrecuentaId)?.nombre}
-              </h2>
-              <input
-                id="valorVenta"
-                type="text"
-                inputMode="decimal"
-                value={activeDatos.valorVenta}
-                onChange={(e) =>
-                  setPrecuentaDatos((prev) => ({
-                    ...prev,
-                    [activePrecuentaId]: {
-                      ...(prev[activePrecuentaId] ?? { valorVenta: "", estado: "idle" as EnvioEstado, mensaje: "" }),
-                      valorVenta: e.target.value,
-                    },
-                  }))
-                }
-                placeholder="0"
-                className="mb-6 w-full rounded-xl border-2 border-gray-200 px-4 py-4 text-3xl font-bold text-gray-900 placeholder:text-gray-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100 md:text-4xl"
-                disabled={activeDatos.estado === "enviando"}
-              />
-              <button
-                onClick={handleEnviar}
-                disabled={activeDatos.estado === "enviando"}
-                className="w-full rounded-xl bg-primary-500 px-6 py-4 text-lg font-semibold text-white shadow-md transition-all hover:bg-primary-600 disabled:opacity-50"
-              >
-                {activeDatos.estado === "enviando" ? "Enviando..." : "Enviar reporte"}
-              </button>
-              {activeDatos.estado !== "idle" && (
-                <div
-                  className={`mt-4 rounded-lg p-3 text-sm ${
-                    activeDatos.estado === "exito"
-                      ? "bg-green-50 text-green-800"
-                      : activeDatos.estado === "error"
-                        ? "bg-red-50 text-red-800"
-                        : "bg-gray-50 text-gray-700"
-                  }`}
-                >
-                  {activeDatos.estado === "exito" && <span className="mr-2">✓</span>}
-                  {activeDatos.estado === "error" && <span className="mr-2">✕</span>}
-                  {activeDatos.mensaje}
-                </div>
-              )}
               </div>
             </div>
           ) : (

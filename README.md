@@ -16,7 +16,7 @@ Aplicación de punto de venta para reportar ventas diarias. Se conecta al WMS ex
    ```
 
 2. Completa las variables en `.env.local`:
-   - `NEXT_PUBLIC_WMS_URL`: URL de tu WMS (ej: `https://tu-wms.vercel.app`)
+   - **`NEXT_PUBLIC_WMS_URL`**: URL del WMS. Desarrollo: `http://localhost:3002` (o donde corra el WMS). Producción: `https://maria-chorizos-wms.vercel.app`. También configurarla en Vercel para el despliegue del POS.
    - Variables de Firebase (mismas que el WMS)
 
 ## Desarrollo
@@ -59,7 +59,7 @@ src/
 3. **Dashboard**: Input de valor de venta del día → Enviar Reporte
 4. **API**: POST a `[WMS_URL]/api/ventas/bulk-guardar` con `{ fecha, uen, ventas }`
 5. **Chat**: En `/chat`, el cajero ve contactos (franquiciado de su punto de venta + admins WMS) vía `GET [WMS_URL]/api/chat/usuarios` con `Authorization: Bearer <ID_TOKEN>`. Los mensajes usan Firestore (`chats/{chatId}/messages`, `userChats/{uid}/chats`) igual que el WMS.
-6. **Catálogo de productos para venta**: La pantalla donde se eligen los productos para vender obtiene la lista **solo** desde el WMS con `GET [NEXT_PUBLIC_WMS_URL]/api/pos/productos/listar`. No hay lista fija ni otra API para el catálogo. Los productos creados en "Productos POS" del WMS se muestran en el POS. Opcionalmente se envía `Authorization: Bearer <ID_TOKEN>`.
+6. **Catálogo de productos para venta**: La pantalla de venta (módulo Ventas e ingresos) carga el catálogo desde el WMS con `GET [NEXT_PUBLIC_WMS_URL]/api/pos/productos/listar`. No hay lista local: la única fuente es esa API. Se muestran productos con imagen, descripción y precio. Ver [docs/CATALOGO-WMS.md](docs/CATALOGO-WMS.md) para variable de entorno, formato de respuesta y campos. El contrato detallado está en el repo del WMS en `docs/POS-CATALOGO-WMS.md`.
 
 ## Chat POS – requisitos en el WMS
 
@@ -70,14 +70,7 @@ El backend del WMS debe:
 
 ## Catálogo POS – requisitos en el WMS
 
-Para que el catálogo de productos se cargue en el POS sin error 404 ni CORS:
-
-1. **Implementar en el WMS** la ruta **GET /api/pos/productos/listar** que devuelva los productos del módulo "Productos POS" (fotos y precios). Respuesta esperada: `{ ok: true, data: [{ sku o skuBarcode o skuProductoFinal, descripcion, categoria?, precioUnitario, unidad?, urlImagen? }] }` (o `productos` en lugar de `data`).
-2. **CORS**: En el WMS hay que permitir peticiones desde el origen del POS. Añadir en las respuestas de esa API (o en el middleware CORS del WMS) el header `Access-Control-Allow-Origin` con el origen del POS, por ejemplo:
-   - En desarrollo: `http://localhost:3000`
-   - En producción: `https://maria-chorizos-pos.vercel.app` (o la URL donde esté desplegado el POS)
-
-Sin esto, el navegador bloqueará el fetch (CORS) o devolverá 404 y el POS mostrará un mensaje de error en el catálogo.
+En el WMS debe existir **GET /api/pos/productos/listar** con respuesta `{ ok: true, data: [...] }` o `{ ok: true, productos: [...] }`. Campos por ítem: `sku`/`skuBarcode`/`skuProductoFinal`, `descripcion`, `categoria` (opcional), `precioUnitario`, `unidad` (opcional), `urlImagen` (opcional). El contrato detallado está en el repo del WMS en **`docs/POS-CATALOGO-WMS.md`**. El WMS debe permitir CORS desde el origen del POS; no se configura CORS en el POS.
 
 Estructura Firestore (compartida con el WMS):
 

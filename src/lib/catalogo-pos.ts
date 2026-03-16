@@ -67,10 +67,7 @@ export async function getCatalogoPOS(
     if (!res.ok) {
       const msg = data?.message || data?.error || `Error ${res.status}`;
       if (res.status === 404) {
-        return {
-          ok: false,
-          message: "El WMS no expone GET /api/pos/productos/listar. Crea esa ruta en el proyecto WMS y habilita CORS para este origen.",
-        };
+        return { ok: false, message: "Catálogo no disponible por ahora." };
       }
       return { ok: false, message: msg };
     }
@@ -92,9 +89,7 @@ export async function getCatalogoPOS(
       msg.includes("Load failed");
     return {
       ok: false,
-      message: isCorsOrNetwork
-        ? "No se pudo conectar al WMS (CORS o red). En el proyecto WMS habilita CORS para este origen y asegura que exista GET /api/pos/productos/listar."
-        : msg,
+      message: isCorsOrNetwork ? "Catálogo no disponible por ahora." : msg,
     };
   }
 }

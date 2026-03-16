@@ -231,7 +231,7 @@ export default function LoginForm() {
             <button
               type="submit"
               disabled={submitting}
-              className="btn-tablet w-full bg-primary-500 text-white shadow-lg shadow-primary-500/25 transition-all hover:bg-primary-600 hover:shadow-primary-500/30 disabled:opacity-50"
+              className="btn-tablet w-full bg-brand-yellow text-gray-900 shadow-lg transition-all hover:opacity-90 disabled:opacity-50"
             >
               {submitting ? "Iniciando sesión..." : "Entrar a la caja"}
             </button>
