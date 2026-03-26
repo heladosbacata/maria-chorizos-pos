@@ -42,7 +42,11 @@ export default function ContratoPosGebPanel({ onVolver }: ContratoPosGebPanelPro
     setCamposContratoDesdeWms(false);
     try {
       const token = auth?.currentUser ? await auth.currentUser.getIdToken() : null;
-      const r = await getContratoPosDesdeWmsPorCorreoSesion(user?.email ?? null, token);
+      const r = await getContratoPosDesdeWmsPorCorreoSesion(
+        user?.email ?? null,
+        token,
+        user?.uid ?? null
+      );
 
       if (!r.ok) {
         setEstadoContrato("sin_datos");
@@ -87,7 +91,7 @@ export default function ContratoPosGebPanel({ onVolver }: ContratoPosGebPanelPro
     } finally {
       setCargandoWms(false);
     }
-  }, [user?.email]);
+  }, [user?.email, user?.uid]);
 
   useEffect(() => {
     void cargarContratoDesdeWms();

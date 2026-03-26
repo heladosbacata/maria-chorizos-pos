@@ -29,13 +29,44 @@ function str(obj: Record<string, unknown>, keys: string[]): string {
   return "";
 }
 
+function secondsFromFirestoreLike(v: unknown): number | null {
+  if (v == null || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  const raw = o.seconds ?? o._seconds;
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (typeof raw === "string" && raw.trim() !== "") {
+    const n = Number(raw);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
 function valorAFechaIso(v: unknown): string | null {
   if (v == null) return null;
-  if (typeof v === "object" && v !== null && "_seconds" in v && typeof (v as { _seconds: unknown })._seconds === "number") {
-    const d = new Date((v as { _seconds: number })._seconds * 1000);
+  if (typeof v === "number" && Number.isFinite(v)) {
+    const ms = v < 1e12 ? v * 1000 : v;
+    const d = new Date(ms);
     if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
   }
-  const s = typeof v === "string" ? v : String(v);
+  const sec = secondsFromFirestoreLike(v);
+  if (sec != null) {
+    const d = new Date(sec * 1000);
+    if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  }
+  const s = typeof v === "string" ? v.trim() : String(v).trim();
+  if (!s) return null;
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) {
+    const day = Number(m[1]);
+    const month = Number(m[2]);
+    const year = Number(m[3]);
+    const d = new Date(year, month - 1, day);
+    if (!Number.isNaN(d.getTime()) && d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day) {
+      const mm = String(month).padStart(2, "0");
+      const dd = String(day).padStart(2, "0");
+      return `${year}-${mm}-${dd}`;
+    }
+  }
   const d = new Date(s);
   if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
   return null;
@@ -45,6 +76,33 @@ function fechaIso(obj: Record<string, unknown>, keys: string[]): string | null {
   for (const k of keys) {
     const iso = valorAFechaIso(obj[k]);
     if (iso) return iso;
+  }
+  return null;
+}
+
+const NESTED_CONTRATO_KEYS = [
+  "contrato",
+  "contratoPos",
+  "datosContrato",
+  "contract",
+  "contratoGeb",
+  "metadata",
+  "perfil",
+  "perfilPos",
+  "posUsuario",
+  "datosUsuario",
+];
+
+/** Busca fechas en el objeto y en subobjetos típicos del WMS/Firestore. */
+function fechaIsoConAnidados(obj: Record<string, unknown>, keys: string[]): string | null {
+  const direct = fechaIso(obj, keys);
+  if (direct) return direct;
+  for (const nk of NESTED_CONTRATO_KEYS) {
+    const inner = obj[nk];
+    if (inner && typeof inner === "object" && inner !== null) {
+      const nested = fechaIso(inner as Record<string, unknown>, keys);
+      if (nested) return nested;
+    }
   }
   return null;
 }
@@ -68,30 +126,44 @@ export function normalizarUsuarioPosRegistrado(item: unknown): UsuarioPosRegistr
   if (!email) return null;
   const uid = str(o, ["uid", "userId", "firebaseUid"]);
   const puntoVenta = str(o, ["puntoVenta", "punto_venta", "puntoDeVenta", "nombrePuntoVenta"]) || "Sin punto";
-  const contrato =
+  let contrato =
     str(o, [
       "contratoNombre",
-      "contrato",
       "tipoContrato",
       "planContrato",
       "nombreContrato",
-    ]) || "Contrato POS GEB";
-  const fechaInicio = fechaIso(o, [
+    ]) || "";
+  if (!contrato) {
+    const c = o.contrato;
+    if (typeof c === "string" && c.trim()) contrato = c.trim();
+    else if (c && typeof c === "object") {
+      const co = c as Record<string, unknown>;
+      contrato =
+        str(co, ["nombre", "nombreContrato", "plan", "descripcion", "tipo", "label"]) || "";
+    }
+  }
+  if (!contrato) contrato = "Contrato POS GEB";
+  const fechaInicio = fechaIsoConAnidados(o, [
     "fechaInicio",
     "contratoFechaInicio",
     "fecha_inicio",
     "inicioContrato",
     "contractStartDate",
     "fechaInicioContrato",
+    "fechaContratoInicio",
     "inicio",
+    "fechaAltaContrato",
+    "fechaCreacionContrato",
+    "createdAtContrato",
   ]);
-  const fechaVencimiento = fechaIso(o, [
+  const fechaVencimiento = fechaIsoConAnidados(o, [
     "fechaVencimiento",
     "contratoFechaVencimiento",
     "fecha_vencimiento",
     "vencimiento",
     "contractEndDate",
     "fechaFinContrato",
+    "fechaContratoVencimiento",
     "fin",
   ]);
   const referenciaContrato = str(o, [
@@ -117,11 +189,17 @@ export function normalizarUsuarioPosRegistrado(item: unknown): UsuarioPosRegistr
   return out;
 }
 
-/** Coincide correo de sesión con una fila de la lista WMS (sin distinguir mayúsculas). */
+/** Coincide por UID Firebase (si el WMS lo envía) o por correo de sesión (sin distinguir mayúsculas). */
 export function buscarUsuarioPosRegistradoPorCorreo(
   usuarios: UsuarioPosRegistrado[],
-  correoSesion: string | null | undefined
+  correoSesion: string | null | undefined,
+  uidSesion?: string | null
 ): UsuarioPosRegistrado | null {
+  if (uidSesion?.trim()) {
+    const uid = uidSesion.trim();
+    const byUid = usuarios.find((x) => x.uid && x.uid.trim() === uid);
+    if (byUid) return byUid;
+  }
   if (!correoSesion?.trim()) return null;
   const n = correoSesion.trim().toLowerCase();
   const u = usuarios.find((x) => x.email.trim().toLowerCase() === n);
@@ -135,13 +213,18 @@ export function buscarUsuarioPosRegistradoPorCorreo(
  */
 export async function getContratoPosDesdeWmsPorCorreoSesion(
   correoSesion: string | null | undefined,
-  idToken?: string | null
+  idToken?: string | null,
+  uidSesion?: string | null
 ): Promise<{ ok: boolean; usuario: UsuarioPosRegistrado | null; message?: string }> {
   const res = await getUsuariosPosRegistrados(idToken);
   if (!res.ok) {
     return { ok: false, usuario: null, message: res.message };
   }
-  const usuario = buscarUsuarioPosRegistradoPorCorreo(res.usuarios ?? [], correoSesion);
+  const usuario = buscarUsuarioPosRegistradoPorCorreo(
+    res.usuarios ?? [],
+    correoSesion,
+    uidSesion
+  );
   return { ok: true, usuario };
 }
 
@@ -161,11 +244,23 @@ export async function getUsuariosPosRegistrados(idToken?: string | null): Promis
       return { ok: false, message: data.message ?? "No se pudo cargar la lista de usuarios." };
     }
 
-    const rawList =
-      data?.usuarios ??
-      data?.data ??
-      data?.items ??
-      (Array.isArray(data) ? data : []);
+    let rawList: unknown[] = [];
+    const d = data as Record<string, unknown> | null | undefined;
+    if (Array.isArray(d?.usuarios)) rawList = d.usuarios as unknown[];
+    else if (Array.isArray(d?.items)) rawList = d.items as unknown[];
+    else if (Array.isArray(d?.data)) rawList = d.data as unknown[];
+    else if (Array.isArray(data)) rawList = data as unknown[];
+
+    if (rawList.length === 0) {
+      const one =
+        d?.usuario ??
+        d?.user ??
+        d?.cajero ??
+        d?.perfil ??
+        d?.posUsuario ??
+        (d?.data && typeof d.data === "object" && !Array.isArray(d.data) ? d.data : null);
+      if (one && typeof one === "object" && !Array.isArray(one)) rawList = [one];
+    }
 
     const usuarios: UsuarioPosRegistrado[] = [];
     for (const row of rawList) {
