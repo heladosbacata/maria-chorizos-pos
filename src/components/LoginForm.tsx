@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { sendPasswordResetEmail } from "firebase/auth";
 import { useAuth } from "@/context/AuthContext";
 import { auth } from "@/lib/firebase";
+import { LOGO_ORG_URL } from "@/lib/brand";
 import { PUNTOS_DE_VENTA } from "@/lib/puntos-venta";
 
 export default function LoginForm() {
@@ -34,8 +35,8 @@ export default function LoginForm() {
     }
   };
 
-  const handleSeleccionarPunto = (punto: string) => {
-    setPuntoVentaSeleccionado(punto);
+  const handleSeleccionarPunto = async (punto: string) => {
+    await setPuntoVentaSeleccionado(punto);
     router.replace("/caja");
   };
 
@@ -77,7 +78,7 @@ export default function LoginForm() {
         <header className="border-b border-gray-100 bg-white px-6 py-4 shadow-sm">
           <div className="mx-auto flex max-w-4xl items-center justify-between">
             <Image
-              src="/images/logo-red-bg.png"
+              src={LOGO_ORG_URL}
               alt="Maria Chorizos"
               width={180}
               height={60}
@@ -128,7 +129,7 @@ export default function LoginForm() {
         <div className="relative mx-auto max-w-6xl px-6 py-12 md:py-16">
           <div className="flex flex-col items-center text-center">
             <Image
-              src="/images/logo-red-bg.png"
+              src={LOGO_ORG_URL}
               alt="Maria Chorizos"
               width={280}
               height={100}

@@ -72,6 +72,18 @@ El backend del WMS debe:
 
 En el WMS debe existir **GET /api/pos/productos/listar** con respuesta `{ ok: true, data: [...] }` o `{ ok: true, productos: [...] }`. Campos por ítem: `sku`/`skuBarcode`/`skuProductoFinal`, `descripcion`, `categoria` (opcional), `precioUnitario`, `unidad` (opcional), `urlImagen` (opcional). El contrato detallado está en el repo del WMS en **`docs/POS-CATALOGO-WMS.md`**. El WMS debe permitir CORS desde el origen del POS; no se configura CORS en el POS.
 
+## Usuarios POS y contrato (WMS → POS)
+
+El contrato del cajero vive en Firestore (por usuario), no por organización.
+
+- **Ruta WMS**: `GET /api/pos/usuarios/registrados`
+- **Base URL**: la misma que **`NEXT_PUBLIC_WMS_URL`** (desarrollo típico `http://localhost:3002`; producción el Vercel del WMS, p. ej. `https://maria-chorizos-wms.vercel.app`). Si el dominio de producción del WMS cambia, solo hay que actualizar esa variable en el POS (Vercel / `.env.local`).
+- **Auth**: `Authorization: Bearer <ID token Firebase>` del usuario que inicia sesión en el POS (mismo proyecto Firebase que valida el WMS para usuarios POS).
+- **Proxy en el POS**: `GET /api/usuarios_pos_listar` reenvía el Bearer al WMS.
+- **Respuesta OK (200)**: `{ ok: true, usuarios: [ { ... } ] }` — en la práctica suele ser **un solo** elemento (el usuario autenticado). Campos que el POS normaliza: `email`, `uid`, `puntoVenta`, `fechaInicio`, `fechaVencimiento` (ISO), `contratoNombre`, `contratoFechaInicio`, `contratoFechaVencimiento`, `referenciaContrato`, `numeroContrato` (pueden ser `null` si no están en Firestore), `diasRestantes`.
+- **Errores**: `401` sin token o token inválido; `403` si la cuenta no es usuario POS; `404` si no hay documento en `users`.
+- **CORS**: el WMS debe permitir el origen del POS (`https://maria-chorizos-pos.vercel.app`, localhost del POS, etc.); si falla, confirmar el origen exacto en el WMS.
+
 Estructura Firestore (compartida con el WMS):
 
 - `chats/{chatId}/messages` con `text`, `senderId`, `createdAt` (serverTimestamp).

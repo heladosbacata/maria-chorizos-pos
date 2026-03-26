@@ -4,14 +4,28 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import ConfiguracionMasModule from "@/components/ConfiguracionMasModule";
+import PerfilUsuarioModal from "@/components/PerfilUsuarioModal";
+import {
+  buildLineIdPos,
+  etiquetaArepaCombo,
+  etiquetaVarianteChorizo,
+  productoEsComboConArepa,
+  productoRequiereChorizoYArepa,
+  productoRequiereSoloChorizoPan,
+  productoRequiereSoloTipoArepaPeto,
+  type OpcionesVariantesLineaPos,
+  type VarianteArepaCombo,
+  type VarianteChorizo,
+} from "@/lib/chorizo-variante-pos";
 import { useAuth } from "@/context/AuthContext";
 import { auth } from "@/lib/firebase";
+import { LOGO_ORG_URL } from "@/lib/brand";
 import { getCatalogoPOS } from "@/lib/catalogo-pos";
 import { enviarReporteVenta } from "@/lib/enviar-venta";
 import type { EnvioEstado } from "@/lib/enviar-venta";
 import type { ProductoPOS } from "@/types";
-
-const FOTO_PERFIL_KEY = "pos-cajero-foto";
+import { POS_CAJERO_FOTO_STORAGE_KEY } from "@/constants/perfil-pos";
 
 function formatFechaHoy(): string {
   return new Date().toISOString().slice(0, 10);
@@ -28,8 +42,14 @@ const initialPrecuentaDatos = (): Record<string, { valorVenta: string; estado: E
 
 /** Ítem en la cuenta a cobrar (panel derecho) */
 export interface ItemCuenta {
+  /** Identificador único de línea (sku o sku|chorizo:variante) */
+  lineId: string;
   producto: ProductoPOS;
   cantidad: number;
+  /** Chorizo con pan o con arepa */
+  varianteChorizo?: VarianteChorizo;
+  /** Chorizo con arepa o combo con arepa */
+  varianteArepaCombo?: VarianteArepaCombo;
 }
 
 type ModuloActivo = "ventas" | "turnos" | "reportes" | "mas";
@@ -70,9 +90,9 @@ export default function CajaPage() {
   const [valorProductosEliminados, setValorProductosEliminados] = useState(0);
   const [fotoPerfil, setFotoPerfil] = useState<string | null>(() => {
     if (typeof window === "undefined") return null;
-    return localStorage.getItem(FOTO_PERFIL_KEY);
+    return localStorage.getItem(POS_CAJERO_FOTO_STORAGE_KEY);
   });
-  const [showModalAgradecimiento, setShowModalAgradecimiento] = useState(false);
+  const [showModalPerfilUsuario, setShowModalPerfilUsuario] = useState(false);
   const inputFotoRef = useRef<HTMLInputElement>(null);
   const [catalogoProductos, setCatalogoProductos] = useState<ProductoPOS[]>([]);
   const [catalogoLoading, setCatalogoLoading] = useState(false);
@@ -83,6 +103,10 @@ export default function CajaPage() {
   /** Id de la pre-cuenta cuyo nombre se está editando; null si no hay edición */
   const [editingPrecuentaId, setEditingPrecuentaId] = useState<string | null>(null);
   const [editingNombre, setEditingNombre] = useState("");
+  /** Modal Picante / Tradicional para chorizo con pan o arepa */
+  const [modalProductoChorizo, setModalProductoChorizo] = useState<ProductoPOS | null>(null);
+  const [varianteModalChorizo, setVarianteModalChorizo] = useState<VarianteChorizo>("tradicional");
+  const [varianteModalArepa, setVarianteModalArepa] = useState<VarianteArepaCombo>("arepa_queso");
 
   const cargarCatalogo = () => {
     if (moduloActivo !== "ventas") return;
@@ -241,19 +265,64 @@ export default function CajaPage() {
     setEditingNombre("");
   };
 
-  /** Agregar producto a la cuenta activa (clic en producto → panel derecho) */
-  const agregarProductoACuenta = (producto: ProductoPOS) => {
+  /** Clic en catálogo: chorizo + arepa, chorizo con pan, o arepa de peto (solo tipo de arepa) */
+  const onClicProductoCatalogo = (producto: ProductoPOS) => {
+    if (!turnoAbierto) return;
+    if (productoRequiereChorizoYArepa(producto)) {
+      setVarianteModalChorizo("tradicional");
+      setVarianteModalArepa("arepa_queso");
+      setModalProductoChorizo(producto);
+      return;
+    }
+    if (productoRequiereSoloChorizoPan(producto)) {
+      setVarianteModalChorizo("tradicional");
+      setModalProductoChorizo(producto);
+      return;
+    }
+    if (productoRequiereSoloTipoArepaPeto(producto)) {
+      setVarianteModalArepa("arepa_queso");
+      setModalProductoChorizo(producto);
+      return;
+    }
+    agregarProductoACuenta(producto);
+  };
+
+  /** Agregar producto a la cuenta (variantes opcionales: chorizo y/o arepa en combo) */
+  const agregarProductoACuenta = (producto: ProductoPOS, opts?: OpcionesVariantesLineaPos) => {
+    const lineId = buildLineIdPos(producto.sku, opts);
     setItemsPorPrecuenta((prev) => {
       const items = prev[activePrecuentaId] ?? [];
-      const idx = items.findIndex((i) => i.producto.sku === producto.sku);
+      const idx = items.findIndex((i) => i.lineId === lineId);
       const next = [...items];
       if (idx >= 0) {
         next[idx] = { ...next[idx]!, cantidad: next[idx]!.cantidad + 1 };
       } else {
-        next.push({ producto, cantidad: 1 });
+        next.push({
+          lineId,
+          producto,
+          cantidad: 1,
+          ...(opts?.varianteChorizo ? { varianteChorizo: opts.varianteChorizo } : {}),
+          ...(opts?.varianteArepaCombo ? { varianteArepaCombo: opts.varianteArepaCombo } : {}),
+        });
       }
       return { ...prev, [activePrecuentaId]: next };
     });
+  };
+
+  const confirmarAgregarChorizoModal = () => {
+    if (!modalProductoChorizo) return;
+    const p = modalProductoChorizo;
+    if (productoRequiereChorizoYArepa(p)) {
+      agregarProductoACuenta(p, {
+        varianteChorizo: varianteModalChorizo,
+        varianteArepaCombo: varianteModalArepa,
+      });
+    } else if (productoRequiereSoloTipoArepaPeto(p)) {
+      agregarProductoACuenta(p, { varianteArepaCombo: varianteModalArepa });
+    } else {
+      agregarProductoACuenta(p, { varianteChorizo: varianteModalChorizo });
+    }
+    setModalProductoChorizo(null);
   };
 
   const itemsCuentaActiva = itemsPorPrecuenta[activePrecuentaId] ?? [];
@@ -262,23 +331,21 @@ export default function CajaPage() {
     0
   );
 
-  const cambiarCantidad = (sku: string, delta: number) => {
+  const cambiarCantidad = (lineId: string, delta: number) => {
     setItemsPorPrecuenta((prev) => {
       const items = prev[activePrecuentaId] ?? [];
       const next = items
         .map((it) =>
-          it.producto.sku === sku
-            ? { ...it, cantidad: Math.max(0, it.cantidad + delta) }
-            : it
+          it.lineId === lineId ? { ...it, cantidad: Math.max(0, it.cantidad + delta) } : it
         )
         .filter((it) => it.cantidad > 0);
       return { ...prev, [activePrecuentaId]: next };
     });
   };
 
-  const quitarItem = (sku: string) => {
+  const quitarItem = (lineId: string) => {
     setItemsPorPrecuenta((prev) => {
-      const items = (prev[activePrecuentaId] ?? []).filter((i) => i.producto.sku !== sku);
+      const items = (prev[activePrecuentaId] ?? []).filter((i) => i.lineId !== lineId);
       return { ...prev, [activePrecuentaId]: items };
     });
   };
@@ -326,7 +393,7 @@ export default function CajaPage() {
       const dataUrl = reader.result as string;
       setFotoPerfil(dataUrl);
       try {
-        localStorage.setItem(FOTO_PERFIL_KEY, dataUrl);
+        localStorage.setItem(POS_CAJERO_FOTO_STORAGE_KEY, dataUrl);
       } catch {
         // quota or disabled
       }
@@ -335,7 +402,7 @@ export default function CajaPage() {
     e.target.value = "";
   };
 
-  const abrirModalPerfil = () => setShowModalAgradecimiento(true);
+  const abrirModalPerfil = () => setShowModalPerfilUsuario(true);
 
   if (loading) {
     return (
@@ -373,7 +440,7 @@ export default function CajaPage() {
       <aside className="fixed left-0 top-0 z-10 flex w-52 flex-col border-r border-gray-200 bg-white shadow-sm">
         <div className="flex flex-col items-center gap-1 border-b border-gray-100 bg-white px-3 py-4">
           <Image
-            src="/images/logo-red-bg.png"
+            src={LOGO_ORG_URL}
             alt="Maria Chorizos"
             width={140}
             height={50}
@@ -483,7 +550,7 @@ export default function CajaPage() {
               type="button"
               onClick={abrirModalPerfil}
               className="group relative flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-gray-200 bg-gray-100 ring-2 ring-white shadow-md transition-all hover:border-brand-yellow hover:ring-brand-yellow/30 focus:outline-none focus:ring-2 focus:ring-brand-yellow"
-              title="Ver mensaje de agradecimiento"
+              title="Perfil del usuario"
             >
               {fotoPerfil ? (
                 <img
@@ -524,51 +591,15 @@ export default function CajaPage() {
         </div>
       </aside>
 
-      {/* Modal de agradecimiento */}
-      {showModalAgradecimiento && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="modal-agradecimiento-title"
-        >
-          <div
-            className="absolute inset-0 bg-black/50"
-            onClick={() => setShowModalAgradecimiento(false)}
-            aria-hidden="true"
-          />
-          <div className="relative max-w-md rounded-2xl border border-gray-200 bg-white p-8 shadow-2xl">
-            <div className="mb-6 flex justify-center">
-              <span className="flex h-20 w-20 overflow-hidden rounded-full border-2 border-primary-200 bg-primary-50 shadow-inner">
-                {fotoPerfil ? (
-                  <img
-                    src={fotoPerfil}
-                    alt="Foto del cajero"
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <span className="flex h-full w-full items-center justify-center text-2xl font-bold text-primary-600">
-                    {inicialesCajero}
-                  </span>
-                )}
-              </span>
-            </div>
-            <h2 id="modal-agradecimiento-title" className="mb-2 text-center text-xl font-bold text-gray-900">
-              Gracias por tu labor
-            </h2>
-            <p className="mb-6 text-center text-gray-600">
-              En Maria Chorizos conocemos tu amor por lo que haces.
-            </p>
-            <button
-              type="button"
-              onClick={() => setShowModalAgradecimiento(false)}
-              className="w-full rounded-xl bg-brand-yellow py-3 font-semibold text-gray-900 transition-all hover:opacity-90"
-            >
-              Cerrar
-            </button>
-          </div>
-        </div>
-      )}
+      <PerfilUsuarioModal
+        open={showModalPerfilUsuario}
+        onClose={() => setShowModalPerfilUsuario(false)}
+        uidSesion={user.uid}
+        emailSesion={user.email}
+        puntoVenta={user.puntoVenta}
+        fotoPreview={fotoPerfil}
+        onFotoChange={setFotoPerfil}
+      />
 
       {/* Modal Abrir turno */}
       {showModalAbrirTurno && (
@@ -660,6 +691,111 @@ export default function CajaPage() {
                 className="flex-1 rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
               >
                 Abrir turno
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal variantes: chorizo, chorizo + arepa, o solo arepa de peto */}
+      {modalProductoChorizo && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="modal-chorizo-title"
+        >
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setModalProductoChorizo(null)}
+            aria-hidden="true"
+          />
+          <div className="relative max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
+            <h2 id="modal-chorizo-title" className="text-lg font-semibold text-gray-900">
+              {productoRequiereSoloTipoArepaPeto(modalProductoChorizo)
+                ? "¿Cómo la deseas?"
+                : productoRequiereChorizoYArepa(modalProductoChorizo)
+                  ? productoEsComboConArepa(modalProductoChorizo)
+                    ? "Arma tu combo con arepa"
+                    : "Chorizo con arepa"
+                  : "¿Cómo lo deseas?"}
+            </h2>
+            <p className="mt-1 text-sm text-gray-600 line-clamp-2">{modalProductoChorizo.descripcion}</p>
+            {!productoRequiereSoloTipoArepaPeto(modalProductoChorizo) && (
+              <fieldset className="mt-5 space-y-3">
+                <legend className="mb-2 block text-sm font-semibold text-gray-800">
+                  Chorizo
+                </legend>
+                <label className="flex cursor-pointer items-center gap-3 rounded-lg border-2 border-gray-200 px-4 py-3 has-[:checked]:border-primary-500 has-[:checked]:bg-primary-50">
+                  <input
+                    type="radio"
+                    name="variante-chorizo"
+                    checked={varianteModalChorizo === "tradicional"}
+                    onChange={() => setVarianteModalChorizo("tradicional")}
+                    className="h-4 w-4 text-primary-600"
+                  />
+                  <span className="text-sm font-medium text-gray-900">Tradicional</span>
+                </label>
+                <label className="flex cursor-pointer items-center gap-3 rounded-lg border-2 border-gray-200 px-4 py-3 has-[:checked]:border-primary-500 has-[:checked]:bg-primary-50">
+                  <input
+                    type="radio"
+                    name="variante-chorizo"
+                    checked={varianteModalChorizo === "picante"}
+                    onChange={() => setVarianteModalChorizo("picante")}
+                    className="h-4 w-4 text-primary-600"
+                  />
+                  <span className="text-sm font-medium text-gray-900">Picante</span>
+                </label>
+              </fieldset>
+            )}
+            {(productoRequiereChorizoYArepa(modalProductoChorizo) ||
+              productoRequiereSoloTipoArepaPeto(modalProductoChorizo)) && (
+              <fieldset
+                className={`space-y-3 ${
+                  productoRequiereSoloTipoArepaPeto(modalProductoChorizo)
+                    ? "mt-5"
+                    : "mt-6 border-t border-gray-100 pt-5"
+                }`}
+              >
+                <legend className="mb-2 block text-sm font-semibold text-gray-800">
+                  Arepa
+                </legend>
+                <label className="flex cursor-pointer items-center gap-3 rounded-lg border-2 border-gray-200 px-4 py-3 has-[:checked]:border-primary-500 has-[:checked]:bg-primary-50">
+                  <input
+                    type="radio"
+                    name="variante-arepa-combo"
+                    checked={varianteModalArepa === "arepa_queso"}
+                    onChange={() => setVarianteModalArepa("arepa_queso")}
+                    className="h-4 w-4 text-primary-600"
+                  />
+                  <span className="text-sm font-medium text-gray-900">{etiquetaArepaCombo("arepa_queso")}</span>
+                </label>
+                <label className="flex cursor-pointer items-center gap-3 rounded-lg border-2 border-gray-200 px-4 py-3 has-[:checked]:border-primary-500 has-[:checked]:bg-primary-50">
+                  <input
+                    type="radio"
+                    name="variante-arepa-combo"
+                    checked={varianteModalArepa === "queso_bocadillo"}
+                    onChange={() => setVarianteModalArepa("queso_bocadillo")}
+                    className="h-4 w-4 text-primary-600"
+                  />
+                  <span className="text-sm font-medium text-gray-900">{etiquetaArepaCombo("queso_bocadillo")}</span>
+                </label>
+              </fieldset>
+            )}
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setModalProductoChorizo(null)}
+                className="flex-1 rounded-lg border border-gray-300 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmarAgregarChorizoModal}
+                className="flex-1 rounded-lg bg-primary-600 py-2.5 text-sm font-semibold text-white hover:bg-primary-700"
+              >
+                Agregar a la cuenta
               </button>
             </div>
           </div>
@@ -996,15 +1132,19 @@ export default function CajaPage() {
                   </div>
                 )}
                 {!catalogoLoading && !catalogoError && (
-                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4">
                     {catalogosFiltrados.map((p) => {
-                      const enCuenta = itemsCuentaActiva.find((i) => i.producto.sku === p.sku);
-                      const qty = enCuenta?.cantidad ?? 0;
+                      const chorizoConArepa = productoRequiereChorizoYArepa(p);
+                      const soloChorizoPan = productoRequiereSoloChorizoPan(p);
+                      const soloArepaPetoTipo = productoRequiereSoloTipoArepaPeto(p);
+                      const qty = itemsCuentaActiva
+                        .filter((i) => i.producto.sku === p.sku)
+                        .reduce((s, i) => s + i.cantidad, 0);
                       return (
                         <button
                           key={p.sku}
                           type="button"
-                          onClick={() => turnoAbierto && agregarProductoACuenta(p)}
+                          onClick={() => onClicProductoCatalogo(p)}
                           disabled={!turnoAbierto}
                           className="flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-gray-50/50 text-left transition-shadow hover:border-primary-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary-400 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:shadow-none"
                         >
@@ -1038,6 +1178,21 @@ export default function CajaPage() {
                               ${Number(p.precioUnitario).toLocaleString("es-CO")}
                               {p.unidad ? ` / ${p.unidad}` : ""}
                             </p>
+                            {chorizoConArepa && (
+                              <p className="mt-1.5 text-xs font-medium text-amber-800">
+                                Chorizo + tipo de arepa
+                              </p>
+                            )}
+                            {soloChorizoPan && (
+                              <p className="mt-1.5 text-xs font-medium text-amber-800">
+                                Picante o Tradicional
+                              </p>
+                            )}
+                            {soloArepaPetoTipo && (
+                              <p className="mt-1.5 text-xs font-medium text-amber-800">
+                                Queso o queso y bocadillo
+                              </p>
+                            )}
                           </div>
                         </button>
                       );
@@ -1098,6 +1253,8 @@ export default function CajaPage() {
                 )}
               </div>
             </div>
+          ) : moduloActivo === "mas" ? (
+            <ConfiguracionMasModule />
           ) : (
             <div className="rounded-xl border border-gray-200 bg-white p-8 shadow-sm">
               <p className="text-center text-gray-500">
@@ -1108,8 +1265,12 @@ export default function CajaPage() {
         </div>
       </main>
 
-      {/* Sidebar derecho — Cuenta a cobrar (estilo Siigo POS) */}
-      <aside className="hidden w-80 flex-shrink-0 flex-col border-l border-gray-200 bg-white lg:flex">
+      {/* Sidebar derecho — Cuenta a cobrar (solo en Ventas) */}
+      <aside
+        className={`hidden w-80 flex-shrink-0 flex-col border-l border-gray-200 bg-white ${
+          moduloActivo === "ventas" ? "lg:flex" : ""
+        }`}
+      >
         <div className="border-b border-gray-100 px-4 py-3">
           <h2 className="text-base font-semibold text-gray-900">Cuenta a cobrar</h2>
           <p className="mt-0.5 text-xs text-gray-500">
@@ -1145,19 +1306,29 @@ export default function CajaPage() {
                 const subtotal = it.producto.precioUnitario * it.cantidad;
                 return (
                   <li
-                    key={it.producto.sku}
+                    key={it.lineId}
                     className="rounded-lg border border-gray-100 bg-gray-50/80 p-3"
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-medium text-gray-900">{it.producto.descripcion}</p>
+                        {it.varianteChorizo && (
+                          <p className="mt-0.5 text-xs font-semibold text-primary-700">
+                            Chorizo: {etiquetaVarianteChorizo(it.varianteChorizo)}
+                          </p>
+                        )}
+                        {it.varianteArepaCombo && (
+                          <p className="mt-0.5 text-xs font-semibold text-primary-700">
+                            Arepa: {etiquetaArepaCombo(it.varianteArepaCombo)}
+                          </p>
+                        )}
                         <p className="mt-0.5 text-xs text-gray-500">
                           Cod. {it.producto.sku} · Precio: $ {Number(it.producto.precioUnitario).toLocaleString("es-CO")}
                         </p>
                       </div>
                       <button
                         type="button"
-                        onClick={() => quitarItem(it.producto.sku)}
+                        onClick={() => quitarItem(it.lineId)}
                         className="flex-shrink-0 rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
                         aria-label="Quitar ítem"
                       >
@@ -1170,7 +1341,7 @@ export default function CajaPage() {
                       <div className="flex items-center gap-1 rounded border border-gray-200 bg-white">
                         <button
                           type="button"
-                          onClick={() => cambiarCantidad(it.producto.sku, -1)}
+                          onClick={() => cambiarCantidad(it.lineId, -1)}
                           className="flex h-8 w-8 items-center justify-center text-gray-600 hover:bg-gray-100"
                           aria-label="Menos"
                         >
@@ -1183,7 +1354,7 @@ export default function CajaPage() {
                         </span>
                         <button
                           type="button"
-                          onClick={() => cambiarCantidad(it.producto.sku, 1)}
+                          onClick={() => cambiarCantidad(it.lineId, 1)}
                           className="flex h-8 w-8 items-center justify-center text-gray-600 hover:bg-gray-100"
                           aria-label="Más"
                         >

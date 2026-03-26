@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
+import { LOGO_ORG_URL } from "@/lib/brand";
 
 const jakarta = Plus_Jakarta_Sans({ subsets: ["latin"] });
 
@@ -9,8 +10,8 @@ export const metadata: Metadata = {
   title: "Maria Chorizos - Punto de Venta",
   description: "Punto de venta para reporte de ventas diarias",
   icons: {
-    icon: "/images/logo-red-bg.png",
-    apple: "/images/logo-red-bg.png",
+    icon: LOGO_ORG_URL,
+    apple: LOGO_ORG_URL,
   },
 };
 

@@ -9,6 +9,7 @@ import {
 } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
+import { persistPuntoVentaUsuario } from "@/lib/pos-user-firestore";
 
 export interface AuthUser {
   uid: string;
@@ -22,7 +23,7 @@ interface AuthContextType {
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
-  setPuntoVentaSeleccionado: (punto: string) => void;
+  setPuntoVentaSeleccionado: (punto: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -113,11 +114,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setPuntoVentaManual(null);
   };
 
-  const setPuntoVentaSeleccionado = (punto: string) => {
+  const setPuntoVentaSeleccionado = async (punto: string) => {
     setPuntoVentaManual(punto);
     setAuthUser((prev) =>
       prev ? { ...prev, puntoVenta: punto, necesitaSeleccionarPunto: false } : null
     );
+    const u = auth?.currentUser;
+    if (u) {
+      const r = await persistPuntoVentaUsuario({
+        uid: u.uid,
+        email: u.email,
+        puntoVenta: punto,
+      });
+      if (!r.ok) {
+        console.warn("[POS] No se guardó puntoVenta en Firestore:", r.message);
+      }
+    }
   };
 
   const value: AuthContextType = {

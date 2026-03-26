@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { auth } from "@/lib/firebase";
+import { LOGO_ORG_URL } from "@/lib/brand";
 import { getChatUsuarios } from "@/lib/chat-api";
 import {
   getDmChatId,
@@ -129,7 +130,7 @@ export default function ChatPage() {
       <aside className="fixed left-0 top-12 z-10 flex w-52 flex-col border-r border-gray-200 bg-white shadow-sm">
         <div className="flex flex-col items-center gap-1 border-b border-gray-100 px-3 py-4">
           <Image
-            src="/images/logo-red-bg.png"
+            src={LOGO_ORG_URL}
             alt="Maria Chorizos"
             width={100}
             height={36}
