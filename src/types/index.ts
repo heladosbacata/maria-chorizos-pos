@@ -4,9 +4,22 @@ export interface UserProfile {
   puntoVenta?: string;
 }
 
+/** Comprobante asociado a la venta (POS). */
+export type TipoComprobanteVenta = "documento_interno" | "factura_electronica";
+
 export interface VentaReporte {
   puntoVenta: string;
   valorVenta: number;
+  /** Documento en `posCajerosTurno` o `__sesion_pos__` si no hay ficha de turno */
+  cajeroTurnoId?: string;
+  cajeroNombre?: string;
+  cajeroDocumento?: string;
+  tipoComprobante?: TipoComprobanteVenta;
+  /** Id Firestore `posClientes` o sentinela consumidor final */
+  clienteId?: string;
+  clienteNombre?: string;
+  clienteTipoIdentificacion?: string;
+  clienteNumeroIdentificacion?: string;
 }
 
 export interface BulkVentasPayload {

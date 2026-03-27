@@ -25,6 +25,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const response = await fetch(url, { headers });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
+        if (response.status === 404) {
+          return res.status(200).json({
+            ok: true,
+            cupoMax: 1,
+            usados: 0,
+            invitaciones: [],
+            message: "WMS sin ruta de contador; el POS usará invitaciones por Firebase.",
+          });
+        }
         return res.status(response.status).json({
           ok: false,
           message: data?.message || data?.error || `Error ${response.status}`,
@@ -60,6 +69,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
+        if (response.status === 404) {
+          return res.status(200).json({
+            ok: false,
+            message: "FIREBASE_INVITE",
+            usarFirebase: true,
+          });
+        }
         return res.status(response.status).json({
           ok: false,
           message: data?.message || data?.error || `Error ${response.status}`,

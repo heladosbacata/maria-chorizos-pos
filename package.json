@@ -4,13 +4,19 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:3004": "next dev -p 3004",
+    "dev:clean": "node -e \"try{require('fs').rmSync('.next',{recursive:true,force:true})}catch(e){}\" && next dev",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
   },
   "dependencies": {
     "firebase": "^10.7.1",
+    "firebase-admin": "^12.7.0",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.7",
     "next": "14.2.15",
+    "qz-tray": "^2.2.5",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },

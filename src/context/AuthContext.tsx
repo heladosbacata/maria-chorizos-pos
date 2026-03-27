@@ -9,12 +9,15 @@ import {
 } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
+import { POS_CONTADOR_ROLE } from "@/lib/auth-roles";
 import { persistPuntoVentaUsuario } from "@/lib/pos-user-firestore";
 
 export interface AuthUser {
   uid: string;
   email: string | null;
   puntoVenta: string | null;
+  /** Firestore `users/{uid}.role` — p. ej. `pos`, `pos_contador`. */
+  role: string | null;
   necesitaSeleccionarPunto: boolean;
 }
 
@@ -54,6 +57,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             uid: user.uid,
             email: user.email ?? null,
             puntoVenta: null,
+            role: null,
             necesitaSeleccionarPunto: true,
           });
           setLoading(false);
@@ -62,12 +66,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const userDoc = await getDoc(doc(db, "users", user.uid));
         const data = userDoc.data();
         const puntoVentaFirestore = data?.puntoVenta as string | undefined;
+        const roleFirestore = (data?.role as string | undefined) ?? null;
 
         if (puntoVentaFirestore) {
           setAuthUser({
             uid: user.uid,
             email: user.email ?? null,
             puntoVenta: puntoVentaFirestore,
+            role: roleFirestore,
             necesitaSeleccionarPunto: false,
           });
           setPuntoVentaManual(null);
@@ -76,6 +82,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             uid: user.uid,
             email: user.email ?? null,
             puntoVenta: puntoVentaManual ?? null,
+            role: roleFirestore,
             necesitaSeleccionarPunto: true,
           });
         }
@@ -84,6 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           uid: user.uid,
           email: user.email ?? null,
           puntoVenta: puntoVentaManual ?? null,
+          role: null,
           necesitaSeleccionarPunto: true,
         });
       }
@@ -95,14 +103,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!firebaseUser || !authUser) return;
-    if (authUser.necesitaSeleccionarPunto && puntoVentaManual) {
+    if (authUser.necesitaSeleccionarPunto && puntoVentaManual && authUser.role !== POS_CONTADOR_ROLE) {
       setAuthUser((prev) =>
         prev
           ? { ...prev, puntoVenta: puntoVentaManual, necesitaSeleccionarPunto: false }
           : null
       );
     }
-  }, [puntoVentaManual, firebaseUser, authUser?.necesitaSeleccionarPunto]);
+  }, [puntoVentaManual, firebaseUser, authUser?.necesitaSeleccionarPunto, authUser?.role]);
 
   const signIn = async (email: string, password: string) => {
     if (!auth) throw new Error("Firebase no está inicializado");
@@ -115,9 +123,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const setPuntoVentaSeleccionado = async (punto: string) => {
+    if (authUser?.role === POS_CONTADOR_ROLE) {
+      return;
+    }
+
     setPuntoVentaManual(punto);
     setAuthUser((prev) =>
-      prev ? { ...prev, puntoVenta: punto, necesitaSeleccionarPunto: false } : null
+      prev && prev.role !== POS_CONTADOR_ROLE
+        ? { ...prev, puntoVenta: punto, necesitaSeleccionarPunto: false }
+        : prev
     );
     const u = auth?.currentUser;
     if (u) {

@@ -4,8 +4,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import CajeroReportesDashboard from "@/components/CajeroReportesDashboard";
+import CargueInventarioManualPanel from "@/components/CargueInventarioManualPanel";
 import ConfiguracionMasModule from "@/components/ConfiguracionMasModule";
+import CrearClientePosModal from "@/components/CrearClientePosModal";
+import InventarioPosModule from "@/components/InventarioPosModule";
 import PerfilUsuarioModal from "@/components/PerfilUsuarioModal";
+import SeleccionClienteVenta from "@/components/SeleccionClienteVenta";
 import {
   buildLineIdPos,
   etiquetaArepaCombo,
@@ -19,12 +24,26 @@ import {
   type VarianteChorizo,
 } from "@/lib/chorizo-variante-pos";
 import { useAuth } from "@/context/AuthContext";
+import { esContadorInvitado } from "@/lib/auth-roles";
 import { auth } from "@/lib/firebase";
 import { LOGO_ORG_URL } from "@/lib/brand";
+import {
+  CAJERO_TURNO_ID_SESION,
+  listarCajerosTurnoActivos,
+  nombreDisplayCajeroTurno,
+  type CajeroTurnoDoc,
+} from "@/lib/cajeros-turno-firestore";
+import { listarClientesPorPuntoVenta, nombreDisplayCliente } from "@/lib/clientes-pos-firestore";
+import { loadImpresionPrefs } from "@/lib/impresion-pos-storage";
+import { imprimirTicketConQz, imprimirTicketEnNavegador } from "@/lib/pos-geb-print";
 import { getCatalogoPOS } from "@/lib/catalogo-pos";
+import { appendVentaLocal } from "@/lib/pos-ventas-local-storage";
 import { enviarReporteVenta } from "@/lib/enviar-venta";
 import type { EnvioEstado } from "@/lib/enviar-venta";
-import type { ProductoPOS } from "@/types";
+import type { TicketVentaLinea, TicketVentaPayload } from "@/types/impresion-pos";
+import type { ClientePosFirestoreDoc } from "@/types/clientes-pos";
+import { CONSUMIDOR_FINAL_ID, type ClienteVentaRef } from "@/types/clientes-pos";
+import type { ProductoPOS, TipoComprobanteVenta, VentaReporte } from "@/types";
 import { POS_CAJERO_FOTO_STORAGE_KEY } from "@/constants/perfil-pos";
 
 function formatFechaHoy(): string {
@@ -52,14 +71,20 @@ export interface ItemCuenta {
   varianteArepaCombo?: VarianteArepaCombo;
 }
 
-type ModuloActivo = "ventas" | "turnos" | "reportes" | "mas";
+type ModuloActivo = "ventas" | "turnos" | "cargueInventario" | "inventarios" | "reportes" | "mas";
 
-/** Tipo de comprobante para la cuenta a cobrar */
-type TipoComprobante = "documento_interno" | "factura_electronica";
+type TipoComprobante = TipoComprobanteVenta;
 
 export default function CajaPage() {
   const { user, signOut, loading } = useAuth();
   const router = useRouter();
+
+  useEffect(() => {
+    if (!loading && !user) {
+      router.replace("/");
+    }
+  }, [loading, user, router]);
+
   const [moduloActivo, setModuloActivo] = useState<ModuloActivo>("ventas");
   const [precuentas, setPrecuentas] = useState<PrecuentaTab[]>([
     { id: "1", nombre: "Nueva pre-cuenta" },
@@ -68,7 +93,8 @@ export default function CajaPage() {
   const [precuentaDatos, setPrecuentaDatos] = useState(initialPrecuentaDatos);
   /** Ítems de la cuenta a cobrar por pre-cuenta (panel derecho) */
   const [itemsPorPrecuenta, setItemsPorPrecuenta] = useState<Record<string, ItemCuenta[]>>({ "1": [] });
-  const [turnoAbierto, setTurnoAbierto] = useState(true);
+  /** El turno inicia cerrado: al abrirlo se elige el cajero operativo. */
+  const [turnoAbierto, setTurnoAbierto] = useState(false);
   const [turnoInicio, setTurnoInicio] = useState<Date>(() => new Date());
   const [showModalCierreTurno, setShowModalCierreTurno] = useState(false);
   const [detalleVentasExpandido, setDetalleVentasExpandido] = useState(true);
@@ -80,6 +106,16 @@ export default function CajaPage() {
   const [baseInicialCaja, setBaseInicialCaja] = useState(0);
   const [showModalAbrirTurno, setShowModalAbrirTurno] = useState(false);
   const [baseInicialCajaInput, setBaseInicialCajaInput] = useState("");
+  const [cajerosModalTurno, setCajerosModalTurno] = useState<CajeroTurnoDoc[]>([]);
+  const [cargandoCajerosTurnoModal, setCargandoCajerosTurnoModal] = useState(false);
+  const [cajeroIdSeleccionAbrirTurno, setCajeroIdSeleccionAbrirTurno] = useState<string>(CAJERO_TURNO_ID_SESION);
+  const [errorModalAbrirTurno, setErrorModalAbrirTurno] = useState<string | null>(null);
+  /** Cajero que opera el turno actual (ventas / reportes al WMS). */
+  const [cajeroTurnoActivo, setCajeroTurnoActivo] = useState<{
+    id: string;
+    nombreDisplay: string;
+    documento: string;
+  } | null>(null);
   const [totalVentasEnTurno, setTotalVentasEnTurno] = useState(0);
   const [totalIngresoEfectivo, setTotalIngresoEfectivo] = useState(0);
   const [totalRetiroEfectivo, setTotalRetiroEfectivo] = useState(0);
@@ -98,8 +134,14 @@ export default function CajaPage() {
   const [catalogoLoading, setCatalogoLoading] = useState(false);
   const [catalogoError, setCatalogoError] = useState<string | null>(null);
   const [busquedaCatalogo, setBusquedaCatalogo] = useState("");
-  /** Tipo de comprobante: Documento interno (predeterminado) o Factura electrónica */
+  /** Tipo de comprobante: Doc. interno (predeterminado) o Factura electrónica */
   const [tipoComprobante, setTipoComprobante] = useState<TipoComprobante>("documento_interno");
+  const [clientePorPrecuenta, setClientePorPrecuenta] = useState<Record<string, ClienteVentaRef>>(() => ({
+    "1": { id: CONSUMIDOR_FINAL_ID, nombreDisplay: "Consumidor final" },
+  }));
+  const [clientesPosLista, setClientesPosLista] = useState<ClientePosFirestoreDoc[]>([]);
+  const [showModalCrearCliente, setShowModalCrearCliente] = useState(false);
+  const [cobrando, setCobrando] = useState(false);
   /** Id de la pre-cuenta cuyo nombre se está editando; null si no hay edición */
   const [editingPrecuentaId, setEditingPrecuentaId] = useState<string | null>(null);
   const [editingNombre, setEditingNombre] = useState("");
@@ -108,7 +150,14 @@ export default function CajaPage() {
   const [varianteModalChorizo, setVarianteModalChorizo] = useState<VarianteChorizo>("tradicional");
   const [varianteModalArepa, setVarianteModalArepa] = useState<VarianteArepaCombo>("arepa_queso");
 
+  useEffect(() => {
+    if (user && esContadorInvitado(user.role)) {
+      setModuloActivo("reportes");
+    }
+  }, [user?.uid, user?.role]);
+
   const cargarCatalogo = () => {
+    if (user && esContadorInvitado(user.role)) return;
     if (moduloActivo !== "ventas") return;
     setCatalogoLoading(true);
     setCatalogoError(null);
@@ -124,6 +173,7 @@ export default function CajaPage() {
   };
 
   useEffect(() => {
+    if (user && esContadorInvitado(user.role)) return;
     if (moduloActivo !== "ventas") return;
     let cancelled = false;
     setCatalogoLoading(true);
@@ -145,7 +195,36 @@ export default function CajaPage() {
     return () => {
       cancelled = true;
     };
-  }, [moduloActivo]);
+  }, [moduloActivo, user?.role, user]);
+
+  useEffect(() => {
+    if (!user?.puntoVenta?.trim() || esContadorInvitado(user.role)) return;
+    if (moduloActivo !== "ventas") return;
+    let cancelled = false;
+    void listarClientesPorPuntoVenta(user.puntoVenta.trim()).then((rows) => {
+      if (!cancelled) setClientesPosLista(rows);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [moduloActivo, user?.puntoVenta, user?.role]);
+
+  useEffect(() => {
+    if (!showModalAbrirTurno || !user?.puntoVenta?.trim()) return;
+    let cancelled = false;
+    setCargandoCajerosTurnoModal(true);
+    setErrorModalAbrirTurno(null);
+    void listarCajerosTurnoActivos(user.puntoVenta).then((rows) => {
+      if (cancelled) return;
+      setCajerosModalTurno(rows);
+      /** Por defecto: turno como franquiciado (quien suele apoyar en caja con la misma cuenta). */
+      setCajeroIdSeleccionAbrirTurno(CAJERO_TURNO_ID_SESION);
+      setCargandoCajerosTurnoModal(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [showModalAbrirTurno, user?.puntoVenta]);
 
   const catalogosFiltrados = useMemo(() => {
     const q = busquedaCatalogo.trim().toLowerCase();
@@ -164,7 +243,22 @@ export default function CajaPage() {
     mensaje: "",
   };
 
+  const clienteActivoPrecuenta: ClienteVentaRef = clientePorPrecuenta[activePrecuentaId] ?? {
+    id: CONSUMIDOR_FINAL_ID,
+    nombreDisplay: "Consumidor final",
+  };
+
+  const vendedorEtiqueta = useMemo(() => {
+    if (cajeroTurnoActivo?.nombreDisplay?.trim()) {
+      const s = cajeroTurnoActivo.nombreDisplay.trim();
+      return s.length > 32 ? `${s.slice(0, 29)}…` : s;
+    }
+    const mail = user?.email?.split("@")[0]?.trim();
+    return mail && mail.length > 0 ? mail : "—";
+  }, [cajeroTurnoActivo?.nombreDisplay, user?.email]);
+
   const handleEnviar = async () => {
+    if (user && esContadorInvitado(user.role)) return;
     const valorVentaStr = activeDatos.valorVenta;
     const valor = parseFloat(valorVentaStr.replace(/,/g, "."));
     if (isNaN(valor) || valor < 0) {
@@ -188,10 +282,32 @@ export default function CajaPage() {
       [activePrecuentaId]: { ...prev[activePrecuentaId], estado: "enviando", mensaje: "" },
     }));
 
+    const ct = cajeroTurnoActivo;
+    const cr = clienteActivoPrecuenta;
+    const filaVenta: VentaReporte = {
+      puntoVenta: user.puntoVenta,
+      valorVenta: valor,
+      tipoComprobante,
+      ...(ct
+        ? {
+            cajeroTurnoId: ct.id,
+            cajeroNombre: ct.nombreDisplay,
+            ...(ct.documento ? { cajeroDocumento: ct.documento } : {}),
+          }
+        : {}),
+    };
+    if (cr.id === CONSUMIDOR_FINAL_ID) {
+      filaVenta.clienteNombre = "Consumidor final";
+    } else {
+      filaVenta.clienteId = cr.id;
+      filaVenta.clienteNombre = cr.nombreDisplay;
+      if (cr.tipoIdentificacion?.trim()) filaVenta.clienteTipoIdentificacion = cr.tipoIdentificacion.trim();
+      if (cr.numeroIdentificacion?.trim()) filaVenta.clienteNumeroIdentificacion = cr.numeroIdentificacion.trim();
+    }
     const resultado = await enviarReporteVenta({
       fecha: formatFechaHoy(),
       uen: "Maria Chorizos",
-      ventas: [{ puntoVenta: user.puntoVenta, valorVenta: valor }],
+      ventas: [filaVenta],
     });
 
     setPrecuentaDatos((prev) => ({
@@ -216,6 +332,10 @@ export default function CajaPage() {
       [id]: { valorVenta: "", estado: "idle", mensaje: "" },
     }));
     setItemsPorPrecuenta((prev) => ({ ...prev, [id]: [] }));
+    setClientePorPrecuenta((prev) => ({
+      ...prev,
+      [id]: { id: CONSUMIDOR_FINAL_ID, nombreDisplay: "Consumidor final" },
+    }));
     setActivePrecuentaId(id);
   };
 
@@ -236,6 +356,11 @@ export default function CajaPage() {
       const nextData = { ...prev };
       delete nextData[id];
       return nextData;
+    });
+    setClientePorPrecuenta((prev) => {
+      const nextC = { ...prev };
+      delete nextC[id];
+      return nextC;
     });
     setItemsPorPrecuenta((prev) => {
       const nextData = { ...prev };
@@ -354,7 +479,162 @@ export default function CajaPage() {
     setItemsPorPrecuenta((prev) => ({ ...prev, [activePrecuentaId]: [] }));
   };
 
+  const handleCobrar = async () => {
+    if (!user || esContadorInvitado(user.role)) return;
+    if (!turnoAbierto || itemsCuentaActiva.length === 0) return;
+    const pv = user.puntoVenta?.trim();
+    if (!pv) {
+      window.alert("No hay punto de venta asignado.");
+      return;
+    }
+
+    const itemsSnap = [...itemsCuentaActiva];
+    const total = itemsSnap.reduce((s, i) => s + i.producto.precioUnitario * i.cantidad, 0);
+    if (!(total > 0)) return;
+
+    const etiquetaComprobanteTicket = (t: TipoComprobante) =>
+      t === "documento_interno" ? "Doc. interno" : "Factura electrónica de venta";
+
+    setCobrando(true);
+    try {
+      const ct = cajeroTurnoActivo;
+      const cr = clienteActivoPrecuenta;
+      const filaVenta: VentaReporte = {
+        puntoVenta: pv,
+        valorVenta: total,
+        tipoComprobante,
+        ...(ct
+          ? {
+              cajeroTurnoId: ct.id,
+              cajeroNombre: ct.nombreDisplay,
+              ...(ct.documento ? { cajeroDocumento: ct.documento } : {}),
+            }
+          : {}),
+      };
+      if (cr.id === CONSUMIDOR_FINAL_ID) {
+        filaVenta.clienteNombre = "Consumidor final";
+      } else {
+        filaVenta.clienteId = cr.id;
+        filaVenta.clienteNombre = cr.nombreDisplay;
+        if (cr.tipoIdentificacion?.trim()) filaVenta.clienteTipoIdentificacion = cr.tipoIdentificacion.trim();
+        if (cr.numeroIdentificacion?.trim()) filaVenta.clienteNumeroIdentificacion = cr.numeroIdentificacion.trim();
+      }
+
+      const resultado = await enviarReporteVenta({
+        fecha: formatFechaHoy(),
+        uen: "Maria Chorizos",
+        ventas: [filaVenta],
+      });
+
+      if (resultado.estado !== "exito") {
+        window.alert(resultado.mensaje ?? "No se pudo registrar la venta.");
+        return;
+      }
+
+      setTotalVentasEnTurno((prev) => prev + total);
+
+      const lineasTicket: TicketVentaLinea[] = itemsSnap.map((it) => {
+        const varianteParts: string[] = [];
+        if (it.varianteChorizo) varianteParts.push(etiquetaVarianteChorizo(it.varianteChorizo));
+        if (it.varianteArepaCombo) varianteParts.push(etiquetaArepaCombo(it.varianteArepaCombo));
+        const sub = it.producto.precioUnitario * it.cantidad;
+        return {
+          descripcion: it.producto.descripcion,
+          cantidad: it.cantidad,
+          precioUnitario: it.producto.precioUnitario,
+          subtotal: sub,
+          detalleVariante: varianteParts.length ? varianteParts.join(" · ") : undefined,
+        };
+      });
+
+      appendVentaLocal({
+        fechaYmd: formatFechaHoy(),
+        puntoVenta: pv,
+        total,
+        lineas: itemsSnap.map((it) => {
+          const varianteParts: string[] = [];
+          if (it.varianteChorizo) varianteParts.push(etiquetaVarianteChorizo(it.varianteChorizo));
+          if (it.varianteArepaCombo) varianteParts.push(etiquetaArepaCombo(it.varianteArepaCombo));
+          return {
+            lineId: it.lineId,
+            sku: it.producto.sku,
+            descripcion: it.producto.descripcion,
+            cantidad: it.cantidad,
+            precioUnitario: it.producto.precioUnitario,
+            detalleVariante: varianteParts.length ? varianteParts.join(" · ") : undefined,
+          };
+        }),
+        ...(ct
+          ? {
+              cajeroTurnoId: ct.id,
+              cajeroNombre: ct.nombreDisplay,
+            }
+          : {}),
+      });
+
+      const nombrePrecuenta = precuentas.find((p) => p.id === activePrecuentaId)?.nombre ?? "Cuenta";
+      const vendedorTicket =
+        cajeroTurnoActivo?.nombreDisplay?.trim() || user.email?.split("@")[0]?.trim() || "—";
+
+      const ticket: TicketVentaPayload = {
+        titulo: "TICKET DE VENTA",
+        puntoVenta: pv,
+        precuentaNombre: nombrePrecuenta,
+        fechaHora: new Date().toLocaleString("es-CO"),
+        clienteNombre: clienteActivoPrecuenta.nombreDisplay,
+        tipoComprobanteLabel: etiquetaComprobanteTicket(tipoComprobante),
+        vendedorLabel: vendedorTicket,
+        lineas: lineasTicket,
+        total,
+      };
+
+      const prefs = loadImpresionPrefs();
+      if (prefs.imprimirAutomaticoAlCobrar) {
+        try {
+          if (prefs.metodo === "directa") {
+            await imprimirTicketConQz(prefs, ticket);
+          } else {
+            imprimirTicketEnNavegador(ticket);
+          }
+        } catch (printErr) {
+          console.error(printErr);
+          window.alert(
+            printErr instanceof Error
+              ? `Venta registrada. No se pudo imprimir: ${printErr.message}`
+              : "Venta registrada. Revisa la impresión."
+          );
+        }
+      }
+
+      vaciarCuenta();
+    } finally {
+      setCobrando(false);
+    }
+  };
+
   const confirmarAbrirTurno = () => {
+    setErrorModalAbrirTurno(null);
+    if (cajeroIdSeleccionAbrirTurno === CAJERO_TURNO_ID_SESION) {
+      setCajeroTurnoActivo({
+        id: CAJERO_TURNO_ID_SESION,
+        nombreDisplay: user?.email?.trim()
+          ? `Franquiciado · ${user.email.trim()}`
+          : "Franquiciado (cuenta del punto)",
+        documento: "",
+      });
+    } else {
+      const row = cajerosModalTurno.find((c) => c.id === cajeroIdSeleccionAbrirTurno);
+      if (!row) {
+        setErrorModalAbrirTurno("Selecciona quién inicia el turno en caja.");
+        return;
+      }
+      setCajeroTurnoActivo({
+        id: row.id,
+        nombreDisplay: nombreDisplayCajeroTurno(row.ficha),
+        documento: row.ficha.numeroDocumento?.trim() ?? "",
+      });
+    }
+
     const valor = parseFloat(String(baseInicialCajaInput).replace(/,/g, "."));
     const base = Number.isFinite(valor) && valor >= 0 ? valor : 0;
     setBaseInicialCaja(base);
@@ -413,9 +693,10 @@ export default function CajaPage() {
   }
 
   if (!user) {
-    router.replace("/");
     return null;
   }
+
+  const esContador = esContadorInvitado(user.role);
 
   const fechaHoy = formatFechaHoy();
   const fechaFormateada = new Date().toLocaleDateString("es-CO", {
@@ -425,14 +706,19 @@ export default function CajaPage() {
     day: "numeric",
   });
 
-  const tituloModulo =
-    moduloActivo === "ventas"
+  const tituloModulo = esContador
+    ? "Reportes"
+    : moduloActivo === "ventas"
       ? "Ventas e ingresos"
       : moduloActivo === "turnos"
         ? "Turnos"
-        : moduloActivo === "reportes"
-          ? "Reportes"
-          : "Más";
+        : moduloActivo === "cargueInventario"
+          ? "Cargue de inventario"
+          : moduloActivo === "inventarios"
+            ? "Inventarios"
+            : moduloActivo === "reportes"
+              ? "Reportes"
+              : "Más";
 
   return (
     <div className="flex min-h-screen bg-gray-100/90">
@@ -449,30 +735,72 @@ export default function CajaPage() {
           <span className="text-xs font-medium text-primary-600">POS</span>
         </div>
         <nav className="flex-1 space-y-0.5 p-2">
-          <button
-            type="button"
-            onClick={() => setModuloActivo("ventas")}
-            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
-              moduloActivo === "ventas" ? "bg-brand-yellow/25 text-gray-900 border border-brand-yellow/50" : "text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            Ventas e ingresos
-          </button>
-          <button
-            type="button"
-            onClick={() => setModuloActivo("turnos")}
-            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
-              moduloActivo === "turnos" ? "bg-brand-yellow/25 text-gray-900 border border-brand-yellow/50" : "text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            Turnos
-          </button>
+          {!esContador && (
+            <>
+              <button
+                type="button"
+                onClick={() => setModuloActivo("ventas")}
+                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
+                  moduloActivo === "ventas" ? "bg-brand-yellow/25 text-gray-900 border border-brand-yellow/50" : "text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Ventas e ingresos
+              </button>
+              <button
+                type="button"
+                onClick={() => setModuloActivo("turnos")}
+                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
+                  moduloActivo === "turnos" ? "bg-brand-yellow/25 text-gray-900 border border-brand-yellow/50" : "text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                Turnos
+              </button>
+              <button
+                type="button"
+                onClick={() => setModuloActivo("cargueInventario")}
+                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
+                  moduloActivo === "cargueInventario"
+                    ? "bg-brand-yellow/25 text-gray-900 border border-brand-yellow/50"
+                    : "text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+                  />
+                </svg>
+                Cargue inventario
+              </button>
+              <button
+                type="button"
+                onClick={() => setModuloActivo("inventarios")}
+                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
+                  moduloActivo === "inventarios"
+                    ? "bg-brand-yellow/25 text-gray-900 border border-brand-yellow/50"
+                    : "text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
+                  />
+                </svg>
+                Inventarios
+              </button>
+            </>
+          )}
           <button
             type="button"
             onClick={() => setModuloActivo("reportes")}
@@ -485,57 +813,71 @@ export default function CajaPage() {
             </svg>
             Reportes
           </button>
-          <button
-            type="button"
-            onClick={() => setModuloActivo("mas")}
-            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
-              moduloActivo === "mas" ? "bg-brand-yellow/25 text-gray-900 border border-brand-yellow/50" : "text-gray-600 hover:bg-gray-50"
-            }`}
-          >
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-            Más
-          </button>
+          {!esContador && (
+            <button
+              type="button"
+              onClick={() => setModuloActivo("mas")}
+              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
+                moduloActivo === "mas" ? "bg-brand-yellow/25 text-gray-900 border border-brand-yellow/50" : "text-gray-600 hover:bg-gray-50"
+              }`}
+            >
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+              Más
+            </button>
+          )}
         </nav>
         <div className="border-t border-gray-100 p-2">
-          {/* Estado del turno */}
-          <button
-            type="button"
-            onClick={() => {
-              if (turnoAbierto) setShowModalCierreTurno(true);
-              else {
-                setBaseInicialCajaInput("");
-                setShowModalAbrirTurno(true);
-              }
-            }}
-            className={`mb-3 flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors hover:opacity-90 ${
-              turnoAbierto
-                ? "border-emerald-200 bg-emerald-50"
-                : "border-red-200 bg-red-50"
-            }`}
-            title={turnoAbierto ? "Clic para cerrar turno" : "Clic para abrir turno"}
-          >
-            {turnoAbierto ? (
-              <>
-                <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white shadow-sm">
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                </span>
-                <span className="text-sm font-semibold text-emerald-800">Turno abierto</span>
-              </>
-            ) : (
-              <>
-                <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-red-500 text-white shadow-sm">
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </span>
-                <span className="text-sm font-semibold text-red-800">Turno cerrado</span>
-              </>
-            )}
-          </button>
+          {!esContador && (
+            <button
+              type="button"
+              onClick={() => {
+                if (turnoAbierto) setShowModalCierreTurno(true);
+                else {
+                  setBaseInicialCajaInput("");
+                  setErrorModalAbrirTurno(null);
+                  setShowModalAbrirTurno(true);
+                }
+              }}
+              className={`mb-3 flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors hover:opacity-90 ${
+                turnoAbierto
+                  ? "border-emerald-200 bg-emerald-50"
+                  : "border-red-200 bg-red-50"
+              }`}
+              title={turnoAbierto ? "Clic para cerrar turno" : "Clic para abrir turno"}
+            >
+              {turnoAbierto ? (
+                <>
+                  <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white shadow-sm">
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                    </svg>
+                  </span>
+                  <span className="text-sm font-semibold text-emerald-800">Turno abierto</span>
+                  {cajeroTurnoActivo && (
+                    <span className="mt-0.5 block text-xs font-normal text-emerald-900/90">
+                      Opera el turno: {cajeroTurnoActivo.nombreDisplay}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <>
+                  <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-red-500 text-white shadow-sm">
+                    <svg className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </span>
+                  <span className="text-sm font-semibold text-red-800">Turno cerrado</span>
+                </>
+              )}
+            </button>
+          )}
+          {esContador && (
+            <p className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-center text-xs font-medium text-slate-700">
+              Vista contador · solo tu punto de venta
+            </p>
+          )}
           {/* Perfil del cajero */}
           <div className="mb-3 flex flex-col items-center gap-2">
             <input
@@ -564,13 +906,15 @@ export default function CajaPage() {
                 </span>
               )}
             </button>
-            <button
-              type="button"
-              onClick={() => inputFotoRef.current?.click()}
-              className="text-xs font-medium text-gray-700 hover:text-gray-900 hover:underline"
-            >
-              Cambiar foto
-            </button>
+            {!esContador && (
+              <button
+                type="button"
+                onClick={() => inputFotoRef.current?.click()}
+                className="text-xs font-medium text-gray-700 hover:text-gray-900 hover:underline"
+              >
+                Cambiar foto
+              </button>
+            )}
             <button
               type="button"
               onClick={abrirModalPerfil}
@@ -599,6 +943,7 @@ export default function CajaPage() {
         puntoVenta={user.puntoVenta}
         fotoPreview={fotoPerfil}
         onFotoChange={setFotoPerfil}
+        esContador={esContador}
       />
 
       {/* Modal Abrir turno */}
@@ -631,27 +976,71 @@ export default function CajaPage() {
               </button>
             </div>
             <div className="px-6 py-5">
-              {/* Datos del usuario */}
-              <div className="mb-5 flex items-center gap-3">
-                <span className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 text-lg font-semibold text-blue-700">
-                  {inicialesCajero}
-                </span>
-                <div>
-                  <p className="font-medium text-gray-900">
-                    {user?.puntoVenta ?? "Maria Chorizos"}
-                  </p>
-                  <p className="text-sm text-gray-500">Cajero</p>
-                </div>
-              </div>
+              <p className="mb-3 text-sm text-gray-600">
+                Punto de venta: <strong className="text-gray-900">{user?.puntoVenta ?? "—"}</strong>
+              </p>
+              <p className="mb-2 text-sm font-medium text-gray-900">
+                ¿Quién inicia el turno en caja? <span className="text-red-500">*</span>
+              </p>
+              {cargandoCajerosTurnoModal ? (
+                <p className="mb-4 text-sm text-gray-500">Cargando opciones…</p>
+              ) : (
+                <>
+                  <fieldset className="mb-4 space-y-2">
+                    <legend className="sr-only">Persona que inicia el turno</legend>
+                    <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-gray-200 px-3 py-2.5 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50/60">
+                      <input
+                        type="radio"
+                        name="cajero-turno-apertura"
+                        checked={cajeroIdSeleccionAbrirTurno === CAJERO_TURNO_ID_SESION}
+                        onChange={() => setCajeroIdSeleccionAbrirTurno(CAJERO_TURNO_ID_SESION)}
+                        className="h-4 w-4 text-blue-600"
+                      />
+                      <span className="text-sm text-gray-900">
+                        <span className="font-medium">Franquiciado — apoyo en caja</span>
+                        <span className="block text-xs text-gray-500">
+                          Misma cuenta del punto de venta{user?.email ? ` (${user.email})` : ""}
+                        </span>
+                      </span>
+                    </label>
+                    {cajerosModalTurno.map((c) => (
+                      <label
+                        key={c.id}
+                        className="flex cursor-pointer items-center gap-3 rounded-lg border border-gray-200 px-3 py-2.5 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50/60"
+                      >
+                        <input
+                          type="radio"
+                          name="cajero-turno-apertura"
+                          checked={cajeroIdSeleccionAbrirTurno === c.id}
+                          onChange={() => setCajeroIdSeleccionAbrirTurno(c.id)}
+                          className="h-4 w-4 text-blue-600"
+                        />
+                        <span className="text-sm text-gray-900">
+                          <span className="font-medium">{nombreDisplayCajeroTurno(c.ficha)}</span>
+                          {c.ficha.cargo ? (
+                            <span className="text-gray-500"> · {c.ficha.cargo}</span>
+                          ) : null}
+                          {c.ficha.numeroDocumento ? (
+                            <span className="block text-xs text-gray-500">Doc. {c.ficha.numeroDocumento}</span>
+                          ) : null}
+                        </span>
+                      </label>
+                    ))}
+                  </fieldset>
+                  {cajerosModalTurno.length === 0 ? (
+                    <p className="mb-4 rounded-lg border border-amber-100 bg-amber-50/80 px-3 py-2 text-xs text-amber-950">
+                      No hay cajeros de turno registrados. El turno se atribuye al franquiciado. Puedes dar de alta
+                      cajeros en <strong>Más → Cajeros de turno</strong> cuando otra persona opere la caja.
+                    </p>
+                  ) : null}
+                </>
+              )}
+              {errorModalAbrirTurno && (
+                <p className="mb-3 text-sm text-red-600" role="alert">
+                  {errorModalAbrirTurno}
+                </p>
+              )}
               <div className="space-y-3 text-sm">
-                <div>
-                  <label className="text-gray-500">Email:</label>
-                  <p className="font-medium text-gray-900">{user?.email ?? "—"}</p>
-                </div>
-                <div>
-                  <label className="text-gray-500">Nombre:</label>
-                  <p className="font-medium text-gray-900">{user?.puntoVenta ?? "Maria Chorizos"}</p>
-                </div>
                 <div>
                   <label className="text-gray-500">Fecha y hora de apertura:</label>
                   <p className="font-medium text-gray-900">
@@ -839,7 +1228,13 @@ export default function CajaPage() {
                   Inicio: {turnoInicio.toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
                 </p>
                 <p className="text-gray-600">Fin: —</p>
-                <p className="text-gray-600">Cierre realizado por: —</p>
+                <p className="mt-1 text-gray-600">
+                  Atribución del turno:{" "}
+                  <span className="font-medium text-gray-900">{cajeroTurnoActivo?.nombreDisplay ?? "—"}</span>
+                </p>
+                <p className="text-gray-600">
+                  Sesión POS: <span className="font-medium text-gray-800">{user?.email ?? "—"}</span>
+                </p>
               </div>
 
               {/* Ventas (expandible) */}
@@ -985,6 +1380,7 @@ export default function CajaPage() {
                 type="button"
                 onClick={() => {
                   setTurnoAbierto(false);
+                  setCajeroTurnoActivo(null);
                   setShowModalCierreTurno(false);
                 }}
                 className="flex-1 rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
@@ -996,10 +1392,23 @@ export default function CajaPage() {
         </div>
       )}
 
-      {/* Área central: contenido según módulo activo */}
-      <main className="min-w-0 flex-1 pl-52 pt-0">
+      {/* Área central + cuenta a cobrar (en columna en móvil, fila en escritorio) */}
+      <div className="flex min-w-0 flex-1 flex-col pl-52 lg:flex-row">
+      <main className="min-w-0 flex-1 pt-0">
         <div className="p-6">
-          {moduloActivo === "ventas" ? (
+          {esContador ? (
+            <div className="rounded-xl border border-gray-200 bg-white p-8 shadow-sm">
+              <h2 className="text-lg font-semibold text-gray-900">Reportes · punto de venta</h2>
+              <p className="mt-2 text-sm text-gray-600">
+                Tu cuenta es de <strong className="text-gray-800">contador invitado</strong>. Solo tienes contexto del
+                punto de venta <strong className="text-gray-900">{user.puntoVenta ?? "—"}</strong>. No puedes operar la
+                caja, abrir turnos, enviar ventas al WMS ni abrir la configuración enlazada al WMS desde este acceso.
+              </p>
+              <p className="mt-4 text-sm text-gray-500">
+                Cuando haya reportes o exportaciones para este punto de venta, aparecerán en esta sección.
+              </p>
+            </div>
+          ) : moduloActivo === "ventas" ? (
             <div className="space-y-6">
               {!turnoAbierto && (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-center">
@@ -1253,6 +1662,12 @@ export default function CajaPage() {
                 )}
               </div>
             </div>
+          ) : moduloActivo === "cargueInventario" ? (
+            <CargueInventarioManualPanel puntoVenta={user.puntoVenta} uid={user.uid} email={user.email} />
+          ) : moduloActivo === "inventarios" ? (
+            <InventarioPosModule puntoVenta={user.puntoVenta} uid={user.uid} email={user.email} />
+          ) : moduloActivo === "reportes" ? (
+            <CajeroReportesDashboard puntoVenta={user.puntoVenta} />
           ) : moduloActivo === "mas" ? (
             <ConfiguracionMasModule />
           ) : (
@@ -1265,10 +1680,10 @@ export default function CajaPage() {
         </div>
       </main>
 
-      {/* Sidebar derecho — Cuenta a cobrar (solo en Ventas) */}
+      {/* Sidebar derecho — Cuenta a cobrar (solo en Ventas; visible también en móvil debajo del catálogo) */}
       <aside
-        className={`hidden w-80 flex-shrink-0 flex-col border-l border-gray-200 bg-white ${
-          moduloActivo === "ventas" ? "lg:flex" : ""
+        className={`flex w-full flex-shrink-0 flex-col border-t border-gray-200 bg-white lg:w-80 lg:border-l lg:border-t-0 ${
+          moduloActivo === "ventas" ? "" : "hidden"
         }`}
       >
         <div className="border-b border-gray-100 px-4 py-3">
@@ -1284,11 +1699,40 @@ export default function CajaPage() {
               id="tipo-comprobante-sidebar"
               value={tipoComprobante}
               onChange={(e) => setTipoComprobante(e.target.value as TipoComprobante)}
-              className="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+              className="w-full rounded-lg border border-primary-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
             >
-              <option value="documento_interno">Documento interno</option>
+              <option value="documento_interno">Doc. interno</option>
               <option value="factura_electronica">Factura electrónica de venta</option>
             </select>
+            <p className="mt-1 text-[11px] leading-snug text-gray-500">Este documento no reemplaza una factura.</p>
+          </div>
+          <div className="mt-3">
+            <label htmlFor="vendedor-sidebar" className="mb-1 flex items-center gap-1 text-xs font-medium text-gray-700">
+              Vendedor <span className="text-red-500" aria-hidden>*</span>
+            </label>
+            <select
+              id="vendedor-sidebar"
+              disabled
+              value="v1"
+              className="w-full cursor-not-allowed rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700"
+            >
+              <option value="v1">{vendedorEtiqueta}</option>
+            </select>
+            <p className="mt-0.5 text-[11px] text-gray-400">Quien opera el turno en caja.</p>
+          </div>
+          <div className="mt-3">
+            <SeleccionClienteVenta
+              clienteActivo={clienteActivoPrecuenta}
+              onChange={(c) =>
+                setClientePorPrecuenta((prev) => ({
+                  ...prev,
+                  [activePrecuentaId]: c,
+                }))
+              }
+              clientesGuardados={clientesPosLista}
+              onCrearClick={() => setShowModalCrearCliente(true)}
+              disabled={!turnoAbierto}
+            />
           </div>
         </div>
         <div className="flex-1 overflow-y-auto px-4 py-3">
@@ -1297,8 +1741,8 @@ export default function CajaPage() {
               <svg className="mb-3 h-12 w-12 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
               </svg>
-              <p className="text-sm text-gray-500">Sin ítems</p>
-              <p className="mt-1 text-xs text-gray-400">Haz clic en un producto para agregarlo</p>
+              <p className="text-sm text-gray-500">Aún no tienes productos en el carrito</p>
+              <p className="mt-1 text-xs text-gray-400">Haz clic en un producto del catálogo para agregarlo</p>
             </div>
           ) : (
             <ul className="space-y-3">
@@ -1396,25 +1840,49 @@ export default function CajaPage() {
             )}
             <button
               type="button"
-              disabled={itemsCuentaActiva.length === 0 || !turnoAbierto}
+              disabled={cobrando || itemsCuentaActiva.length === 0 || !turnoAbierto}
+              onClick={() => void handleCobrar()}
               className="flex flex-1 items-center justify-center rounded-lg bg-emerald-600 py-2.5 text-sm font-semibold text-white shadow transition-colors hover:bg-emerald-700 disabled:opacity-50 disabled:pointer-events-none"
             >
-              Cobrar $ {totalCuentaActiva.toLocaleString("es-CO")}
+              {cobrando ? "Cobrando…" : `Cobrar $ ${totalCuentaActiva.toLocaleString("es-CO")}`}
             </button>
           </div>
         </div>
       </aside>
+      </div>
 
-      {/* Botón flotante Chat — verde tipo WhatsApp */}
-      <Link
-        href="/chat"
-        className="fixed bottom-6 right-6 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lg transition-transform hover:scale-110 hover:shadow-xl"
-        aria-label="Abrir chat"
-      >
-        <svg className="h-7 w-7" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
-          <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-        </svg>
-      </Link>
+      {user?.puntoVenta && !esContador && (
+        <CrearClientePosModal
+          open={showModalCrearCliente}
+          onClose={() => setShowModalCrearCliente(false)}
+          puntoVenta={user.puntoVenta}
+          uid={user.uid}
+          onCreado={(doc) => {
+            setClientesPosLista((prev) => [doc, ...prev.filter((x) => x.id !== doc.id)]);
+            setClientePorPrecuenta((prev) => ({
+              ...prev,
+              [activePrecuentaId]: {
+                id: doc.id,
+                nombreDisplay: nombreDisplayCliente(doc),
+                tipoIdentificacion: doc.tipoIdentificacion,
+                numeroIdentificacion: doc.numeroIdentificacion,
+              },
+            }));
+          }}
+        />
+      )}
+
+      {!esContador && (
+        <Link
+          href="/chat"
+          className="fixed bottom-6 right-6 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lg transition-transform hover:scale-110 hover:shadow-xl"
+          aria-label="Abrir chat"
+        >
+          <svg className="h-7 w-7" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+          </svg>
+        </Link>
+      )}
     </div>
   );
 }

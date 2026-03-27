@@ -2,6 +2,8 @@ export interface InvitacionContadorItem {
   email: string;
   estado?: string;
   createdAt?: string;
+  /** Si existe, la invitación está en Firestore y el POS puede anularla si sigue pendiente. */
+  firestoreId?: string;
 }
 
 export interface ContadorInvitacionesNormalizado {

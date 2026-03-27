@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import ConfigImpresionPosGebPanel from "@/components/ConfigImpresionPosGebPanel";
 import ContratoPosGebPanel from "@/components/ContratoPosGebPanel";
+import DocumentoComercialFranquiciaPanel from "@/components/DocumentoComercialFranquiciaPanel";
 import InvitarContadorPanel from "@/components/InvitarContadorPanel";
 import PerfilOrganizacionForm from "@/components/PerfilOrganizacionForm";
 import UsuariosPosRegistradosPanel from "@/components/UsuariosPosRegistradosPanel";
@@ -10,16 +12,24 @@ import UsuariosPosRegistradosPanel from "@/components/UsuariosPosRegistradosPane
 const PERFIL_ORGANIZACION_ITEM_ID = "gen-org-perfil";
 /** Id de «Contrato POS GEB» */
 const CONTRATO_POS_GEB_ITEM_ID = "gen-org-contrato";
-/** Id de «Administración de usuarios y permisos» — lista WMS */
+/** Configuración de impresión (QZ Tray / navegador) */
+const CONFIG_IMPRESION_POS_GEB_ITEM_ID = "gen-print-posgeb";
+/** Id de «Cajeros de turno» — WMS + catálogo de turno (sin cuentas extra) */
 const ADMIN_USUARIOS_POS_ITEM_ID = "gen-user-admin";
 /** Id de «Invita a tu contador» */
 const INVITAR_CONTADOR_ITEM_ID = "gen-user-contador";
+/** Ventas → documentos (franquiciado): cotizaciones y remisiones con PDF */
+const VEN_DOC_COT_ITEM_ID = "ven-doc-cot";
+const VEN_DOC_REM_ITEM_ID = "ven-doc-rem";
 
 const VISTA_DETALLE_ITEM_IDS = new Set<string>([
   PERFIL_ORGANIZACION_ITEM_ID,
   CONTRATO_POS_GEB_ITEM_ID,
+  CONFIG_IMPRESION_POS_GEB_ITEM_ID,
   INVITAR_CONTADOR_ITEM_ID,
   ADMIN_USUARIOS_POS_ITEM_ID,
+  VEN_DOC_COT_ITEM_ID,
+  VEN_DOC_REM_ITEM_ID,
 ]);
 
 export type ConfigCategoriaId =
@@ -58,13 +68,14 @@ const CATEGORIAS: ConfigCategoria[] = [
         items: [
           { id: "gen-org-perfil", label: "Perfil de la organización" },
           { id: "gen-org-contrato", label: "Contrato POS GEB" },
+          { id: CONFIG_IMPRESION_POS_GEB_ITEM_ID, label: "Configuración de impresión" },
         ],
       },
       {
         titulo: "Usuarios",
         items: [
           { id: "gen-user-contador", label: "Invita a tu contador" },
-          { id: "gen-user-admin", label: "Administración de usuarios y permisos" },
+          { id: "gen-user-admin", label: "Cajeros de turno" },
         ],
       },
     ],
@@ -100,36 +111,8 @@ const CATEGORIAS: ConfigCategoria[] = [
       {
         titulo: "Documentos",
         items: [
-          { id: "ven-doc-fact", label: "Facturas de ventas / Ingresos" },
-          { id: "ven-doc-nd", label: "Notas débito (Ventas)" },
-          { id: "ven-doc-nc", label: "Notas Crédito" },
-          { id: "ven-doc-cot", label: "Cotizaciones" },
-          { id: "ven-doc-rem", label: "Remisiones" },
-        ],
-      },
-      {
-        titulo: "Procesos",
-        items: [
-          {
-            id: "ven-proc-renov",
-            label: "Renovación de numeración agotada o próxima a agotarse",
-          },
-          {
-            id: "ven-proc-hab",
-            label: "Habilitación de numeración vencida o próxima a vencerse",
-          },
-        ],
-      },
-      {
-        titulo: "Punto de Venta POS",
-        items: [{ id: "ven-pos-suc", label: "Configuración sucursales y cajas" }],
-      },
-      {
-        titulo: "Impresión, estilo y envío de documentos",
-        items: [
-          { id: "ven-imp-fact", label: "Facturas de ventas / Ingresos" },
-          { id: "ven-imp-nc", label: "Notas Crédito" },
-          { id: "ven-imp-nd", label: "Notas débito (Ventas)" },
+          { id: VEN_DOC_COT_ITEM_ID, label: "Cotizaciones" },
+          { id: VEN_DOC_REM_ITEM_ID, label: "Remisiones" },
         ],
       },
     ],
@@ -388,6 +371,7 @@ export default function ConfiguracionMasModule() {
                         <ul className="space-y-0.5">
                           {seccion.items.map((item) => {
                             const hecho = completados.has(item.id);
+                            const esCajerosTurno = item.id === ADMIN_USUARIOS_POS_ITEM_ID;
                             return (
                               <li key={item.id}>
                                 <button
@@ -398,11 +382,13 @@ export default function ConfiguracionMasModule() {
                                   <span className="mr-1 inline-block w-1.5 rounded-full align-middle" aria-hidden>
                                     <span
                                       className={`block h-1.5 w-1.5 rounded-full ${
-                                        hecho ? "bg-emerald-500" : "bg-red-400"
+                                        hecho || esCajerosTurno ? "bg-emerald-500" : "bg-red-400"
                                       }`}
                                     />
                                   </span>
-                                  {item.label}
+                                  <span className={esCajerosTurno ? "font-semibold text-emerald-600" : undefined}>
+                                    {item.label}
+                                  </span>
                                 </button>
                               </li>
                             );
@@ -424,10 +410,16 @@ export default function ConfiguracionMasModule() {
           <PerfilOrganizacionForm onVolver={() => setVistaDetalleItemId(null)} />
         ) : vistaDetalleItemId === CONTRATO_POS_GEB_ITEM_ID ? (
           <ContratoPosGebPanel onVolver={() => setVistaDetalleItemId(null)} />
+        ) : vistaDetalleItemId === CONFIG_IMPRESION_POS_GEB_ITEM_ID ? (
+          <ConfigImpresionPosGebPanel onVolver={() => setVistaDetalleItemId(null)} />
         ) : vistaDetalleItemId === INVITAR_CONTADOR_ITEM_ID ? (
           <InvitarContadorPanel onVolver={() => setVistaDetalleItemId(null)} />
         ) : vistaDetalleItemId === ADMIN_USUARIOS_POS_ITEM_ID ? (
           <UsuariosPosRegistradosPanel onVolver={() => setVistaDetalleItemId(null)} />
+        ) : vistaDetalleItemId === VEN_DOC_COT_ITEM_ID ? (
+          <DocumentoComercialFranquiciaPanel tipo="cotizacion" onVolver={() => setVistaDetalleItemId(null)} />
+        ) : vistaDetalleItemId === VEN_DOC_REM_ITEM_ID ? (
+          <DocumentoComercialFranquiciaPanel tipo="remision" onVolver={() => setVistaDetalleItemId(null)} />
         ) : (
           <>
             <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
@@ -446,6 +438,8 @@ export default function ConfiguracionMasModule() {
                   <ul className="space-y-2">
                     {seccion.items.map((item) => {
                       const hecho = completados.has(item.id);
+                      const esCajerosTurno = item.id === ADMIN_USUARIOS_POS_ITEM_ID;
+                      const estadoListo = hecho || esCajerosTurno;
                       return (
                         <li key={item.id} id={configItemDomId(item.id)} className="scroll-mt-4">
                           <button
@@ -456,18 +450,22 @@ export default function ConfiguracionMasModule() {
                                 : toggleCompletado(item.id)
                             }
                             className={`flex w-full items-start gap-3 rounded-lg border px-4 py-3 text-left text-sm transition-colors ${
-                              hecho
-                                ? "border-gray-200 bg-white text-gray-800 hover:bg-gray-50"
+                              estadoListo
+                                ? esCajerosTurno
+                                  ? "border-emerald-200 bg-emerald-50 text-emerald-950 shadow-sm hover:bg-emerald-100/90"
+                                  : "border-gray-200 bg-white text-gray-800 hover:bg-gray-50"
                                 : "border-red-300 bg-red-100 text-red-950 shadow-sm hover:bg-red-200/90"
                             }`}
                           >
                         <span
                           className={`mt-0.5 flex h-5 w-5 flex-shrink-0 items-center justify-center rounded border-2 ${
-                            hecho ? "border-emerald-500 bg-emerald-500 text-white" : "border-red-700 bg-red-200"
+                            estadoListo
+                              ? "border-emerald-500 bg-emerald-500 text-white"
+                              : "border-red-700 bg-red-200"
                           }`}
                           aria-hidden
                         >
-                          {hecho ? (
+                          {estadoListo ? (
                             <svg className="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                             </svg>
@@ -475,14 +473,16 @@ export default function ConfiguracionMasModule() {
                         </span>
                         <span className="flex min-w-0 flex-1 items-center gap-2">
                           <svg
-                            className={`h-4 w-4 flex-shrink-0 ${hecho ? "text-blue-600" : "text-red-800"}`}
+                            className={`h-4 w-4 flex-shrink-0 ${estadoListo ? "text-emerald-600" : "text-red-800"}`}
                             fill="currentColor"
                             viewBox="0 0 24 24"
                             aria-hidden
                           >
                             <path d="M8 5v14l11-7z" />
                           </svg>
-                          <span className="font-medium">{item.label}</span>
+                          <span className={esCajerosTurno ? "font-semibold text-emerald-700" : "font-medium"}>
+                            {item.label}
+                          </span>
                         </span>
                       </button>
                         </li>

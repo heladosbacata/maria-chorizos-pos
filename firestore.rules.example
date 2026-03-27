@@ -1,0 +1,172 @@
+// Copia estas reglas en Firebase Console → Firestore → Reglas (ajusta según tu seguridad).
+// Colección: posContadorInvitaciones — invitaciones cajero → contador (fallback POS).
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /posContadorInvitaciones/{id} {
+      // Crear: solo el usuario autenticado como invitador
+      allow create: if request.auth != null
+        && request.resource.data.inviterUid == request.auth.uid
+        && request.resource.data.estado == 'pendiente';
+
+      // Leer: el invitador ve las suyas; el invitado puede leer pendientes por su email (completar registro)
+      allow read: if request.auth != null && (
+        resource.data.inviterUid == request.auth.uid
+        || (resource.data.inviteeEmail == request.auth.token.email.lower()
+            && resource.data.estado == 'pendiente')
+      );
+
+      // Invitado acepta, o invitador anula pendiente (libera cupo).
+      allow update: if request.auth != null && (
+        (
+          resource.data.inviteeEmail == request.auth.token.email.lower()
+          && resource.data.estado == 'pendiente'
+          && request.resource.data.estado == 'aceptada'
+        )
+        || (
+          resource.data.inviterUid == request.auth.uid
+          && resource.data.estado == 'pendiente'
+          && request.resource.data.estado == 'cancelada'
+          && request.resource.data.inviterUid == resource.data.inviterUid
+          && request.resource.data.inviteeEmail == resource.data.inviteeEmail
+          && request.resource.data.puntoVenta == resource.data.puntoVenta
+        )
+      );
+
+      allow delete: if false;
+    }
+
+    // Catálogo de insumos (solo lectura desde el POS; la carga la hace backoffice / importación).
+    match /DB_Franquicia_Insumos_Kit/{id} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // Inventario POS: saldos y movimientos acotados al punto de venta del usuario en users/{uid}.
+    function posInventarioPuntoVentaUsuario() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.puntoVenta;
+    }
+
+    match /posInventarioSaldos/{id} {
+      allow read: if request.auth != null
+        && resource.data.puntoVenta == posInventarioPuntoVentaUsuario();
+      allow create: if request.auth != null
+        && request.resource.data.puntoVenta == posInventarioPuntoVentaUsuario()
+        && request.resource.data.keys().hasAll(['puntoVenta', 'insumoId', 'cantidad']);
+      allow update: if request.auth != null
+        && resource.data.puntoVenta == posInventarioPuntoVentaUsuario()
+        && request.resource.data.puntoVenta == resource.data.puntoVenta
+        && request.resource.data.insumoId == resource.data.insumoId;
+      allow delete: if false;
+    }
+
+    // Cajeros operativos por punto de venta (selección al abrir turno en el POS).
+    function posUsuarioPuntoVenta() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.puntoVenta;
+    }
+
+    function posUsuarioRol() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    /** true si users/{uid} existe y no es contador invitado (sin campo role = franquiciado). */
+    function usuarioFranquiciadoPuedeDocumentosComerciales() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && !(
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.keys().hasAny(['role'])
+          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'pos_contador'
+        );
+    }
+
+    match /posCajerosTurno/{id} {
+      allow read: if request.auth != null
+        && resource.data.puntoVenta == posUsuarioPuntoVenta();
+
+      allow create: if request.auth != null
+        && posUsuarioRol() != 'pos_contador'
+        && request.resource.data.puntoVenta == posUsuarioPuntoVenta()
+        && request.resource.data.activo == true
+        && request.resource.data.keys().hasAll(['puntoVenta', 'activo', 'ficha', 'createdByUid']);
+
+      allow update: if request.auth != null
+        && posUsuarioRol() != 'pos_contador'
+        && resource.data.puntoVenta == posUsuarioPuntoVenta()
+        && request.resource.data.puntoVenta == resource.data.puntoVenta;
+
+      allow delete: if false;
+    }
+
+    // Cotizaciones y remisiones (PDF) por punto de venta; solo franquiciado (no pos_contador).
+    // Nota: no exijas createdAt/updatedAt en keys().hasAll — con serverTimestamp() el motor no siempre
+    // los incluye en keys() al validar create, y el permiso falla con "Missing or insufficient permissions".
+    match /posDocumentosComerciales/{id} {
+      allow read: if request.auth != null
+        && usuarioFranquiciadoPuedeDocumentosComerciales()
+        && resource.data.puntoVenta == posUsuarioPuntoVenta();
+
+      allow create: if request.auth != null
+        && usuarioFranquiciadoPuedeDocumentosComerciales()
+        && request.resource.data.puntoVenta == posUsuarioPuntoVenta()
+        && request.resource.data.createdByUid == request.auth.uid
+        && request.resource.data.tipo in ['cotizacion', 'remision']
+        && request.resource.data.lineas is list
+        && request.resource.data.keys().hasAll([
+          'tipo', 'numeroDocumento', 'fechaIso', 'puntoVenta', 'createdByUid', 'clienteNombre', 'lineas'
+        ]);
+
+      allow update: if request.auth != null
+        && usuarioFranquiciadoPuedeDocumentosComerciales()
+        && resource.data.puntoVenta == posUsuarioPuntoVenta()
+        && request.resource.data.puntoVenta == resource.data.puntoVenta
+        && request.resource.data.tipo == resource.data.tipo
+        && request.resource.data.createdByUid == resource.data.createdByUid;
+
+      allow delete: if request.auth != null
+        && usuarioFranquiciadoPuedeDocumentosComerciales()
+        && resource.data.puntoVenta == posUsuarioPuntoVenta();
+    }
+
+    match /posInventarioMovimientos/{id} {
+      allow read: if request.auth != null
+        && resource.data.puntoVenta == posInventarioPuntoVentaUsuario();
+      allow create: if request.auth != null
+        && request.resource.data.puntoVenta == posInventarioPuntoVentaUsuario()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasAll(['puntoVenta', 'insumoId', 'tipo', 'delta', 'uid']);
+      allow update, delete: if false;
+    }
+
+    // Clientes del franquiciado por punto de venta (POS — fidelización / ventas).
+    match /posClientes/{id} {
+      allow read: if request.auth != null
+        && resource.data.puntoVenta == posInventarioPuntoVentaUsuario();
+      allow create: if request.auth != null
+        && posUsuarioRol() != 'pos_contador'
+        && request.resource.data.puntoVenta == posInventarioPuntoVentaUsuario()
+        && request.resource.data.createdByUid == request.auth.uid
+        && request.resource.data.keys().hasAll([
+          'puntoVenta', 'tipoCliente', 'tipoIdentificacion', 'numeroIdentificacion', 'createdByUid'
+        ]);
+      allow update, delete: if false;
+    }
+
+    // Usuarios POS: contador (role pos_contador) no puede cambiar punto de venta, rol ni invitadoPorUid desde el cliente.
+    match /users/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow create: if request.auth != null && request.auth.uid == uid;
+      allow update: if request.auth != null && request.auth.uid == uid
+        && (
+          !(resource.data.keys().hasAny(['role']) && resource.data.role == 'pos_contador')
+          || (
+            request.resource.data.puntoVenta == resource.data.puntoVenta
+            && request.resource.data.role == resource.data.role
+            && (!resource.data.keys().hasAny(['invitadoPorUid'])
+              || request.resource.data.invitadoPorUid == resource.data.invitadoPorUid)
+          )
+        );
+      allow delete: if false;
+    }
+  }
+}

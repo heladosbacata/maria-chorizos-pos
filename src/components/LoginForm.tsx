@@ -7,6 +7,7 @@ import { sendPasswordResetEmail } from "firebase/auth";
 import { useAuth } from "@/context/AuthContext";
 import { auth } from "@/lib/firebase";
 import { LOGO_ORG_URL } from "@/lib/brand";
+import { esContadorInvitado } from "@/lib/auth-roles";
 import { PUNTOS_DE_VENTA } from "@/lib/puntos-venta";
 
 export default function LoginForm() {
@@ -73,6 +74,41 @@ export default function LoginForm() {
   };
 
   if (user?.necesitaSeleccionarPunto) {
+    if (esContadorInvitado(user.role)) {
+      return (
+        <div className="flex min-h-screen flex-col bg-white">
+          <header className="border-b border-gray-100 bg-white px-6 py-4 shadow-sm">
+            <div className="mx-auto flex max-w-4xl items-center justify-between">
+              <Image
+                src={LOGO_ORG_URL}
+                alt="Maria Chorizos"
+                width={180}
+                height={60}
+                className="h-12 w-auto object-contain"
+                priority
+              />
+              <button
+                type="button"
+                onClick={handleCerrarSesion}
+                className="rounded-lg bg-brand-yellow px-4 py-2 text-sm font-medium text-gray-900 transition-colors hover:opacity-90"
+              >
+                Cerrar sesión
+              </button>
+            </div>
+          </header>
+          <main className="flex flex-1 flex-col items-center justify-center p-6 md:p-12">
+            <div className="w-full max-w-lg rounded-xl border border-amber-200 bg-amber-50 p-6 text-center">
+              <h1 className="text-xl font-bold text-amber-950">Cuenta de contador sin punto de venta</h1>
+              <p className="mt-3 text-sm text-amber-900">
+                Tu perfil está marcado como contador pero no hay punto de venta asignado en el sistema. No puedes elegir
+                otro punto de venta por tu cuenta. Contacta al punto de venta que te invitó para que revisen tu acceso.
+              </p>
+            </div>
+          </main>
+        </div>
+      );
+    }
+
     return (
       <div className="flex min-h-screen flex-col bg-white">
         <header className="border-b border-gray-100 bg-white px-6 py-4 shadow-sm">

@@ -1,7 +1,15 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useAuth } from "@/context/AuthContext";
+import { POS_CONTADOR_ROLE } from "@/lib/auth-roles";
 import { auth } from "@/lib/firebase";
+import {
+  cancelarInvitacionContadorFirestore,
+  crearInvitacionContadorFirestore,
+  enviarCorreoEnlaceContador,
+  listarInvitacionesContadorFirestore,
+} from "@/lib/contador-invite-firestore";
 import {
   getContadorInvitaciones,
   postInvitarContador,
@@ -52,7 +60,29 @@ function etiquetaEstado(estado: string | undefined): string {
   return estado;
 }
 
+function firestoreInvitacionesAResumen(
+  docs: Awaited<ReturnType<typeof listarInvitacionesContadorFirestore>>,
+  wmsNote?: string
+): ContadorInvitacionesNormalizado {
+  const visibles = docs.filter((d) => d.estado !== "cancelada");
+  const invitaciones: InvitacionContadorItem[] = visibles.map((d) => ({
+    email: d.inviteeEmail,
+    estado: d.estado === "aceptada" ? "Activa" : d.estado === "pendiente" ? "Pendiente" : d.estado,
+    createdAt: typeof d.createdAt === "string" ? d.createdAt : undefined,
+    firestoreId: d.estado === "pendiente" ? d.id : undefined,
+  }));
+  const usados = visibles.filter((d) => d.estado === "pendiente" || d.estado === "aceptada").length;
+  return {
+    ok: true,
+    cupoMax: 1,
+    usados: Math.min(usados, 1),
+    invitaciones,
+    message: wmsNote,
+  };
+}
+
 export default function InvitarContadorPanel({ onVolver }: InvitarContadorPanelProps) {
+  const { user } = useAuth();
   const [resumen, setResumen] = useState<ContadorInvitacionesNormalizado | null>(null);
   const [cargando, setCargando] = useState(true);
   const [modalAbierto, setModalAbierto] = useState(false);
@@ -60,6 +90,7 @@ export default function InvitarContadorPanel({ onVolver }: InvitarContadorPanelP
   const [enviando, setEnviando] = useState(false);
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [anulandoId, setAnulandoId] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
     setCargando(true);
@@ -67,6 +98,17 @@ export default function InvitarContadorPanel({ onVolver }: InvitarContadorPanelP
     try {
       const token = auth?.currentUser ? await auth.currentUser.getIdToken() : null;
       const r = await getContadorInvitaciones(token);
+      const fb = user?.uid ? await listarInvitacionesContadorFirestore(user.uid) : [];
+
+      if (r.ok && r.invitaciones.length > 0) {
+        setResumen(r);
+        return;
+      }
+      if (fb.length > 0) {
+        setResumen(firestoreInvitacionesAResumen(fb, !r.ok ? r.message : undefined));
+        setError(null);
+        return;
+      }
       setResumen(r);
       if (!r.ok && r.message) setError(r.message);
     } catch {
@@ -75,7 +117,7 @@ export default function InvitarContadorPanel({ onVolver }: InvitarContadorPanelP
     } finally {
       setCargando(false);
     }
-  }, []);
+  }, [user?.uid]);
 
   useEffect(() => {
     void cargar();
@@ -93,29 +135,86 @@ export default function InvitarContadorPanel({ onVolver }: InvitarContadorPanelP
   };
 
   const enviarInvitacion = async () => {
+    if (user?.role === POS_CONTADOR_ROLE) {
+      setMensaje("Las cuentas de contador no pueden enviar invitaciones.");
+      return;
+    }
     const correo = email.trim();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) {
       setMensaje("Introduce un correo electrónico válido.");
       return;
     }
+    if (!user?.uid || !user.puntoVenta || !user.email) {
+      setMensaje("Debes tener un punto de venta asignado para invitar. Completa tu perfil o elige punto de venta al iniciar sesión.");
+      return;
+    }
+    if (!auth) {
+      setMensaje("Sesión no disponible.");
+      return;
+    }
     setEnviando(true);
     setMensaje(null);
     try {
-      const token = auth?.currentUser ? await auth.currentUser.getIdToken() : null;
+      const token = auth.currentUser ? await auth.currentUser.getIdToken() : null;
       const r = await postInvitarContador(correo, token);
       if (r.ok) {
         setModalAbierto(false);
         setEmail("");
         await cargar();
         setMensaje(r.message || "Invitación enviada. El contador recibirá instrucciones por correo.");
-      } else {
-        setMensaje(r.message || "No se pudo enviar la invitación.");
+        return;
       }
+      const crear = await crearInvitacionContadorFirestore({
+        inviterUid: user.uid,
+        inviterEmail: user.email,
+        puntoVenta: user.puntoVenta,
+        inviteeEmail: correo,
+      });
+      if (!crear.ok) {
+        setMensaje(crear.message || r.message || "No se pudo registrar la invitación.");
+        return;
+      }
+      const origin = window.location.origin;
+      const continueUrl = `${origin}/invitacion-contador?e=${encodeURIComponent(correo.toLowerCase())}`;
+      const mail = await enviarCorreoEnlaceContador(auth, correo, continueUrl);
+      if (!mail.ok) {
+        setMensaje(
+          mail.message ||
+            "La invitación quedó registrada pero no se envió el correo. Revisa dominios autorizados en Firebase (Authentication → Configuración → Dominios)."
+        );
+        await cargar();
+        return;
+      }
+      setModalAbierto(false);
+      setEmail("");
+      await cargar();
+      setMensaje(
+        "Invitación enviada por correo. El contador debe abrir el enlace, confirmar el correo y crear su contraseña. Solo verá datos de tu punto de venta."
+      );
     } catch {
       setMensaje("Error de red al enviar la invitación.");
     } finally {
       setEnviando(false);
     }
+  };
+
+  const anularInvitacionPendiente = async (firestoreId: string, emailInvitado: string) => {
+    if (!user?.uid) return;
+    const ok = window.confirm(
+      `¿Anular la invitación pendiente a ${emailInvitado}? Podrás enviar una nueva invitación a otro correo.`
+    );
+    if (!ok) return;
+    setAnulandoId(firestoreId);
+    setMensaje(null);
+    setError(null);
+    const r = await cancelarInvitacionContadorFirestore({ firestoreId, inviterUid: user.uid });
+    setAnulandoId(null);
+    if (!r.ok) {
+      setError(r.message ?? "No se pudo anular la invitación.");
+      return;
+    }
+    await cargar();
+    setMensaje("Invitación anulada. Ya puedes invitar a otro contador.");
   };
 
   const inputClass =
@@ -154,11 +253,16 @@ export default function InvitarContadorPanel({ onVolver }: InvitarContadorPanelP
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
           <p className="font-medium">{error}</p>
           <p className="mt-2 text-xs text-amber-900/90">
-            El WMS debe exponer <code className="rounded bg-amber-100 px-1">GET /api/pos/contador/invitaciones</code> y{" "}
-            <code className="rounded bg-amber-100 px-1">POST /api/pos/contador/invitar</code> con el mismo token Firebase
-            que el POS. Hasta entonces la invitación no podrá completarse desde aquí.
+            Si el WMS no tiene aún las rutas de contador, el POS puede usar invitaciones con Firebase (Firestore + correo
+            con enlace). Asegura reglas de Firestore para la colección{" "}
+            <code className="rounded bg-amber-100 px-1">posContadorInvitaciones</code> y dominios autorizados en Firebase
+            Auth para la URL de este POS.
           </p>
         </div>
+      )}
+
+      {resumen?.message && !error && (
+        <div className="mb-4 rounded-lg border border-sky-100 bg-sky-50 p-2 text-xs text-sky-900">{resumen.message}</div>
       )}
 
       {mensaje && !modalAbierto && (
@@ -193,12 +297,32 @@ export default function InvitarContadorPanel({ onVolver }: InvitarContadorPanelP
         <section className="mt-8">
           <h4 className="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">Invitaciones</h4>
           <ul className="divide-y divide-gray-100 rounded-xl border border-gray-200 bg-white">
-            {invitaciones.map((inv: InvitacionContadorItem) => (
-              <li key={inv.email} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm">
-                <span className="font-medium text-gray-900">{inv.email}</span>
-                <span className="text-gray-600">{etiquetaEstado(inv.estado)}</span>
-              </li>
-            ))}
+            {invitaciones.map((inv: InvitacionContadorItem, idx: number) => {
+              const pendienteFirestore =
+                Boolean(inv.firestoreId) &&
+                (inv.estado === "Pendiente" || (inv.estado ?? "").toLowerCase().includes("pend"));
+              return (
+                <li
+                  key={`${inv.email}-${inv.firestoreId ?? idx}`}
+                  className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm"
+                >
+                  <span className="font-medium text-gray-900">{inv.email}</span>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-gray-600">{etiquetaEstado(inv.estado)}</span>
+                    {pendienteFirestore && inv.firestoreId && (
+                      <button
+                        type="button"
+                        disabled={anulandoId === inv.firestoreId}
+                        onClick={() => void anularInvitacionPendiente(inv.firestoreId!, inv.email)}
+                        className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-50"
+                      >
+                        {anulandoId === inv.firestoreId ? "Anulando…" : "Anular"}
+                      </button>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         </section>
       )}

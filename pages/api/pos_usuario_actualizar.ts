@@ -35,9 +35,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
-      return res.status(response.status).json({
+      const hint =
+        response.status === 404
+          ? " El WMS debe exponer POST /api/pos/usuarios/actualizar (o la ruta que uses)."
+          : "";
+      return res.status(200).json({
         ok: false,
-        message: data?.message || data?.error || `Error ${response.status}`,
+        message: (data?.message || data?.error || `Error ${response.status}`) + hint,
       });
     }
     return res.status(200).json(data);
@@ -49,6 +53,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         : err instanceof Error
           ? err.message
           : "Error al conectar con el WMS";
-    return res.status(502).json({ ok: false, message });
+    return res.status(200).json({ ok: false, message });
   }
 }

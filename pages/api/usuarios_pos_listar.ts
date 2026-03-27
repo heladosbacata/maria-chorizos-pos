@@ -35,9 +35,14 @@ export default async function handler(
     const data = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      return res.status(response.status).json({
+      const hint =
+        response.status === 404
+          ? " Comprueba que el WMS exponga GET /api/pos/usuarios/registrados y que NEXT_PUBLIC_WMS_URL sea correcta."
+          : "";
+      return res.status(200).json({
         ok: false,
-        message: data?.message || data?.error || `Error ${response.status}`,
+        message: (data?.message || data?.error || `El WMS respondió ${response.status}.`) + hint,
+        usuarios: [],
       });
     }
 
@@ -50,6 +55,10 @@ export default async function handler(
         : err instanceof Error
           ? err.message
           : "Error al conectar con el WMS";
-    return res.status(200).json({ ok: false, message, usuarios: [] });
+    return res.status(200).json({
+      ok: false,
+      message: message + " Revisa NEXT_PUBLIC_WMS_URL (desarrollo: puerto del WMS, p. ej. http://localhost:3002).",
+      usuarios: [],
+    });
   }
 }

@@ -29,6 +29,8 @@ export interface PerfilUsuarioModalProps {
   puntoVenta: string | null;
   fotoPreview: string | null;
   onFotoChange: (dataUrl: string | null) => void;
+  /** Si true, no se ofrece ficha WMS del franquiciado (solo datos locales). */
+  esContador?: boolean;
 }
 
 export default function PerfilUsuarioModal({
@@ -39,7 +41,9 @@ export default function PerfilUsuarioModal({
   puntoVenta,
   fotoPreview,
   onFotoChange,
+  esContador: esContadorProp,
 }: PerfilUsuarioModalProps) {
+  const esContador = Boolean(esContadorProp);
   const [vista, setVista] = useState<VistaPerfil>("menu");
   const [cargandoFranq, setCargandoFranq] = useState(false);
   const [errorFranq, setErrorFranq] = useState<string | null>(null);
@@ -53,6 +57,7 @@ export default function PerfilUsuarioModal({
   }, [open]);
 
   const cargarFranquiciado = useCallback(async () => {
+    if (esContador) return;
     if (!puntoVenta?.trim()) {
       setErrorFranq("No hay punto de venta asignado. Selecciona uno al iniciar sesión.");
       setFichaFranq(null);
@@ -80,13 +85,13 @@ export default function PerfilUsuarioModal({
     } finally {
       setCargandoFranq(false);
     }
-  }, [puntoVenta]);
+  }, [puntoVenta, esContador]);
 
   useEffect(() => {
-    if (open && vista === "franquiciado") {
+    if (open && vista === "franquiciado" && !esContador) {
       void cargarFranquiciado();
     }
-  }, [open, vista, cargarFranquiciado]);
+  }, [open, vista, cargarFranquiciado, esContador]);
 
   if (!open) return null;
 
@@ -104,7 +109,9 @@ export default function PerfilUsuarioModal({
             {vista === "menu"
               ? "Perfil del usuario"
               : vista === "cajero"
-                ? "Perfil del cajero"
+                ? esContador
+                ? "Datos personales"
+                : "Perfil del cajero"
                 : "Perfil del franquiciado"}
           </h2>
           <button
@@ -122,29 +129,38 @@ export default function PerfilUsuarioModal({
         <div className="flex-1 overflow-y-auto px-5 py-4">
           {vista === "menu" && (
             <div className="space-y-4">
-              <p className="text-sm text-gray-600">Elige qué información deseas ver o editar.</p>
-              <div className="grid gap-3 sm:grid-cols-2">
+              <p className="text-sm text-gray-600">
+                {esContador
+                  ? "Puedes revisar o editar tus datos personales guardados en Firestore (sin acceso a datos del WMS)."
+                  : "Elige qué información deseas ver o editar."}
+              </p>
+              <div className={`grid gap-3 ${esContador ? "" : "sm:grid-cols-2"}`}>
                 <button
                   type="button"
                   onClick={() => setVista("cajero")}
                   className="flex flex-col items-start rounded-xl border-2 border-gray-200 bg-white p-4 text-left shadow-sm transition-all hover:border-primary-400 hover:shadow-md"
                 >
-                  <span className="text-base font-semibold text-gray-900">1) Perfil del cajero</span>
+                  <span className="text-base font-semibold text-gray-900">
+                    {esContador ? "Datos personales" : "1) Perfil del cajero"}
+                  </span>
                   <span className="mt-2 text-sm text-gray-600">
-                    Datos personales, contacto, emergencia, hijos, cumpleaños y foto. Se guardan en tu usuario
-                    (Firestore) y en este equipo; la foto solo en el equipo.
+                    {esContador
+                      ? "Contacto y demás datos que elijas guardar en tu usuario (Firestore). La foto solo en este equipo."
+                      : "Datos personales, contacto, emergencia, hijos, cumpleaños y foto. Se guardan en tu usuario (Firestore) y en este equipo; la foto solo en el equipo."}
                   </span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setVista("franquiciado")}
-                  className="flex flex-col items-start rounded-xl border-2 border-gray-200 bg-white p-4 text-left shadow-sm transition-all hover:border-primary-400 hover:shadow-md"
-                >
-                  <span className="text-base font-semibold text-gray-900">2) Perfil del franquiciado</span>
-                  <span className="mt-2 text-sm text-gray-600">
-                    Ficha definida en el WMS para el punto de venta actual ({puntoVenta || "sin asignar"}).
-                  </span>
-                </button>
+                {!esContador && (
+                  <button
+                    type="button"
+                    onClick={() => setVista("franquiciado")}
+                    className="flex flex-col items-start rounded-xl border-2 border-gray-200 bg-white p-4 text-left shadow-sm transition-all hover:border-primary-400 hover:shadow-md"
+                  >
+                    <span className="text-base font-semibold text-gray-900">2) Perfil del franquiciado</span>
+                    <span className="mt-2 text-sm text-gray-600">
+                      Ficha definida en el WMS para el punto de venta actual ({puntoVenta || "sin asignar"}).
+                    </span>
+                  </button>
+                )}
               </div>
             </div>
           )}

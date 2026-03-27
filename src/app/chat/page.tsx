@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import { esContadorInvitado } from "@/lib/auth-roles";
 import { auth } from "@/lib/firebase";
 import { LOGO_ORG_URL } from "@/lib/brand";
 import { getChatUsuarios } from "@/lib/chat-api";
@@ -50,9 +51,15 @@ export default function ChatPage() {
     scrollToBottom();
   }, [messages, scrollToBottom]);
 
+  useEffect(() => {
+    if (!loading && user && esContadorInvitado(user.role)) {
+      router.replace("/caja");
+    }
+  }, [loading, user, router]);
+
   // Cargar contactos desde API WMS con token
   useEffect(() => {
-    if (!user || !auth?.currentUser) {
+    if (!user || !auth?.currentUser || esContadorInvitado(user.role)) {
       setContactosLoading(false);
       return;
     }
