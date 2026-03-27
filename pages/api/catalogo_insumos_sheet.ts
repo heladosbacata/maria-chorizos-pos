@@ -5,20 +5,54 @@ import {
   insumosDesdeGrilla,
   parseCsvToRows,
 } from "@/lib/catalogo-insumos-sheet-parse";
+import {
+  createSheetsReadonlyJwt,
+  fetchSpreadsheetRowsWithJwt,
+  getSheetsServiceAccountPublicMetaFromEnv,
+  googleSheetsApiEnableUrl,
+  parseServiceAccountJson,
+  resolveSheetsServiceAccountJsonFromEnv,
+} from "@/lib/google-sheets-service-account-read";
 import type { InsumoKitItem } from "@/types/inventario-pos";
 
+type SheetSetupHint = {
+  clientEmail: string;
+  projectId: string;
+  sheetsApiUrl: string;
+  /** Texto fijo: compartir hoja una vez con clientEmail */
+  shareOnceHint: string;
+};
+
 type OkResponse = { ok: true; data: InsumoKitItem[]; fuente: string };
-type ErrResponse = { ok: false; message: string; data: InsumoKitItem[] };
+type ErrResponse = {
+  ok: false;
+  message: string;
+  data: InsumoKitItem[];
+  /** Presente si falló la ruta con cuenta de servicio: el cajero no hace nada; el admin configura una vez. */
+  sheetSetup?: SheetSetupHint;
+};
+
+function sheetSetupFromEnv(): SheetSetupHint | undefined {
+  const meta = getSheetsServiceAccountPublicMetaFromEnv();
+  if (!meta) return undefined;
+  return {
+    clientEmail: meta.clientEmail,
+    projectId: meta.projectId,
+    sheetsApiUrl: googleSheetsApiEnableUrl(meta.projectId),
+    shareOnceHint:
+      "Comparte la hoja de insumos con el correo de la cuenta de servicio (solo lectura basta). Un solo paso: todos los usuarios POS usan el mismo acceso automáticamente.",
+  };
+}
 
 /**
  * Catálogo de insumos para cargue manual desde Google Sheets.
  *
- * Opciones (por prioridad):
- * 1) GOOGLE_SHEETS_INSUMOS_CSV_URL — URL CSV publicada (Archivo → Compartir → Publicar en la web).
- * 2) GOOGLE_SHEETS_API_KEY + GOOGLE_SHEETS_INSUMOS_SPREADSHEET_ID — API v4 (la hoja debe ser visible:
- *    "Cualquiera con el enlace puede ver" o pública). Opcional GOOGLE_SHEETS_INSUMOS_RANGE (ej. Hoja1!A:F).
- *    Si no hay rango, se usa la pestaña cuyo sheetId coincide con GOOGLE_SHEETS_INSUMOS_GID (415609818 por defecto).
- * 3) Exportación CSV clásica (sin API key): solo si la hoja es accesible sin login (poco habitual).
+ * Prioridad:
+ * 1) GOOGLE_SHEETS_INSUMOS_CSV_URL — CSV publicado.
+ * 2) GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON — cuenta de servicio con acceso a la hoja (restringida OK).
+ *    O GOOGLE_SHEETS_USE_FIREBASE_SA=1 y FIREBASE_SERVICE_ACCOUNT_JSON si esa SA es editor.
+ * 3) GOOGLE_SHEETS_API_KEY — solo si la hoja es «Cualquiera con el enlace: lector» o pública.
+ * 4) Export CSV anónimo (poco habitual con hojas privadas).
  */
 export default async function handler(req: NextApiRequest, res: NextApiResponse<OkResponse | ErrResponse>) {
   if (req.method !== "GET") {
@@ -28,39 +62,44 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const puntoVenta = typeof req.query.puntoVenta === "string" ? req.query.puntoVenta.trim() : "";
 
   try {
-    const rows = await obtenerFilasDesdeSheet();
+    const { rows, fuente } = await obtenerFilasDesdeSheet();
     const data = insumosDesdeGrilla(rows, puntoVenta || null, "sheet");
-    const fuente = process.env.GOOGLE_SHEETS_INSUMOS_CSV_URL?.trim()
-      ? "csv_url"
-      : process.env.GOOGLE_SHEETS_API_KEY?.trim()
-        ? "sheets_api"
-        : "export_csv";
     return res.status(200).json({ ok: true, data, fuente });
   } catch (e) {
     const message =
       e instanceof Error
         ? e.message
-        : "No se pudo leer la hoja. Configura GOOGLE_SHEETS_API_KEY (hoja con enlace de solo lectura) o GOOGLE_SHEETS_INSUMOS_CSV_URL (publicar como CSV).";
-    return res.status(200).json({ ok: false, message, data: [] });
+        : "No se pudo leer la hoja. Configura GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON (cuenta de servicio editora en la hoja), CSV publicado, o API key con hoja en modo lector por enlace.";
+    const saJson = resolveSheetsServiceAccountJsonFromEnv();
+    const sheetSetup = saJson ? sheetSetupFromEnv() : undefined;
+    return res.status(200).json({ ok: false, message, data: [], sheetSetup });
   }
 }
 
-async function obtenerFilasDesdeSheet(): Promise<string[][]> {
+async function obtenerFilasDesdeSheet(): Promise<{ rows: string[][]; fuente: string }> {
   const csvUrl = process.env.GOOGLE_SHEETS_INSUMOS_CSV_URL?.trim();
   if (csvUrl) {
     const r = await fetch(csvUrl, { cache: "no-store" });
     const t = await r.text();
     if (!r.ok) throw new Error(`No se pudo descargar el CSV publicado (${r.status}).`);
-    return parseCsvToRows(t);
+    return { rows: parseCsvToRows(t), fuente: "csv_url" };
   }
 
-  const apiKey = process.env.GOOGLE_SHEETS_API_KEY?.trim();
   const spreadsheetId =
     process.env.GOOGLE_SHEETS_INSUMOS_SPREADSHEET_ID?.trim() || DEFAULT_GOOGLE_SHEETS_INSUMOS_ID;
   const gid = parseInt(process.env.GOOGLE_SHEETS_INSUMOS_GID || String(DEFAULT_GOOGLE_SHEETS_INSUMOS_GID), 10);
+  const rangeOverride = process.env.GOOGLE_SHEETS_INSUMOS_RANGE?.trim();
 
+  const saJson = resolveSheetsServiceAccountJsonFromEnv();
+  if (saJson) {
+    const creds = parseServiceAccountJson(saJson);
+    const jwt = createSheetsReadonlyJwt(creds);
+    const rows = await fetchSpreadsheetRowsWithJwt(jwt, spreadsheetId, gid, rangeOverride);
+    return { rows, fuente: "sheets_service_account" };
+  }
+
+  const apiKey = process.env.GOOGLE_SHEETS_API_KEY?.trim();
   if (apiKey) {
-    const rangeOverride = process.env.GOOGLE_SHEETS_INSUMOS_RANGE?.trim();
     let a1Range: string;
     if (rangeOverride) {
       a1Range = rangeOverride;
@@ -77,7 +116,9 @@ async function obtenerFilasDesdeSheet(): Promise<string[][]> {
       const sheet = metaJson.sheets?.find((s) => s.properties?.sheetId === gid);
       const title = sheet?.properties?.title?.trim();
       if (!title) {
-        throw new Error(`No se encontró la pestaña con gid/sheetId ${gid}. Define GOOGLE_SHEETS_INSUMOS_RANGE (ej. 'Hoja 1'!A:Z).`);
+        throw new Error(
+          `No se encontró la pestaña con gid/sheetId ${gid}. Define GOOGLE_SHEETS_INSUMOS_RANGE (ej. 'Hoja 1'!A:Z).`
+        );
       }
       const safeTitle = title.replace(/'/g, "''");
       a1Range = `'${safeTitle}'!A:ZZ`;
@@ -94,7 +135,8 @@ async function obtenerFilasDesdeSheet(): Promise<string[][]> {
     }
     const values = valJson.values;
     if (!values?.length) throw new Error("La hoja no tiene datos en el rango indicado.");
-    return values.map((row) => row.map((c) => (c == null ? "" : String(c))));
+    const rows = values.map((row) => row.map((c) => (c == null ? "" : String(c))));
+    return { rows, fuente: "sheets_api" };
   }
 
   const exportUrl = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/export?format=csv&gid=${gid}`;
@@ -102,8 +144,8 @@ async function obtenerFilasDesdeSheet(): Promise<string[][]> {
   const txt = await ex.text();
   if (!ex.ok || txt.includes("Sign in") || txt.includes("accounts.google.com")) {
     throw new Error(
-      "La hoja requiere autenticación. Añade GOOGLE_SHEETS_API_KEY en el servidor (comparte la hoja como «Cualquiera con el enlace: lector») o usa GOOGLE_SHEETS_INSUMOS_CSV_URL tras publicar el CSV."
+      "La hoja requiere autenticación. Configura GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON con la cuenta de servicio que tenga acceso a la hoja (p. ej. bot-inventario), o comparte la hoja como «Cualquiera con el enlace: lector» y usa GOOGLE_SHEETS_API_KEY, o GOOGLE_SHEETS_INSUMOS_CSV_URL."
     );
   }
-  return parseCsvToRows(txt);
+  return { rows: parseCsvToRows(txt), fuente: "export_csv" };
 }

@@ -19,6 +19,7 @@ type EstadoContratoMostrado =
 
 export default function ContratoPosGebPanel({ onVolver }: ContratoPosGebPanelProps) {
   const { user } = useAuth();
+  const codigoPvSesion = user?.puntoVenta?.trim() ?? "";
   const [estadoContrato, setEstadoContrato] = useState<EstadoContratoMostrado>("sin_datos");
   const [planProducto, setPlanProducto] = useState("POS GEB — Contabilidad y facturación");
   const [fechaInicio, setFechaInicio] = useState("");
@@ -141,49 +142,82 @@ export default function ContratoPosGebPanel({ onVolver }: ContratoPosGebPanelPro
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">{avisoWms}</div>
       )}
 
-      <div className="mb-6 flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-gray-50/80 p-4">
-        <span className="text-sm font-medium text-gray-700">Estado del contrato</span>
-        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-          {cargandoWms && (
-            <span className="text-sm text-gray-600">Consultando estado en el WMS…</span>
-          )}
-          {!cargandoWms && estadoContrato === "vigente" && (
-            <>
-              <span className="text-sm font-semibold text-gray-900">Vigente</span>
-              <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">Al día</span>
-            </>
-          )}
-          {!cargandoWms && estadoContrato === "por_vencer" && (
-            <>
-              <span className="text-sm font-semibold text-gray-900">Por vencer</span>
-              <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">
-                Requiere atención
-              </span>
-            </>
-          )}
-          {!cargandoWms && estadoContrato === "vencido" && (
-            <>
-              <span className="text-sm font-semibold text-gray-900">Vencido / renovación</span>
-              <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-900">Seguimiento</span>
-            </>
-          )}
-          {!cargandoWms && estadoContrato === "sin_vencimiento" && (
-            <>
-              <span className="text-sm font-semibold text-gray-900">Sin evaluar</span>
-              <span className="rounded-full bg-gray-200 px-3 py-1 text-xs font-semibold text-gray-800">
-                Falta fecha de vencimiento en el WMS
-              </span>
-            </>
-          )}
-          {!cargandoWms && estadoContrato === "sin_datos" && (
-            <>
-              <span className="text-sm font-semibold text-gray-900">No disponible</span>
-              <span className="rounded-full bg-gray-200 px-3 py-1 text-xs font-semibold text-gray-800">
-                Sincroniza con el WMS o revisa tu usuario
-              </span>
-            </>
-          )}
+      <div className="mb-6 rounded-xl border border-gray-200 bg-gray-50/80 p-4">
+        <div className="flex flex-col gap-3 md:flex-row md:flex-wrap md:items-center md:gap-x-4 md:gap-y-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2 md:gap-3">
+            <span className="text-sm font-semibold text-gray-900">Estado del contrato</span>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              {cargandoWms && (
+                <span className="text-sm text-gray-600">Consultando estado en el WMS…</span>
+              )}
+              {!cargandoWms && estadoContrato === "vigente" && (
+                <>
+                  <span className="text-sm font-semibold text-gray-900">Vigente</span>
+                  <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-800">Al día</span>
+                </>
+              )}
+              {!cargandoWms && estadoContrato === "por_vencer" && (
+                <>
+                  <span className="text-sm font-semibold text-gray-900">Por vencer</span>
+                  <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">
+                    Requiere atención
+                  </span>
+                </>
+              )}
+              {!cargandoWms && estadoContrato === "vencido" && (
+                <>
+                  <span className="text-sm font-semibold text-gray-900">Vencido / renovación</span>
+                  <span className="rounded-full bg-sky-100 px-3 py-1 text-xs font-semibold text-sky-900">Seguimiento</span>
+                </>
+              )}
+              {!cargandoWms && estadoContrato === "sin_vencimiento" && (
+                <>
+                  <span className="text-sm font-semibold text-gray-900">Sin evaluar</span>
+                  <span className="rounded-full bg-gray-200 px-3 py-1 text-xs font-semibold text-gray-800">
+                    Falta fecha de vencimiento en el WMS
+                  </span>
+                </>
+              )}
+              {!cargandoWms && estadoContrato === "sin_datos" && (
+                <>
+                  <span className="text-sm font-semibold text-gray-900">No disponible</span>
+                  <span className="rounded-full bg-gray-200 px-3 py-1 text-xs font-semibold text-gray-800">
+                    Sincroniza con el WMS o revisa tu usuario
+                  </span>
+                </>
+              )}
+            </div>
+          </div>
+
+          <div
+            className="flex w-full min-w-0 flex-col gap-1 border-t border-gray-200 pt-3 md:w-auto md:max-w-md md:flex-1 md:flex-row md:items-center md:gap-3 md:border-l md:border-t-0 md:pt-0 md:pl-4"
+            role="group"
+            aria-label="Código del punto de venta de esta sesión"
+          >
+            <label
+              htmlFor="contrato-codigo-pv"
+              className="shrink-0 text-sm font-semibold text-gray-900 md:whitespace-nowrap"
+            >
+              Código del PV
+            </label>
+            <input
+              id="contrato-codigo-pv"
+              readOnly
+              value={codigoPvSesion}
+              placeholder="Sin asignar"
+              title="Valor del perfil de sesión; debe coincidir exactamente con puntoVenta / posCatalogoPvCodes en Firestore (catálogo de insumos)."
+              className={
+                inputClass +
+                " min-h-[2.5rem] w-full cursor-text bg-white font-mono text-sm tabular-nums md:min-w-[12rem] md:flex-1" +
+                (codigoPvSesion ? "" : " text-gray-500")
+              }
+            />
+          </div>
         </div>
+        <p className="mt-3 text-xs leading-relaxed text-gray-600">
+          Usa este código en <span className="font-semibold text-gray-800">DB_Franquicia_Insumos_Kit</span> (mismo texto,
+          mayúsculas y espacios).
+        </p>
       </div>
 
       <div className="space-y-5 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">

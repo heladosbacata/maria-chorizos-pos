@@ -36,4 +36,6 @@ export interface TicketVentaPayload {
   vendedorLabel: string;
   lineas: TicketVentaLinea[];
   total: number;
+  /** Pie del ticket (pre-cuenta vs venta cobrada). */
+  notaPie?: string;
 }

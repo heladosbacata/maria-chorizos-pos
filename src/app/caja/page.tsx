@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -69,6 +69,26 @@ export interface ItemCuenta {
   varianteChorizo?: VarianteChorizo;
   /** Chorizo con arepa o combo con arepa */
   varianteArepaCombo?: VarianteArepaCombo;
+}
+
+function lineasTicketDesdeItemsCuenta(items: ItemCuenta[]): TicketVentaLinea[] {
+  return items.map((it) => {
+    const varianteParts: string[] = [];
+    if (it.varianteChorizo) varianteParts.push(etiquetaVarianteChorizo(it.varianteChorizo));
+    if (it.varianteArepaCombo) varianteParts.push(etiquetaArepaCombo(it.varianteArepaCombo));
+    const sub = it.producto.precioUnitario * it.cantidad;
+    return {
+      descripcion: it.producto.descripcion,
+      cantidad: it.cantidad,
+      precioUnitario: it.producto.precioUnitario,
+      subtotal: sub,
+      detalleVariante: varianteParts.length ? varianteParts.join(" · ") : undefined,
+    };
+  });
+}
+
+function etiquetaTipoComprobanteTicket(t: TipoComprobanteVenta): string {
+  return t === "documento_interno" ? "Doc. interno" : "Factura electrónica de venta";
 }
 
 type ModuloActivo = "ventas" | "turnos" | "cargueInventario" | "inventarios" | "reportes" | "mas";
@@ -142,6 +162,9 @@ export default function CajaPage() {
   const [clientesPosLista, setClientesPosLista] = useState<ClientePosFirestoreDoc[]>([]);
   const [showModalCrearCliente, setShowModalCrearCliente] = useState(false);
   const [cobrando, setCobrando] = useState(false);
+  const [guardandoPrecuenta, setGuardandoPrecuenta] = useState(false);
+  /** Panel “Ver resumen” en el pie del carrito (doc. interno / factura). */
+  const [sidebarResumenExpandido, setSidebarResumenExpandido] = useState(false);
   /** Id de la pre-cuenta cuyo nombre se está editando; null si no hay edición */
   const [editingPrecuentaId, setEditingPrecuentaId] = useState<string | null>(null);
   const [editingNombre, setEditingNombre] = useState("");
@@ -456,6 +479,82 @@ export default function CajaPage() {
     0
   );
 
+  const construirPayloadTicket = useCallback(
+    (titulo: string, items: ItemCuenta[], notaPie?: string): TicketVentaPayload | null => {
+      const pv = user?.puntoVenta?.trim();
+      if (!pv) return null;
+      const total = items.reduce((s, i) => s + i.producto.precioUnitario * i.cantidad, 0);
+      const nombrePrecuenta = precuentas.find((p) => p.id === activePrecuentaId)?.nombre ?? "Cuenta";
+      const vendedorTicket =
+        cajeroTurnoActivo?.nombreDisplay?.trim() || user?.email?.split("@")[0]?.trim() || "—";
+      return {
+        titulo,
+        puntoVenta: pv,
+        precuentaNombre: nombrePrecuenta,
+        fechaHora: new Date().toLocaleString("es-CO"),
+        clienteNombre: clienteActivoPrecuenta.nombreDisplay,
+        tipoComprobanteLabel: etiquetaTipoComprobanteTicket(tipoComprobante),
+        vendedorLabel: vendedorTicket,
+        lineas: lineasTicketDesdeItemsCuenta(items),
+        total,
+        ...(notaPie ? { notaPie } : {}),
+      };
+    },
+    [
+      user?.puntoVenta,
+      user?.email,
+      activePrecuentaId,
+      precuentas,
+      cajeroTurnoActivo?.nombreDisplay,
+      clienteActivoPrecuenta,
+      tipoComprobante,
+    ]
+  );
+
+  const handleGuardarPrecuenta = useCallback(async () => {
+    if (!user || esContadorInvitado(user.role)) return;
+    if (!user.puntoVenta?.trim()) {
+      window.alert("No hay punto de venta asignado.");
+      return;
+    }
+    if (itemsCuentaActiva.length === 0) {
+      window.alert("Agrega productos a la cuenta para imprimir la pre-cuenta.");
+      return;
+    }
+    if (!turnoAbierto) {
+      window.alert("Abre el turno para generar la pre-cuenta.");
+      return;
+    }
+    const payload = construirPayloadTicket(
+      "PRE-CUENTA",
+      itemsCuentaActiva,
+      "Borrador — no es comprobante de pago."
+    );
+    if (!payload) return;
+    setGuardandoPrecuenta(true);
+    try {
+      const prefs = loadImpresionPrefs();
+      if (prefs.metodo === "directa") {
+        await imprimirTicketConQz(prefs, payload);
+      } else {
+        imprimirTicketEnNavegador(payload);
+      }
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "No se pudo imprimir la pre-cuenta.");
+    } finally {
+      setGuardandoPrecuenta(false);
+    }
+  }, [
+    user,
+    itemsCuentaActiva,
+    turnoAbierto,
+    construirPayloadTicket,
+  ]);
+
+  useEffect(() => {
+    if (itemsCuentaActiva.length === 0) setSidebarResumenExpandido(false);
+  }, [itemsCuentaActiva.length]);
+
   const cambiarCantidad = (lineId: string, delta: number) => {
     setItemsPorPrecuenta((prev) => {
       const items = prev[activePrecuentaId] ?? [];
@@ -491,9 +590,6 @@ export default function CajaPage() {
     const itemsSnap = [...itemsCuentaActiva];
     const total = itemsSnap.reduce((s, i) => s + i.producto.precioUnitario * i.cantidad, 0);
     if (!(total > 0)) return;
-
-    const etiquetaComprobanteTicket = (t: TipoComprobante) =>
-      t === "documento_interno" ? "Doc. interno" : "Factura electrónica de venta";
 
     setCobrando(true);
     try {
@@ -533,20 +629,6 @@ export default function CajaPage() {
 
       setTotalVentasEnTurno((prev) => prev + total);
 
-      const lineasTicket: TicketVentaLinea[] = itemsSnap.map((it) => {
-        const varianteParts: string[] = [];
-        if (it.varianteChorizo) varianteParts.push(etiquetaVarianteChorizo(it.varianteChorizo));
-        if (it.varianteArepaCombo) varianteParts.push(etiquetaArepaCombo(it.varianteArepaCombo));
-        const sub = it.producto.precioUnitario * it.cantidad;
-        return {
-          descripcion: it.producto.descripcion,
-          cantidad: it.cantidad,
-          precioUnitario: it.producto.precioUnitario,
-          subtotal: sub,
-          detalleVariante: varianteParts.length ? varianteParts.join(" · ") : undefined,
-        };
-      });
-
       appendVentaLocal({
         fechaYmd: formatFechaHoy(),
         puntoVenta: pv,
@@ -572,21 +654,8 @@ export default function CajaPage() {
           : {}),
       });
 
-      const nombrePrecuenta = precuentas.find((p) => p.id === activePrecuentaId)?.nombre ?? "Cuenta";
-      const vendedorTicket =
-        cajeroTurnoActivo?.nombreDisplay?.trim() || user.email?.split("@")[0]?.trim() || "—";
-
-      const ticket: TicketVentaPayload = {
-        titulo: "TICKET DE VENTA",
-        puntoVenta: pv,
-        precuentaNombre: nombrePrecuenta,
-        fechaHora: new Date().toLocaleString("es-CO"),
-        clienteNombre: clienteActivoPrecuenta.nombreDisplay,
-        tipoComprobanteLabel: etiquetaComprobanteTicket(tipoComprobante),
-        vendedorLabel: vendedorTicket,
-        lineas: lineasTicket,
-        total,
-      };
+      const ticket = construirPayloadTicket("TICKET DE VENTA", itemsSnap);
+      if (!ticket) return;
 
       const prefs = loadImpresionPrefs();
       if (prefs.imprimirAutomaticoAlCobrar) {
@@ -721,9 +790,9 @@ export default function CajaPage() {
               : "Más";
 
   return (
-    <div className="flex min-h-screen bg-gray-100/90">
+    <div className="flex h-dvh max-h-dvh min-h-0 overflow-hidden bg-gray-100/90">
       {/* Sidebar izquierdo */}
-      <aside className="fixed left-0 top-0 z-10 flex w-52 flex-col border-r border-gray-200 bg-white shadow-sm">
+      <aside className="fixed left-0 top-0 z-10 flex min-h-screen w-52 flex-col border-r border-gray-200 bg-white shadow-sm">
         <div className="flex flex-col items-center gap-1 border-b border-gray-100 bg-white px-3 py-4">
           <Image
             src={LOGO_ORG_URL}
@@ -734,7 +803,7 @@ export default function CajaPage() {
           />
           <span className="text-xs font-medium text-primary-600">POS</span>
         </div>
-        <nav className="flex-1 space-y-0.5 p-2">
+        <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2">
           {!esContador && (
             <>
               <button
@@ -854,12 +923,21 @@ export default function CajaPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
                     </svg>
                   </span>
-                  <span className="text-sm font-semibold text-emerald-800">Turno abierto</span>
-                  {cajeroTurnoActivo && (
-                    <span className="mt-0.5 block text-xs font-normal text-emerald-900/90">
-                      Opera el turno: {cajeroTurnoActivo.nombreDisplay}
+                  <div className="min-w-0 flex-1 text-left">
+                    <span className="block text-sm font-semibold text-emerald-800">Turno abierto</span>
+                    <span className="mt-0.5 block text-xs font-medium text-emerald-700">
+                      Abierto a las{" "}
+                      {turnoInicio.toLocaleTimeString("es-CO", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
                     </span>
-                  )}
+                    {cajeroTurnoActivo && (
+                      <span className="mt-0.5 block text-xs font-normal text-emerald-900/90">
+                        Opera el turno: {cajeroTurnoActivo.nombreDisplay}
+                      </span>
+                    )}
+                  </div>
                 </>
               ) : (
                 <>
@@ -932,6 +1010,18 @@ export default function CajaPage() {
             </svg>
             Cerrar sesión
           </button>
+          {!esContador && (
+            <Link
+              href="/chat"
+              className="mt-2 flex w-full items-center gap-3 rounded-lg bg-[#25D366] px-3 py-2.5 text-sm font-semibold text-white shadow-md transition-colors hover:bg-[#20bd5c]"
+              aria-label="Abrir chat"
+            >
+              <svg className="h-5 w-5 flex-shrink-0" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
+              </svg>
+              Chat
+            </Link>
+          )}
         </div>
       </aside>
 
@@ -1393,9 +1483,9 @@ export default function CajaPage() {
       )}
 
       {/* Área central + cuenta a cobrar (en columna en móvil, fila en escritorio) */}
-      <div className="flex min-w-0 flex-1 flex-col pl-52 lg:flex-row">
-      <main className="min-w-0 flex-1 pt-0">
-        <div className="p-6">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pl-52 lg:flex-row">
+      <main className="min-h-0 min-w-0 flex-1 overflow-y-auto pt-0">
+        <div className="p-4 sm:p-5 lg:p-4">
           {esContador ? (
             <div className="rounded-xl border border-gray-200 bg-white p-8 shadow-sm">
               <h2 className="text-lg font-semibold text-gray-900">Reportes · punto de venta</h2>
@@ -1409,7 +1499,7 @@ export default function CajaPage() {
               </p>
             </div>
           ) : moduloActivo === "ventas" ? (
-            <div className="space-y-6">
+            <div className="space-y-4">
               {!turnoAbierto && (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-center">
                   <p className="text-sm font-medium text-amber-800">
@@ -1541,7 +1631,7 @@ export default function CajaPage() {
                   </div>
                 )}
                 {!catalogoLoading && !catalogoError && (
-                  <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
                     {catalogosFiltrados.map((p) => {
                       const chorizoConArepa = productoRequiereChorizoYArepa(p);
                       const soloChorizoPan = productoRequiereSoloChorizoPan(p);
@@ -1555,11 +1645,11 @@ export default function CajaPage() {
                           type="button"
                           onClick={() => onClicProductoCatalogo(p)}
                           disabled={!turnoAbierto}
-                          className="flex flex-col overflow-hidden rounded-xl border border-gray-200 bg-gray-50/50 text-left transition-shadow hover:border-primary-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary-400 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:shadow-none"
+                          className="flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-gray-50/50 text-left transition-shadow hover:border-primary-300 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-400 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:shadow-none"
                         >
-                          <div className="relative aspect-square w-full bg-gray-200">
+                          <div className="relative aspect-[5/4] w-full bg-gray-200">
                             {qty > 0 && (
-                              <span className="absolute left-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500 text-sm font-bold text-white shadow">
+                              <span className="absolute left-1 top-1 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-emerald-500 px-0.5 text-[10px] font-bold text-white shadow">
                                 {qty}
                               </span>
                             )}
@@ -1575,30 +1665,32 @@ export default function CajaPage() {
                               </div>
                             )}
                           </div>
-                          <div className="flex flex-1 flex-col p-3">
-                            <span className="text-xs font-medium text-gray-500">{p.sku}</span>
-                            <p className="mt-0.5 line-clamp-2 text-sm font-medium text-gray-900">
+                          <div className="flex flex-1 flex-col p-2">
+                            <span className="text-[10px] font-medium uppercase tracking-wide text-gray-500 sm:text-xs">
+                              {p.sku}
+                            </span>
+                            <p className="mt-0.5 line-clamp-2 text-[11px] font-medium leading-snug text-gray-900 sm:text-xs">
                               {p.descripcion}
                             </p>
                             {p.categoria && (
-                              <p className="mt-0.5 text-xs text-gray-500">{p.categoria}</p>
+                              <p className="mt-0.5 text-[10px] text-gray-500 sm:text-[11px]">{p.categoria}</p>
                             )}
-                            <p className="mt-2 text-base font-semibold text-primary-600">
+                            <p className="mt-1.5 text-xs font-semibold text-primary-600 sm:text-sm">
                               ${Number(p.precioUnitario).toLocaleString("es-CO")}
                               {p.unidad ? ` / ${p.unidad}` : ""}
                             </p>
                             {chorizoConArepa && (
-                              <p className="mt-1.5 text-xs font-medium text-amber-800">
+                              <p className="mt-1 text-[10px] font-medium leading-tight text-amber-800 sm:text-[11px]">
                                 Chorizo + tipo de arepa
                               </p>
                             )}
                             {soloChorizoPan && (
-                              <p className="mt-1.5 text-xs font-medium text-amber-800">
+                              <p className="mt-1 text-[10px] font-medium leading-tight text-amber-800 sm:text-[11px]">
                                 Picante o Tradicional
                               </p>
                             )}
                             {soloArepaPetoTipo && (
-                              <p className="mt-1.5 text-xs font-medium text-amber-800">
+                              <p className="mt-1 text-[10px] font-medium leading-tight text-amber-800 sm:text-[11px]">
                                 Queso o queso y bocadillo
                               </p>
                             )}
@@ -1682,7 +1774,7 @@ export default function CajaPage() {
 
       {/* Sidebar derecho — Cuenta a cobrar (solo en Ventas; visible también en móvil debajo del catálogo) */}
       <aside
-        className={`flex w-full flex-shrink-0 flex-col border-t border-gray-200 bg-white lg:w-80 lg:border-l lg:border-t-0 ${
+        className={`flex min-h-0 w-full flex-shrink-0 flex-col border-t border-gray-200 bg-white lg:w-72 lg:border-l lg:border-t-0 xl:w-80 ${
           moduloActivo === "ventas" ? "" : "hidden"
         }`}
       >
@@ -1817,32 +1909,114 @@ export default function CajaPage() {
             </ul>
           )}
         </div>
-        <div className="border-t border-gray-200 bg-gray-50 px-4 py-4">
+        <div className="border-t border-gray-200 bg-white px-4 py-4">
+          {sidebarResumenExpandido && itemsCuentaActiva.length > 0 && (
+            <div className="mb-4 rounded-xl border border-sky-200 bg-sky-50/90 px-3 py-3 text-sm shadow-sm">
+              <p className="text-xs font-bold uppercase tracking-wide text-sky-900">Resumen de la cuenta</p>
+              <dl className="mt-2 space-y-1.5 text-sky-950">
+                <div className="flex justify-between gap-2">
+                  <dt className="text-gray-600">Cliente</dt>
+                  <dd className="max-w-[55%] text-right font-medium leading-snug">
+                    {clienteActivoPrecuenta.nombreDisplay}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt className="text-gray-600">Comprobante</dt>
+                  <dd className="font-medium text-right">{etiquetaTipoComprobanteTicket(tipoComprobante)}</dd>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <dt className="text-gray-600">Vendedor</dt>
+                  <dd className="max-w-[55%] text-right font-medium leading-snug">{vendedorEtiqueta}</dd>
+                </div>
+              </dl>
+              <div className="mt-3 max-h-44 overflow-y-auto rounded-lg border border-white bg-white">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-gray-100 text-left text-gray-500">
+                      <th className="py-2 pl-2 font-semibold">Producto</th>
+                      <th className="py-2 text-center font-semibold">Cant.</th>
+                      <th className="py-2 pr-2 text-right font-semibold">Subtotal</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {itemsCuentaActiva.map((it) => {
+                      const sub = it.producto.precioUnitario * it.cantidad;
+                      return (
+                        <tr key={it.lineId} className="border-b border-gray-50 last:border-0">
+                          <td className="py-2 pl-2 font-medium text-gray-800">{it.producto.descripcion}</td>
+                          <td className="py-2 text-center tabular-nums text-gray-700">{it.cantidad}</td>
+                          <td className="py-2 pr-2 text-right tabular-nums font-medium text-gray-900">
+                            $ {sub.toLocaleString("es-CO")}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           <div className="mb-3 flex items-center justify-between">
             <span className="text-sm font-medium text-gray-600">Total</span>
             <span className="text-lg font-bold text-gray-900">
               $ {totalCuentaActiva.toLocaleString("es-CO")}
             </span>
           </div>
+
           <div className="flex gap-2">
-            {itemsCuentaActiva.length > 0 && (
-              <button
-                type="button"
-                onClick={vaciarCuenta}
-                className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-gray-300 bg-white py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
-                title="Vaciar cuenta"
-              >
-                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            <button
+              type="button"
+              disabled={
+                guardandoPrecuenta || itemsCuentaActiva.length === 0 || !turnoAbierto || cobrando
+              }
+              onClick={() => void handleGuardarPrecuenta()}
+              className="flex flex-1 items-center justify-center rounded-lg border border-blue-200 bg-white py-2.5 text-sm font-semibold text-blue-700 shadow-sm transition-colors hover:bg-blue-50 disabled:opacity-45 disabled:pointer-events-none"
+            >
+              {guardandoPrecuenta ? "Generando…" : "Guardar pre-cuenta"}
+            </button>
+            <button
+              type="button"
+              disabled={itemsCuentaActiva.length === 0}
+              onClick={() => setSidebarResumenExpandido((v) => !v)}
+              className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-blue-200 bg-white py-2.5 text-sm font-semibold text-blue-700 shadow-sm transition-colors hover:bg-blue-50 disabled:opacity-45 disabled:pointer-events-none"
+            >
+              {sidebarResumenExpandido ? (
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
                 </svg>
-                Vaciar
-              </button>
-            )}
+              ) : (
+                <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              )}
+              {sidebarResumenExpandido ? "Ocultar resumen" : "Ver resumen"}
+            </button>
+          </div>
+
+          <div className="mt-2 flex gap-2">
+            <button
+              type="button"
+              onClick={vaciarCuenta}
+              disabled={itemsCuentaActiva.length === 0 || cobrando || guardandoPrecuenta}
+              className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg border border-blue-200 bg-white text-blue-600 shadow-sm transition-colors hover:bg-blue-50 disabled:opacity-45 disabled:pointer-events-none"
+              title="Vaciar cuenta"
+              aria-label="Vaciar cuenta"
+            >
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                />
+              </svg>
+            </button>
             <button
               type="button"
               disabled={cobrando || itemsCuentaActiva.length === 0 || !turnoAbierto}
               onClick={() => void handleCobrar()}
-              className="flex flex-1 items-center justify-center rounded-lg bg-emerald-600 py-2.5 text-sm font-semibold text-white shadow transition-colors hover:bg-emerald-700 disabled:opacity-50 disabled:pointer-events-none"
+              className="flex min-h-11 flex-1 items-center justify-center rounded-lg bg-emerald-600 px-3 py-2.5 text-sm font-bold text-white shadow-md transition-colors hover:bg-emerald-700 disabled:opacity-50 disabled:pointer-events-none"
             >
               {cobrando ? "Cobrando…" : `Cobrar $ ${totalCuentaActiva.toLocaleString("es-CO")}`}
             </button>
@@ -1872,17 +2046,6 @@ export default function CajaPage() {
         />
       )}
 
-      {!esContador && (
-        <Link
-          href="/chat"
-          className="fixed bottom-6 right-6 z-30 flex h-14 w-14 items-center justify-center rounded-full bg-[#25D366] text-white shadow-lg transition-transform hover:scale-110 hover:shadow-xl"
-          aria-label="Abrir chat"
-        >
-          <svg className="h-7 w-7" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
-            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-          </svg>
-        </Link>
-      )}
     </div>
   );
 }

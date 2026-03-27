@@ -15,6 +15,17 @@ import type { InsumoKitItem, InventarioMovimientoDoc, TipoMovimientoInventario }
 /** Catálogo maestro de insumos / kit por franquicia (origen de productos del inventario POS). */
 export const CATALOGO_INSUMOS_KIT_COLLECTION = "DB_Franquicia_Insumos_Kit";
 
+/**
+ * Campo booleano opcional: `true` = insumo visible en todos los PV (consulta indexada).
+ * Alternativa: `pos_catalogo_global` (snake_case).
+ */
+export const CATALOGO_CAMPO_GLOBAL = "posCatalogoGlobal";
+
+/**
+ * Array opcional de códigos de PV + sentinel `"__ALL__"` para globales (una consulta indexada).
+ */
+export const CATALOGO_CAMPO_PV_CODES = "posCatalogoPvCodes";
+
 /** Saldos por punto de venta + ítem de catálogo. */
 export const POS_INVENTARIO_SALDOS_COLLECTION = "posInventarioSaldos";
 
@@ -28,25 +39,40 @@ function str(v: unknown): string {
   return String(v).trim();
 }
 
+/**
+ * Campos de documento Firestore que asignan un insumo a un punto de venta.
+ * Si ninguno viene con valor, el ítem es de catálogo global (todos los PV lo ven).
+ */
+const CATALOGO_PV_FIELD_KEYS = [
+  "puntoVenta",
+  "PuntoVenta",
+  "punto_venta",
+  "PV",
+  "pv",
+  "Codigo_punto",
+  "codigo_punto",
+  "codigoPunto",
+  "sucursal",
+  "franquicia",
+  "tienda",
+] as const;
+
+/**
+ * Incluye el documento si: no tiene punto de venta definido (global) o coincide con `puntoVenta`.
+ */
 function matchesPuntoVenta(data: Record<string, unknown>, puntoVenta: string): boolean {
   const pv = puntoVenta.trim().toLowerCase();
   if (!pv) return true;
-  const keys = [
-    "puntoVenta",
-    "PuntoVenta",
-    "punto_venta",
-    "PV",
-    "pv",
-    "Codigo_punto",
-    "codigo_punto",
-    "codigoPunto",
-    "sucursal",
-    "franquicia",
-  ];
-  for (const k of keys) {
+
+  let algunCampoPvDefinido = false;
+  for (const k of CATALOGO_PV_FIELD_KEYS) {
     const v = str(data[k]).toLowerCase();
-    if (v && v === pv) return true;
+    if (v) {
+      algunCampoPvDefinido = true;
+      if (v === pv) return true;
+    }
   }
+  if (!algunCampoPvDefinido) return true;
   return false;
 }
 
@@ -73,14 +99,43 @@ export function normalizarDocInsumoKit(id: string, data: Record<string, unknown>
     str(data.puntoVenta) ||
     str(data.PuntoVenta) ||
     str(data.PV) ||
+    str(data.pv) ||
     str(data.codigo_punto) ||
+    str(data.sucursal) ||
+    str(data.tienda) ||
     undefined;
   return { id, sku, descripcion, unidad, categoria, puntoVentaOrigen };
 }
 
+function readCatalogQueryLimit(): number {
+  if (typeof process === "undefined") return 500;
+  const raw = process.env.NEXT_PUBLIC_POS_CATALOGO_FIRESTORE_LIMIT?.trim();
+  const n = raw ? parseInt(raw, 10) : 500;
+  if (!Number.isFinite(n) || n < 50) return 500;
+  return Math.min(n, 1000);
+}
+
+function readLegacyScanLimit(): number {
+  if (typeof process === "undefined") return 2500;
+  const raw = process.env.NEXT_PUBLIC_POS_CATALOGO_LEGACY_SCAN_LIMIT?.trim();
+  const n = raw ? parseInt(raw, 10) : 2500;
+  if (!Number.isFinite(n) || n < 0) return 2500;
+  return Math.min(n, 5000);
+}
+
+function useFirestoreCatalogIndexedOnly(): boolean {
+  if (typeof process === "undefined") return false;
+  const v = process.env.NEXT_PUBLIC_POS_CATALOGO_FIRESTORE_INDEXED_ONLY?.trim();
+  return v === "1" || v?.toLowerCase() === "true";
+}
+
 /**
- * Lista insumos del catálogo filtrados por punto de venta.
- * Intenta consultas por campo común; si no hay resultados, lee un lote y filtra en cliente.
+ * Lista insumos del catálogo para este punto de venta.
+ *
+ * 1) Consultas indexadas en paralelo: cada campo PV común con `== pv`, `posCatalogoGlobal == true`,
+ *    `posCatalogoPvCodes` array-contains-any `[pv, "__ALL__"]`.
+ * 2) Si `NEXT_PUBLIC_POS_CATALOGO_FIRESTORE_INDEXED_ONLY` no es true, añade un escaneo acotado + filtro
+ *    `matchesPuntoVenta` para documentos antiguos sin campos de índice.
  */
 export async function listarInsumosKitPorPuntoVenta(puntoVenta: string): Promise<InsumoKitItem[]> {
   if (!db) return [];
@@ -88,39 +143,67 @@ export async function listarInsumosKitPorPuntoVenta(puntoVenta: string): Promise
   if (!pv) return [];
 
   const col = collection(db, CATALOGO_INSUMOS_KIT_COLLECTION);
-  const camposQuery = ["puntoVenta", "PuntoVenta", "PV", "codigo_punto"];
+  const merged = new Map<string, InsumoKitItem>();
+  const lim = readCatalogQueryLimit();
 
-  for (const field of camposQuery) {
+  const ingestSnap = (snap: Awaited<ReturnType<typeof getDocs>>) => {
+    snap.forEach((d) => {
+      merged.set(d.id, normalizarDocInsumoKit(d.id, d.data() as Record<string, unknown>));
+    });
+  };
+
+  const runQuery = async (q: ReturnType<typeof query>) => {
     try {
-      const q = query(col, where(field, "==", pv), limit(500));
       const snap = await getDocs(q);
-      if (!snap.empty) {
-        const out: InsumoKitItem[] = [];
-        snap.forEach((d) => {
-          out.push(normalizarDocInsumoKit(d.id, d.data() as Record<string, unknown>));
-        });
-        out.sort((a, b) => a.descripcion.localeCompare(b.descripcion, "es"));
-        return out;
-      }
+      ingestSnap(snap);
     } catch {
-      // índice faltante u otro error: siguiente campo
+      // Campo ausente, índice compuesto pendiente o reglas: ignorar esta rama
+    }
+  };
+
+  const tasks: Promise<void>[] = [];
+
+  for (const field of CATALOGO_PV_FIELD_KEYS) {
+    tasks.push(runQuery(query(col, where(field, "==", pv), limit(lim))));
+  }
+
+  tasks.push(runQuery(query(col, where(CATALOGO_CAMPO_GLOBAL, "==", true), limit(lim))));
+  tasks.push(runQuery(query(col, where("pos_catalogo_global", "==", true), limit(lim))));
+
+  tasks.push(
+    (async () => {
+      try {
+        const snap = await getDocs(
+          query(col, where(CATALOGO_CAMPO_PV_CODES, "array-contains-any", [pv, "__ALL__"]), limit(lim))
+        );
+        ingestSnap(snap);
+      } catch {
+        /* sin campo o tipo incorrecto */
+      }
+    })()
+  );
+
+  await Promise.all(tasks);
+
+  if (!useFirestoreCatalogIndexedOnly()) {
+    try {
+      const legacyLim = readLegacyScanLimit();
+      const snap = await getDocs(query(col, limit(legacyLim)));
+      snap.forEach((d) => {
+        if (merged.has(d.id)) return;
+        const raw = d.data() as Record<string, unknown>;
+        if (matchesPuntoVenta(raw, pv)) {
+          merged.set(d.id, normalizarDocInsumoKit(d.id, raw));
+        }
+      });
+    } catch {
+      // ignore
     }
   }
 
-  try {
-    const snap = await getDocs(query(col, limit(1000)));
-    const out: InsumoKitItem[] = [];
-    snap.forEach((d) => {
-      const raw = d.data() as Record<string, unknown>;
-      if (matchesPuntoVenta(raw, pv)) {
-        out.push(normalizarDocInsumoKit(d.id, raw));
-      }
-    });
-    out.sort((a, b) => a.descripcion.localeCompare(b.descripcion, "es"));
-    return out;
-  } catch {
-    return [];
-  }
+  const out = Array.from(merged.values());
+  out.sort((a, b) => a.descripcion.localeCompare(b.descripcion, "es"));
+  return out;
 }
 
 export function idSaldoInventario(puntoVenta: string, insumoId: string): string {

@@ -1,8 +1,21 @@
 import type { InsumoKitItem } from "@/types/inventario-pos";
 
+export type CatalogoSheetSetupHint = {
+  clientEmail: string;
+  projectId: string;
+  sheetsApiUrl: string;
+  shareOnceHint: string;
+};
+
 export async function fetchCatalogoInsumosDesdeSheet(
   puntoVenta: string | null | undefined
-): Promise<{ ok: boolean; data: InsumoKitItem[]; message?: string; fuente?: string }> {
+): Promise<{
+  ok: boolean;
+  data: InsumoKitItem[];
+  message?: string;
+  fuente?: string;
+  sheetSetup?: CatalogoSheetSetupHint;
+}> {
   const pv = (puntoVenta ?? "").trim();
   const q = pv ? `?puntoVenta=${encodeURIComponent(pv)}` : "";
   try {
@@ -12,9 +25,10 @@ export async function fetchCatalogoInsumosDesdeSheet(
       data?: InsumoKitItem[];
       message?: string;
       fuente?: string;
+      sheetSetup?: CatalogoSheetSetupHint;
     };
     if (!json.ok) {
-      return { ok: false, data: [], message: json.message };
+      return { ok: false, data: [], message: json.message, sheetSetup: json.sheetSetup };
     }
     return { ok: true, data: json.data ?? [], fuente: json.fuente };
   } catch {

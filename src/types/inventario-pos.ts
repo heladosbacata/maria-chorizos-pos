@@ -1,4 +1,10 @@
-/** Ítem normalizado desde `DB_Franquicia_Insumos_Kit` (campos fuente flexibles). */
+/**
+ * Ítem normalizado desde `DB_Franquicia_Insumos_Kit` (campos fuente flexibles).
+ * Para escalar con muchos documentos, en Firestore conviene:
+ * - `posCatalogoGlobal: true` en ítems de todos los PV, o
+ * - `posCatalogoPvCodes: ["COD_PV", "__ALL__"]` (incluye `"__ALL__"` para globales), o
+ * - un campo PV (`puntoVenta`, `PV`, etc.) igual al código del perfil del cajero.
+ */
 export interface InsumoKitItem {
   id: string;
   sku: string;

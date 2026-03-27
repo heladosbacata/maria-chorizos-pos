@@ -36,7 +36,7 @@ export function construirTextoTicketPlano(payload: TicketVentaPayload): string {
   rows.push("-".repeat(W));
   rows.push(line(`TOTAL: $ ${payload.total.toLocaleString("es-CO")}`));
   rows.push("");
-  rows.push(center("Gracias por su compra"));
+  rows.push(center(payload.notaPie ?? "Gracias por su compra"));
   rows.push("");
   return rows.join("\n");
 }

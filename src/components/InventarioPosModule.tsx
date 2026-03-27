@@ -106,7 +106,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       setSaldos(saldosMap);
       if (lista.length === 0) {
         setError(
-          `No hay ítems en la colección «${CATALOGO_INSUMOS_KIT_COLLECTION}» para este punto de venta. Verifica el campo de filtro (puntoVenta, PuntoVenta, PV…) o que existan documentos.`
+          `No hay ítems en «${CATALOGO_INSUMOS_KIT_COLLECTION}» para «${pv}». Agrega documentos globales (sin campos PV) o con puntoVenta/PV igual a tu perfil.`
         );
       }
     } catch {
@@ -209,9 +209,11 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
         <div>
           <h2 className="text-xl font-bold text-gray-900 md:text-2xl">Inventarios</h2>
           <p className="mt-1 max-w-2xl text-sm text-gray-600">
-            Control de stock por punto de venta. El catálogo proviene de{" "}
-            <code className="rounded bg-gray-100 px-1 text-xs">{CATALOGO_INSUMOS_KIT_COLLECTION}</code>. Los saldos y
-            movimientos se guardan en Firestore (colecciones del POS).
+            Control de stock por punto de venta. El catálogo usa{" "}
+            <code className="rounded bg-gray-100 px-1 text-xs">{CATALOGO_INSUMOS_KIT_COLLECTION}</code>: carga indexada por
+            PV, <span className="font-medium">posCatalogoGlobal</span> y{" "}
+            <span className="font-medium">posCatalogoPvCodes</span>, más compat. con documentos antiguos. Los saldos y
+            movimientos son solo de <span className="font-medium text-gray-800">{pv}</span>.
           </p>
           <p className="mt-2 text-xs font-medium text-primary-700">Punto de venta: {pv}</p>
         </div>

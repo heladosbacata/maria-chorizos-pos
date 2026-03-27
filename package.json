@@ -3,16 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3040",
+    "dev:3000": "next dev -p 3000",
     "dev:3004": "next dev -p 3004",
-    "dev:clean": "node -e \"try{require('fs').rmSync('.next',{recursive:true,force:true})}catch(e){}\" && next dev",
+    "dev:clean": "node -e \"try{require('fs').rmSync('.next',{recursive:true,force:true})}catch(e){}\" && next dev -p 3040",
+    "clean": "node -e \"try{require('fs').rmSync('.next',{recursive:true,force:true});console.log('.next eliminado')}catch(e){console.error(e);process.exit(1)}\"",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "check:inventario": "node scripts/verificar-inventario-env.mjs"
   },
   "dependencies": {
     "firebase": "^10.7.1",
     "firebase-admin": "^12.7.0",
+    "google-auth-library": "^9.15.1",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",
     "next": "14.2.15",

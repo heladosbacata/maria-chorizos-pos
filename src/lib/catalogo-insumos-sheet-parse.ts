@@ -76,7 +76,9 @@ function findCol(headersNorm: string[], keys: string[]): number {
 
 /**
  * Convierte la primera fila como encabezados + datos en `InsumoKitItem`.
- * Filtra por punto de venta si existe columna reconocida y `puntoVentaFiltro` no está vacío.
+ * Si hay columna de punto de venta (PV, sucursal, etc.): celda vacía = ítem visible en todos los PV;
+ * con valor = solo el PV cuyo código coincida con `puntoVentaFiltro` (mismo texto que en el perfil del cajero).
+ * Si no hay columna de PV, todas las filas aplican a todos los puntos.
  */
 export function insumosDesdeGrilla(
   rows: string[][],

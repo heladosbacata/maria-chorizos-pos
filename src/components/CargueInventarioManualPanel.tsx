@@ -1,7 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { fetchCatalogoInsumosDesdeSheet } from "@/lib/catalogo-insumos-sheet-client";
+import {
+  fetchCatalogoInsumosDesdeSheet,
+  type CatalogoSheetSetupHint,
+} from "@/lib/catalogo-insumos-sheet-client";
 import {
   CATALOGO_INSUMOS_KIT_COLLECTION,
   etiquetaTipoMovimiento,
@@ -48,6 +51,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
   const [insumos, setInsumos] = useState<InsumoKitItem[]>([]);
   const [cargandoCat, setCargandoCat] = useState(true);
   const [errorCat, setErrorCat] = useState<string | null>(null);
+  const [sheetSetupAyuda, setSheetSetupAyuda] = useState<CatalogoSheetSetupHint | null>(null);
 
   const [busqueda, setBusqueda] = useState("");
   const [insumoId, setInsumoId] = useState("");
@@ -95,7 +99,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
       if (!sheet.ok) {
         setErrorCat(
           sheet.message ??
-            "No se pudo leer la hoja de productos. Configura GOOGLE_SHEETS_API_KEY o GOOGLE_SHEETS_INSUMOS_CSV_URL en el servidor."
+            "No se pudo leer la hoja de productos. Configura cuenta de servicio (GOOGLE_SHEETS_SERVICE_ACCOUNT_JSON o GOOGLE_SHEETS_USE_FIREBASE_SA), CSV publicado o API key según tu caso."
         );
       } else {
         setErrorCat(
@@ -212,6 +216,29 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
         <p className="mt-1 text-xs text-gray-500">
           Lo que guardes aquí también se ve en <strong className="font-medium text-gray-700">Inventarios → Historial</strong>.
         </p>
+        <div className="mx-auto mt-4 max-w-xl rounded-xl border border-sky-200 bg-sky-50/90 px-4 py-3 text-left text-xs leading-relaxed text-sky-950">
+          <p className="font-semibold text-sky-900">Tu punto de venta y el catálogo</p>
+          <ul className="mt-2 list-disc space-y-1.5 pl-4 text-sky-900/95">
+            <li>
+              Solo aparecen insumos <strong className="font-medium">asignados a «{pv}»</strong> o marcados como{" "}
+              <strong className="font-medium">globales</strong> (sin punto de venta en la hoja/Firestore).
+            </li>
+            <li>
+              En la hoja de Google: columna tipo PV/sucursal <strong className="font-medium">vacía</strong> = todos los
+              locales; con texto = solo ese código (debe coincidir con tu perfil).
+            </li>
+            <li>
+              En Firestore <code className="rounded bg-white/80 px-1">{CATALOGO_INSUMOS_KIT_COLLECTION}</code>: consultas
+              indexadas por PV + <code className="rounded bg-white/80 px-1">posCatalogoGlobal</code> /{" "}
+              <code className="rounded bg-white/80 px-1">posCatalogoPvCodes</code>. Sin esos campos, sigue valiendo “sin
+              PV en el doc” = global (modo compat. con escaneo acotado).
+            </li>
+            <li>
+              Los <strong className="font-medium">saldos y cargues</strong> son solo de este punto de venta; otro local no
+              ve tus cantidades.
+            </li>
+          </ul>
+        </div>
       </div>
 
       <div className="rounded-2xl border-2 border-gray-200 bg-white p-6 shadow-sm md:p-8">
@@ -223,6 +250,51 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
         {(error || errorCat) && (
           <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
             {error ?? errorCat}
+          </div>
+        )}
+        {sheetSetupAyuda && (
+          <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50/95 px-4 py-3 text-left text-sm text-blue-950">
+            <p className="font-semibold text-blue-900">Configuración única (administrador / TI)</p>
+            <p className="mt-2 text-blue-900/95">
+              Los cajeros <strong>no</strong> deben hacer esto. Con dos pasos en Google Cloud y en la hoja,{" "}
+              <strong>todos</strong> los usuarios POS quedan cubiertos automáticamente.
+            </p>
+            <ol className="mt-3 list-decimal space-y-2 pl-5 text-blue-900/95">
+              <li>
+                <strong>Habilitar Google Sheets API</strong> en el proyecto{" "}
+                <code className="rounded bg-white/80 px-1 text-xs">{sheetSetupAyuda.projectId || "—"}</code>:{" "}
+                <a
+                  href={sheetSetupAyuda.sheetsApiUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-blue-700 underline hover:text-blue-900"
+                >
+                  Abrir consola y activar la API
+                </a>
+                . Espera 1–3 minutos y recarga esta pantalla.
+              </li>
+              <li>
+                <strong>Compartir la hoja de insumos</strong> con este correo (solo una vez, rol{" "}
+                <em>Lector</em> o <em>Editor</em>):
+                <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                  <code className="break-all rounded border border-blue-200 bg-white px-2 py-1 text-xs text-gray-900">
+                    {sheetSetupAyuda.clientEmail}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={() => void navigator.clipboard.writeText(sheetSetupAyuda.clientEmail)}
+                    className="rounded-lg border border-blue-300 bg-white px-2 py-1 text-xs font-medium text-blue-800 hover:bg-blue-100"
+                  >
+                    Copiar correo
+                  </button>
+                </div>
+              </li>
+            </ol>
+            <p className="mt-3 text-xs text-blue-900/85">{sheetSetupAyuda.shareOnceHint}</p>
+            <p className="mt-2 text-xs text-blue-900/75">
+              Guía detallada: <code className="rounded bg-white/70 px-1">docs/GOOGLE_SHEETS_AUTOMATIZAR_POS.md</code> en el
+              repositorio del POS.
+            </p>
           </div>
         )}
 
