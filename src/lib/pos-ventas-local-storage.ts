@@ -24,6 +24,8 @@ export interface VentaGuardadaLocal {
   cajeroNombre?: string;
   total: number;
   lineas: LineaVentaGuardada[];
+  /** Resumen de medios de pago u observaciones (solo local). */
+  pagoResumen?: string;
 }
 
 function leerRaw(): VentaGuardadaLocal[] {

@@ -8,8 +8,10 @@ import CajeroReportesDashboard from "@/components/CajeroReportesDashboard";
 import CargueInventarioManualPanel from "@/components/CargueInventarioManualPanel";
 import ConfiguracionMasModule from "@/components/ConfiguracionMasModule";
 import CrearClientePosModal from "@/components/CrearClientePosModal";
+import EdicionItemCuentaModal from "@/components/EdicionItemCuentaModal";
 import InventarioPosModule from "@/components/InventarioPosModule";
 import PerfilUsuarioModal from "@/components/PerfilUsuarioModal";
+import RegistrarPagoPanel, { type DetallePagoConfirmado } from "@/components/RegistrarPagoPanel";
 import SeleccionClienteVenta from "@/components/SeleccionClienteVenta";
 import {
   buildLineIdPos,
@@ -37,17 +39,44 @@ import { listarClientesPorPuntoVenta, nombreDisplayCliente } from "@/lib/cliente
 import { loadImpresionPrefs } from "@/lib/impresion-pos-storage";
 import { imprimirTicketConQz, imprimirTicketEnNavegador } from "@/lib/pos-geb-print";
 import { getCatalogoPOS } from "@/lib/catalogo-pos";
+import {
+  lineInputDesdeItemCuentaLike,
+  montoDescuentoLinea,
+  subtotalNetoLinea,
+} from "@/lib/item-cuenta-linea";
 import { appendVentaLocal } from "@/lib/pos-ventas-local-storage";
+import {
+  guardarTurnoPersistido,
+  leerTurnoPersistido,
+  limpiarTurnoPersistido,
+} from "@/lib/turno-pos-persist";
 import { enviarReporteVenta } from "@/lib/enviar-venta";
 import type { EnvioEstado } from "@/lib/enviar-venta";
 import type { TicketVentaLinea, TicketVentaPayload } from "@/types/impresion-pos";
 import type { ClientePosFirestoreDoc } from "@/types/clientes-pos";
 import { CONSUMIDOR_FINAL_ID, type ClienteVentaRef } from "@/types/clientes-pos";
 import type { ProductoPOS, TipoComprobanteVenta, VentaReporte } from "@/types";
+import type { ItemCuenta } from "@/types/pos-caja-item";
 import { POS_CAJERO_FOTO_STORAGE_KEY } from "@/constants/perfil-pos";
 
 function formatFechaHoy(): string {
   return new Date().toISOString().slice(0, 10);
+}
+
+const EPS_PAGO = 0.01;
+
+function construirNotaPiePago(d: DetallePagoConfirmado): string | undefined {
+  const fmt = (n: number) =>
+    n.toLocaleString("es-CO", { minimumFractionDigits: n % 1 ? 2 : 0, maximumFractionDigits: 2 });
+  const parts: string[] = [];
+  if (d.efectivo > EPS_PAGO) parts.push(`Efectivo $${fmt(d.efectivo)}`);
+  for (const p of d.pagosLinea) {
+    parts.push(`${p.tipo} $${fmt(p.monto)}`);
+  }
+  const pagoLine = parts.length ? `Pago: ${parts.join(" · ")}` : "";
+  const obs = d.observaciones.trim();
+  if (obs) return [pagoLine, `Obs.: ${obs}`].filter(Boolean).join("\n");
+  return pagoLine || undefined;
 }
 
 export interface PrecuentaTab {
@@ -59,32 +88,42 @@ const initialPrecuentaDatos = (): Record<string, { valorVenta: string; estado: E
   "1": { valorVenta: "", estado: "idle", mensaje: "" },
 });
 
-/** Ítem en la cuenta a cobrar (panel derecho) */
-export interface ItemCuenta {
-  /** Identificador único de línea (sku o sku|chorizo:variante) */
-  lineId: string;
-  producto: ProductoPOS;
-  cantidad: number;
-  /** Chorizo con pan o con arepa */
-  varianteChorizo?: VarianteChorizo;
-  /** Chorizo con arepa o combo con arepa */
-  varianteArepaCombo?: VarianteArepaCombo;
+export type { ItemCuenta } from "@/types/pos-caja-item";
+
+function detalleVarianteTicketLinea(it: ItemCuenta): string | undefined {
+  const parts: string[] = [];
+  if (it.varianteChorizo) parts.push(etiquetaVarianteChorizo(it.varianteChorizo));
+  if (it.varianteArepaCombo) parts.push(etiquetaArepaCombo(it.varianteArepaCombo));
+  const dto = montoDescuentoLinea(lineInputDesdeItemCuentaLike(it));
+  const modo = it.descuentoModo ?? "ninguno";
+  if (dto > 0) {
+    if (modo === "porcentaje" && it.descuentoValor != null) {
+      parts.push(`Dto ${it.descuentoValor}%`);
+    } else {
+      parts.push(`Dto $${dto.toLocaleString("es-CO")}`);
+    }
+  }
+  return parts.length ? parts.join(" · ") : undefined;
 }
 
 function lineasTicketDesdeItemsCuenta(items: ItemCuenta[]): TicketVentaLinea[] {
   return items.map((it) => {
-    const varianteParts: string[] = [];
-    if (it.varianteChorizo) varianteParts.push(etiquetaVarianteChorizo(it.varianteChorizo));
-    if (it.varianteArepaCombo) varianteParts.push(etiquetaArepaCombo(it.varianteArepaCombo));
-    const sub = it.producto.precioUnitario * it.cantidad;
+    const li = lineInputDesdeItemCuentaLike(it);
+    const sub = subtotalNetoLinea(li);
+    const qty = Math.max(0.0001, it.cantidad);
+    const precioUnitario = Math.round((sub / qty) * 100) / 100;
     return {
       descripcion: it.producto.descripcion,
       cantidad: it.cantidad,
-      precioUnitario: it.producto.precioUnitario,
+      precioUnitario,
       subtotal: sub,
-      detalleVariante: varianteParts.length ? varianteParts.join(" · ") : undefined,
+      detalleVariante: detalleVarianteTicketLinea(it),
     };
   });
+}
+
+function totalLineaItem(it: ItemCuenta): number {
+  return subtotalNetoLinea(lineInputDesdeItemCuentaLike(it));
 }
 
 function etiquetaTipoComprobanteTicket(t: TipoComprobanteVenta): string {
@@ -162,6 +201,8 @@ export default function CajaPage() {
   const [clientesPosLista, setClientesPosLista] = useState<ClientePosFirestoreDoc[]>([]);
   const [showModalCrearCliente, setShowModalCrearCliente] = useState(false);
   const [cobrando, setCobrando] = useState(false);
+  const [registrarPagoAbierto, setRegistrarPagoAbierto] = useState(false);
+  const [itemEditando, setItemEditando] = useState<ItemCuenta | null>(null);
   const [guardandoPrecuenta, setGuardandoPrecuenta] = useState(false);
   /** Panel “Ver resumen” en el pie del carrito (doc. interno / factura). */
   const [sidebarResumenExpandido, setSidebarResumenExpandido] = useState(false);
@@ -172,12 +213,88 @@ export default function CajaPage() {
   const [modalProductoChorizo, setModalProductoChorizo] = useState<ProductoPOS | null>(null);
   const [varianteModalChorizo, setVarianteModalChorizo] = useState<VarianteChorizo>("tradicional");
   const [varianteModalArepa, setVarianteModalArepa] = useState<VarianteArepaCombo>("arepa_queso");
+  /** Evita escribir localStorage antes de restaurar el turno guardado (misma sesión / otro usuario). */
+  const [turnoHidratadoDesdeStorage, setTurnoHidratadoDesdeStorage] = useState(false);
 
   useEffect(() => {
     if (user && esContadorInvitado(user.role)) {
       setModuloActivo("reportes");
     }
   }, [user?.uid, user?.role]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!user?.uid || !user?.puntoVenta?.trim()) {
+      setTurnoHidratadoDesdeStorage(false);
+      return;
+    }
+    if (esContadorInvitado(user.role)) {
+      setTurnoHidratadoDesdeStorage(true);
+      return;
+    }
+    const snap = leerTurnoPersistido(user.uid, user.puntoVenta);
+    if (snap) {
+      const inicio = new Date(snap.turnoInicioIso);
+      setTurnoAbierto(true);
+      setTurnoInicio(Number.isNaN(inicio.getTime()) ? new Date() : inicio);
+      setBaseInicialCaja(snap.baseInicialCaja);
+      setCajeroTurnoActivo(snap.cajeroTurnoActivo);
+      setTotalVentasEnTurno(snap.totalVentasEnTurno);
+      setTotalIngresoEfectivo(snap.totalIngresoEfectivo);
+      setTotalRetiroEfectivo(snap.totalRetiroEfectivo);
+      setVentasCredito(snap.ventasCredito);
+      setPrecuentasEliminadasCount(snap.precuentasEliminadasCount);
+      setProductosEliminadosCount(snap.productosEliminadosCount);
+      setValorProductosEliminados(snap.valorProductosEliminados);
+    } else {
+      setTurnoAbierto(false);
+      setCajeroTurnoActivo(null);
+      setTotalVentasEnTurno(0);
+      setTotalIngresoEfectivo(0);
+      setTotalRetiroEfectivo(0);
+      setVentasCredito(0);
+      setPrecuentasEliminadasCount(0);
+      setProductosEliminadosCount(0);
+      setValorProductosEliminados(0);
+      setBaseInicialCaja(0);
+    }
+    setTurnoHidratadoDesdeStorage(true);
+  }, [user?.uid, user?.puntoVenta, user?.role]);
+
+  useEffect(() => {
+    if (!turnoHidratadoDesdeStorage) return;
+    if (!user?.uid || !user?.puntoVenta?.trim() || esContadorInvitado(user.role)) return;
+    if (!turnoAbierto || !cajeroTurnoActivo) return;
+    guardarTurnoPersistido(user.uid, user.puntoVenta, {
+      version: 1,
+      turnoInicioIso: turnoInicio.toISOString(),
+      baseInicialCaja,
+      cajeroTurnoActivo,
+      totalVentasEnTurno,
+      totalIngresoEfectivo,
+      totalRetiroEfectivo,
+      ventasCredito,
+      precuentasEliminadasCount,
+      productosEliminadosCount,
+      valorProductosEliminados,
+    });
+  }, [
+    turnoHidratadoDesdeStorage,
+    turnoAbierto,
+    user?.uid,
+    user?.puntoVenta,
+    user?.role,
+    cajeroTurnoActivo,
+    turnoInicio,
+    baseInicialCaja,
+    totalVentasEnTurno,
+    totalIngresoEfectivo,
+    totalRetiroEfectivo,
+    ventasCredito,
+    precuentasEliminadasCount,
+    productosEliminadosCount,
+    valorProductosEliminados,
+  ]);
 
   const cargarCatalogo = () => {
     if (user && esContadorInvitado(user.role)) return;
@@ -367,7 +484,7 @@ export default function CajaPage() {
     if (precuentas.length <= 1) return;
     const items = itemsPorPrecuenta[id] ?? [];
     const numProductos = items.reduce((s, i) => s + i.cantidad, 0);
-    const valor = items.reduce((s, i) => s + i.producto.precioUnitario * i.cantidad, 0);
+    const valor = items.reduce((s, i) => s + totalLineaItem(i), 0);
     setPrecuentasEliminadasCount((prev) => prev + 1);
     setProductosEliminadosCount((prev) => prev + numProductos);
     setValorProductosEliminados((prev) => prev + valor);
@@ -474,16 +591,13 @@ export default function CajaPage() {
   };
 
   const itemsCuentaActiva = itemsPorPrecuenta[activePrecuentaId] ?? [];
-  const totalCuentaActiva = itemsCuentaActiva.reduce(
-    (sum, i) => sum + i.producto.precioUnitario * i.cantidad,
-    0
-  );
+  const totalCuentaActiva = itemsCuentaActiva.reduce((sum, i) => sum + totalLineaItem(i), 0);
 
   const construirPayloadTicket = useCallback(
     (titulo: string, items: ItemCuenta[], notaPie?: string): TicketVentaPayload | null => {
       const pv = user?.puntoVenta?.trim();
       if (!pv) return null;
-      const total = items.reduce((s, i) => s + i.producto.precioUnitario * i.cantidad, 0);
+      const total = items.reduce((s, i) => s + totalLineaItem(i), 0);
       const nombrePrecuenta = precuentas.find((p) => p.id === activePrecuentaId)?.nombre ?? "Cuenta";
       const vendedorTicket =
         cajeroTurnoActivo?.nombreDisplay?.trim() || user?.email?.split("@")[0]?.trim() || "—";
@@ -574,11 +688,136 @@ export default function CajaPage() {
     });
   };
 
-  const vaciarCuenta = () => {
-    setItemsPorPrecuenta((prev) => ({ ...prev, [activePrecuentaId]: [] }));
+  const guardarItemCuentaEditado = (actualizado: ItemCuenta) => {
+    setItemsPorPrecuenta((prev) => {
+      const items = [...(prev[activePrecuentaId] ?? [])];
+      const idx = items.findIndex((i) => i.lineId === actualizado.lineId);
+      if (idx < 0) return prev;
+      items[idx] = actualizado;
+      return { ...prev, [activePrecuentaId]: items };
+    });
   };
 
-  const handleCobrar = async () => {
+  const vaciarCuenta = useCallback(() => {
+    setItemsPorPrecuenta((prev) => ({ ...prev, [activePrecuentaId]: [] }));
+  }, [activePrecuentaId]);
+
+  const ejecutarCobroVenta = useCallback(
+    async (itemsSnap: ItemCuenta[], notaPie?: string): Promise<boolean> => {
+      if (!user || esContadorInvitado(user.role)) return false;
+      if (!turnoAbierto) return false;
+      const pv = user.puntoVenta?.trim();
+      if (!pv) {
+        window.alert("No hay punto de venta asignado.");
+        return false;
+      }
+
+      const total = itemsSnap.reduce((s, i) => s + totalLineaItem(i), 0);
+      if (!(total > 0)) return false;
+
+      setCobrando(true);
+      try {
+        const ct = cajeroTurnoActivo;
+        const cr = clienteActivoPrecuenta;
+        const filaVenta: VentaReporte = {
+          puntoVenta: pv,
+          valorVenta: total,
+          tipoComprobante,
+          ...(ct
+            ? {
+                cajeroTurnoId: ct.id,
+                cajeroNombre: ct.nombreDisplay,
+                ...(ct.documento ? { cajeroDocumento: ct.documento } : {}),
+              }
+            : {}),
+        };
+        if (cr.id === CONSUMIDOR_FINAL_ID) {
+          filaVenta.clienteNombre = "Consumidor final";
+        } else {
+          filaVenta.clienteId = cr.id;
+          filaVenta.clienteNombre = cr.nombreDisplay;
+          if (cr.tipoIdentificacion?.trim()) filaVenta.clienteTipoIdentificacion = cr.tipoIdentificacion.trim();
+          if (cr.numeroIdentificacion?.trim()) filaVenta.clienteNumeroIdentificacion = cr.numeroIdentificacion.trim();
+        }
+
+        const resultado = await enviarReporteVenta({
+          fecha: formatFechaHoy(),
+          uen: "Maria Chorizos",
+          ventas: [filaVenta],
+        });
+
+        if (resultado.estado !== "exito") {
+          window.alert(resultado.mensaje ?? "No se pudo registrar la venta.");
+          return false;
+        }
+
+        setTotalVentasEnTurno((prev) => prev + total);
+
+        appendVentaLocal({
+          fechaYmd: formatFechaHoy(),
+          puntoVenta: pv,
+          total,
+          lineas: itemsSnap.map((it) => {
+            const li = lineInputDesdeItemCuentaLike(it);
+            const sub = subtotalNetoLinea(li);
+            const qty = Math.max(0.0001, it.cantidad);
+            return {
+              lineId: it.lineId,
+              sku: it.producto.sku,
+              descripcion: it.producto.descripcion,
+              cantidad: it.cantidad,
+              precioUnitario: Math.round((sub / qty) * 100) / 100,
+              detalleVariante: detalleVarianteTicketLinea(it),
+            };
+          }),
+          ...(ct
+            ? {
+                cajeroTurnoId: ct.id,
+                cajeroNombre: ct.nombreDisplay,
+              }
+            : {}),
+          ...(notaPie ? { pagoResumen: notaPie } : {}),
+        });
+
+        const ticket = construirPayloadTicket("TICKET DE VENTA", itemsSnap, notaPie);
+        if (!ticket) return false;
+
+        const prefs = loadImpresionPrefs();
+        if (prefs.imprimirAutomaticoAlCobrar) {
+          try {
+            if (prefs.metodo === "directa") {
+              await imprimirTicketConQz(prefs, ticket);
+            } else {
+              imprimirTicketEnNavegador(ticket);
+            }
+          } catch (printErr) {
+            console.error(printErr);
+            window.alert(
+              printErr instanceof Error
+                ? `Venta registrada. No se pudo imprimir: ${printErr.message}`
+                : "Venta registrada. Revisa la impresión."
+            );
+          }
+        }
+
+        vaciarCuenta();
+        return true;
+      } finally {
+        setCobrando(false);
+      }
+    },
+    [
+      user,
+      turnoAbierto,
+      cajeroTurnoActivo,
+      clienteActivoPrecuenta,
+      tipoComprobante,
+      construirPayloadTicket,
+      vaciarCuenta,
+    ]
+  );
+
+  const abrirRegistrarPago = () => {
     if (!user || esContadorInvitado(user.role)) return;
     if (!turnoAbierto || itemsCuentaActiva.length === 0) return;
     const pv = user.puntoVenta?.trim();
@@ -586,99 +825,16 @@ export default function CajaPage() {
       window.alert("No hay punto de venta asignado.");
       return;
     }
-
-    const itemsSnap = [...itemsCuentaActiva];
-    const total = itemsSnap.reduce((s, i) => s + i.producto.precioUnitario * i.cantidad, 0);
+    const total = itemsCuentaActiva.reduce((s, i) => s + totalLineaItem(i), 0);
     if (!(total > 0)) return;
+    setRegistrarPagoAbierto(true);
+  };
 
-    setCobrando(true);
-    try {
-      const ct = cajeroTurnoActivo;
-      const cr = clienteActivoPrecuenta;
-      const filaVenta: VentaReporte = {
-        puntoVenta: pv,
-        valorVenta: total,
-        tipoComprobante,
-        ...(ct
-          ? {
-              cajeroTurnoId: ct.id,
-              cajeroNombre: ct.nombreDisplay,
-              ...(ct.documento ? { cajeroDocumento: ct.documento } : {}),
-            }
-          : {}),
-      };
-      if (cr.id === CONSUMIDOR_FINAL_ID) {
-        filaVenta.clienteNombre = "Consumidor final";
-      } else {
-        filaVenta.clienteId = cr.id;
-        filaVenta.clienteNombre = cr.nombreDisplay;
-        if (cr.tipoIdentificacion?.trim()) filaVenta.clienteTipoIdentificacion = cr.tipoIdentificacion.trim();
-        if (cr.numeroIdentificacion?.trim()) filaVenta.clienteNumeroIdentificacion = cr.numeroIdentificacion.trim();
-      }
-
-      const resultado = await enviarReporteVenta({
-        fecha: formatFechaHoy(),
-        uen: "Maria Chorizos",
-        ventas: [filaVenta],
-      });
-
-      if (resultado.estado !== "exito") {
-        window.alert(resultado.mensaje ?? "No se pudo registrar la venta.");
-        return;
-      }
-
-      setTotalVentasEnTurno((prev) => prev + total);
-
-      appendVentaLocal({
-        fechaYmd: formatFechaHoy(),
-        puntoVenta: pv,
-        total,
-        lineas: itemsSnap.map((it) => {
-          const varianteParts: string[] = [];
-          if (it.varianteChorizo) varianteParts.push(etiquetaVarianteChorizo(it.varianteChorizo));
-          if (it.varianteArepaCombo) varianteParts.push(etiquetaArepaCombo(it.varianteArepaCombo));
-          return {
-            lineId: it.lineId,
-            sku: it.producto.sku,
-            descripcion: it.producto.descripcion,
-            cantidad: it.cantidad,
-            precioUnitario: it.producto.precioUnitario,
-            detalleVariante: varianteParts.length ? varianteParts.join(" · ") : undefined,
-          };
-        }),
-        ...(ct
-          ? {
-              cajeroTurnoId: ct.id,
-              cajeroNombre: ct.nombreDisplay,
-            }
-          : {}),
-      });
-
-      const ticket = construirPayloadTicket("TICKET DE VENTA", itemsSnap);
-      if (!ticket) return;
-
-      const prefs = loadImpresionPrefs();
-      if (prefs.imprimirAutomaticoAlCobrar) {
-        try {
-          if (prefs.metodo === "directa") {
-            await imprimirTicketConQz(prefs, ticket);
-          } else {
-            imprimirTicketEnNavegador(ticket);
-          }
-        } catch (printErr) {
-          console.error(printErr);
-          window.alert(
-            printErr instanceof Error
-              ? `Venta registrada. No se pudo imprimir: ${printErr.message}`
-              : "Venta registrada. Revisa la impresión."
-          );
-        }
-      }
-
-      vaciarCuenta();
-    } finally {
-      setCobrando(false);
-    }
+  const handleConfirmarRegistrarPago = async (detalle: DetallePagoConfirmado) => {
+    const itemsSnap = [...itemsCuentaActiva];
+    const notaPie = construirNotaPiePago(detalle);
+    const ok = await ejecutarCobroVenta(itemsSnap, notaPie);
+    if (ok) setRegistrarPagoAbierto(false);
   };
 
   const confirmarAbrirTurno = () => {
@@ -1469,8 +1625,19 @@ export default function CajaPage() {
               <button
                 type="button"
                 onClick={() => {
+                  if (user?.uid && user?.puntoVenta?.trim()) {
+                    limpiarTurnoPersistido(user.uid, user.puntoVenta);
+                  }
                   setTurnoAbierto(false);
                   setCajeroTurnoActivo(null);
+                  setTotalVentasEnTurno(0);
+                  setTotalIngresoEfectivo(0);
+                  setTotalRetiroEfectivo(0);
+                  setVentasCredito(0);
+                  setPrecuentasEliminadasCount(0);
+                  setProductosEliminadosCount(0);
+                  setValorProductosEliminados(0);
+                  setBaseInicialCaja(0);
                   setShowModalCierreTurno(false);
                 }}
                 className="flex-1 rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
@@ -1839,7 +2006,8 @@ export default function CajaPage() {
           ) : (
             <ul className="space-y-3">
               {itemsCuentaActiva.map((it) => {
-                const subtotal = it.producto.precioUnitario * it.cantidad;
+                const lineTotal = totalLineaItem(it);
+                const pUnit = it.precioUnitarioOverride ?? it.producto.precioUnitario;
                 return (
                   <li
                     key={it.lineId}
@@ -1859,19 +2027,38 @@ export default function CajaPage() {
                           </p>
                         )}
                         <p className="mt-0.5 text-xs text-gray-500">
-                          Cod. {it.producto.sku} · Precio: $ {Number(it.producto.precioUnitario).toLocaleString("es-CO")}
+                          Cod. {it.producto.sku} · P. unit. $ {Number(pUnit).toLocaleString("es-CO")}
+                          {it.precioUnitarioOverride != null ? " · editado" : ""}
                         </p>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => quitarItem(it.lineId)}
-                        className="flex-shrink-0 rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
-                        aria-label="Quitar ítem"
-                      >
-                        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
+                      <div className="flex flex-shrink-0 gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => setItemEditando(it)}
+                          className="rounded p-1 text-gray-500 hover:bg-sky-50 hover:text-sky-700"
+                          title="Editar ítem"
+                          aria-label="Editar ítem"
+                        >
+                          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"
+                            />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => quitarItem(it.lineId)}
+                          className="rounded p-1 text-gray-400 hover:bg-red-50 hover:text-red-600"
+                          aria-label="Quitar ítem"
+                        >
+                          <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
                     </div>
                     <div className="mt-2 flex items-center justify-between">
                       <div className="flex items-center gap-1 rounded border border-gray-200 bg-white">
@@ -1900,7 +2087,7 @@ export default function CajaPage() {
                         </button>
                       </div>
                       <span className="text-sm font-semibold text-gray-900">
-                        $ {subtotal.toLocaleString("es-CO")}
+                        $ {lineTotal.toLocaleString("es-CO")}
                       </span>
                     </div>
                   </li>
@@ -1940,7 +2127,7 @@ export default function CajaPage() {
                   </thead>
                   <tbody>
                     {itemsCuentaActiva.map((it) => {
-                      const sub = it.producto.precioUnitario * it.cantidad;
+                      const sub = totalLineaItem(it);
                       return (
                         <tr key={it.lineId} className="border-b border-gray-50 last:border-0">
                           <td className="py-2 pl-2 font-medium text-gray-800">{it.producto.descripcion}</td>
@@ -2015,7 +2202,7 @@ export default function CajaPage() {
             <button
               type="button"
               disabled={cobrando || itemsCuentaActiva.length === 0 || !turnoAbierto}
-              onClick={() => void handleCobrar()}
+              onClick={abrirRegistrarPago}
               className="flex min-h-11 flex-1 items-center justify-center rounded-lg bg-emerald-600 px-3 py-2.5 text-sm font-bold text-white shadow-md transition-colors hover:bg-emerald-700 disabled:opacity-50 disabled:pointer-events-none"
             >
               {cobrando ? "Cobrando…" : `Cobrar $ ${totalCuentaActiva.toLocaleString("es-CO")}`}
@@ -2043,6 +2230,31 @@ export default function CajaPage() {
               },
             }));
           }}
+        />
+      )}
+
+      <EdicionItemCuentaModal
+        open={itemEditando != null}
+        onClose={() => setItemEditando(null)}
+        item={itemEditando}
+        onGuardar={guardarItemCuentaEditado}
+      />
+
+      {!esContador && (
+        <RegistrarPagoPanel
+          open={registrarPagoAbierto}
+          onClose={() => {
+            if (!cobrando) setRegistrarPagoAbierto(false);
+          }}
+          numProductos={itemsCuentaActiva.reduce((s, i) => s + i.cantidad, 0)}
+          clienteNombre={clienteActivoPrecuenta.nombreDisplay}
+          subtotal={totalCuentaActiva}
+          descuento={0}
+          iva={0}
+          totalBruto={totalCuentaActiva}
+          totalAPagar={totalCuentaActiva}
+          cobrando={cobrando}
+          onConfirmar={handleConfirmarRegistrarPago}
         />
       )}
 
