@@ -7,7 +7,7 @@ export interface ModalCobroSinInternetProps {
 }
 
 /**
- * Aviso cuando falla el envío del cobro por red. Texto pensado para cajeros (sin términos técnicos).
+ * Cuando `fetch` al WMS falla (sin red, servidor caído, CORS, etc.). El texto no culpa solo al “internet”.
  * z-index por encima de RegistrarPagoPanel (z-100).
  */
 export default function ModalCobroSinInternet({ open, onGuardarEnCaja, onVolver }: ModalCobroSinInternetProps) {
@@ -22,36 +22,28 @@ export default function ModalCobroSinInternet({ open, onGuardarEnCaja, onVolver 
     >
       <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-5 shadow-2xl sm:p-6">
         <h2 id="modal-cobro-sin-internet-titulo" className="text-lg font-semibold text-slate-900">
-          No hay internet
+          La venta no pudo salir ahora
         </h2>
         <p className="mt-3 text-sm leading-relaxed text-slate-600">
-          Ahora no pudimos enviar este cobro por internet (revisa el WiFi o los datos del equipo).
+          Cada cobro se envía al sistema de la empresa. Esta vez no hubo comunicación: puede ser el internet de la
+          tienda o que el sistema de la oficina no esté disponible. No es que la caja esté “mala”: puedes guardar la
+          venta aquí y seguir cobrando; cuando haya comunicación, se manda sola.
         </p>
-        <p className="mt-2 text-sm font-medium text-slate-800">¿Guardar el cobro en esta caja de todas formas?</p>
-        <ul className="mt-3 list-inside list-disc space-y-1.5 text-sm text-slate-600">
-          <li>
-            <span className="font-medium text-slate-800">Sí:</span> el cobro queda registrado aquí y puedes seguir
-            vendiendo. Cuando vuelva la conexión, se envía solo a la oficina.
-          </li>
-          <li>
-            <span className="font-medium text-slate-800">No:</span> no se guarda; puedes intentar otra vez cuando
-            haya internet.
-          </li>
-        </ul>
+        <p className="mt-3 text-base font-semibold text-slate-900">¿La guardamos en esta caja?</p>
         <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <button
             type="button"
             onClick={onVolver}
             className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50"
           >
-            No, volver
+            No, cancelar
           </button>
           <button
             type="button"
             onClick={onGuardarEnCaja}
             className="rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white shadow-md transition-colors hover:bg-emerald-700"
           >
-            Sí, guardar en esta caja
+            Sí, guardar aquí
           </button>
         </div>
       </div>

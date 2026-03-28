@@ -28,9 +28,9 @@ export function esErrorRedVenta(mensaje: string | undefined): boolean {
 export function mensajeErrorVentaParaUsuario(mensaje: string | undefined): string {
   if (esErrorRedVenta(mensaje)) {
     return [
-      "No hay conexión a internet en este momento, o la señal es muy débil.",
+      "La caja no pudo comunicarse con el sistema de la empresa (internet del local o sistema de oficina no disponible).",
       "",
-      "Revisa el WiFi o los datos. Si sigue igual, avisa a quien administra la tienda.",
+      "Revisa el internet de la tienda. Si lo tienes y sigue igual, avisa a quien administra la tienda.",
     ].join("\n");
   }
   return mensaje?.trim() || "No se pudo completar el cobro. Vuelve a intentar o avisa a tu jefe.";
@@ -39,8 +39,11 @@ export function mensajeErrorVentaParaUsuario(mensaje: string | undefined): strin
 export async function enviarReporteVenta(
   payload: BulkVentasPayload
 ): Promise<EnvioResultado> {
-  const root = getWmsPublicBaseUrl();
-  const url = `${root}/api/ventas/bulk-guardar`;
+  /** En el navegador: mismo origen del POS para evitar bloqueos CORS al WMS en otro dominio. */
+  const url =
+    typeof window !== "undefined"
+      ? "/api/wms_ventas_bulk_guardar"
+      : `${getWmsPublicBaseUrl()}/api/ventas/bulk-guardar`;
 
   try {
     const res = await fetch(url, {
