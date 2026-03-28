@@ -11,6 +11,7 @@ import CrearClientePosModal from "@/components/CrearClientePosModal";
 import EdicionItemCuentaModal from "@/components/EdicionItemCuentaModal";
 import InventarioPosModule from "@/components/InventarioPosModule";
 import PerfilUsuarioModal from "@/components/PerfilUsuarioModal";
+import ModalCobroSinInternet from "@/components/ModalCobroSinInternet";
 import RegistrarPagoPanel, { type DetallePagoConfirmado } from "@/components/RegistrarPagoPanel";
 import TurnosHistorialModule from "@/components/TurnosHistorialModule";
 import SeleccionClienteVenta from "@/components/SeleccionClienteVenta";
@@ -50,6 +51,7 @@ import {
   sumarMediosPagoVentas,
   type MediosPagoVentaGuardados,
 } from "@/lib/medios-pago-venta";
+import { encolarVentaPendienteWms, procesarColaVentasPendientesWms } from "@/lib/pos-ventas-pendientes-wms";
 import { registrarVentaPosCloud } from "@/lib/pos-ventas-cloud-client";
 import {
   agregarProductosEnVentas,
@@ -173,6 +175,22 @@ export default function CajaPage() {
     setFotoPerfil(readCajeroFotoDataUrl(user.uid));
   }, [user?.uid]);
 
+  /** Reintenta ventas que quedaron fuera del WMS por red (cola local). */
+  useEffect(() => {
+    if (!user || esContadorInvitado(user.role)) return;
+    const run = () => void procesarColaVentasPendientesWms();
+    run();
+    const onVis = () => {
+      if (document.visibilityState === "visible") run();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    const t = window.setInterval(run, 120_000);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.clearInterval(t);
+    };
+  }, [user]);
+
   const handleFotoPerfilChange = useCallback((dataUrl: string | null) => {
     setFotoPerfil(dataUrl);
     writeCajeroFotoDataUrl(user?.uid, dataUrl);
@@ -235,6 +253,8 @@ export default function CajaPage() {
   const [showModalCrearCliente, setShowModalCrearCliente] = useState(false);
   const [cobrando, setCobrando] = useState(false);
   const [registrarPagoAbierto, setRegistrarPagoAbierto] = useState(false);
+  const [modalCobroSinInternetAbierto, setModalCobroSinInternetAbierto] = useState(false);
+  const resolverCobroSinInternetRef = useRef<((aceptar: boolean) => void) | null>(null);
   const [itemEditando, setItemEditando] = useState<ItemCuenta | null>(null);
   const [guardandoPrecuenta, setGuardandoPrecuenta] = useState(false);
   /** Panel “Ver resumen” en el pie del carrito (doc. interno / factura). */
@@ -908,6 +928,20 @@ export default function CajaPage() {
     setItemsPorPrecuenta((prev) => ({ ...prev, [activePrecuentaId]: [] }));
   }, [activePrecuentaId]);
 
+  const pedirConfirmacionCobroSinInternet = useCallback((): Promise<boolean> => {
+    return new Promise((resolve) => {
+      resolverCobroSinInternetRef.current = resolve;
+      setModalCobroSinInternetAbierto(true);
+    });
+  }, []);
+
+  const cerrarModalCobroSinInternet = useCallback((aceptar: boolean) => {
+    setModalCobroSinInternetAbierto(false);
+    const r = resolverCobroSinInternetRef.current;
+    resolverCobroSinInternetRef.current = null;
+    r?.(aceptar);
+  }, []);
+
   type OpcionesCobroVenta = { notaPie?: string; detallePago?: DetallePagoConfirmado };
 
   const ejecutarCobroVenta = useCallback(
@@ -955,25 +989,25 @@ export default function CajaPage() {
           if (cr.numeroIdentificacion?.trim()) filaVenta.clienteNumeroIdentificacion = cr.numeroIdentificacion.trim();
         }
 
-        const resultado = await enviarReporteVenta({
+        const payloadWms = {
           fecha: ymdColombia(),
           uen: "Maria Chorizos",
           ventas: [filaVenta],
-        });
+        };
+
+        const resultado = await enviarReporteVenta(payloadWms);
 
         let ventaSoloEnPos = false;
         if (resultado.estado !== "exito") {
           if (esErrorRedVenta(resultado.mensaje)) {
-            const continuar = window.confirm(
-              "No hay conexión con el servidor de ventas (WMS).\n\n" +
-                "¿Registrar esta venta solo en este equipo?\n\n" +
-                "Podrás seguir cobrando. Cuando el WMS esté disponible, revisa si debes sincronizar o reenviar ventas según tu operación."
-            );
+            const continuar = await pedirConfirmacionCobroSinInternet();
             if (!continuar) {
               window.alert(mensajeErrorVentaParaUsuario(resultado.mensaje));
               return false;
             }
             ventaSoloEnPos = true;
+            encolarVentaPendienteWms(payloadWms);
+            void procesarColaVentasPendientesWms();
           } else {
             window.alert(mensajeErrorVentaParaUsuario(resultado.mensaje));
             return false;
@@ -984,9 +1018,9 @@ export default function CajaPage() {
 
         const notaPieTicket =
           ventaSoloEnPos && notaPie
-            ? `${notaPie}\n[Venta solo en POS — WMS no disponible]`
+            ? `${notaPie}\n[Cobro guardado en caja — pendiente de envío por internet]`
             : ventaSoloEnPos
-              ? "[Venta solo en POS — WMS no disponible]"
+              ? "[Cobro guardado en caja — pendiente de envío por internet]"
               : notaPie;
 
         const isoVenta = new Date().toISOString();
@@ -1055,25 +1089,30 @@ export default function CajaPage() {
         const ticket = construirPayloadTicket("TICKET DE VENTA", itemsSnap, notaPieTicket);
         if (!ticket) return false;
 
+        vaciarCuenta();
+
         const prefs = loadImpresionPrefs();
         if (prefs.imprimirAutomaticoAlCobrar) {
-          try {
-            if (prefs.metodo === "directa") {
-              await imprimirTicketConQz(prefs, ticket);
-            } else {
-              imprimirTicketEnNavegador(ticket);
+          void (async () => {
+            try {
+              if (prefs.metodo === "directa") {
+                await imprimirTicketConQz(prefs, ticket);
+              } else {
+                imprimirTicketEnNavegador(ticket);
+              }
+            } catch (printErr) {
+              console.error(printErr);
+              window.alert(
+                printErr instanceof Error
+                  ? `Venta registrada. No se pudo imprimir: ${printErr.message}`
+                  : "Venta registrada. Revisa la impresión."
+              );
             }
-          } catch (printErr) {
-            console.error(printErr);
-            window.alert(
-              printErr instanceof Error
-                ? `Venta registrada. No se pudo imprimir: ${printErr.message}`
-                : "Venta registrada. Revisa la impresión."
-            );
-          }
+          })();
         }
 
-        vaciarCuenta();
+        void procesarColaVentasPendientesWms();
+
         return true;
       } finally {
         setCobrando(false);
@@ -1088,6 +1127,7 @@ export default function CajaPage() {
       tipoComprobante,
       construirPayloadTicket,
       vaciarCuenta,
+      pedirConfirmacionCobroSinInternet,
     ]
   );
 
@@ -2629,6 +2669,12 @@ export default function CajaPage() {
           onConfirmar={handleConfirmarRegistrarPago}
         />
       )}
+
+      <ModalCobroSinInternet
+        open={modalCobroSinInternetAbierto}
+        onGuardarEnCaja={() => cerrarModalCobroSinInternet(true)}
+        onVolver={() => cerrarModalCobroSinInternet(false)}
+      />
 
     </div>
   );

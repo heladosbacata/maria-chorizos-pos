@@ -27,15 +27,13 @@ export function esErrorRedVenta(mensaje: string | undefined): boolean {
 
 export function mensajeErrorVentaParaUsuario(mensaje: string | undefined): string {
   if (esErrorRedVenta(mensaje)) {
-    const base = getWmsPublicBaseUrl();
     return [
-      "No se pudo conectar con el servidor de ventas (WMS).",
-      `URL configurada: ${base}`,
+      "No hay conexión a internet en este momento, o la señal es muy débil.",
       "",
-      "Revisa conexión a internet, firewall/VPN y que el WMS en Vercel responda. Si usas WMS local, define NEXT_PUBLIC_WMS_USE_LOCAL=1 junto a la URL en localhost.",
+      "Revisa el WiFi o los datos. Si sigue igual, avisa a quien administra la tienda.",
     ].join("\n");
   }
-  return mensaje?.trim() || "No se pudo registrar la venta.";
+  return mensaje?.trim() || "No se pudo completar el cobro. Vuelve a intentar o avisa a tu jefe.";
 }
 
 export async function enviarReporteVenta(
