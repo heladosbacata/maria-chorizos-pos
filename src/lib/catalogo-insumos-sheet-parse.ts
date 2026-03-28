@@ -1,3 +1,4 @@
+import { normPuntoVentaCatalogo } from "@/lib/punto-venta-catalogo-norm";
 import type { InsumoKitItem } from "@/types/inventario-pos";
 
 /** ID de la hoja de insumos (Maria Chorizos) — se puede sobreescribir con env. */
@@ -113,7 +114,8 @@ export function insumosDesdeGrilla(
   const iMin = findCol(headersNorm, MIN_KEYS);
   const iPv = findCol(headersNorm, PV_KEYS);
 
-  const pvNeedle = (puntoVentaFiltro ?? "").trim().toLowerCase();
+  const pvNeedleRaw = (puntoVentaFiltro ?? "").trim();
+  const pvNeedle = pvNeedleRaw ? normPuntoVentaCatalogo(pvNeedleRaw) : "";
   const out: InsumoKitItem[] = [];
   const seenSku = new Set<string>();
 
@@ -132,7 +134,8 @@ export function insumosDesdeGrilla(
     if (!sku && !descripcion) continue;
 
     if (pvNeedle && iPv >= 0 && pvCell) {
-      if (pvCell.trim().toLowerCase() !== pvNeedle) continue;
+      const pvCellNorm = normPuntoVentaCatalogo(pvCell);
+      if (pvCellNorm !== pvNeedle) continue;
     }
 
     if (!sku) sku = `FILA-${r + 1}`;

@@ -63,6 +63,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
   const [minimosUsuario, setMinimosUsuario] = useState<Map<string, number>>(new Map());
   const [fuenteCatalogo, setFuenteCatalogo] = useState<"sheet" | "firestore" | null>(null);
   const [avisoCatalogo, setAvisoCatalogo] = useState<string | null>(null);
+  const [avisoPvHoja, setAvisoPvHoja] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mensajeOk, setMensajeOk] = useState<string | null>(null);
@@ -107,6 +108,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       setMinimosUsuario(new Map());
       setFuenteCatalogo(null);
       setAvisoCatalogo(null);
+      setAvisoPvHoja(null);
       setCargando(false);
       setError("No hay punto de venta asignado. Completa tu perfil o elige punto de venta al iniciar sesión.");
       return;
@@ -114,6 +116,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     setCargando(true);
     setError(null);
     setAvisoCatalogo(null);
+    setAvisoPvHoja(null);
     try {
       const [sheetRes, saldosR, minimosM] = await Promise.all([
         fetchCatalogoInsumosDesdeSheet(pv),
@@ -127,6 +130,11 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
         setInsumos(sheetRes.data);
         setFuenteCatalogo("sheet");
         setError(null);
+        if (sheetRes.pvFiltroSinCoincidencias) {
+          setAvisoPvHoja(
+            `Ninguna fila de la hoja tenía el punto de venta «${pv}» en la columna PV (o el texto no coincidía). Se muestran todos los productos de la hoja; revisá la columna PV o el código en tu perfil.`
+          );
+        }
       } else {
         const lista = await listarInsumosKitPorPuntoVenta(pv);
         setInsumos(lista);
@@ -350,6 +358,9 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       )}
       {avisoCatalogo && !error && (
         <div className="rounded-lg border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-950">{avisoCatalogo}</div>
+      )}
+      {avisoPvHoja && !error && (
+        <div className="rounded-lg border border-blue-200 bg-blue-50/90 px-4 py-3 text-sm text-blue-950">{avisoPvHoja}</div>
       )}
 
       <div className="flex flex-wrap gap-2 border-b border-gray-100 pb-2">

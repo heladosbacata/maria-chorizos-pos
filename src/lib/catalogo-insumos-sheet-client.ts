@@ -15,6 +15,8 @@ export async function fetchCatalogoInsumosDesdeSheet(
   message?: string;
   fuente?: string;
   sheetSetup?: CatalogoSheetSetupHint;
+  /** Ninguna fila coincidió con el PV en columna PV; se listaron todos los ítems de la hoja. */
+  pvFiltroSinCoincidencias?: boolean;
 }> {
   const pv = (puntoVenta ?? "").trim();
   const q = pv ? `?puntoVenta=${encodeURIComponent(pv)}` : "";
@@ -26,11 +28,17 @@ export async function fetchCatalogoInsumosDesdeSheet(
       message?: string;
       fuente?: string;
       sheetSetup?: CatalogoSheetSetupHint;
+      pvFiltroSinCoincidencias?: boolean;
     };
     if (!json.ok) {
       return { ok: false, data: [], message: json.message, sheetSetup: json.sheetSetup };
     }
-    return { ok: true, data: json.data ?? [], fuente: json.fuente };
+    return {
+      ok: true,
+      data: json.data ?? [],
+      fuente: json.fuente,
+      ...(json.pvFiltroSinCoincidencias ? { pvFiltroSinCoincidencias: true } : {}),
+    };
   } catch {
     return { ok: false, data: [], message: "Error de red al cargar el catálogo." };
   }

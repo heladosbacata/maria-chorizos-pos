@@ -13,6 +13,7 @@ import {
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { mediodiaColombiaDesdeYmd, ymdColombia } from "@/lib/fecha-colombia";
+import { normPuntoVentaCatalogo } from "@/lib/punto-venta-catalogo-norm";
 import type { InsumoKitItem, InventarioMovimientoDoc, TipoMovimientoInventario } from "@/types/inventario-pos";
 
 /** Catálogo maestro de insumos / kit por franquicia (origen de productos del inventario POS). */
@@ -67,16 +68,15 @@ const CATALOGO_PV_FIELD_KEYS = [
  * Incluye el documento si: no tiene punto de venta definido (global) o coincide con `puntoVenta`.
  */
 function matchesPuntoVenta(data: Record<string, unknown>, puntoVenta: string): boolean {
-  const pv = puntoVenta.trim().toLowerCase();
+  const pv = normPuntoVentaCatalogo(puntoVenta);
   if (!pv) return true;
 
   let algunCampoPvDefinido = false;
   for (const k of CATALOGO_PV_FIELD_KEYS) {
-    const v = str(data[k]).toLowerCase();
-    if (v) {
-      algunCampoPvDefinido = true;
-      if (v === pv) return true;
-    }
+    const raw = str(data[k]);
+    if (!raw) continue;
+    algunCampoPvDefinido = true;
+    if (normPuntoVentaCatalogo(raw) === pv) return true;
   }
   if (!algunCampoPvDefinido) return true;
   return false;
@@ -163,6 +163,13 @@ function useFirestoreCatalogIndexedOnly(): boolean {
  * 2) Si `NEXT_PUBLIC_POS_CATALOGO_FIRESTORE_INDEXED_ONLY` no es true, añade un escaneo acotado + filtro
  *    `matchesPuntoVenta` para documentos antiguos sin campos de índice.
  */
+function variantesPuntoVentaConsulta(puntoVenta: string): string[] {
+  const t = puntoVenta.trim();
+  if (!t) return [];
+  const n = normPuntoVentaCatalogo(t);
+  return Array.from(new Set([t, n].filter((x) => x.length > 0)));
+}
+
 export async function listarInsumosKitPorPuntoVenta(puntoVenta: string): Promise<InsumoKitItem[]> {
   if (!db) return [];
   const pv = puntoVenta.trim();
@@ -171,6 +178,7 @@ export async function listarInsumosKitPorPuntoVenta(puntoVenta: string): Promise
   const col = collection(db, CATALOGO_INSUMOS_KIT_COLLECTION);
   const merged = new Map<string, InsumoKitItem>();
   const lim = readCatalogQueryLimit();
+  const pvConsulta = variantesPuntoVentaConsulta(pv);
 
   const ingestSnap = (snap: Awaited<ReturnType<typeof getDocs>>) => {
     snap.forEach((d) => {
@@ -190,21 +198,24 @@ export async function listarInsumosKitPorPuntoVenta(puntoVenta: string): Promise
   const tasks: Promise<void>[] = [];
 
   for (const field of CATALOGO_PV_FIELD_KEYS) {
-    tasks.push(runQuery(query(col, where(field, "==", pv), limit(lim))));
+    for (const candidato of pvConsulta) {
+      tasks.push(runQuery(query(col, where(field, "==", candidato), limit(lim))));
+    }
   }
 
   tasks.push(runQuery(query(col, where(CATALOGO_CAMPO_GLOBAL, "==", true), limit(lim))));
   tasks.push(runQuery(query(col, where("pos_catalogo_global", "==", true), limit(lim))));
 
+  const codesAny = [...pvConsulta, "__ALL__"];
   tasks.push(
     (async () => {
       try {
         const snap = await getDocs(
-          query(col, where(CATALOGO_CAMPO_PV_CODES, "array-contains-any", [pv, "__ALL__"]), limit(lim))
+          query(col, where(CATALOGO_CAMPO_PV_CODES, "array-contains-any", codesAny), limit(lim))
         );
         ingestSnap(snap);
       } catch {
-        /* sin campo o tipo incorrecto */
+        /* sin campo o tipo incorrecto o límite 10 valores en array-contains-any */
       }
     })()
   );

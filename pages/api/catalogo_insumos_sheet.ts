@@ -23,7 +23,13 @@ type SheetSetupHint = {
   shareOnceHint: string;
 };
 
-type OkResponse = { ok: true; data: InsumoKitItem[]; fuente: string };
+type OkResponse = {
+  ok: true;
+  data: InsumoKitItem[];
+  fuente: string;
+  /** La hoja tiene filas pero ninguna coincidió con el PV; se devolvieron todas las filas (PV vacío en filtro). */
+  pvFiltroSinCoincidencias?: boolean;
+};
 type ErrResponse = {
   ok: false;
   message: string;
@@ -63,8 +69,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   try {
     const { rows, fuente } = await obtenerFilasDesdeSheet();
-    const data = insumosDesdeGrilla(rows, puntoVenta || null, "sheet");
-    return res.status(200).json({ ok: true, data, fuente });
+    let data = insumosDesdeGrilla(rows, puntoVenta || null, "sheet");
+    let pvFiltroSinCoincidencias = false;
+    if (puntoVenta && data.length === 0 && rows.length >= 2) {
+      const sinFiltroPv = insumosDesdeGrilla(rows, null, "sheet");
+      if (sinFiltroPv.length > 0) {
+        data = sinFiltroPv;
+        pvFiltroSinCoincidencias = true;
+      }
+    }
+    return res.status(200).json({ ok: true, data, fuente, ...(pvFiltroSinCoincidencias ? { pvFiltroSinCoincidencias: true } : {}) });
   } catch (e) {
     const message =
       e instanceof Error
