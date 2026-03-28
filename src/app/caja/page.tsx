@@ -1535,7 +1535,10 @@ export default function CajaPage() {
                       <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
                     </svg>
                   </span>
-                  <span className="text-sm font-semibold text-red-800">Turno cerrado</span>
+                  <div className="min-w-0 flex-1 text-left">
+                    <span className="block text-sm font-semibold text-red-800">Turno cerrado</span>
+                    <span className="mt-0.5 block text-xs font-medium text-red-700">Abrir turno · toca aquí</span>
+                  </div>
                 </>
               )}
             </button>
