@@ -383,10 +383,11 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
             </button>
           </div>
         )}
-        <div ref={comboRef} className="relative mt-2">
+        {/* Lista en flujo normal (no absolute): evita que overflow-y-auto del layout de caja recorte el desplegable. */}
+        <div ref={comboRef} className="mt-2">
           <div className="relative">
             <input
-              type="search"
+              type="text"
               value={busqueda}
               onChange={(e) => {
                 setBusqueda(e.target.value);
@@ -394,7 +395,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
               }}
               onFocus={() => setPanelSugerenciasAbierto(true)}
               onBlur={() => {
-                window.setTimeout(() => setPanelSugerenciasAbierto(false), 180);
+                window.setTimeout(() => setPanelSugerenciasAbierto(false), 200);
               }}
               onKeyDown={(e) => {
                 if (e.key === "Escape") setPanelSugerenciasAbierto(false);
@@ -402,6 +403,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
               placeholder="Ej. chorizo, FRAN-KIT o «arepa queso»…"
               disabled={cargandoCat}
               autoComplete="off"
+              enterKeyHint="search"
               className={`w-full rounded-xl border-2 border-gray-200 py-3 text-base focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100 ${
                 busqueda.trim() ? "pl-4 pr-11" : "px-4"
               }`}
@@ -420,7 +422,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
           </div>
           {panelSugerenciasAbierto && !cargandoCat && insumos.length > 0 && (
             <div
-              className="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-xl border-2 border-gray-200 bg-white py-1 shadow-lg"
+              className="mt-2 max-h-72 w-full overflow-auto rounded-xl border-2 border-gray-200 bg-white py-1 shadow-md"
               role="listbox"
               aria-label="Productos del inventario"
             >
