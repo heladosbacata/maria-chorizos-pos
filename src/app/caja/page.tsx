@@ -46,7 +46,14 @@ import {
   imprimirTicketEnNavegador,
   reservarVentanaTicketNavegador,
 } from "@/lib/pos-geb-print";
+import { fetchCatalogoInsumosDesdeSheet } from "@/lib/catalogo-insumos-sheet-client";
 import { getCatalogoPOS } from "@/lib/catalogo-pos";
+import {
+  insumoKitDesdeCatalogoPorSku,
+  listarInsumosKitPorPuntoVenta,
+  registrarMovimientoInventario,
+} from "@/lib/inventario-pos-firestore";
+import { skusConsumoParaLlevar } from "@/lib/pos-para-llevar-config";
 import {
   lineInputDesdeItemCuentaLike,
   montoDescuentoLinea,
@@ -322,7 +329,7 @@ export default function CajaPage() {
   const [modalCobroSinInternetAbierto, setModalCobroSinInternetAbierto] = useState(false);
   const resolverCobroSinInternetRef = useRef<((aceptar: boolean) => void) | null>(null);
   const [itemEditando, setItemEditando] = useState<ItemCuenta | null>(null);
-  const [guardandoPrecuenta, setGuardandoPrecuenta] = useState(false);
+  const [aplicandoParaLlevar, setAplicandoParaLlevar] = useState(false);
   /** Panel “Ver resumen” en el pie del carrito (doc. interno / factura). */
   const [sidebarResumenExpandido, setSidebarResumenExpandido] = useState(false);
   /** Id de la pre-cuenta cuyo nombre se está editando; null si no hay edición */
@@ -1057,55 +1064,89 @@ export default function CajaPage() {
     ]
   );
 
-  const handleGuardarPrecuenta = useCallback(async () => {
+  const handleProductoParaLlevar = useCallback(async () => {
     if (!user || esContadorInvitado(user.role)) return;
-    if (!user.puntoVenta?.trim()) {
+    const pv = user.puntoVenta?.trim();
+    if (!pv) {
       window.alert("No hay punto de venta asignado.");
       return;
     }
     if (itemsCuentaActiva.length === 0) {
-      window.alert("Agrega productos a la cuenta para imprimir la pre-cuenta.");
+      window.alert("Agrega productos a la cuenta antes de marcar para llevar.");
       return;
     }
     if (!turnoAbierto) {
-      window.alert("Abre el turno para generar la pre-cuenta.");
+      window.alert("Abre el turno para registrar el consumo de empaques.");
       return;
     }
-    const payload = construirPayloadTicket(
-      "PRE-CUENTA",
-      itemsCuentaActiva,
-      "Borrador — no es comprobante de pago."
-    );
-    if (!payload) {
-      window.alert("No se pudo generar la pre-cuenta. Revisa que tengas punto de venta asignado.");
+    const skus = skusConsumoParaLlevar();
+    if (!skus) {
+      window.alert(
+        "Falta configurar NEXT_PUBLIC_POS_SKU_BOLSA_PAPEL y NEXT_PUBLIC_POS_SKU_STICKER_DOMICILIO " +
+          "(códigos SKU en la hoja de inventario). Pídeselo a quien administra el despliegue del POS."
+      );
       return;
     }
-    setGuardandoPrecuenta(true);
+    setAplicandoParaLlevar(true);
     try {
-      const prefs = loadImpresionPrefs();
-      const reservada = prefs.metodo === "directa" ? reservarVentanaTicketNavegador() : null;
-      if (prefs.metodo === "directa") {
-        try {
-          await imprimirTicketConQz(prefs, payload);
-          if (reservada && !reservada.closed) reservada.close();
-        } catch (qzErr) {
-          console.warn("Pre-cuenta: QZ no disponible, usando ventana del navegador.", qzErr);
-          imprimirTicketEnNavegador(payload, reservada);
-        }
-      } else {
-        imprimirTicketEnNavegador(payload);
+      const sheetRes = await fetchCatalogoInsumosDesdeSheet(pv);
+      const catalog =
+        sheetRes.ok && sheetRes.data.length > 0
+          ? sheetRes.data
+          : await listarInsumosKitPorPuntoVenta(pv);
+      const bolsa = insumoKitDesdeCatalogoPorSku(catalog, skus.bolsaPapel);
+      const sticker = insumoKitDesdeCatalogoPorSku(catalog, skus.stickerDomicilio);
+      if (!bolsa) {
+        window.alert(
+          `No está en el catálogo de este punto de venta el SKU «${skus.bolsaPapel}» (bolsa de papel). Revisa la hoja o Firestore.`
+        );
+        return;
       }
+      if (!sticker) {
+        window.alert(
+          `No está en el catálogo el SKU «${skus.stickerDomicilio}» (sticker de domicilio). Revisa la hoja o Firestore.`
+        );
+        return;
+      }
+      const nombrePrecuenta = precuentas.find((p) => p.id === activePrecuentaId)?.nombre ?? "Cuenta";
+      const notasBase = `Para llevar · ${nombrePrecuenta}`.slice(0, 420);
+      const r1 = await registrarMovimientoInventario({
+        puntoVenta: pv,
+        insumo: bolsa,
+        tipo: "consumo_interno",
+        cantidad: 1,
+        notas: `${notasBase} · bolsa papel`.slice(0, 500),
+        uid: user.uid,
+        email: user.email ?? null,
+        permitirNegativo: false,
+      });
+      if (!r1.ok) {
+        window.alert(r1.message ?? "No se pudo descontar la bolsa de papel.");
+        return;
+      }
+      const r2 = await registrarMovimientoInventario({
+        puntoVenta: pv,
+        insumo: sticker,
+        tipo: "consumo_interno",
+        cantidad: 1,
+        notas: `${notasBase} · sticker domicilio`.slice(0, 500),
+        uid: user.uid,
+        email: user.email ?? null,
+        permitirNegativo: false,
+      });
+      if (!r2.ok) {
+        window.alert(
+          `${r2.message ?? "No se pudo descontar el sticker."} La bolsa de papel ya se descontó; revisa inventario si hace falta un ajuste.`
+        );
+        return;
+      }
+      window.alert("Se registró para llevar: −1 bolsa de papel y −1 sticker de domicilio en inventario.");
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : "No se pudo imprimir la pre-cuenta.");
+      window.alert(e instanceof Error ? e.message : "No se pudo actualizar el inventario.");
     } finally {
-      setGuardandoPrecuenta(false);
+      setAplicandoParaLlevar(false);
     }
-  }, [
-    user,
-    itemsCuentaActiva,
-    turnoAbierto,
-    construirPayloadTicket,
-  ]);
+  }, [user, itemsCuentaActiva, turnoAbierto, precuentas, activePrecuentaId]);
 
   useEffect(() => {
     if (itemsCuentaActiva.length === 0) setSidebarResumenExpandido(false);
@@ -3021,16 +3062,17 @@ export default function CajaPage() {
             </span>
           </div>
 
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-1">
+            <div className="flex gap-2">
             <button
               type="button"
               disabled={
-                guardandoPrecuenta || itemsCuentaActiva.length === 0 || !turnoAbierto || cobrando
+                aplicandoParaLlevar || itemsCuentaActiva.length === 0 || !turnoAbierto || cobrando
               }
-              onClick={() => void handleGuardarPrecuenta()}
+              onClick={() => void handleProductoParaLlevar()}
               className="flex flex-1 items-center justify-center rounded-lg border border-blue-200 bg-white py-2.5 text-sm font-semibold text-blue-700 shadow-sm transition-colors hover:bg-blue-50 disabled:opacity-45 disabled:pointer-events-none"
             >
-              {guardandoPrecuenta ? "Generando…" : "Guardar pre-cuenta"}
+              {aplicandoParaLlevar ? "Aplicando…" : "Producto para llevar"}
             </button>
             <button
               type="button"
@@ -3049,13 +3091,18 @@ export default function CajaPage() {
               )}
               {sidebarResumenExpandido ? "Ocultar resumen" : "Ver resumen"}
             </button>
+            </div>
+            <p className="text-[11px] leading-snug text-gray-500">
+              Descuenta en inventario 1 bolsa de papel y 1 sticker de domicilio. Si aparece un aviso de configuración,
+              los SKU deben definirse en el despliegue del POS para este local.
+            </p>
           </div>
 
           <div className="mt-2 flex gap-2">
             <button
               type="button"
               onClick={vaciarCuenta}
-              disabled={itemsCuentaActiva.length === 0 || cobrando || guardandoPrecuenta}
+              disabled={itemsCuentaActiva.length === 0 || cobrando || aplicandoParaLlevar}
               className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg border border-blue-200 bg-white text-blue-600 shadow-sm transition-colors hover:bg-blue-50 disabled:opacity-45 disabled:pointer-events-none"
               title="Vaciar cuenta"
               aria-label="Vaciar cuenta"

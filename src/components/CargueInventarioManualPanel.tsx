@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchCatalogoInsumosDesdeSheet,
   type CatalogoSheetSetupHint,
@@ -42,6 +42,50 @@ function formatFechaCargueMostrar(iso: string | undefined): string {
   return fechaColombia(dt, { dateStyle: "medium" });
 }
 
+/** Texto comparable en búsqueda (minúsculas, sin tildes). */
+function textoBusquedaFold(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function tokensDesdeBusqueda(q: string): string[] {
+  return q
+    .split(/\s+/)
+    .map((t) => textoBusquedaFold(t))
+    .filter(Boolean);
+}
+
+function insumoMatcheaTokens(i: InsumoKitItem, tokens: string[]): boolean {
+  if (tokens.length === 0) return true;
+  const blob = textoBusquedaFold(`${i.sku} ${i.descripcion} ${i.categoria ?? ""}`);
+  return tokens.every((t) => blob.includes(t));
+}
+
+/** Mayor = mejor coincidencia (SKU exacto, prefijos, palabras en descripción). */
+function puntajeInsumoBusqueda(i: InsumoKitItem, tokens: string[]): number {
+  if (tokens.length === 0) return 0;
+  const sku = textoBusquedaFold(i.sku);
+  const desc = textoBusquedaFold(i.descripcion);
+  const cat = textoBusquedaFold(i.categoria ?? "");
+  let score = 0;
+  for (const t of tokens) {
+    if (!t) continue;
+    if (sku === t) score += 220;
+    else if (sku.startsWith(t)) score += 160;
+    else if (sku.includes(t)) score += 90;
+    else if (desc.startsWith(t)) score += 120;
+    else if (desc.includes(t)) score += 55;
+    else if (cat.includes(t)) score += 25;
+  }
+  return score;
+}
+
+const LISTA_SUGERENCIAS_MAX = 80;
+const LISTA_SIN_FILTRO_MAX = 100;
+
 export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: CargueInventarioManualPanelProps) {
   const pv = (puntoVenta ?? "").trim();
   const [insumos, setInsumos] = useState<InsumoKitItem[]>([]);
@@ -51,6 +95,8 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
 
   const [busqueda, setBusqueda] = useState("");
   const [insumoId, setInsumoId] = useState("");
+  const [panelSugerenciasAbierto, setPanelSugerenciasAbierto] = useState(false);
+  const comboRef = useRef<HTMLDivElement>(null);
   const [fechaCargue, setFechaCargue] = useState(fechaHoyIsoColombia);
   const [cantidad, setCantidad] = useState("");
   const [anotaciones, setAnotaciones] = useState("");
@@ -131,16 +177,35 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
     void cargarHistorialCargues();
   }, [cargarHistorialCargues]);
 
-  const filtrados = useMemo(() => {
-    const q = busqueda.trim().toLowerCase();
-    if (!q) return insumos;
-    return insumos.filter(
-      (i) =>
-        i.sku.toLowerCase().includes(q) ||
-        i.descripcion.toLowerCase().includes(q) ||
-        (i.categoria && i.categoria.toLowerCase().includes(q))
-    );
-  }, [insumos, busqueda]);
+  useEffect(() => {
+    if (!panelSugerenciasAbierto) return;
+    const onDoc = (e: MouseEvent) => {
+      const el = comboRef.current;
+      if (!el || !(e.target instanceof Node) || el.contains(e.target)) return;
+      setPanelSugerenciasAbierto(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [panelSugerenciasAbierto]);
+
+  const tokensBusqueda = useMemo(() => tokensDesdeBusqueda(busqueda), [busqueda]);
+
+  const sugerenciasOrdenadas = useMemo(() => {
+    if (insumos.length === 0) return [];
+    const conFiltro = tokensBusqueda.length > 0;
+    let list = conFiltro ? insumos.filter((i) => insumoMatcheaTokens(i, tokensBusqueda)) : [...insumos];
+    if (conFiltro) {
+      list.sort(
+        (a, b) =>
+          puntajeInsumoBusqueda(b, tokensBusqueda) - puntajeInsumoBusqueda(a, tokensBusqueda)
+      );
+      return list.slice(0, LISTA_SUGERENCIAS_MAX);
+    }
+    list.sort((a, b) => a.descripcion.localeCompare(b.descripcion, "es", { sensitivity: "base" }));
+    return list.slice(0, LISTA_SIN_FILTRO_MAX);
+  }, [insumos, tokensBusqueda]);
+
+  const hayMasInsumosSinFiltro = tokensBusqueda.length === 0 && insumos.length > LISTA_SIN_FILTRO_MAX;
 
   const insumoSel = useMemo(() => insumos.find((i) => i.id === insumoId) ?? null, [insumos, insumoId]);
 
@@ -294,30 +359,109 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
           </div>
         )}
 
-        <label className="block text-sm font-semibold text-gray-800">Buscar producto</label>
-        <input
-          type="search"
-          value={busqueda}
-          onChange={(e) => setBusqueda(e.target.value)}
-          placeholder="Código, nombre o categoría…"
-          disabled={cargandoCat}
-          className="mt-2 w-full rounded-xl border-2 border-gray-200 px-4 py-3 text-base focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
-        />
-
-        <label className="mt-6 block text-sm font-semibold text-gray-800">Producto</label>
-        <select
-          value={insumoId}
-          onChange={(e) => setInsumoId(e.target.value)}
-          disabled={cargandoCat || insumos.length === 0}
-          className="mt-2 w-full rounded-xl border-2 border-gray-200 px-4 py-4 text-base focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
-        >
-          <option value="">— Elegir producto —</option>
-          {filtrados.map((i) => (
-            <option key={i.id} value={i.id}>
-              {i.sku} · {i.descripcion} ({i.unidad})
-            </option>
-          ))}
-        </select>
+        <label className="block text-sm font-semibold text-gray-800">Buscar y elegir producto</label>
+        <p className="mt-1 text-xs text-gray-500">
+          Búsqueda desde el catálogo de inventario de este punto de venta: varias palabras a la vez (todas deben
+          aparecer en código, nombre o categoría), sin importar tildes. Elige una fila en la lista.
+        </p>
+        {insumoSel && (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-sm">
+            <div className="min-w-0 flex-1">
+              <span className="font-mono text-xs text-emerald-900">{insumoSel.sku}</span>
+              <span className="text-emerald-950"> · {insumoSel.descripcion}</span>
+              <span className="text-emerald-800/90"> ({insumoSel.unidad})</span>
+            </div>
+            <button
+              type="button"
+              className="shrink-0 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
+              onClick={() => {
+                setInsumoId("");
+                setPanelSugerenciasAbierto(true);
+              }}
+            >
+              Cambiar
+            </button>
+          </div>
+        )}
+        <div ref={comboRef} className="relative mt-2">
+          <div className="relative">
+            <input
+              type="search"
+              value={busqueda}
+              onChange={(e) => {
+                setBusqueda(e.target.value);
+                setPanelSugerenciasAbierto(true);
+              }}
+              onFocus={() => setPanelSugerenciasAbierto(true)}
+              onBlur={() => {
+                window.setTimeout(() => setPanelSugerenciasAbierto(false), 180);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setPanelSugerenciasAbierto(false);
+              }}
+              placeholder="Ej. chorizo, FRAN-KIT o «arepa queso»…"
+              disabled={cargandoCat}
+              autoComplete="off"
+              className={`w-full rounded-xl border-2 border-gray-200 py-3 text-base focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100 ${
+                busqueda.trim() ? "pl-4 pr-11" : "px-4"
+              }`}
+            />
+            {busqueda.trim() !== "" && (
+              <button
+                type="button"
+                aria-label="Limpiar búsqueda"
+                className="absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg text-lg leading-none text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => setBusqueda("")}
+              >
+                ×
+              </button>
+            )}
+          </div>
+          {panelSugerenciasAbierto && !cargandoCat && insumos.length > 0 && (
+            <div
+              className="absolute z-20 mt-1 max-h-72 w-full overflow-auto rounded-xl border-2 border-gray-200 bg-white py-1 shadow-lg"
+              role="listbox"
+              aria-label="Productos del inventario"
+            >
+              {sugerenciasOrdenadas.length === 0 ? (
+                <p className="px-4 py-3 text-sm text-gray-500">No hay coincidencias con esa búsqueda.</p>
+              ) : (
+                <>
+                  {hayMasInsumosSinFiltro && (
+                    <p className="border-b border-gray-100 px-4 py-2 text-xs text-gray-500">
+                      Mostrando los primeros {LISTA_SIN_FILTRO_MAX} en orden alfabético. Escribe para acotar.
+                    </p>
+                  )}
+                  {sugerenciasOrdenadas.map((i) => (
+                    <button
+                      key={i.id}
+                      type="button"
+                      role="option"
+                      aria-selected={insumoId === i.id}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => {
+                        setInsumoId(i.id);
+                        setBusqueda("");
+                        setPanelSugerenciasAbierto(false);
+                      }}
+                      className={`flex w-full flex-col items-start gap-0.5 border-b border-gray-50 px-4 py-2.5 text-left text-sm last:border-b-0 hover:bg-primary-50 ${
+                        insumoId === i.id ? "bg-primary-50/90" : ""
+                      }`}
+                    >
+                      <span className="font-mono text-xs text-gray-600">{i.sku}</span>
+                      <span className="text-gray-900">{i.descripcion}</span>
+                      <span className="text-xs text-gray-500">
+                        {i.unidad}
+                        {i.categoria ? ` · ${i.categoria}` : ""}
+                      </span>
+                    </button>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
+        </div>
 
         <div className="mt-6 grid gap-4 sm:grid-cols-2">
           <div>

@@ -1,31 +1,29 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import EnviosCasaMatrizPanel from "@/components/EnviosCasaMatrizPanel";
 import { fetchCatalogoInsumosDesdeSheet } from "@/lib/catalogo-insumos-sheet-client";
-import { auth } from "@/lib/firebase";
-import { contarEnviosPendientesPos } from "@/lib/envios-matriz-api";
+import {
+  escribirMinimoInventarioLocal,
+  leerMinimosInventarioLocal,
+} from "@/lib/inventario-minimos-local-storage";
 import type { InsumoKitItem, TipoMovimientoInventario } from "@/types/inventario-pos";
 import { fechaColombia, fechaHoraColombia, mediodiaColombiaDesdeYmd } from "@/lib/fecha-colombia";
 import {
   CATALOGO_INSUMOS_KIT_COLLECTION,
   cantidadSaldoParaInsumoKit,
-  eliminarMinimoUsuarioInventario,
   etiquetaTipoMovimiento,
-  guardarMinimoUsuarioInventario,
   listarInsumosKitPorPuntoVenta,
   listarMovimientosInventario,
-  listarMinimosUsuarioInventario,
   listarSaldosInventarioPorPuntoVenta,
   normSkuInventario,
   registrarMovimientoInventario,
   type InventarioSaldoRow,
 } from "@/lib/inventario-pos-firestore";
 
-type Pestaña = "stock" | "movimiento" | "historial" | "casaMatriz";
+type Pestaña = "stock" | "movimiento" | "historial";
 
+/** Tipos disponibles en «Registrar movimiento». El cargue va en el módulo «Cargue inventario». */
 const TIPOS_MOVIMIENTO: { value: TipoMovimientoInventario; label: string; ayuda: string }[] = [
-  { value: "cargue", label: "Cargue / recepción", ayuda: "Entrada de mercancía o traslado recibido." },
   { value: "salida_danio", label: "Salida por daño", ayuda: "Baja autorizada por producto dañado." },
   { value: "ajuste_positivo", label: "Ajuste a más", ayuda: "Corrección tras conteo físico (sobra)." },
   { value: "ajuste_negativo", label: "Ajuste a menos", ayuda: "Corrección tras conteo físico (falta)." },
@@ -73,7 +71,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
 
   const [busqueda, setBusqueda] = useState("");
   const [movInsumoId, setMovInsumoId] = useState("");
-  const [movTipo, setMovTipo] = useState<TipoMovimientoInventario>("cargue");
+  const [movTipo, setMovTipo] = useState<TipoMovimientoInventario>("salida_danio");
   const [movCantidad, setMovCantidad] = useState("");
   const [movNotas, setMovNotas] = useState("");
   const [enviandoMov, setEnviandoMov] = useState(false);
@@ -81,25 +79,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
   const [historial, setHistorial] = useState<Awaited<ReturnType<typeof listarMovimientosInventario>>>([]);
   const [cargandoHist, setCargandoHist] = useState(false);
 
-  const [enviosMatrizPendientes, setEnviosMatrizPendientes] = useState(0);
-
   const pv = (puntoVenta ?? "").trim();
-
-  useEffect(() => {
-    if (!pv) {
-      setEnviosMatrizPendientes(0);
-      return;
-    }
-    let cancel = false;
-    (async () => {
-      const token = auth?.currentUser ? await auth.currentUser.getIdToken() : null;
-      const n = await contarEnviosPendientesPos(pv, token);
-      if (!cancel) setEnviosMatrizPendientes(n);
-    })();
-    return () => {
-      cancel = true;
-    };
-  }, [pv]);
 
   const cargarTodo = useCallback(async () => {
     if (!pv) {
@@ -118,13 +98,12 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     setAvisoCatalogo(null);
     setAvisoPvHoja(null);
     try {
-      const [sheetRes, saldosR, minimosM] = await Promise.all([
+      const [sheetRes, saldosR] = await Promise.all([
         fetchCatalogoInsumosDesdeSheet(pv),
         listarSaldosInventarioPorPuntoVenta(pv),
-        listarMinimosUsuarioInventario(pv),
       ]);
       setSaldoRows(saldosR);
-      setMinimosUsuario(minimosM);
+      setMinimosUsuario(leerMinimosInventarioLocal(uid, pv));
 
       if (sheetRes.ok && sheetRes.data.length > 0) {
         setInsumos(sheetRes.data);
@@ -156,16 +135,11 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     } finally {
       setCargando(false);
     }
-  }, [pv]);
+  }, [pv, uid]);
 
   const commitMinimoSugerido = useCallback(
-    async (
-      item: InsumoKitItem,
-      raw: string,
-      teniaMinimoUsuario: boolean,
-      minimoEfectivoEnFila: number | null
-    ) => {
-      if (!pv) return;
+    (item: InsumoKitItem, raw: string, teniaMinimoUsuario: boolean, minimoEfectivoEnFila: number | null) => {
+      if (!pv || !uid.trim()) return;
       const t = raw.trim();
       const k = normSkuInventario(item.sku);
       setGuardandoMinimoSku(k);
@@ -177,9 +151,9 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
             setMinInputTick((x) => x + 1);
             return;
           }
-          const r = await eliminarMinimoUsuarioInventario(pv, item.sku);
-          if (!r.ok) {
-            setError(r.message ?? "No se pudo quitar el mínimo personalizado.");
+          const ok = escribirMinimoInventarioLocal(uid, pv, item.sku, null);
+          if (!ok) {
+            setError("No se pudo guardar en este equipo (memoria local bloqueada o llena).");
             return;
           }
           setMinimosUsuario((prev) => {
@@ -187,7 +161,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
             n.delete(k);
             return n;
           });
-          setMensajeOk("Se quitó tu ajuste; vuelve a aplicarse el mínimo de la hoja si existe.");
+          setMensajeOk("Se quitó tu ajuste en este equipo; vuelve a aplicarse el mínimo de la hoja si existe.");
           return;
         }
         const num = parseFloat(t.replace(/,/g, "."));
@@ -200,19 +174,14 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
         if (minimoEfectivoEnFila != null && Math.abs(redondeado - minimoEfectivoEnFila) < 1e-9) {
           return;
         }
-        const r = await guardarMinimoUsuarioInventario({
-          puntoVenta: pv,
-          insumoSku: item.sku,
-          minimo: redondeado,
-          uid,
-        });
-        if (!r.ok) {
-          setError(r.message ?? "No se pudo guardar el mínimo.");
+        const ok = escribirMinimoInventarioLocal(uid, pv, item.sku, redondeado);
+        if (!ok) {
+          setError("No se pudo guardar en este equipo (memoria local bloqueada o llena).");
           setMinInputTick((x) => x + 1);
           return;
         }
         setMinimosUsuario((prev) => new Map(prev).set(k, redondeado));
-        setMensajeOk("Mínimo sugerido guardado.");
+        setMensajeOk("Mínimo guardado en este equipo (solo este navegador / usuario).");
       } finally {
         setGuardandoMinimoSku(null);
       }
@@ -327,9 +296,10 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
             Control de stock por punto de venta. La lista de productos se obtiene de la hoja{" "}
             <strong className="font-medium text-gray-800">DB_Franquicia_Insumos_Kit</strong> (Google Sheets); si la hoja no
             está disponible, se usa el catálogo Firestore{" "}
-            <code className="rounded bg-gray-100 px-1 text-xs">{CATALOGO_INSUMOS_KIT_COLLECTION}</code>. Podés definir un{" "}
-            <span className="font-medium">mínimo sugerido</span> en la hoja (columna mínimo / stock mínimo) y ajustarlo
-            desde esta pantalla; se guarda por punto de venta. Saldos y movimientos:{" "}
+            <code className="rounded bg-gray-100 px-1 text-xs">{CATALOGO_INSUMOS_KIT_COLLECTION}</code>. El{" "}
+            <span className="font-medium">mínimo sugerido</span> puede venir de la hoja y cada franquicia lo puede cambiar
+            aquí: el ajuste se guarda solo en <span className="font-medium">la memoria de este equipo</span> (navegador,
+            usuario de sesión y punto de venta), no en la nube. Saldos y movimientos:{" "}
             <span className="font-medium text-gray-800">{pv}</span>.
           </p>
           {fuenteCatalogo && (
@@ -369,7 +339,6 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
             ["stock", "Stock actual"],
             ["movimiento", "Registrar movimiento"],
             ["historial", "Historial"],
-            ["casaMatriz", "Cargar inventario desde casa matriz"],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -379,20 +348,11 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
               setPestaña(id);
               setMensajeOk(null);
             }}
-            className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
+            className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${
               pestaña === id ? "bg-primary-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
             }`}
           >
-            <span>{label}</span>
-            {id === "casaMatriz" && enviosMatrizPendientes > 0 && (
-              <span
-                className={`min-w-[1.25rem] rounded-full px-1.5 py-0.5 text-center text-xs font-bold ${
-                  pestaña === id ? "bg-white/25 text-white" : "bg-amber-500 text-white"
-                }`}
-              >
-                {enviosMatrizPendientes > 99 ? "99+" : enviosMatrizPendientes}
-              </span>
-            )}
+            {label}
           </button>
         ))}
       </div>
@@ -456,12 +416,12 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                             <input
                               type="text"
                               inputMode="decimal"
-                              title="Editá el mínimo y salí del campo para guardar. Vacío: si tenías un ajuste guardado, se borra y aplica la hoja."
+                              title="Se guarda solo en este navegador al salir del campo. Vacío: quita tu ajuste y aplica el mínimo de la hoja."
                               defaultValue={defaultInput}
                               key={`${row.id}-${minInputTick}-${minimosUsuario.has(skuK) ? "u" : "s"}-${row.minimoSheet ?? ""}`}
                               disabled={guardandoMinimoSku === skuK}
                               onBlur={(e) => {
-                                void commitMinimoSugerido(
+                                commitMinimoSugerido(
                                   row,
                                   e.target.value,
                                   row.minimoUsuario != null,
@@ -558,10 +518,6 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
             {enviandoMov ? "Guardando…" : "Registrar movimiento"}
           </button>
         </div>
-      )}
-
-      {pestaña === "casaMatriz" && (
-        <EnviosCasaMatrizPanel puntoVenta={pv} onPendientesChange={setEnviosMatrizPendientes} />
       )}
 
       {pestaña === "historial" && (

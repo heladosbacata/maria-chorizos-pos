@@ -17,28 +17,21 @@ import {
   ventasDelTurnoActivos,
   type VentaGuardadaLocal,
 } from "@/lib/pos-ventas-local-storage";
-import { listarInsumosKitPorPuntoVenta, registrarMovimientoInventario } from "@/lib/inventario-pos-firestore";
+import {
+  insumoKitDesdeCatalogoPorSku,
+  listarInsumosKitPorPuntoVenta,
+  registrarMovimientoInventario,
+} from "@/lib/inventario-pos-firestore";
 import {
   EVENTO_PERFIL_CAJERO_GUARDADO,
   etiquetaCuentaParaGuardado,
   leerNombrePerfilCajeroDesdeLocal,
 } from "@/lib/pos-perfil-cajero-display";
 import type { TicketVentaPayload } from "@/types/impresion-pos";
-import type { InsumoKitItem } from "@/types/inventario-pos";
 
 const MAX_LISTA = 60;
 const MAX_RECIBOS_TURNO = 10;
 const MIN_MOTIVO = 5;
-
-function insumoParaLinea(catalog: InsumoKitItem[], skuLinea: string): InsumoKitItem | null {
-  const s = skuLinea.trim().toLowerCase();
-  if (!s) return null;
-  for (const it of catalog) {
-    if (it.sku.trim().toLowerCase() === s) return it;
-    if (it.id.trim().toLowerCase() === s) return it;
-  }
-  return null;
-}
 
 function payloadTicketDesdeVenta(v: VentaGuardadaLocal): TicketVentaPayload {
   const t = new Date(v.isoTimestamp);
@@ -205,7 +198,7 @@ export default function UltimosRecibosModule({
       for (const linea of v.lineas) {
         const qty = linea.cantidad;
         if (!(qty > 0)) continue;
-        const insumo = insumoParaLinea(catalog, linea.sku);
+        const insumo = insumoKitDesdeCatalogoPorSku(catalog, linea.sku);
         if (!insumo) {
           fallosSku.push(linea.sku || linea.descripcion);
           continue;

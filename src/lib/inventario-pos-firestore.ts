@@ -260,6 +260,17 @@ export function normSkuInventario(s: string): string {
   return s.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+/** Resuelve un ítem del catálogo por SKU o por id de documento (misma lógica que en recibos / hoja). */
+export function insumoKitDesdeCatalogoPorSku(catalog: InsumoKitItem[], skuOCodigo: string): InsumoKitItem | null {
+  const k = normSkuInventario(skuOCodigo);
+  if (!k) return null;
+  for (const it of catalog) {
+    if (normSkuInventario(it.sku) === k) return it;
+    if (normSkuInventario(it.id) === k) return it;
+  }
+  return null;
+}
+
 /**
  * Saldo mostrado para un ítem del catálogo: primero por `insumoId`; si no hay fila, suma por SKU
  * (compat. catálogo Firestore vs hoja Google con distinto id).
