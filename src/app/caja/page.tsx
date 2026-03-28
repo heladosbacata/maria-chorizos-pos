@@ -85,7 +85,11 @@ import type { ClientePosFirestoreDoc } from "@/types/clientes-pos";
 import { CONSUMIDOR_FINAL_ID, type ClienteVentaRef } from "@/types/clientes-pos";
 import type { ProductoPOS, TipoComprobanteVenta, VentaReporte } from "@/types";
 import type { ItemCuenta } from "@/types/pos-caja-item";
-import { readCajeroFotoDataUrl, writeCajeroFotoDataUrl } from "@/constants/perfil-pos";
+import {
+  comprimirDataUrlFotoCajero,
+  readCajeroFotoDataUrl,
+  writeCajeroFotoDataUrl,
+} from "@/constants/perfil-pos";
 import { fechaColombia, fechaHoraColombia, ymdColombia } from "@/lib/fecha-colombia";
 import { formatPesosCop, parsePesosCopInput } from "@/lib/pesos-cop-input";
 import { emailDesdeFichaFranquiciado, getFranquiciadoPorPuntoVenta } from "@/lib/franquiciado-pos";
@@ -187,6 +191,7 @@ type TipoComprobante = TipoComprobanteVenta;
 export default function CajaPage() {
   const { user, signOut, loading } = useAuth();
   const router = useRouter();
+  const [fotoPerfil, setFotoPerfil] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -194,7 +199,7 @@ export default function CajaPage() {
     }
   }, [loading, user, router]);
 
-  /** Hidratar foto desde localStorage en el cliente (el inicializador de useState corre en SSR sin storage). */
+  /** Hidratar foto desde localStorage en el cliente (el SSR no tiene storage). */
   useEffect(() => {
     if (!user) return;
     setFotoPerfil(readCajeroFotoDataUrl(user.uid));
@@ -217,8 +222,28 @@ export default function CajaPage() {
   }, [user]);
 
   const handleFotoPerfilChange = useCallback((dataUrl: string | null) => {
-    setFotoPerfil(dataUrl);
-    writeCajeroFotoDataUrl(user?.uid, dataUrl);
+    const uid = user?.uid;
+    if (!dataUrl) {
+      setFotoPerfil(null);
+      if (!writeCajeroFotoDataUrl(uid, null)) {
+        window.alert(
+          "No se pudo actualizar la foto en este navegador. Revisá que no esté bloqueado el almacenamiento del sitio."
+        );
+      }
+      return;
+    }
+    void (async () => {
+      const compressed = await comprimirDataUrlFotoCajero(dataUrl);
+      const ok = writeCajeroFotoDataUrl(uid, compressed);
+      if (!ok) {
+        window.alert(
+          "No se pudo guardar la foto en este navegador (suele ser por imagen muy grande o cuota llena). " +
+            "Probá con otra foto o liberá espacio; la imagen se comprime al guardar."
+        );
+        return;
+      }
+      setFotoPerfil(compressed);
+    })();
   }, [user?.uid]);
 
   const [moduloActivo, setModuloActivo] = useState<ModuloActivo>("ventas");
@@ -258,6 +283,13 @@ export default function CajaPage() {
     nombreDisplay: string;
     documento: string;
   } | null>(null);
+  /** Catálogo posCajerosTurno cuando el turno no es «solo sesión». */
+  const cajeroFirestoreIdPerfil = useMemo(() => {
+    if (turnoAbierto && cajeroTurnoActivo?.id && cajeroTurnoActivo.id !== CAJERO_TURNO_ID_SESION) {
+      return cajeroTurnoActivo.id.trim();
+    }
+    return null;
+  }, [turnoAbierto, cajeroTurnoActivo?.id]);
   const [totalVentasEnTurno, setTotalVentasEnTurno] = useState(0);
   const [totalIngresoEfectivo, setTotalIngresoEfectivo] = useState(0);
   const [totalRetiroEfectivo, setTotalRetiroEfectivo] = useState(0);
@@ -268,8 +300,9 @@ export default function CajaPage() {
   const [valorProductosEliminados, setValorProductosEliminados] = useState(0);
   /** Id estable del turno actual (ventas y cierre). */
   const [turnoSesionId, setTurnoSesionId] = useState("");
-  const [fotoPerfil, setFotoPerfil] = useState<string | null>(null);
   const [showModalPerfilUsuario, setShowModalPerfilUsuario] = useState(false);
+  /** Foto en el modal de perfil (cajero en turno o sesión, según turno abierto). */
+  const [fotoPerfilModal, setFotoPerfilModal] = useState<string | null>(null);
   const inputFotoRef = useRef<HTMLInputElement>(null);
   /** Evita sobrescribir el cierre si el usuario editó con el modal abierto. */
   const cierreTurnoYaPrecargadoRef = useRef(false);
@@ -301,6 +334,39 @@ export default function CajaPage() {
   const [varianteModalArepa, setVarianteModalArepa] = useState<VarianteArepaCombo>("arepa_queso");
   /** Evita escribir localStorage antes de restaurar el turno guardado (misma sesión / otro usuario). */
   const [turnoHidratadoDesdeStorage, setTurnoHidratadoDesdeStorage] = useState(false);
+
+  useEffect(() => {
+    if (!showModalPerfilUsuario || !user?.uid?.trim()) return;
+    setFotoPerfilModal(readCajeroFotoDataUrl(user.uid, cajeroFirestoreIdPerfil));
+  }, [showModalPerfilUsuario, user?.uid, cajeroFirestoreIdPerfil]);
+
+  const handleFotoPerfilModalChange = useCallback(
+    (dataUrl: string | null) => {
+      const uid = user?.uid;
+      if (!dataUrl) {
+        setFotoPerfilModal(null);
+        if (!writeCajeroFotoDataUrl(uid, null, cajeroFirestoreIdPerfil)) {
+          window.alert(
+            "No se pudo actualizar la foto en este navegador. Revisá que no esté bloqueado el almacenamiento del sitio."
+          );
+        }
+        return;
+      }
+      void (async () => {
+        const compressed = await comprimirDataUrlFotoCajero(dataUrl);
+        const ok = writeCajeroFotoDataUrl(uid, compressed, cajeroFirestoreIdPerfil);
+        if (!ok) {
+          window.alert(
+            "No se pudo guardar la foto en este navegador (suele ser por imagen muy grande o cuota llena). " +
+              "Probá con otra foto o liberá espacio; la imagen se comprime al guardar."
+          );
+          return;
+        }
+        setFotoPerfilModal(compressed);
+      })();
+    },
+    [user?.uid, cajeroFirestoreIdPerfil]
+  );
 
   useEffect(() => {
     if (user && esContadorInvitado(user.role)) {
@@ -1580,6 +1646,9 @@ export default function CajaPage() {
                         Opera el turno: {cajeroTurnoActivo.nombreDisplay}
                       </span>
                     )}
+                    <span className="mt-1 block text-xs font-semibold text-red-600 underline decoration-red-500/80 underline-offset-2">
+                      Clic aquí para cerrar turno
+                    </span>
                   </div>
                 </>
               ) : (
@@ -1755,8 +1824,14 @@ export default function CajaPage() {
         uidSesion={user.uid}
         emailSesion={user.email}
         puntoVenta={user.puntoVenta}
-        fotoPreview={fotoPerfil}
-        onFotoChange={handleFotoPerfilChange}
+        turnoAbierto={turnoAbierto}
+        cajeroTurnoActivo={
+          cajeroTurnoActivo
+            ? { id: cajeroTurnoActivo.id, nombreDisplay: cajeroTurnoActivo.nombreDisplay }
+            : null
+        }
+        fotoPreview={fotoPerfilModal}
+        onFotoChange={handleFotoPerfilModalChange}
         esContador={esContador}
       />
 
@@ -2178,20 +2253,65 @@ export default function CajaPage() {
                   parsePesosCopInput(cierreOtrosMedios);
                 const totalEsperado = baseInicialCaja + totalVentasEnTurno;
                 const diferencia = totalIngresado - totalEsperado;
+                const cuadreExacto = Math.abs(diferencia) < 0.005;
+                const haySobrante = diferencia > 0.005;
+                const hayFaltante = diferencia < -0.005;
+                const claseDiferencia = cuadreExacto
+                  ? "text-emerald-800 font-medium"
+                  : haySobrante
+                    ? "text-amber-800 font-medium"
+                    : "text-red-600 font-medium";
                 return (
                   <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
                     <p className="flex justify-between">
                       <span className="text-gray-600">Total ingresado en cierre de caja</span>
                       <span className="font-medium">$ {totalIngresado.toLocaleString("es-CO", { minimumFractionDigits: 2 })}</span>
                     </p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Suma de lo que declarás arriba: efectivo en caja, tarjeta, pagos en línea y otros medios.
+                    </p>
                     <p className="mt-2 flex justify-between">
                       <span className="text-gray-600">Total esperado en cierre de caja</span>
                       <span className="font-medium">$ {totalEsperado.toLocaleString("es-CO", { minimumFractionDigits: 2 })}</span>
                     </p>
-                    <p className={`mt-2 flex justify-between ${diferencia !== 0 ? "text-red-600 font-medium" : "text-gray-600"}`}>
-                      <span>Diferencia</span>
-                      <span>$ {diferencia.toLocaleString("es-CO", { minimumFractionDigits: 2 })}</span>
+                    <p className="mt-1 text-xs text-gray-500">
+                      Base inicial del turno más el total de ventas registradas en el turno (lo que el sistema calcula que debería haber).
                     </p>
+                    <p className={`mt-3 flex justify-between gap-3 border-t border-gray-200 pt-3 ${claseDiferencia}`}>
+                      <span className="min-w-0">
+                        <span className="block">Diferencia</span>
+                        <span className="mt-0.5 block text-[11px] font-normal normal-case text-gray-600">
+                          Ingresado − esperado
+                        </span>
+                      </span>
+                      <span className="shrink-0 tabular-nums">
+                        $ {diferencia.toLocaleString("es-CO", { minimumFractionDigits: 2 })}
+                      </span>
+                    </p>
+                    <div className="mt-2 rounded-md border border-gray-200 bg-white p-3 text-xs leading-relaxed text-gray-700">
+                      <p className="font-semibold text-gray-900">¿Qué significa este valor?</p>
+                      <p className="mt-1.5">
+                        La diferencia compara <strong>lo que ingresás en el cierre</strong> (todos los medios) con{" "}
+                        <strong>lo que el sistema espera</strong> según la base inicial y las ventas del turno.
+                      </p>
+                      {cuadreExacto ? (
+                        <p className="mt-1.5 text-emerald-800">
+                          <strong>Cuadre:</strong> ambos totales coinciden; no hay sobrecaja ni faltante según estos números.
+                        </p>
+                      ) : haySobrante ? (
+                        <p className="mt-1.5 text-amber-900">
+                          <strong>Sobrante (valor positivo):</strong> declaraste más dinero del total esperado. Revisá que los
+                          montos de cada medio (especialmente efectivo) estén bien digitados o que no falte registrar algún
+                          gasto o retiro en el sistema.
+                        </p>
+                      ) : (
+                        <p className="mt-1.5 text-red-800">
+                          <strong>Faltante (valor negativo):</strong> declaraste menos dinero del total esperado. Revisá el conteo
+                          de efectivo, que no falte registrar una venta o que los totales por tarjeta / en línea / otros coincidan
+                          con los reportes del turno.
+                        </p>
+                      )}
+                    </div>
                     <p className="mt-2 flex justify-between text-gray-600">
                       <span>Total ventas a crédito</span>
                       <span>$ {ventasCredito.toLocaleString("es-CO", { minimumFractionDigits: 2 })}</span>
@@ -2255,6 +2375,7 @@ export default function CajaPage() {
                 puntoVenta={user.puntoVenta ?? ""}
                 turnoSesionId=""
                 turnoAbierto={false}
+                turnoInicio={null}
                 soloConsultaContador
               />
             ) : (
@@ -2533,6 +2654,7 @@ export default function CajaPage() {
               puntoVenta={user.puntoVenta ?? ""}
               turnoSesionId={turnoSesionId}
               turnoAbierto={turnoAbierto}
+              turnoInicio={turnoAbierto ? turnoInicio : null}
               onAnulacionExitosa={(v) => {
                 if (turnoAbierto && v.turnoSesionId?.trim() === turnoSesionId.trim()) {
                   setTotalVentasEnTurno((prev) => Math.max(0, prev - v.total));

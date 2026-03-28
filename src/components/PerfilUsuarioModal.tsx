@@ -27,6 +27,9 @@ export interface PerfilUsuarioModalProps {
   uidSesion: string | null;
   emailSesion: string | null;
   puntoVenta: string | null;
+  /** Con turno abierto y cajero del catálogo, «Perfil del cajero» carga esa ficha (posCajerosTurno). */
+  turnoAbierto?: boolean;
+  cajeroTurnoActivo?: { id: string; nombreDisplay: string } | null;
   fotoPreview: string | null;
   onFotoChange: (dataUrl: string | null) => void;
   /** Si true, no se ofrece ficha WMS del franquiciado (solo datos locales). */
@@ -39,6 +42,8 @@ export default function PerfilUsuarioModal({
   uidSesion,
   emailSesion,
   puntoVenta,
+  turnoAbierto = false,
+  cajeroTurnoActivo = null,
   fotoPreview,
   onFotoChange,
   esContador: esContadorProp,
@@ -146,7 +151,9 @@ export default function PerfilUsuarioModal({
                   <span className="mt-2 text-sm text-gray-600">
                     {esContador
                       ? "Contacto y demás datos que elijas guardar en tu usuario (Firestore). La foto solo en este equipo."
-                      : "Datos personales, contacto, emergencia, hijos, cumpleaños y foto. Se guardan en tu usuario (Firestore) y en este equipo; la foto solo en el equipo."}
+                      : turnoAbierto && cajeroTurnoActivo
+                        ? `Con turno abierto, la ficha es la de quien opera el turno (${cajeroTurnoActivo.nombreDisplay}): catálogo del punto de venta y copia en este navegador; la foto solo en el equipo.`
+                        : "Datos personales, contacto, emergencia, hijos, cumpleaños y foto. Se guardan en tu usuario (Firestore) y en este equipo; la foto solo en el equipo."}
                   </span>
                 </button>
                 {!esContador && (
@@ -172,6 +179,8 @@ export default function PerfilUsuarioModal({
               fotoPreview={fotoPreview}
               onFotoChange={onFotoChange}
               onVolver={() => setVista("menu")}
+              turnoAbierto={turnoAbierto}
+              cajeroTurnoActivo={cajeroTurnoActivo}
             />
           )}
 

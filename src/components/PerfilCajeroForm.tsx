@@ -1,8 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import CajeroFichaFormFields from "@/components/CajeroFichaFormFields";
-import { POS_CAJERO_FICHA_STORAGE_KEY } from "@/constants/perfil-pos";
+import {
+  POS_CAJERO_FICHA_STORAGE_KEY,
+  posCajeroFichaLocalKeyCajeroTurno,
+} from "@/constants/perfil-pos";
+import {
+  actualizarCajeroTurnoFirestore,
+  CAJERO_TURNO_ID_SESION,
+  obtenerCajeroTurnoPorId,
+} from "@/lib/cajeros-turno-firestore";
 import {
   EVENTO_PERFIL_CAJERO_GUARDADO,
   nombreCompletoDesdeFicha,
@@ -11,10 +19,10 @@ import { loadPosPerfilCajeroFromFirestore, persistPosPerfilCajero } from "@/lib/
 import type { CajeroFichaDatos } from "@/types/pos-perfil-cajero";
 import { emptyCajeroFicha } from "@/types/pos-perfil-cajero";
 
-function loadFichaLocal(): CajeroFichaDatos {
+function loadFichaDesdeLocalStorage(key: string): CajeroFichaDatos {
   if (typeof window === "undefined") return emptyCajeroFicha();
   try {
-    const raw = localStorage.getItem(POS_CAJERO_FICHA_STORAGE_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return emptyCajeroFicha();
     const p = JSON.parse(raw) as Partial<CajeroFichaDatos>;
     return { ...emptyCajeroFicha(), ...p };
@@ -29,6 +37,9 @@ export interface PerfilCajeroFormProps {
   fotoPreview: string | null;
   onFotoChange: (dataUrl: string | null) => void;
   onVolver: () => void;
+  /** Si hay turno abierto con cajero del catálogo, la ficha es la de esa persona (posCajerosTurno), no users/{uid}. */
+  turnoAbierto?: boolean;
+  cajeroTurnoActivo?: { id: string; nombreDisplay: string } | null;
 }
 
 export type { CajeroFichaDatos };
@@ -39,7 +50,26 @@ export default function PerfilCajeroForm({
   fotoPreview,
   onFotoChange,
   onVolver,
+  turnoAbierto = false,
+  cajeroTurnoActivo = null,
 }: PerfilCajeroFormProps) {
+  const catalogoActivo = useMemo(
+    () =>
+      Boolean(
+        turnoAbierto &&
+          cajeroTurnoActivo?.id &&
+          cajeroTurnoActivo.id.trim() &&
+          cajeroTurnoActivo.id !== CAJERO_TURNO_ID_SESION
+      ),
+    [turnoAbierto, cajeroTurnoActivo?.id]
+  );
+
+  const cajeroCatalogoId = catalogoActivo ? cajeroTurnoActivo!.id.trim() : null;
+
+  const fichaLocalKey = catalogoActivo && cajeroCatalogoId
+    ? posCajeroFichaLocalKeyCajeroTurno(cajeroCatalogoId)
+    : POS_CAJERO_FICHA_STORAGE_KEY;
+
   const [datos, setDatos] = useState<CajeroFichaDatos>(emptyCajeroFicha);
   const [cargandoPerfil, setCargandoPerfil] = useState(false);
   const [guardando, setGuardando] = useState(false);
@@ -49,15 +79,22 @@ export default function PerfilCajeroForm({
     let cancelled = false;
     async function load() {
       setCargandoPerfil(true);
-      const local = loadFichaLocal();
-      if (emailSesion && !local.correo) local.correo = emailSesion;
+      let local = loadFichaDesdeLocalStorage(fichaLocalKey);
+      if (emailSesion && !local.correo) local = { ...local, correo: emailSesion };
       let merged: CajeroFichaDatos = local;
-      if (uidSesion) {
+
+      if (catalogoActivo && cajeroCatalogoId) {
+        const row = await obtenerCajeroTurnoPorId(cajeroCatalogoId);
+        if (!cancelled && row) {
+          merged = { ...emptyCajeroFicha(), ...local, ...row.ficha };
+        }
+      } else if (uidSesion) {
         const remote = await loadPosPerfilCajeroFromFirestore(uidSesion);
         if (!cancelled && remote) {
           merged = { ...emptyCajeroFicha(), ...local, ...remote };
         }
       }
+
       if (!cancelled) setDatos(merged);
       if (!cancelled) setCargandoPerfil(false);
     }
@@ -65,7 +102,7 @@ export default function PerfilCajeroForm({
     return () => {
       cancelled = true;
     };
-  }, [emailSesion, uidSesion]);
+  }, [emailSesion, uidSesion, catalogoActivo, cajeroCatalogoId, fichaLocalKey]);
 
   const setCampo = useCallback(<K extends keyof CajeroFichaDatos>(k: K, v: CajeroFichaDatos[K]) => {
     setDatos((prev) => ({ ...prev, [k]: v }));
@@ -87,11 +124,27 @@ export default function PerfilCajeroForm({
 
   const guardar = async () => {
     try {
-      localStorage.setItem(POS_CAJERO_FICHA_STORAGE_KEY, JSON.stringify(datos));
+      localStorage.setItem(fichaLocalKey, JSON.stringify(datos));
     } catch {
       window.alert("No se pudo guardar en el dispositivo (almacenamiento lleno o desactivado).");
       return;
     }
+
+    if (catalogoActivo && cajeroCatalogoId) {
+      setGuardando(true);
+      const r = await actualizarCajeroTurnoFirestore({ firestoreId: cajeroCatalogoId, ficha: datos });
+      setGuardando(false);
+      window.dispatchEvent(new CustomEvent(EVENTO_PERFIL_CAJERO_GUARDADO));
+      if (!r.ok) {
+        window.alert(
+          `Guardado local OK. No se pudo sincronizar el cajero en la nube: ${r.message ?? "error"}. Revisa reglas de Firestore en posCajerosTurno.`
+        );
+        return;
+      }
+      window.alert("Perfil del cajero en turno guardado en el catálogo del punto de venta y en este dispositivo.");
+      return;
+    }
+
     if (uidSesion) {
       setGuardando(true);
       const r = await persistPosPerfilCajero(uidSesion, datos);
@@ -135,36 +188,61 @@ export default function PerfilCajeroForm({
       </div>
 
       <div className="mt-3 rounded-xl border border-sky-100 bg-sky-50/90 px-3 py-2.5 text-sm text-sky-950">
-        <p>
-          <span className="font-semibold text-sky-900">Nombre en perfil:</span>{" "}
-          {nombrePerfilLinea ? (
-            <span className="font-medium text-sky-950">{nombrePerfilLinea}</span>
-          ) : (
-            <span className="text-sky-800/90">
-              Aún sin indicar — completá nombres y apellidos abajo; mientras tanto se usa tu correo de sesión para
-              identificarte en caja.
-            </span>
-          )}
-        </p>
-        <p className="mt-2 text-xs leading-relaxed text-sky-900/88">
-          <span className="font-semibold text-sky-900">Dónde se guarda:</span> copia en este navegador
-          {uidSesion ? (
-            <>
-              {" "}
-              y en la nube en el documento{" "}
-              <code className="rounded bg-white/80 px-1 py-0.5 text-[11px] text-sky-950">users/{uidSesion}</code>
-            </>
-          ) : (
-            " (sin UID de sesión no hay copia en Firestore)"
-          )}
-          . Sesión actual:{" "}
-          <span className="font-mono font-medium text-sky-950">{emailSesion?.trim() || "—"}</span>
-        </p>
+        {catalogoActivo && cajeroTurnoActivo ? (
+          <>
+            <p>
+              <span className="font-semibold text-sky-900">Cajero en turno:</span>{" "}
+              <span className="font-medium text-sky-950">{cajeroTurnoActivo.nombreDisplay}</span>
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-sky-900/88">
+              Estás editando la ficha de quien opera el turno abierto (catálogo{" "}
+              <code className="rounded bg-white/80 px-1 py-0.5 text-[11px]">posCajerosTurno</code> · id{" "}
+              <code className="rounded bg-white/80 px-1 py-0.5 text-[11px]">{cajeroCatalogoId}</code>
+              ), más una copia en este navegador. La cuenta con la que iniciaste sesión es distinta (solo permisos).
+            </p>
+          </>
+        ) : (
+          <>
+            <p>
+              <span className="font-semibold text-sky-900">Nombre en perfil:</span>{" "}
+              {nombrePerfilLinea ? (
+                <span className="font-medium text-sky-950">{nombrePerfilLinea}</span>
+              ) : (
+                <span className="text-sky-800/90">
+                  Aún sin indicar — completá nombres y apellidos abajo; mientras tanto se usa tu correo de sesión para
+                  identificarte en caja.
+                </span>
+              )}
+            </p>
+            <p className="mt-2 text-xs leading-relaxed text-sky-900/88">
+              <span className="font-semibold text-sky-900">Dónde se guarda:</span> copia en este navegador
+              {uidSesion ? (
+                <>
+                  {" "}
+                  y en la nube en el documento{" "}
+                  <code className="rounded bg-white/80 px-1 py-0.5 text-[11px] text-sky-950">users/{uidSesion}</code>
+                </>
+              ) : (
+                " (sin UID de sesión no hay copia en Firestore)"
+              )}
+              . Sesión actual:{" "}
+              <span className="font-mono font-medium text-sky-950">{emailSesion?.trim() || "—"}</span>
+            </p>
+          </>
+        )}
+        {catalogoActivo && (
+          <p className="mt-2 text-xs text-sky-900/85">
+            <span className="font-semibold">Nombre en ficha:</span>{" "}
+            {nombrePerfilLinea ? (
+              nombrePerfilLinea
+            ) : (
+              <span className="italic opacity-90">completar abajo</span>
+            )}
+          </p>
+        )}
       </div>
 
-      {cargandoPerfil && (
-        <p className="mt-2 text-xs text-gray-500">Cargando datos guardados…</p>
-      )}
+      {cargandoPerfil && <p className="mt-2 text-xs text-gray-500">Cargando datos guardados…</p>}
 
       <div className="mt-4 flex-1 overflow-y-auto pr-1">
         <div className="mb-6 flex flex-col items-center gap-3 rounded-xl border border-dashed border-gray-200 bg-gray-50/80 p-4 sm:flex-row sm:justify-start">
@@ -182,7 +260,11 @@ export default function PerfilCajeroForm({
           </button>
           <div className="text-center sm:text-left">
             <p className="text-sm font-medium text-gray-800">Foto del cajero</p>
-            <p className="text-xs text-gray-500">Solo en este equipo (no se sube a Firestore).</p>
+            <p className="text-xs text-gray-500">
+              {catalogoActivo
+                ? "Solo en este equipo, asociada al cajero en turno (no se sube a Firestore)."
+                : "Solo en este equipo (no se sube a Firestore)."}
+            </p>
             <button
               type="button"
               onClick={() => fileRef.current?.click()}

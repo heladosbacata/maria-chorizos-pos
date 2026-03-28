@@ -11,8 +11,10 @@ import {
 } from "@/lib/pos-geb-print";
 import { anularVentaPosCloud } from "@/lib/pos-ventas-cloud-client";
 import {
+  filtrarVentasVigentes,
   listarVentasPuntoVenta,
   marcarVentaAnuladaLocal,
+  ventasDelTurnoActivos,
   type VentaGuardadaLocal,
 } from "@/lib/pos-ventas-local-storage";
 import { listarInsumosKitPorPuntoVenta, registrarMovimientoInventario } from "@/lib/inventario-pos-firestore";
@@ -25,6 +27,7 @@ import type { TicketVentaPayload } from "@/types/impresion-pos";
 import type { InsumoKitItem } from "@/types/inventario-pos";
 
 const MAX_LISTA = 60;
+const MAX_RECIBOS_TURNO = 10;
 const MIN_MOTIVO = 5;
 
 function insumoParaLinea(catalog: InsumoKitItem[], skuLinea: string): InsumoKitItem | null {
@@ -72,6 +75,8 @@ export interface UltimosRecibosModuleProps {
   onAnulacionExitosa?: (venta: VentaGuardadaLocal) => void;
   /** Contador invitado: solo ver y reimprimir, sin anular. */
   soloConsultaContador?: boolean;
+  /** Inicio del turno abierto (para listar las últimas ventas del turno). */
+  turnoInicio?: Date | null;
 }
 
 export default function UltimosRecibosModule({
@@ -82,9 +87,13 @@ export default function UltimosRecibosModule({
   turnoAbierto,
   onAnulacionExitosa,
   soloConsultaContador = false,
+  turnoInicio = null,
 }: UltimosRecibosModuleProps) {
   const pv = puntoVenta.trim();
+  const puedeFiltrarTurno =
+    turnoAbierto && turnoSesionId.trim().length > 0 && turnoInicio != null && !Number.isNaN(turnoInicio.getTime());
   const [listaTick, setListaTick] = useState(0);
+  const [vistaLista, setVistaLista] = useState<"turno" | "todos">("turno");
   const [perfilTick, setPerfilTick] = useState(0);
   const [modalVenta, setModalVenta] = useState<VentaGuardadaLocal | null>(null);
   const [motivoAnulacion, setMotivoAnulacion] = useState("");
@@ -109,7 +118,7 @@ export default function UltimosRecibosModule({
     });
   }, [listaTick, perfilTick, uid, email]);
 
-  const ventas = useMemo(() => {
+  const ventasTodos = useMemo(() => {
     void listaTick;
     if (!uid.trim() || !pv) return [];
     return listarVentasPuntoVenta(uid, pv)
@@ -117,6 +126,19 @@ export default function UltimosRecibosModule({
       .sort((a, b) => new Date(b.isoTimestamp).getTime() - new Date(a.isoTimestamp).getTime())
       .slice(0, MAX_LISTA);
   }, [uid, pv, listaTick]);
+
+  const ventasUltimasDelTurno = useMemo(() => {
+    void listaTick;
+    if (!uid.trim() || !pv || !puedeFiltrarTurno || !turnoInicio) return [];
+    const todas = listarVentasPuntoVenta(uid, pv);
+    return filtrarVentasVigentes(ventasDelTurnoActivos(todas, turnoSesionId, turnoInicio))
+      .slice()
+      .sort((a, b) => new Date(b.isoTimestamp).getTime() - new Date(a.isoTimestamp).getTime())
+      .slice(0, MAX_RECIBOS_TURNO);
+  }, [uid, pv, listaTick, puedeFiltrarTurno, turnoSesionId, turnoInicio]);
+
+  const ventas =
+    puedeFiltrarTurno && vistaLista === "turno" ? ventasUltimasDelTurno : ventasTodos;
 
   const reimprimir = useCallback(
     async (v: VentaGuardadaLocal) => {
@@ -280,12 +302,43 @@ export default function UltimosRecibosModule({
             </>
           )}
         </p>
+
+        {puedeFiltrarTurno ? (
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setVistaLista("turno")}
+              className={`rounded-full px-4 py-2 text-sm font-semibold shadow-sm transition-all ${
+                vistaLista === "turno"
+                  ? "bg-brand-yellow text-gray-900 ring-2 ring-brand-yellow/60"
+                  : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-50"
+              }`}
+            >
+              Últimos del turno (hasta {MAX_RECIBOS_TURNO})
+            </button>
+            <button
+              type="button"
+              onClick={() => setVistaLista("todos")}
+              className={`rounded-full px-4 py-2 text-sm font-semibold shadow-sm transition-all ${
+                vistaLista === "todos"
+                  ? "bg-brand-yellow text-gray-900 ring-2 ring-brand-yellow/60"
+                  : "bg-white text-gray-700 ring-1 ring-gray-200 hover:bg-gray-50"
+              }`}
+            >
+              Todos en este equipo (hasta {MAX_LISTA})
+            </button>
+          </div>
+        ) : null}
       </header>
 
       {ventas.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-gray-200 bg-white p-10 text-center text-gray-600">
           <p className="text-lg font-medium text-gray-800">Aún no hay recibos</p>
-          <p className="mt-2 text-sm">Los cobros con carrito aparecerán aquí.</p>
+          <p className="mt-2 text-sm">
+            {puedeFiltrarTurno && vistaLista === "turno"
+              ? "En el turno abierto todavía no hay recibos vigentes, o cambiá a «Todos en este equipo» para ver el historial."
+              : "Los cobros con carrito aparecerán aquí."}
+          </p>
         </div>
       ) : (
         <ul className="space-y-3">

@@ -3,11 +3,13 @@ import {
   collection,
   deleteField,
   doc,
+  getDoc,
   getDocs,
   query,
   serverTimestamp,
   updateDoc,
   where,
+  type DocumentSnapshot,
   type QueryDocumentSnapshot,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
@@ -44,8 +46,16 @@ export function nombreDisplayCajeroTurno(ficha: CajeroFichaDatos): string {
   return "Cajero sin nombre";
 }
 
-function docToCajeroTurno(d: QueryDocumentSnapshot): CajeroTurnoDoc {
+function docToCajeroTurno(d: QueryDocumentSnapshot | DocumentSnapshot): CajeroTurnoDoc {
   const x = d.data();
+  if (!x) {
+    return {
+      id: d.id,
+      puntoVenta: "",
+      activo: false,
+      ficha: emptyCajeroFicha(),
+    };
+  }
   return {
     id: d.id,
     puntoVenta: String(x.puntoVenta ?? ""),
@@ -54,6 +64,19 @@ function docToCajeroTurno(d: QueryDocumentSnapshot): CajeroTurnoDoc {
     createdAt: x.createdAt,
     updatedAt: x.updatedAt,
   };
+}
+
+/** Lee un cajero del catálogo por id de documento en `posCajerosTurno`. */
+export async function obtenerCajeroTurnoPorId(firestoreId: string): Promise<CajeroTurnoDoc | null> {
+  const id = firestoreId.trim();
+  if (!db || !id) return null;
+  try {
+    const snap = await getDoc(doc(db, POS_CAJEROS_TURNO_COLLECTION, id));
+    if (!snap.exists()) return null;
+    return docToCajeroTurno(snap);
+  } catch {
+    return null;
+  }
 }
 
 export async function listarCajerosTurnoActivos(puntoVenta: string): Promise<CajeroTurnoDoc[]> {
