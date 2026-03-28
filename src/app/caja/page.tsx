@@ -12,6 +12,7 @@ import EdicionItemCuentaModal from "@/components/EdicionItemCuentaModal";
 import InventarioPosModule from "@/components/InventarioPosModule";
 import PerfilUsuarioModal from "@/components/PerfilUsuarioModal";
 import ModalCobroSinInternet from "@/components/ModalCobroSinInternet";
+import ModalInformeCierreCorreo from "@/components/ModalInformeCierreCorreo";
 import RegistrarPagoPanel, { type DetallePagoConfirmado } from "@/components/RegistrarPagoPanel";
 import TurnosHistorialModule from "@/components/TurnosHistorialModule";
 import SeleccionClienteVenta from "@/components/SeleccionClienteVenta";
@@ -80,6 +81,17 @@ import type { ProductoPOS, TipoComprobanteVenta, VentaReporte } from "@/types";
 import type { ItemCuenta } from "@/types/pos-caja-item";
 import { readCajeroFotoDataUrl, writeCajeroFotoDataUrl } from "@/constants/perfil-pos";
 import { fechaColombia, fechaHoraColombia, ymdColombia } from "@/lib/fecha-colombia";
+import { formatPesosCop, parsePesosCopInput } from "@/lib/pesos-cop-input";
+import { emailDesdeFichaFranquiciado, getFranquiciadoPorPuntoVenta } from "@/lib/franquiciado-pos";
+
+const LS_INFORME_TURNO_PARA = "pos_mc_informe_turno_para_v1";
+const LS_INFORME_TURNO_CC = "pos_mc_informe_turno_cc_v1";
+
+function emailValidoSimple(s: string): boolean {
+  const t = s.trim();
+  if (!t || t.length > 254) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t);
+}
 
 function nuevoTurnoSesionId(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -208,6 +220,12 @@ export default function CajaPage() {
   const [turnoAbierto, setTurnoAbierto] = useState(false);
   const [turnoInicio, setTurnoInicio] = useState<Date>(() => new Date());
   const [showModalCierreTurno, setShowModalCierreTurno] = useState(false);
+  const [modalInformeCierreCorreoAbierto, setModalInformeCierreCorreoAbierto] = useState(false);
+  const [emailInformeCierrePara, setEmailInformeCierrePara] = useState("");
+  const [emailInformeCierreCc, setEmailInformeCierreCc] = useState("");
+  const [cargandoDefaultsInformeCorreo, setCargandoDefaultsInformeCorreo] = useState(false);
+  const [procesandoCierreTurno, setProcesandoCierreTurno] = useState(false);
+  const [errorInformeCierreCorreo, setErrorInformeCierreCorreo] = useState<string | null>(null);
   const [detalleVentasExpandido, setDetalleVentasExpandido] = useState(true);
   /** Valores ingresados en el cierre de turno */
   const [cierreEfectivoReal, setCierreEfectivoReal] = useState("");
@@ -240,6 +258,8 @@ export default function CajaPage() {
   const [fotoPerfil, setFotoPerfil] = useState<string | null>(null);
   const [showModalPerfilUsuario, setShowModalPerfilUsuario] = useState(false);
   const inputFotoRef = useRef<HTMLInputElement>(null);
+  /** Evita sobrescribir el cierre si el usuario editó con el modal abierto. */
+  const cierreTurnoYaPrecargadoRef = useRef(false);
   const [catalogoProductos, setCatalogoProductos] = useState<ProductoPOS[]>([]);
   const [catalogoLoading, setCatalogoLoading] = useState(false);
   const [catalogoError, setCatalogoError] = useState<string | null>(null);
@@ -471,7 +491,7 @@ export default function CajaPage() {
     const rows = ventasTurnoActivales
       .map((v) => v.mediosPago)
       .filter((m): m is MediosPagoVentaGuardados => Boolean(m));
-    return rows.length
+    const base = rows.length
       ? sumarMediosPagoVentas(rows)
       : ({
           efectivo: 0,
@@ -480,20 +500,54 @@ export default function CajaPage() {
           otros: 0,
           detalleLineas: [] as { tipo: string; monto: number }[],
         } satisfies MediosPagoVentaGuardados);
+    const sinDesglose = ventasTurnoActivales
+      .filter((v) => !v.mediosPago)
+      .reduce((s, v) => s + v.total, 0);
+    return {
+      ...base,
+      efectivo: Math.round((base.efectivo + sinDesglose) * 100) / 100,
+    };
   }, [ventasTurnoActivales]);
 
-  const ejecutarCierreTurnoDefinitivo = useCallback(async () => {
+  /** Mismos totales que el resumen «Ver detalle» (para precargar cierre de caja). */
+  const cierreCamposDesdeVentas = useMemo(
+    () => ({
+      efectivo: mediosTurnoModal.efectivo,
+      tarjeta: mediosTurnoModal.tarjeta,
+      pagosLinea: mediosTurnoModal.pagosLinea,
+      otros: mediosTurnoModal.otros,
+    }),
+    [mediosTurnoModal]
+  );
+
+  useEffect(() => {
+    if (!showModalCierreTurno) {
+      cierreTurnoYaPrecargadoRef.current = false;
+      return;
+    }
+    if (cierreTurnoYaPrecargadoRef.current) return;
+    cierreTurnoYaPrecargadoRef.current = true;
+    const c = cierreCamposDesdeVentas;
+    setCierreEfectivoReal(formatPesosCop(c.efectivo));
+    setCierreTarjeta(formatPesosCop(c.tarjeta));
+    setCierrePagosLinea(formatPesosCop(c.pagosLinea));
+    setCierreOtrosMedios(formatPesosCop(c.otros));
+  }, [showModalCierreTurno, cierreCamposDesdeVentas]);
+
+  const ejecutarCierreTurnoDefinitivo = useCallback(
+    async (correoInforme?: { para: string; cc?: string }) => {
     const pv = user?.puntoVenta?.trim();
     const uid = user?.uid;
     if (!uid || !pv) {
       window.alert("No hay sesión o punto de venta para guardar el turno.");
       return;
     }
-    const parseVal = (s: string) => parseFloat(String(s).replace(/,/g, ".")) || 0;
-    const efectivoReal = parseVal(cierreEfectivoReal);
-    const tarjeta = parseVal(cierreTarjeta);
-    const pagosLinea = parseVal(cierrePagosLinea);
-    const otrosMedios = parseVal(cierreOtrosMedios);
+    setProcesandoCierreTurno(true);
+    try {
+    const efectivoReal = parsePesosCopInput(cierreEfectivoReal);
+    const tarjeta = parsePesosCopInput(cierreTarjeta);
+    const pagosLinea = parsePesosCopInput(cierrePagosLinea);
+    const otrosMedios = parsePesosCopInput(cierreOtrosMedios);
     const totalIngresado = efectivoReal + tarjeta + pagosLinea + otrosMedios;
     const totalEsperado = baseInicialCaja + totalVentasEnTurno;
     const diferencia = totalIngresado - totalEsperado;
@@ -570,6 +624,9 @@ export default function CajaPage() {
           body: JSON.stringify({
             subject: `Informe cierre turno ${pv} · ${fechaHoraColombia(fin)}`,
             text: txt,
+            ...(correoInforme?.para?.trim()
+              ? { to: correoInforme.para.trim(), ...(correoInforme.cc?.trim() ? { cc: correoInforme.cc.trim() } : {}) }
+              : {}),
           }),
         });
         const data = (await r.json().catch(() => ({}))) as { ok?: boolean; message?: string };
@@ -579,9 +636,26 @@ export default function CajaPage() {
             window.alert(msg || "No se pudo enviar el correo con el informe.");
           }
         }
+      } else if (correoInforme?.para?.trim()) {
+        window.alert("No hay sesión válida para enviar el correo. Vuelve a iniciar sesión e intenta de nuevo.");
       }
     } catch (e) {
       console.warn("Informe turno: correo no enviado (red o servidor).", e);
+    }
+
+    if (correoInforme?.para?.trim()) {
+      try {
+        if (typeof window !== "undefined") {
+          localStorage.setItem(LS_INFORME_TURNO_PARA, correoInforme.para.trim());
+          if (correoInforme.cc?.trim()) {
+            localStorage.setItem(LS_INFORME_TURNO_CC, correoInforme.cc.trim());
+          } else {
+            localStorage.removeItem(LS_INFORME_TURNO_CC);
+          }
+        }
+      } catch {
+        /* ignore */
+      }
     }
 
     limpiarTurnoPersistido(uid, pv);
@@ -601,6 +675,9 @@ export default function CajaPage() {
     setCierrePagosLinea("");
     setCierreOtrosMedios("");
     setShowModalCierreTurno(false);
+    } finally {
+      setProcesandoCierreTurno(false);
+    }
   }, [
     user,
     cierreEfectivoReal,
@@ -619,6 +696,53 @@ export default function CajaPage() {
     valorProductosEliminados,
     cajeroTurnoActivo,
   ]);
+
+  const abrirModalInformeCierreCorreo = useCallback(async () => {
+    setModalInformeCierreCorreoAbierto(true);
+    setErrorInformeCierreCorreo(null);
+    setCargandoDefaultsInformeCorreo(true);
+    let para = "";
+    let cc = "";
+    try {
+      if (typeof window !== "undefined") {
+        para = localStorage.getItem(LS_INFORME_TURNO_PARA)?.trim() ?? "";
+        cc = localStorage.getItem(LS_INFORME_TURNO_CC)?.trim() ?? "";
+      }
+      const token = await auth?.currentUser?.getIdToken();
+      const pv = user?.puntoVenta?.trim();
+      if (token && pv) {
+        const r = await getFranquiciadoPorPuntoVenta(pv, token);
+        if (r.ok) {
+          const fromFicha = emailDesdeFichaFranquiciado(r.franquiciado ?? null);
+          if (!para && fromFicha) para = fromFicha;
+        }
+      }
+      if (!para && user?.email?.trim()) para = user.email.trim();
+    } finally {
+      setEmailInformeCierrePara(para);
+      setEmailInformeCierreCc(cc);
+      setCargandoDefaultsInformeCorreo(false);
+    }
+  }, [user?.puntoVenta, user?.email]);
+
+  const confirmarInformeCierreYcerrarTurno = useCallback(async () => {
+    const para = emailInformeCierrePara.trim();
+    if (!emailValidoSimple(para)) {
+      setErrorInformeCierreCorreo("Ingresa un correo válido para el franquiciado.");
+      return;
+    }
+    const ccTrim = emailInformeCierreCc.trim();
+    if (ccTrim) {
+      const partes = ccTrim.split(/[,;]/).map((x) => x.trim()).filter(Boolean);
+      if (!partes.every((p) => emailValidoSimple(p))) {
+        setErrorInformeCierreCorreo("Revisa los correos en «Con copia».");
+        return;
+      }
+    }
+    setErrorInformeCierreCorreo(null);
+    await ejecutarCierreTurnoDefinitivo({ para, cc: ccTrim });
+    setModalInformeCierreCorreoAbierto(false);
+  }, [emailInformeCierrePara, emailInformeCierreCc, ejecutarCierreTurnoDefinitivo]);
 
   const handleEnviar = async () => {
     if (user && esContadorInvitado(user.role)) return;
@@ -1990,8 +2114,11 @@ export default function CajaPage() {
 
               {/* Resumen cierre */}
               {(() => {
-                const parseVal = (s: string) => parseFloat(String(s).replace(/,/g, ".")) || 0;
-                const totalIngresado = parseVal(cierreEfectivoReal) + parseVal(cierreTarjeta) + parseVal(cierrePagosLinea) + parseVal(cierreOtrosMedios);
+                const totalIngresado =
+                  parsePesosCopInput(cierreEfectivoReal) +
+                  parsePesosCopInput(cierreTarjeta) +
+                  parsePesosCopInput(cierrePagosLinea) +
+                  parsePesosCopInput(cierreOtrosMedios);
                 const totalEsperado = baseInicialCaja + totalVentasEnTurno;
                 const diferencia = totalIngresado - totalEsperado;
                 return (
@@ -2036,15 +2163,28 @@ export default function CajaPage() {
               </button>
               <button
                 type="button"
-                onClick={() => void ejecutarCierreTurnoDefinitivo()}
+                onClick={() => void abrirModalInformeCierreCorreo()}
                 className="flex-1 rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
               >
-                Cerrar turno
+                Cerrar turno y enviar por email
               </button>
             </div>
           </div>
         </div>
       )}
+
+      <ModalInformeCierreCorreo
+        open={modalInformeCierreCorreoAbierto}
+        onClose={() => !procesandoCierreTurno && setModalInformeCierreCorreoAbierto(false)}
+        para={emailInformeCierrePara}
+        onParaChange={setEmailInformeCierrePara}
+        cc={emailInformeCierreCc}
+        onCcChange={setEmailInformeCierreCc}
+        defaultsLoading={cargandoDefaultsInformeCorreo}
+        submitting={procesandoCierreTurno}
+        onConfirm={() => void confirmarInformeCierreYcerrarTurno()}
+        errorMsg={errorInformeCierreCorreo}
+      />
 
       {/* Área central + cuenta a cobrar (en columna en móvil, fila en escritorio) */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pl-52 lg:flex-row">

@@ -2,7 +2,21 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { getAuth } from "firebase-admin/auth";
 import { getFirebaseAdminApp } from "@/lib/firebase-admin-server";
 
-type Body = { subject?: string; text?: string };
+type Body = { subject?: string; text?: string; to?: string; cc?: string };
+
+function emailValido(s: string): boolean {
+  const t = s.trim();
+  if (!t || t.length > 254) return false;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t);
+}
+
+function listaCcDesdeTexto(cc: string): string[] {
+  return cc
+    .split(/[,;]/)
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .filter(emailValido);
+}
 
 /**
  * Envía por correo el texto del informe de cierre de turno (Resend HTTP API).
@@ -41,19 +55,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(401).json({ ok: false, message: "Falta Authorization Bearer." });
   }
 
-  let destinatario: string;
+  let destinatarioSesion: string | null = null;
   try {
     const decoded = await getAuth(app).verifyIdToken(token);
-    const email = decoded.email?.trim();
-    if (!email) {
-      return res.status(400).json({ ok: false, message: "La cuenta no tiene correo para enviar el informe." });
-    }
-    destinatario = email;
+    destinatarioSesion = decoded.email?.trim() || null;
   } catch {
     return res.status(401).json({ ok: false, message: "Sesión inválida o token expirado." });
   }
 
   const body = req.body as Body;
+  const toSolicitado = typeof body?.to === "string" ? body.to.trim() : "";
+  let destinatario: string;
+  if (toSolicitado) {
+    if (!emailValido(toSolicitado)) {
+      return res.status(400).json({ ok: false, message: "El correo del destinatario no es válido." });
+    }
+    destinatario = toSolicitado;
+  } else {
+    if (!destinatarioSesion) {
+      return res.status(400).json({
+        ok: false,
+        message: "Indica el correo del franquiciado o usa una cuenta POS con correo.",
+      });
+    }
+    destinatario = destinatarioSesion;
+  }
+
   const text = typeof body?.text === "string" ? body.text : "";
   if (!text.trim()) {
     return res.status(400).json({ ok: false, message: "Falta el cuerpo del informe (text)." });
@@ -64,8 +91,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ? body.subject.trim()
       : "Informe de cierre de turno — Maria Chorizos POS";
 
+  const ccRaw = typeof body?.cc === "string" ? body.cc : "";
+  const ccList = listaCcDesdeTexto(ccRaw);
+  const ccPartes = ccRaw
+    .split(/[,;]/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  if (ccPartes.length > 0 && ccList.length !== ccPartes.length) {
+    return res.status(400).json({ ok: false, message: "Revisa los correos en «Con copia»: hay uno inválido." });
+  }
+
   const from =
     process.env.RESEND_FROM?.trim() || "Maria Chorizos POS <onboarding@resend.dev>";
+
+  const payload: Record<string, unknown> = {
+    from,
+    to: [destinatario],
+    subject,
+    text,
+  };
+  if (ccList.length > 0) {
+    payload.cc = ccList;
+  }
 
   try {
     const r = await fetch("https://api.resend.com/emails", {
@@ -74,12 +121,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        from,
-        to: [destinatario],
-        subject,
-        text,
-      }),
+      body: JSON.stringify(payload),
     });
 
     const data = (await r.json().catch(() => ({}))) as { message?: string; id?: string };

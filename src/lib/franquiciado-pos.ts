@@ -64,6 +64,42 @@ export async function getFranquiciadoPorPuntoVenta(
   }
 }
 
+const EMAIL_KEYS = [
+  "email",
+  "correo",
+  "correoElectronico",
+  "emailFranquiciado",
+  "correoFranquiciado",
+  "eMail",
+  "mail",
+] as const;
+
+/** Primer correo reconocido en la ficha WMS del franquiciado (campos habituales o `usuario`). */
+export function emailDesdeFichaFranquiciado(
+  ficha: FranquiciadoFicha | null | undefined
+): string | null {
+  if (!ficha || typeof ficha !== "object") return null;
+  for (const k of EMAIL_KEYS) {
+    const v = ficha[k];
+    if (typeof v === "string" && v.includes("@")) {
+      const t = v.trim();
+      if (t) return t;
+    }
+  }
+  const u = ficha.usuario;
+  if (u && typeof u === "object" && !Array.isArray(u)) {
+    const o = u as Record<string, unknown>;
+    for (const k of EMAIL_KEYS) {
+      const v = o[k];
+      if (typeof v === "string" && v.includes("@")) {
+        const t = v.trim();
+        if (t) return t;
+      }
+    }
+  }
+  return null;
+}
+
 export function formatoEtiquetaFicha(key: string): string {
   return key
     .replace(/([A-Z])/g, " $1")
