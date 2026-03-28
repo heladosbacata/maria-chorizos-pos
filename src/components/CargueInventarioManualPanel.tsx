@@ -322,7 +322,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 pb-8">
+    <div className="mx-auto max-w-5xl space-y-6 pb-8">
       <div className="text-center">
         <h2 className="text-2xl font-bold text-gray-900">Cargue de inventario</h2>
         <p className="mt-2 text-sm text-gray-600">
@@ -409,134 +409,158 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
           className="w-full max-w-xs rounded-xl border-2 border-gray-200 px-4 py-3 text-base focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
         />
 
-        <label className="mt-6 block text-sm font-semibold text-gray-800">Buscar y elegir producto</label>
-        <p className="mt-1 text-xs text-gray-500">
-          Buscá en el catálogo, tocá un producto, indicá la cantidad y pulsá «Agregar a la lista». Podés sumar varios
-          productos; al final registrás todo el cargue de una vez (misma fecha y anotaciones).
-        </p>
-        {insumoSel && (
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-sm">
-            <div className="min-w-0 flex-1">
-              <span className="font-mono text-xs text-emerald-900">{insumoSel.sku}</span>
-              <span className="text-emerald-950"> · {insumoSel.descripcion}</span>
-              <span className="text-emerald-800/90"> ({insumoSel.unidad})</span>
-            </div>
-            <button
-              type="button"
-              className="shrink-0 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
-              onClick={() => {
-                setInsumoId("");
-                setPanelSugerenciasAbierto(true);
-              }}
-            >
-              Cambiar
-            </button>
-          </div>
-        )}
-        {/* Lista en flujo normal (no absolute): evita que overflow-y-auto del layout de caja recorte el desplegable. */}
-        <div ref={comboRef} className="mt-2">
-          <div className="relative">
-            <input
-              type="text"
-              value={busqueda}
-              onChange={(e) => {
-                setBusqueda(e.target.value);
-                setPanelSugerenciasAbierto(true);
-              }}
-              onFocus={() => setPanelSugerenciasAbierto(true)}
-              onBlur={() => {
-                window.setTimeout(() => setPanelSugerenciasAbierto(false), 200);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") setPanelSugerenciasAbierto(false);
-              }}
-              placeholder="Ej. chorizo, FRAN-KIT o «arepa queso»…"
-              disabled={cargandoCat}
-              autoComplete="off"
-              enterKeyHint="search"
-              className={`w-full rounded-xl border-2 border-gray-200 py-3 text-base focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100 ${
-                busqueda.trim() ? "pl-4 pr-11" : "px-4"
-              }`}
-            />
-            {busqueda.trim() !== "" && (
-              <button
-                type="button"
-                aria-label="Limpiar búsqueda"
-                className="absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg text-lg leading-none text-gray-500 hover:bg-gray-100 hover:text-gray-800"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => setBusqueda("")}
-              >
-                ×
-              </button>
+        <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start lg:gap-8">
+          {/* Columna izquierda: producto */}
+          <section
+            className="min-w-0 rounded-xl border border-gray-200 bg-gray-50/60 p-4 shadow-sm sm:p-5"
+            aria-labelledby="cargue-col-producto"
+          >
+            <h3 id="cargue-col-producto" className="text-sm font-bold uppercase tracking-wide text-gray-800">
+              Producto
+            </h3>
+            <p className="mt-1 text-xs text-gray-600">
+              Buscá y tocá un ítem del catálogo. Después cargá la cantidad a la derecha y pulsá «Agregar a la lista».
+            </p>
+            {insumoSel && (
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-sm">
+                <div className="min-w-0 flex-1">
+                  <span className="font-mono text-xs text-emerald-900">{insumoSel.sku}</span>
+                  <span className="text-emerald-950"> · {insumoSel.descripcion}</span>
+                  <span className="text-emerald-800/90"> ({insumoSel.unidad})</span>
+                </div>
+                <button
+                  type="button"
+                  className="shrink-0 rounded-lg border border-emerald-300 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-100"
+                  onClick={() => {
+                    setInsumoId("");
+                    setPanelSugerenciasAbierto(true);
+                  }}
+                >
+                  Cambiar
+                </button>
+              </div>
             )}
-          </div>
-          {panelSugerenciasAbierto && !cargandoCat && insumos.length > 0 && (
-            <div
-              className="mt-2 max-h-72 w-full overflow-auto rounded-xl border-2 border-gray-200 bg-white py-1 shadow-md"
-              role="listbox"
-              aria-label="Productos del inventario"
-            >
-              {sugerenciasOrdenadas.length === 0 ? (
-                <p className="px-4 py-3 text-sm text-gray-500">No hay coincidencias con esa búsqueda.</p>
-              ) : (
-                <>
-                  {hayMasInsumosSinFiltro && (
-                    <p className="border-b border-gray-100 px-4 py-2 text-xs text-gray-500">
-                      Mostrando los primeros {LISTA_SIN_FILTRO_MAX} en orden alfabético. Escribe para acotar.
-                    </p>
+            <label className="mt-4 block text-sm font-semibold text-gray-800">Buscar en catálogo</label>
+            {/* Lista en flujo normal: evita recorte por overflow del layout de caja. */}
+            <div ref={comboRef} className="mt-2">
+              <div className="relative">
+                <input
+                  type="text"
+                  value={busqueda}
+                  onChange={(e) => {
+                    setBusqueda(e.target.value);
+                    setPanelSugerenciasAbierto(true);
+                  }}
+                  onFocus={() => setPanelSugerenciasAbierto(true)}
+                  onBlur={() => {
+                    window.setTimeout(() => setPanelSugerenciasAbierto(false), 200);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setPanelSugerenciasAbierto(false);
+                  }}
+                  placeholder="Ej. chorizo, FRAN-KIT o «arepa queso»…"
+                  disabled={cargandoCat}
+                  autoComplete="off"
+                  enterKeyHint="search"
+                  className={`w-full rounded-xl border-2 border-gray-200 bg-white py-3 text-base focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100 ${
+                    busqueda.trim() ? "pl-4 pr-11" : "px-4"
+                  }`}
+                />
+                {busqueda.trim() !== "" && (
+                  <button
+                    type="button"
+                    aria-label="Limpiar búsqueda"
+                    className="absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg text-lg leading-none text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => setBusqueda("")}
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+              {panelSugerenciasAbierto && !cargandoCat && insumos.length > 0 && (
+                <div
+                  className="mt-2 max-h-64 w-full overflow-auto rounded-xl border-2 border-gray-200 bg-white py-1 shadow-md sm:max-h-72"
+                  role="listbox"
+                  aria-label="Productos del inventario"
+                >
+                  {sugerenciasOrdenadas.length === 0 ? (
+                    <p className="px-4 py-3 text-sm text-gray-500">No hay coincidencias con esa búsqueda.</p>
+                  ) : (
+                    <>
+                      {hayMasInsumosSinFiltro && (
+                        <p className="border-b border-gray-100 px-4 py-2 text-xs text-gray-500">
+                          Mostrando los primeros {LISTA_SIN_FILTRO_MAX} en orden alfabético. Escribe para acotar.
+                        </p>
+                      )}
+                      {sugerenciasOrdenadas.map((i) => (
+                        <button
+                          key={i.id}
+                          type="button"
+                          role="option"
+                          aria-selected={insumoId === i.id}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => {
+                            setInsumoId(i.id);
+                            setBusqueda("");
+                            setPanelSugerenciasAbierto(false);
+                          }}
+                          className={`flex w-full flex-col items-start gap-0.5 border-b border-gray-50 px-4 py-2.5 text-left text-sm last:border-b-0 hover:bg-primary-50 ${
+                            insumoId === i.id ? "bg-primary-50/90" : ""
+                          }`}
+                        >
+                          <span className="font-mono text-xs text-gray-600">{i.sku}</span>
+                          <span className="text-gray-900">{i.descripcion}</span>
+                          <span className="text-xs text-gray-500">
+                            {i.unidad}
+                            {i.categoria ? ` · ${i.categoria}` : ""}
+                          </span>
+                        </button>
+                      ))}
+                    </>
                   )}
-                  {sugerenciasOrdenadas.map((i) => (
-                    <button
-                      key={i.id}
-                      type="button"
-                      role="option"
-                      aria-selected={insumoId === i.id}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => {
-                        setInsumoId(i.id);
-                        setBusqueda("");
-                        setPanelSugerenciasAbierto(false);
-                      }}
-                      className={`flex w-full flex-col items-start gap-0.5 border-b border-gray-50 px-4 py-2.5 text-left text-sm last:border-b-0 hover:bg-primary-50 ${
-                        insumoId === i.id ? "bg-primary-50/90" : ""
-                      }`}
-                    >
-                      <span className="font-mono text-xs text-gray-600">{i.sku}</span>
-                      <span className="text-gray-900">{i.descripcion}</span>
-                      <span className="text-xs text-gray-500">
-                        {i.unidad}
-                        {i.categoria ? ` · ${i.categoria}` : ""}
-                      </span>
-                    </button>
-                  ))}
-                </>
+                </div>
               )}
             </div>
-          )}
-        </div>
+          </section>
 
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
-          <div className="min-w-0 flex-1">
-            <label className="block text-sm font-semibold text-gray-800">Cantidad para el producto elegido</label>
+          {/* Columna derecha: cantidad y agregar */}
+          <section
+            className="min-w-0 rounded-xl border border-gray-200 bg-gray-50/60 p-4 shadow-sm sm:p-5"
+            aria-labelledby="cargue-col-cantidad"
+          >
+            <h3 id="cargue-col-cantidad" className="text-sm font-bold uppercase tracking-wide text-gray-800">
+              Cantidad
+            </h3>
+            <p className="mt-1 text-xs text-gray-600">
+              Misma fecha para todo el cargue. Podés sumar varios productos; al final registrás de una vez.
+            </p>
+            <label className="mt-4 block text-sm font-semibold text-gray-800">Cantidad recibida</label>
             <input
               type="text"
               inputMode="decimal"
               value={cantidad}
               onChange={(e) => setCantidad(e.target.value)}
-              placeholder={insumoSel ? "Ej. 10" : "Primero elegí un producto arriba"}
+              placeholder={insumoSel ? "Ej. 10, 24, 100…" : "Elegí un producto a la izquierda"}
               disabled={!insumoSel}
-              className="mt-2 w-full rounded-xl border-2 border-gray-200 px-4 py-3 text-base focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100 disabled:bg-gray-50 disabled:text-gray-400"
+              className="mt-2 w-full rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-base tabular-nums focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100 disabled:bg-gray-100 disabled:text-gray-400"
             />
-            {insumoSel && <p className="mt-1 text-xs text-gray-500">Unidad: {insumoSel.unidad}</p>}
-          </div>
-          <button
-            type="button"
-            onClick={agregarLineaALista}
-            disabled={cargandoCat || !insumoSel}
-            className="shrink-0 rounded-xl border-2 border-primary-500 bg-primary-50 px-5 py-3 text-sm font-bold text-primary-900 shadow-sm transition-colors hover:bg-primary-100 disabled:opacity-45 disabled:pointer-events-none"
-          >
-            Agregar a la lista
-          </button>
+            {insumoSel ? (
+              <p className="mt-2 text-sm text-gray-700">
+                Unidad: <span className="font-semibold text-gray-900">{insumoSel.unidad}</span>
+              </p>
+            ) : (
+              <p className="mt-2 text-xs text-gray-500">Seleccioná un producto en la columna «Producto» para habilitar la cantidad.</p>
+            )}
+            <button
+              type="button"
+              onClick={agregarLineaALista}
+              disabled={cargandoCat || !insumoSel}
+              className="mt-5 w-full rounded-xl border-2 border-primary-600 bg-primary-600 py-3.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-primary-700 disabled:border-gray-300 disabled:bg-gray-200 disabled:text-gray-500 disabled:opacity-90"
+            >
+              Agregar a la lista
+            </button>
+          </section>
         </div>
 
         {lineasCargue.length > 0 && (
