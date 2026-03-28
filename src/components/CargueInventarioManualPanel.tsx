@@ -97,7 +97,19 @@ type LineaCargueBorrador = {
   key: string;
   insumo: InsumoKitItem;
   cantidad: number;
+  /** Lote del paquete recibido (también se guarda en las notas del movimiento). */
+  lote: string;
 };
+
+/** Une anotaciones globales del cargue con el lote por línea (tope Firestore 500). */
+function notasMovimientoCargueLinea(anotacionesGlobales: string, lote: string): string {
+  const g = anotacionesGlobales.trim();
+  const l = lote.trim();
+  const parts: string[] = [];
+  if (l) parts.push(`Lote: ${l}`);
+  if (g) parts.push(g);
+  return parts.join(" · ").slice(0, 500);
+}
 
 export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: CargueInventarioManualPanelProps) {
   const pv = (puntoVenta ?? "").trim();
@@ -112,6 +124,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
   const comboRef = useRef<HTMLDivElement>(null);
   const [fechaCargue, setFechaCargue] = useState(fechaHoyIsoColombia);
   const [cantidad, setCantidad] = useState("");
+  const [loteLinea, setLoteLinea] = useState("");
   const [lineasCargue, setLineasCargue] = useState<LineaCargueBorrador[]>([]);
   const [anotaciones, setAnotaciones] = useState("");
   const [enviando, setEnviando] = useState(false);
@@ -235,19 +248,25 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
       setError("Indicá una cantidad mayor que cero.");
       return;
     }
+    const loteNorm = loteLinea.trim();
+    if (!loteNorm) {
+      setError("Indicá el lote del paquete que llegó.");
+      return;
+    }
     const ins = insumoSel;
     setLineasCargue((prev) => {
-      const idx = prev.findIndex((l) => l.insumo.id === ins.id);
+      const idx = prev.findIndex((l) => l.insumo.id === ins.id && l.lote.trim() === loteNorm);
       if (idx >= 0) {
         const next = [...prev];
         const row = next[idx]!;
         next[idx] = { ...row, cantidad: row.cantidad + cant };
         return next;
       }
-      return [...prev, { key: nuevaKeyLineaCargue(), insumo: ins, cantidad: cant }];
+      return [...prev, { key: nuevaKeyLineaCargue(), insumo: ins, cantidad: cant, lote: loteNorm }];
     });
     setInsumoId("");
     setCantidad("");
+    setLoteLinea("");
     setBusqueda("");
     setPanelSugerenciasAbierto(false);
   };
@@ -264,6 +283,12 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
     );
   };
 
+  const actualizarLoteLinea = (key: string, raw: string) => {
+    const lote = raw.trim();
+    if (!lote) return;
+    setLineasCargue((prev) => prev.map((l) => (l.key === key ? { ...l, lote } : l)));
+  };
+
   const registrar = async () => {
     setMensajeOk(null);
     setError(null);
@@ -274,6 +299,11 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
     }
     if (!fechaCargue.trim()) {
       setError("Indicá la fecha del cargue.");
+      return;
+    }
+    const sinLote = lineasCargue.filter((l) => !l.lote.trim());
+    if (sinLote.length > 0) {
+      setError("Cada producto debe tener lote. Completá la columna Lote en la tabla.");
       return;
     }
     setEnviando(true);
@@ -287,7 +317,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
         insumo: line.insumo,
         tipo: "cargue",
         cantidad: line.cantidad,
-        notas: notasBase,
+        notas: notasMovimientoCargueLinea(notasBase, line.lote),
         uid,
         email,
         fechaCargue: fecha,
@@ -406,7 +436,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
           type="date"
           value={fechaCargue}
           onChange={(e) => setFechaCargue(e.target.value)}
-          className="w-full max-w-xs rounded-xl border-2 border-gray-200 px-4 py-3 text-base focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+          className="w-full max-w-xs rounded-xl border-2 border-gray-200 px-4 py-3 text-base focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
         />
 
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start lg:gap-8">
@@ -419,7 +449,8 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
               Producto
             </h3>
             <p className="mt-1 text-xs text-gray-600">
-              Buscá y tocá un ítem del catálogo. Después cargá la cantidad a la derecha y pulsá «Agregar a la lista».
+              Buscá y tocá un ítem del catálogo. A la derecha cargá cantidad y lote del paquete, y pulsá «Agregar a la
+              lista».
             </p>
             {insumoSel && (
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-sm">
@@ -462,7 +493,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                   disabled={cargandoCat}
                   autoComplete="off"
                   enterKeyHint="search"
-                  className={`w-full rounded-xl border-2 border-gray-200 bg-white py-3 text-base focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100 ${
+                  className={`w-full rounded-xl border-2 border-gray-200 bg-white py-3 text-base focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200 ${
                     busqueda.trim() ? "pl-4 pr-11" : "px-4"
                   }`}
                 />
@@ -505,8 +536,8 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                             setBusqueda("");
                             setPanelSugerenciasAbierto(false);
                           }}
-                          className={`flex w-full flex-col items-start gap-0.5 border-b border-gray-50 px-4 py-2.5 text-left text-sm last:border-b-0 hover:bg-primary-50 ${
-                            insumoId === i.id ? "bg-primary-50/90" : ""
+                          className={`flex w-full flex-col items-start gap-0.5 border-b border-gray-50 px-4 py-2.5 text-left text-sm last:border-b-0 hover:bg-slate-100 ${
+                            insumoId === i.id ? "bg-slate-100" : ""
                           }`}
                         >
                           <span className="font-mono text-xs text-gray-600">{i.sku}</span>
@@ -530,27 +561,46 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
             aria-labelledby="cargue-col-cantidad"
           >
             <h3 id="cargue-col-cantidad" className="text-sm font-bold uppercase tracking-wide text-gray-800">
-              Cantidad
+              Cantidad y lote
             </h3>
             <p className="mt-1 text-xs text-gray-600">
-              Misma fecha para todo el cargue. Podés sumar varios productos; al final registrás de una vez.
+              Misma fecha para todo el cargue. El lote es el del paquete que llegó. Podés sumar varios productos y al
+              final registrás de una vez.
             </p>
-            <label className="mt-4 block text-sm font-semibold text-gray-800">Cantidad recibida</label>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={cantidad}
-              onChange={(e) => setCantidad(e.target.value)}
-              placeholder={insumoSel ? "Ej. 10, 24, 100…" : "Elegí un producto a la izquierda"}
-              disabled={!insumoSel}
-              className="mt-2 w-full rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-base tabular-nums focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100 disabled:bg-gray-100 disabled:text-gray-400"
-            />
+            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <label className="block text-sm font-semibold text-gray-800">Cantidad recibida</label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={cantidad}
+                  onChange={(e) => setCantidad(e.target.value)}
+                  placeholder={insumoSel ? "Ej. 10, 24, 100…" : "Elegí producto"}
+                  disabled={!insumoSel}
+                  className="mt-2 w-full rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-base tabular-nums focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:bg-gray-100 disabled:text-gray-400"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-800">Lote del paquete</label>
+                <input
+                  type="text"
+                  value={loteLinea}
+                  onChange={(e) => setLoteLinea(e.target.value)}
+                  placeholder={insumoSel ? "Ej. L240315-A" : "Elegí producto"}
+                  disabled={!insumoSel}
+                  autoComplete="off"
+                  className="mt-2 w-full rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-base focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:bg-gray-100 disabled:text-gray-400"
+                />
+              </div>
+            </div>
             {insumoSel ? (
-              <p className="mt-2 text-sm text-gray-700">
+              <p className="mt-3 text-sm text-gray-700">
                 Unidad: <span className="font-semibold text-gray-900">{insumoSel.unidad}</span>
               </p>
             ) : (
-              <p className="mt-2 text-xs text-gray-500">Seleccioná un producto en la columna «Producto» para habilitar la cantidad.</p>
+              <p className="mt-3 text-xs text-gray-500">
+                Seleccioná un producto en la columna «Producto» para cargar cantidad y lote.
+              </p>
             )}
             <button
               type="button"
@@ -581,7 +631,8 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                   <tr>
                     <th className="px-3 py-2">Código</th>
                     <th className="px-3 py-2">Descripción</th>
-                    <th className="w-28 px-3 py-2 text-right">Cantidad</th>
+                    <th className="min-w-[6rem] px-3 py-2 text-right">Cantidad</th>
+                    <th className="min-w-[7rem] px-3 py-2">Lote</th>
                     <th className="w-20 px-3 py-2" />
                   </tr>
                 </thead>
@@ -598,7 +649,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                           type="text"
                           inputMode="decimal"
                           defaultValue={String(line.cantidad)}
-                          key={`${line.key}-${line.cantidad}`}
+                          key={`${line.key}-c-${line.cantidad}`}
                           onBlur={(e) => {
                             const n = parseFloat(e.target.value.replace(/,/g, "."));
                             if (Number.isFinite(n) && n > 0) {
@@ -607,8 +658,25 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                               e.currentTarget.value = String(line.cantidad);
                             }
                           }}
-                          className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-right text-sm tabular-nums focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-200"
+                          className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-right text-sm tabular-nums focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-200"
                           aria-label={`Cantidad ${line.insumo.sku}`}
+                        />
+                      </td>
+                      <td className="px-3 py-2 align-middle">
+                        <input
+                          type="text"
+                          defaultValue={line.lote}
+                          key={`${line.key}-l-${line.lote}`}
+                          onBlur={(e) => {
+                            const t = e.target.value.trim();
+                            if (t) {
+                              actualizarLoteLinea(line.key, e.target.value);
+                            } else {
+                              e.currentTarget.value = line.lote;
+                            }
+                          }}
+                          className="w-full min-w-[5rem] rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-200"
+                          aria-label={`Lote ${line.insumo.sku}`}
                         />
                       </td>
                       <td className="px-3 py-2 align-middle">
@@ -633,8 +701,8 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
           value={anotaciones}
           onChange={(e) => setAnotaciones(e.target.value)}
           rows={3}
-          placeholder="Remisión, lote, proveedor, autorización…"
-          className="mt-2 w-full rounded-xl border-2 border-gray-200 px-4 py-3 text-base focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+          placeholder="Remisión, proveedor, observaciones del cargue… (el lote va por producto arriba)"
+          className="mt-2 w-full rounded-xl border-2 border-gray-200 px-4 py-3 text-base focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
         />
 
         <button
