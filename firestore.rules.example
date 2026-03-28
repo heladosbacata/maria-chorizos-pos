@@ -62,6 +62,19 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Mínimos sugeridos editados en pantalla Inventarios (por PV + SKU).
+    match /posInventarioMinimos/{id} {
+      allow read: if request.auth != null
+        && resource.data.puntoVenta == posInventarioPuntoVentaUsuario();
+      allow create, update: if request.auth != null
+        && request.resource.data.puntoVenta == posInventarioPuntoVentaUsuario()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasAll(['puntoVenta', 'insumoSku', 'minimo', 'uid']);
+      allow delete: if request.auth != null
+        && resource.data.puntoVenta == posInventarioPuntoVentaUsuario()
+        && resource.data.uid == request.auth.uid;
+    }
+
     // Cajeros operativos por punto de venta (selección al abrir turno en el POS).
     function posUsuarioPuntoVenta() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.puntoVenta;

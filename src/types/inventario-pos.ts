@@ -13,6 +13,8 @@ export interface InsumoKitItem {
   categoria?: string;
   /** Punto de venta asociado en el documento fuente, si existe. */
   puntoVentaOrigen?: string;
+  /** Mínimo sugerido leído de la hoja DB_Franquicia_Insumos_Kit / columnas tipo «mínimo», «stock mínimo». */
+  minimoSugeridoSheet?: number;
 }
 
 export type TipoMovimientoInventario =

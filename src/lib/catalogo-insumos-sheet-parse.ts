@@ -52,6 +52,16 @@ const SKU_KEYS = ["sku", "codigo", "codigoinsumo", "codigo_insumo", "referencia"
 const DESC_KEYS = ["descripcion", "nombre", "producto", "item", "descripcionproducto", "nombreproducto"];
 const UNIDAD_KEYS = ["unidad", "um", "medida", "u_m"];
 const CAT_KEYS = ["categoria", "rubro", "tipo"];
+const MIN_KEYS = [
+  "minimo",
+  "minimosugerido",
+  "minimostock",
+  "stockminimo",
+  "stockmin",
+  "minstock",
+  "puntopedido",
+  "pedidominimo",
+];
 const PV_KEYS = [
   "puntodeventa",
   "puntoventa",
@@ -74,6 +84,14 @@ function findCol(headersNorm: string[], keys: string[]): number {
   return -1;
 }
 
+function parseNumeroMinimo(raw: string): number | undefined {
+  const t = raw.trim();
+  if (!t) return undefined;
+  const n = Number(t.replace(/\s/g, "").replace(",", "."));
+  if (!Number.isFinite(n) || n < 0) return undefined;
+  return Math.round(n * 1000) / 1000;
+}
+
 /**
  * Convierte la primera fila como encabezados + datos en `InsumoKitItem`.
  * Si hay columna de punto de venta (PV, sucursal, etc.): celda vacía = ítem visible en todos los PV;
@@ -92,6 +110,7 @@ export function insumosDesdeGrilla(
   const iDesc = findCol(headersNorm, DESC_KEYS);
   const iUn = findCol(headersNorm, UNIDAD_KEYS);
   const iCat = findCol(headersNorm, CAT_KEYS);
+  const iMin = findCol(headersNorm, MIN_KEYS);
   const iPv = findCol(headersNorm, PV_KEYS);
 
   const pvNeedle = (puntoVentaFiltro ?? "").trim().toLowerCase();
@@ -106,6 +125,8 @@ export function insumosDesdeGrilla(
     const descripcion = iDesc >= 0 ? cell(iDesc) : "";
     const unidad = iUn >= 0 ? cell(iUn) : "und";
     const categoria = iCat >= 0 ? cell(iCat) : undefined;
+    const minRaw = iMin >= 0 ? cell(iMin) : "";
+    const minimoSheet = parseNumeroMinimo(minRaw);
     const pvCell = iPv >= 0 ? cell(iPv) : "";
 
     if (!sku && !descripcion) continue;
@@ -117,9 +138,10 @@ export function insumosDesdeGrilla(
     if (!sku) sku = `FILA-${r + 1}`;
     const descFinal = descripcion || sku;
 
-    let id = `${idPrefix}-${normHeader(sku).replace(/[^a-z0-9_-]/gi, "-")}-${r}`;
+    const slugSku = normHeader(sku).replace(/[^a-z0-9_-]/gi, "-") || "item";
+    let id = `${idPrefix}-${slugSku}`;
     if (seenSku.has(sku)) {
-      id = `${idPrefix}-${r}-${normHeader(sku).slice(0, 20)}`;
+      id = `${idPrefix}-${slugSku}--dup${r + 1}`;
     }
     seenSku.add(sku);
 
@@ -130,6 +152,7 @@ export function insumosDesdeGrilla(
       unidad: unidad || "und",
       ...(categoria ? { categoria } : {}),
       ...(pvCell ? { puntoVentaOrigen: pvCell } : {}),
+      ...(minimoSheet != null ? { minimoSugeridoSheet: minimoSheet } : {}),
     });
   }
 

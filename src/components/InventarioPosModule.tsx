@@ -2,17 +2,24 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import EnviosCasaMatrizPanel from "@/components/EnviosCasaMatrizPanel";
+import { fetchCatalogoInsumosDesdeSheet } from "@/lib/catalogo-insumos-sheet-client";
 import { auth } from "@/lib/firebase";
 import { contarEnviosPendientesPos } from "@/lib/envios-matriz-api";
 import type { InsumoKitItem, TipoMovimientoInventario } from "@/types/inventario-pos";
 import { fechaColombia, fechaHoraColombia, mediodiaColombiaDesdeYmd } from "@/lib/fecha-colombia";
 import {
   CATALOGO_INSUMOS_KIT_COLLECTION,
+  cantidadSaldoParaInsumoKit,
+  eliminarMinimoUsuarioInventario,
   etiquetaTipoMovimiento,
+  guardarMinimoUsuarioInventario,
   listarInsumosKitPorPuntoVenta,
   listarMovimientosInventario,
-  obtenerSaldosPorPuntoVenta,
+  listarMinimosUsuarioInventario,
+  listarSaldosInventarioPorPuntoVenta,
+  normSkuInventario,
   registrarMovimientoInventario,
+  type InventarioSaldoRow,
 } from "@/lib/inventario-pos-firestore";
 
 type Pestaña = "stock" | "movimiento" | "historial" | "casaMatriz";
@@ -52,10 +59,16 @@ export interface InventarioPosModuleProps {
 export default function InventarioPosModule({ puntoVenta, uid, email }: InventarioPosModuleProps) {
   const [pestaña, setPestaña] = useState<Pestaña>("stock");
   const [insumos, setInsumos] = useState<InsumoKitItem[]>([]);
-  const [saldos, setSaldos] = useState<Map<string, number>>(new Map());
+  const [saldoRows, setSaldoRows] = useState<InventarioSaldoRow[]>([]);
+  const [minimosUsuario, setMinimosUsuario] = useState<Map<string, number>>(new Map());
+  const [fuenteCatalogo, setFuenteCatalogo] = useState<"sheet" | "firestore" | null>(null);
+  const [avisoCatalogo, setAvisoCatalogo] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [mensajeOk, setMensajeOk] = useState<string | null>(null);
+  const [guardandoMinimoSku, setGuardandoMinimoSku] = useState<string | null>(null);
+  /** Remonta inputs de mínimo cuando el usuario vacía el campo y solo aplica la hoja. */
+  const [minInputTick, setMinInputTick] = useState(0);
 
   const [busqueda, setBusqueda] = useState("");
   const [movInsumoId, setMovInsumoId] = useState("");
@@ -90,32 +103,114 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
   const cargarTodo = useCallback(async () => {
     if (!pv) {
       setInsumos([]);
-      setSaldos(new Map());
+      setSaldoRows([]);
+      setMinimosUsuario(new Map());
+      setFuenteCatalogo(null);
+      setAvisoCatalogo(null);
       setCargando(false);
       setError("No hay punto de venta asignado. Completa tu perfil o elige punto de venta al iniciar sesión.");
       return;
     }
     setCargando(true);
     setError(null);
+    setAvisoCatalogo(null);
     try {
-      const [lista, saldosMap] = await Promise.all([
-        listarInsumosKitPorPuntoVenta(pv),
-        obtenerSaldosPorPuntoVenta(pv),
+      const [sheetRes, saldosR, minimosM] = await Promise.all([
+        fetchCatalogoInsumosDesdeSheet(pv),
+        listarSaldosInventarioPorPuntoVenta(pv),
+        listarMinimosUsuarioInventario(pv),
       ]);
-      setInsumos(lista);
-      setSaldos(saldosMap);
-      if (lista.length === 0) {
-        setError(
-          `No hay ítems en «${CATALOGO_INSUMOS_KIT_COLLECTION}» para «${pv}». Agrega documentos globales (sin campos PV) o con puntoVenta/PV igual a tu perfil.`
-        );
+      setSaldoRows(saldosR);
+      setMinimosUsuario(minimosM);
+
+      if (sheetRes.ok && sheetRes.data.length > 0) {
+        setInsumos(sheetRes.data);
+        setFuenteCatalogo("sheet");
+        setError(null);
+      } else {
+        const lista = await listarInsumosKitPorPuntoVenta(pv);
+        setInsumos(lista);
+        setFuenteCatalogo("firestore");
+        if (lista.length === 0) {
+          setError(
+            `No hay ítems en la hoja ni en «${CATALOGO_INSUMOS_KIT_COLLECTION}» para «${pv}». Revisá la hoja DB_Franquicia_Insumos_Kit (columna PV si aplica) o documentos en Firestore.`
+          );
+        } else if (sheetRes.message) {
+          setAvisoCatalogo(
+            `No se pudo leer la hoja de insumos (${sheetRes.message}). Se muestra el catálogo de Firestore «${CATALOGO_INSUMOS_KIT_COLLECTION}».`
+          );
+        }
       }
     } catch {
       setError("No se pudo cargar el catálogo de insumos.");
       setInsumos([]);
+      setFuenteCatalogo(null);
     } finally {
       setCargando(false);
     }
   }, [pv]);
+
+  const commitMinimoSugerido = useCallback(
+    async (
+      item: InsumoKitItem,
+      raw: string,
+      teniaMinimoUsuario: boolean,
+      minimoEfectivoEnFila: number | null
+    ) => {
+      if (!pv) return;
+      const t = raw.trim();
+      const k = normSkuInventario(item.sku);
+      setGuardandoMinimoSku(k);
+      setMensajeOk(null);
+      setError(null);
+      try {
+        if (t === "") {
+          if (!teniaMinimoUsuario) {
+            setMinInputTick((x) => x + 1);
+            return;
+          }
+          const r = await eliminarMinimoUsuarioInventario(pv, item.sku);
+          if (!r.ok) {
+            setError(r.message ?? "No se pudo quitar el mínimo personalizado.");
+            return;
+          }
+          setMinimosUsuario((prev) => {
+            const n = new Map(prev);
+            n.delete(k);
+            return n;
+          });
+          setMensajeOk("Se quitó tu ajuste; vuelve a aplicarse el mínimo de la hoja si existe.");
+          return;
+        }
+        const num = parseFloat(t.replace(/,/g, "."));
+        if (!Number.isFinite(num) || num < 0) {
+          setError("El mínimo debe ser un número mayor o igual a cero.");
+          setMinInputTick((x) => x + 1);
+          return;
+        }
+        const redondeado = Math.round(num * 1000) / 1000;
+        if (minimoEfectivoEnFila != null && Math.abs(redondeado - minimoEfectivoEnFila) < 1e-9) {
+          return;
+        }
+        const r = await guardarMinimoUsuarioInventario({
+          puntoVenta: pv,
+          insumoSku: item.sku,
+          minimo: redondeado,
+          uid,
+        });
+        if (!r.ok) {
+          setError(r.message ?? "No se pudo guardar el mínimo.");
+          setMinInputTick((x) => x + 1);
+          return;
+        }
+        setMinimosUsuario((prev) => new Map(prev).set(k, redondeado));
+        setMensajeOk("Mínimo sugerido guardado.");
+      } finally {
+        setGuardandoMinimoSku(null);
+      }
+    },
+    [pv, uid]
+  );
 
   useEffect(() => {
     void cargarTodo();
@@ -140,10 +235,22 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
 
   const filasStock = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
-    const base = insumos.map((i) => ({
-      ...i,
-      saldo: saldos.get(i.id) ?? 0,
-    }));
+    const base = insumos.map((i) => {
+      const saldo = cantidadSaldoParaInsumoKit(i, saldoRows);
+      const skuK = normSkuInventario(i.sku);
+      const minUsuario = minimosUsuario.get(skuK);
+      const minSheet = i.minimoSugeridoSheet;
+      const minimoEfectivo = minUsuario ?? minSheet ?? null;
+      const bajoMinimo = minimoEfectivo != null && saldo < minimoEfectivo;
+      return {
+        ...i,
+        saldo,
+        minimoEfectivo,
+        minimoUsuario: minUsuario,
+        minimoSheet: minSheet,
+        bajoMinimo,
+      };
+    });
     if (!q) return base;
     return base.filter(
       (r) =>
@@ -151,7 +258,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
         r.descripcion.toLowerCase().includes(q) ||
         (r.categoria && r.categoria.toLowerCase().includes(q))
     );
-  }, [insumos, saldos, busqueda]);
+  }, [insumos, saldoRows, minimosUsuario, busqueda]);
 
   const insumoSeleccionable = useMemo(() => {
     return insumos.find((i) => i.id === movInsumoId) ?? null;
@@ -209,12 +316,20 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
         <div>
           <h2 className="text-xl font-bold text-gray-900 md:text-2xl">Inventarios</h2>
           <p className="mt-1 max-w-2xl text-sm text-gray-600">
-            Control de stock por punto de venta. El catálogo usa{" "}
-            <code className="rounded bg-gray-100 px-1 text-xs">{CATALOGO_INSUMOS_KIT_COLLECTION}</code>: carga indexada por
-            PV, <span className="font-medium">posCatalogoGlobal</span> y{" "}
-            <span className="font-medium">posCatalogoPvCodes</span>, más compat. con documentos antiguos. Los saldos y
-            movimientos son solo de <span className="font-medium text-gray-800">{pv}</span>.
+            Control de stock por punto de venta. La lista de productos se obtiene de la hoja{" "}
+            <strong className="font-medium text-gray-800">DB_Franquicia_Insumos_Kit</strong> (Google Sheets); si la hoja no
+            está disponible, se usa el catálogo Firestore{" "}
+            <code className="rounded bg-gray-100 px-1 text-xs">{CATALOGO_INSUMOS_KIT_COLLECTION}</code>. Podés definir un{" "}
+            <span className="font-medium">mínimo sugerido</span> en la hoja (columna mínimo / stock mínimo) y ajustarlo
+            desde esta pantalla; se guarda por punto de venta. Saldos y movimientos:{" "}
+            <span className="font-medium text-gray-800">{pv}</span>.
           </p>
+          {fuenteCatalogo && (
+            <p className="mt-2 text-xs font-medium text-primary-700">
+              Catálogo activo:{" "}
+              {fuenteCatalogo === "sheet" ? "hoja Google (DB_Franquicia_Insumos_Kit)" : `Firestore «${CATALOGO_INSUMOS_KIT_COLLECTION}»`}
+            </p>
+          )}
           <p className="mt-2 text-xs font-medium text-primary-700">Punto de venta: {pv}</p>
         </div>
         <button
@@ -232,6 +347,9 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       )}
       {error && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">{error}</div>
+      )}
+      {avisoCatalogo && !error && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-950">{avisoCatalogo}</div>
       )}
 
       <div className="flex flex-wrap gap-2 border-b border-gray-100 pb-2">
@@ -286,33 +404,77 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                   <th className="px-4 py-3">Código</th>
                   <th className="px-4 py-3">Descripción</th>
                   <th className="px-4 py-3">Unidad</th>
-                  <th className="px-4 py-3 text-right">Saldo</th>
+                  <th className="px-4 py-3 text-right">Saldo actual</th>
+                  <th className="min-w-[9rem] px-4 py-3 text-right">Mín. sugerido</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {cargando ? (
                   <tr>
-                    <td colSpan={4} className="px-4 py-12 text-center text-gray-500">
+                    <td colSpan={5} className="px-4 py-12 text-center text-gray-500">
                       Cargando catálogo…
                     </td>
                   </tr>
                 ) : filasStock.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-4 py-12 text-center text-gray-500">
+                    <td colSpan={5} className="px-4 py-12 text-center text-gray-500">
                       Sin ítems para mostrar.
                     </td>
                   </tr>
                 ) : (
-                  filasStock.map((row) => (
-                    <tr key={row.id} className="hover:bg-gray-50/80">
-                      <td className="px-4 py-2.5 font-mono text-xs text-gray-800">{row.sku}</td>
-                      <td className="px-4 py-2.5 text-gray-900">{row.descripcion}</td>
-                      <td className="px-4 py-2.5 text-gray-600">{row.unidad}</td>
-                      <td className="px-4 py-2.5 text-right font-semibold tabular-nums text-gray-900">
-                        {row.saldo.toLocaleString("es-CO", { maximumFractionDigits: 3 })}
-                      </td>
-                    </tr>
-                  ))
+                  filasStock.map((row) => {
+                    const skuK = normSkuInventario(row.sku);
+                    const eff = row.minimoEfectivo;
+                    const defaultInput =
+                      eff != null && Number.isFinite(eff)
+                        ? eff.toLocaleString("es-CO", { maximumFractionDigits: 3 })
+                        : "";
+                    return (
+                      <tr
+                        key={row.id}
+                        className={`hover:bg-gray-50/80 ${row.bajoMinimo ? "bg-red-50/50" : ""}`}
+                      >
+                        <td className="px-4 py-2.5 font-mono text-xs text-gray-800">{row.sku}</td>
+                        <td className="px-4 py-2.5 text-gray-900">{row.descripcion}</td>
+                        <td className="px-4 py-2.5 text-gray-600">{row.unidad}</td>
+                        <td className="px-4 py-2.5 text-right font-semibold tabular-nums text-gray-900">
+                          {row.saldo.toLocaleString("es-CO", { maximumFractionDigits: 3 })}
+                        </td>
+                        <td className="px-4 py-2 text-right align-middle">
+                          <div className="flex flex-col items-end gap-0.5">
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              title="Editá el mínimo y salí del campo para guardar. Vacío: si tenías un ajuste guardado, se borra y aplica la hoja."
+                              defaultValue={defaultInput}
+                              key={`${row.id}-${minInputTick}-${minimosUsuario.has(skuK) ? "u" : "s"}-${row.minimoSheet ?? ""}`}
+                              disabled={guardandoMinimoSku === skuK}
+                              onBlur={(e) => {
+                                void commitMinimoSugerido(
+                                  row,
+                                  e.target.value,
+                                  row.minimoUsuario != null,
+                                  row.minimoEfectivo
+                                );
+                              }}
+                              className="w-full max-w-[7rem] rounded-md border border-gray-300 px-2 py-1.5 text-right text-sm tabular-nums focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-200 disabled:opacity-50"
+                            />
+                            {row.minimoSheet != null && row.minimoUsuario != null && (
+                              <span className="text-[10px] text-gray-500">
+                                Hoja sugería: {row.minimoSheet.toLocaleString("es-CO", { maximumFractionDigits: 3 })}
+                              </span>
+                            )}
+                            {row.minimoSheet != null && row.minimoUsuario == null && (
+                              <span className="text-[10px] text-gray-500">Desde hoja</span>
+                            )}
+                            {row.bajoMinimo && (
+                              <span className="text-[10px] font-medium text-red-700">Bajo mínimo</span>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
