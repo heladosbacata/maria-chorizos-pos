@@ -2246,11 +2246,11 @@ export default function CajaPage() {
 
               {/* Resumen cierre */}
               {(() => {
-                const totalIngresado =
-                  parsePesosCopInput(cierreEfectivoReal) +
-                  parsePesosCopInput(cierreTarjeta) +
-                  parsePesosCopInput(cierrePagosLinea) +
-                  parsePesosCopInput(cierreOtrosMedios);
+                const decEfe = parsePesosCopInput(cierreEfectivoReal);
+                const decTar = parsePesosCopInput(cierreTarjeta);
+                const decLin = parsePesosCopInput(cierrePagosLinea);
+                const decOtr = parsePesosCopInput(cierreOtrosMedios);
+                const totalIngresado = decEfe + decTar + decLin + decOtr;
                 const totalEsperado = baseInicialCaja + totalVentasEnTurno;
                 const diferencia = totalIngresado - totalEsperado;
                 const cuadreExacto = Math.abs(diferencia) < 0.005;
@@ -2261,38 +2261,154 @@ export default function CajaPage() {
                   : haySobrante
                     ? "text-amber-800 font-medium"
                     : "text-red-600 font-medium";
+                const fmtCop = (n: number) => n.toLocaleString("es-CO", { minimumFractionDigits: 2 });
+                const espVentasEfectivo = mediosTurnoModal.efectivo;
+                const espTar = mediosTurnoModal.tarjeta;
+                const espLin = mediosTurnoModal.pagosLinea;
+                const espOtr = mediosTurnoModal.otros;
+                /** Efectivo físico que debería haber en caja: base con la que abriste + ventas cobradas en efectivo (tickets). */
+                const esperadoEfectivoEnCaja = baseInicialCaja + espVentasEfectivo;
+                const sumaTicketsTurno = ventasTurnoActivales.reduce((s, v) => s + v.total, 0);
+                const sumaEsperadaPorTickets = baseInicialCaja + sumaTicketsTurno;
+                const wmsDiffiereDeTickets = Math.abs(totalEsperado - sumaEsperadaPorTickets) >= 0.02;
+                const diffEfe = decEfe - esperadoEfectivoEnCaja;
+                const diffTar = decTar - espTar;
+                const diffLin = decLin - espLin;
+                const diffOtr = decOtr - espOtr;
+                const fmtDelta = (d: number) => {
+                  const abs = Math.abs(d) < 0.005;
+                  const cls = abs ? "text-gray-600" : d > 0 ? "text-amber-800" : "text-red-700";
+                  const sign = d > 0.005 ? "+" : "";
+                  return <span className={`font-medium tabular-nums ${cls}`}>{sign}$ {fmtCop(d)}</span>;
+                };
                 return (
                   <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
                     <p className="flex justify-between">
                       <span className="text-gray-600">Total ingresado en cierre de caja</span>
-                      <span className="font-medium">$ {totalIngresado.toLocaleString("es-CO", { minimumFractionDigits: 2 })}</span>
+                      <span className="font-medium">$ {fmtCop(totalIngresado)}</span>
                     </p>
                     <p className="mt-1 text-xs text-gray-500">
                       Suma de lo que declarás arriba: efectivo en caja, tarjeta, pagos en línea y otros medios.
                     </p>
                     <p className="mt-2 flex justify-between">
                       <span className="text-gray-600">Total esperado en cierre de caja</span>
-                      <span className="font-medium">$ {totalEsperado.toLocaleString("es-CO", { minimumFractionDigits: 2 })}</span>
+                      <span className="font-medium">$ {fmtCop(totalEsperado)}</span>
                     </p>
                     <p className="mt-1 text-xs text-gray-500">
-                      Base inicial del turno más el total de ventas registradas en el turno (lo que el sistema calcula que debería haber).
+                      Base inicial del turno más el <strong>total de ventas acumulado del turno</strong> (sistema / WMS). Es el
+                      monto global contra el que se calcula la diferencia de abajo.
                     </p>
+
+                    <div className="mt-3 rounded-md border border-emerald-200/80 bg-emerald-50/40 p-3 text-xs leading-relaxed text-gray-800">
+                      <p className="font-semibold text-emerald-900">Desglose esperado por medio (según tickets en este equipo)</p>
+                      <p className="mt-1 text-gray-600">
+                        El <strong>efectivo en gaveta</strong> debería ser la <strong>caja con la que iniciaste</strong> más las{" "}
+                        <strong>ventas registradas en efectivo</strong> en los tickets del turno. Lo demás no va a la gaveta: es
+                        lo que deberías tener liquidado por tarjeta, Nequi/Daviplata/transferencia u otros medios.
+                      </p>
+                      <ul className="mt-2 space-y-1.5 border-t border-emerald-200/60 pt-2">
+                        <li className="flex flex-wrap justify-between gap-x-2 gap-y-0.5">
+                          <span className="text-gray-700">Base inicial en caja</span>
+                          <span className="font-medium tabular-nums text-gray-900">$ {fmtCop(baseInicialCaja)}</span>
+                        </li>
+                        <li className="flex flex-wrap justify-between gap-x-2 gap-y-0.5">
+                          <span className="text-gray-700">+ Ventas en efectivo (tickets)</span>
+                          <span className="font-medium tabular-nums text-gray-900">$ {fmtCop(espVentasEfectivo)}</span>
+                        </li>
+                        <li className="flex flex-wrap justify-between gap-x-2 gap-y-0.5 border-t border-emerald-200/50 pt-1.5 font-semibold text-emerald-950">
+                          <span>= Efectivo físico esperado en caja</span>
+                          <span className="tabular-nums">$ {fmtCop(esperadoEfectivoEnCaja)}</span>
+                        </li>
+                        <li className="flex flex-wrap justify-between gap-x-2 gap-y-0.5 pt-1">
+                          <span className="text-gray-700">Tarjeta / datáfono esperado</span>
+                          <span className="font-medium tabular-nums text-gray-900">$ {fmtCop(espTar)}</span>
+                        </li>
+                        <li className="flex flex-wrap justify-between gap-x-2 gap-y-0.5">
+                          <span className="text-gray-700">Pagos en línea esperado</span>
+                          <span className="font-medium tabular-nums text-gray-900">$ {fmtCop(espLin)}</span>
+                        </li>
+                        <li className="flex flex-wrap justify-between gap-x-2 gap-y-0.5">
+                          <span className="text-gray-700">Otros medios esperado</span>
+                          <span className="font-medium tabular-nums text-gray-900">$ {fmtCop(espOtr)}</span>
+                        </li>
+                        <li className="flex flex-wrap justify-between gap-x-2 gap-y-0.5 border-t border-emerald-200/50 pt-1.5 text-gray-700">
+                          <span>Suma base + ventas por medio (tickets)</span>
+                          <span className="font-medium tabular-nums text-gray-900">$ {fmtCop(sumaEsperadaPorTickets)}</span>
+                        </li>
+                      </ul>
+                      {wmsDiffiereDeTickets ? (
+                        <p className="mt-2 rounded bg-amber-100/80 px-2 py-1.5 text-[11px] text-amber-950">
+                          El total esperado del sistema ($ {fmtCop(totalEsperado)}) no coincide con base + suma de tickets en este
+                          equipo ($ {fmtCop(sumaEsperadaPorTickets)}). Revisá sincronización o ventas registradas fuera de esta
+                          caja; la diferencia global usa el acumulado del sistema.
+                        </p>
+                      ) : null}
+                    </div>
+
+                    <div className="mt-3 rounded-md border border-gray-200 bg-white p-3 text-xs">
+                      <p className="font-semibold text-gray-900">Tu declaración vs lo esperado (por medio)</p>
+                      <p className="mt-1 text-gray-600">
+                        Compará cada campo del formulario con la columna «Esperado (tickets)». La columna «Dif» es declarado −
+                        esperado; sirve para ver en qué medio está el descuadre.
+                      </p>
+                      <div className="mt-2 overflow-x-auto">
+                        <table className="w-full min-w-[280px] border-collapse text-left text-[11px]">
+                          <thead>
+                            <tr className="border-b border-gray-200 text-gray-600">
+                              <th className="py-1 pr-2 font-medium">Medio</th>
+                              <th className="py-1 pr-2 text-right font-medium">Declarado</th>
+                              <th className="py-1 pr-2 text-right font-medium">Esperado (tickets)</th>
+                              <th className="py-1 text-right font-medium">Dif</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-gray-900">
+                            <tr className="border-b border-gray-100">
+                              <td className="py-1.5 pr-2">Efectivo en caja</td>
+                              <td className="py-1.5 pr-2 text-right tabular-nums">$ {fmtCop(decEfe)}</td>
+                              <td className="py-1.5 pr-2 text-right tabular-nums">$ {fmtCop(esperadoEfectivoEnCaja)}</td>
+                              <td className="py-1.5 text-right">{fmtDelta(diffEfe)}</td>
+                            </tr>
+                            <tr className="border-b border-gray-100">
+                              <td className="py-1.5 pr-2">Tarjeta</td>
+                              <td className="py-1.5 pr-2 text-right tabular-nums">$ {fmtCop(decTar)}</td>
+                              <td className="py-1.5 pr-2 text-right tabular-nums">$ {fmtCop(espTar)}</td>
+                              <td className="py-1.5 text-right">{fmtDelta(diffTar)}</td>
+                            </tr>
+                            <tr className="border-b border-gray-100">
+                              <td className="py-1.5 pr-2">Pagos en línea</td>
+                              <td className="py-1.5 pr-2 text-right tabular-nums">$ {fmtCop(decLin)}</td>
+                              <td className="py-1.5 pr-2 text-right tabular-nums">$ {fmtCop(espLin)}</td>
+                              <td className="py-1.5 text-right">{fmtDelta(diffLin)}</td>
+                            </tr>
+                            <tr>
+                              <td className="py-1.5 pr-2">Otros medios</td>
+                              <td className="py-1.5 pr-2 text-right tabular-nums">$ {fmtCop(decOtr)}</td>
+                              <td className="py-1.5 pr-2 text-right tabular-nums">$ {fmtCop(espOtr)}</td>
+                              <td className="py-1.5 text-right">{fmtDelta(diffOtr)}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
                     <p className={`mt-3 flex justify-between gap-3 border-t border-gray-200 pt-3 ${claseDiferencia}`}>
                       <span className="min-w-0">
-                        <span className="block">Diferencia</span>
+                        <span className="block">Diferencia (global)</span>
                         <span className="mt-0.5 block text-[11px] font-normal normal-case text-gray-600">
-                          Ingresado − esperado
+                          Ingresado − (base + acumulado ventas sistema)
                         </span>
                       </span>
                       <span className="shrink-0 tabular-nums">
-                        $ {diferencia.toLocaleString("es-CO", { minimumFractionDigits: 2 })}
+                        $ {fmtCop(diferencia)}
                       </span>
                     </p>
                     <div className="mt-2 rounded-md border border-gray-200 bg-white p-3 text-xs leading-relaxed text-gray-700">
                       <p className="font-semibold text-gray-900">¿Qué significa este valor?</p>
                       <p className="mt-1.5">
-                        La diferencia compara <strong>lo que ingresás en el cierre</strong> (todos los medios) con{" "}
-                        <strong>lo que el sistema espera</strong> según la base inicial y las ventas del turno.
+                        Es la diferencia entre <strong>todo lo que declarás</strong> en el cierre y el{" "}
+                        <strong>total que el sistema espera</strong> (base inicial + acumulado de ventas del turno). El cuadro
+                        verde de arriba descompone <strong>cuánto de eso corresponde a efectivo físico</strong> (base + ventas en
+                        efectivo) y <strong>cuánto a cada otro medio</strong>, según los tickets cargados en este equipo.
                       </p>
                       {cuadreExacto ? (
                         <p className="mt-1.5 text-emerald-800">
@@ -2300,15 +2416,14 @@ export default function CajaPage() {
                         </p>
                       ) : haySobrante ? (
                         <p className="mt-1.5 text-amber-900">
-                          <strong>Sobrante (valor positivo):</strong> declaraste más dinero del total esperado. Revisá que los
-                          montos de cada medio (especialmente efectivo) estén bien digitados o que no falte registrar algún
-                          gasto o retiro en el sistema.
+                          <strong>Sobrante (valor positivo):</strong> declaraste más dinero del total esperado por el sistema.
+                          Usá la tabla por medio para ver si sobra efectivo, tarjeta u otro canal; revisá digitación y retiros no
+                          registrados.
                         </p>
                       ) : (
                         <p className="mt-1.5 text-red-800">
-                          <strong>Faltante (valor negativo):</strong> declaraste menos dinero del total esperado. Revisá el conteo
-                          de efectivo, que no falte registrar una venta o que los totales por tarjeta / en línea / otros coincidan
-                          con los reportes del turno.
+                          <strong>Faltante (valor negativo):</strong> declaraste menos del total esperado. Revisá sobre todo el
+                          conteo de efectivo frente a «Efectivo físico esperado en caja» y luego tarjeta / en línea / otros.
                         </p>
                       )}
                     </div>
