@@ -567,29 +567,30 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
               Misma fecha para todo el cargue. El lote es el del paquete que llegó. Podés sumar varios productos y al
               final registrás de una vez.
             </p>
-            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <div>
-                <label className="block text-sm font-semibold text-gray-800">Cantidad recibida</label>
+            {/* Siempre 2 columnas: en móvil el lote quedaba abajo y parecía “faltar”. */}
+            <div className="mt-4 grid grid-cols-2 gap-3 sm:gap-4">
+              <div className="min-w-0">
+                <label className="block text-sm font-semibold text-gray-800">Cantidad</label>
                 <input
                   type="text"
                   inputMode="decimal"
                   value={cantidad}
                   onChange={(e) => setCantidad(e.target.value)}
-                  placeholder={insumoSel ? "Ej. 10, 24, 100…" : "Elegí producto"}
+                  placeholder={insumoSel ? "Ej. 10" : "—"}
                   disabled={!insumoSel}
-                  className="mt-2 w-full rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-base tabular-nums focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:bg-gray-100 disabled:text-gray-400"
+                  className="mt-2 w-full min-w-0 rounded-xl border-2 border-gray-200 bg-white px-3 py-3 text-base tabular-nums focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:bg-gray-100 disabled:text-gray-400 sm:px-4"
                 />
               </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-800">Lote del paquete</label>
+              <div className="min-w-0">
+                <label className="block text-sm font-semibold text-gray-800">Lote</label>
                 <input
                   type="text"
                   value={loteLinea}
                   onChange={(e) => setLoteLinea(e.target.value)}
-                  placeholder={insumoSel ? "Ej. L240315-A" : "Elegí producto"}
+                  placeholder={insumoSel ? "Ej. L240315" : "—"}
                   disabled={!insumoSel}
                   autoComplete="off"
-                  className="mt-2 w-full rounded-xl border-2 border-gray-200 bg-white px-4 py-3 text-base focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:bg-gray-100 disabled:text-gray-400"
+                  className="mt-2 w-full min-w-0 rounded-xl border-2 border-gray-200 bg-white px-3 py-3 text-base focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:bg-gray-100 disabled:text-gray-400 sm:px-4"
                 />
               </div>
             </div>
