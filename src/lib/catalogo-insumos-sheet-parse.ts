@@ -74,6 +74,9 @@ const PV_KEYS = [
   "tienda",
 ];
 
+/** Si SKU/código va vacío (p. ej. columna SKU_VINCULADO sin llenar), usar ORDEN como código. */
+const ORDEN_KEYS = ["orden", "nroorden", "noorden"];
+
 function findCol(headersNorm: string[], keys: string[]): number {
   for (let i = 0; i < headersNorm.length; i++) {
     const h = headersNorm[i];
@@ -113,6 +116,7 @@ export function insumosDesdeGrilla(
   const iCat = findCol(headersNorm, CAT_KEYS);
   const iMin = findCol(headersNorm, MIN_KEYS);
   const iPv = findCol(headersNorm, PV_KEYS);
+  const iOrden = findCol(headersNorm, ORDEN_KEYS);
 
   const pvNeedleRaw = (puntoVentaFiltro ?? "").trim();
   const pvNeedle = pvNeedleRaw ? normPuntoVentaCatalogo(pvNeedleRaw) : "";
@@ -131,6 +135,11 @@ export function insumosDesdeGrilla(
     const minimoSheet = parseNumeroMinimo(minRaw);
     const pvCell = iPv >= 0 ? cell(iPv) : "";
 
+    if (!sku.trim() && iOrden >= 0) {
+      const ov = cell(iOrden);
+      if (ov) sku = ov;
+    }
+
     if (!sku && !descripcion) continue;
 
     if (pvNeedle && iPv >= 0 && pvCell) {
@@ -138,7 +147,7 @@ export function insumosDesdeGrilla(
       if (pvCellNorm !== pvNeedle) continue;
     }
 
-    if (!sku) sku = `FILA-${r + 1}`;
+    if (!sku.trim()) sku = `FILA-${r + 1}`;
     const descFinal = descripcion || sku;
 
     const slugSku = normHeader(sku).replace(/[^a-z0-9_-]/gi, "-") || "item";

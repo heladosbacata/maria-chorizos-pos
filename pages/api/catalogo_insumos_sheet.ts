@@ -5,6 +5,7 @@ import {
   insumosDesdeGrilla,
   parseCsvToRows,
 } from "@/lib/catalogo-insumos-sheet-parse";
+import { sanitizeGoogleSheetsGid, sanitizeGoogleSheetsSpreadsheetId } from "@/lib/google-sheets-env-sanitize";
 import {
   createSheetsReadonlyJwt,
   fetchSpreadsheetRowsWithJwt,
@@ -99,9 +100,14 @@ async function obtenerFilasDesdeSheet(): Promise<{ rows: string[][]; fuente: str
     return { rows: parseCsvToRows(t), fuente: "csv_url" };
   }
 
-  const spreadsheetId =
-    process.env.GOOGLE_SHEETS_INSUMOS_SPREADSHEET_ID?.trim() || DEFAULT_GOOGLE_SHEETS_INSUMOS_ID;
-  const gid = parseInt(process.env.GOOGLE_SHEETS_INSUMOS_GID || String(DEFAULT_GOOGLE_SHEETS_INSUMOS_GID), 10);
+  const spreadsheetId = sanitizeGoogleSheetsSpreadsheetId(
+    process.env.GOOGLE_SHEETS_INSUMOS_SPREADSHEET_ID,
+    DEFAULT_GOOGLE_SHEETS_INSUMOS_ID
+  );
+  const gid = sanitizeGoogleSheetsGid(
+    process.env.GOOGLE_SHEETS_INSUMOS_GID,
+    DEFAULT_GOOGLE_SHEETS_INSUMOS_GID
+  );
   const rangeOverride = process.env.GOOGLE_SHEETS_INSUMOS_RANGE?.trim();
 
   const saJson = resolveSheetsServiceAccountJsonFromEnv();
