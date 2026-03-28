@@ -1,3 +1,4 @@
+import { fechaHoraColombia } from "@/lib/fecha-colombia";
 import type { ImpresionPosPrefs, TicketVentaPayload } from "@/types/impresion-pos";
 
 /** Evita caracteres fuera de CP437 en muchas térmicas; mantiene legibilidad. */
@@ -119,7 +120,7 @@ export async function imprimirTicketConQz(prefs: ImpresionPosPrefs, payload: Tic
 }
 
 export async function probarImpresionQz(prefs: ImpresionPosPrefs): Promise<void> {
-  const now = new Date().toLocaleString("es-CO");
+  const now = fechaHoraColombia(new Date());
   await imprimirTicketConQz(prefs, {
     titulo: "DOCUMENTO DE PRUEBA",
     puntoVenta: "Punto de venta demo",

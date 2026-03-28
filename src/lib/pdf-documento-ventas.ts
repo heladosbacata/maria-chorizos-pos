@@ -1,6 +1,7 @@
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { LOGO_ORG_URL } from "@/lib/brand";
+import { fechaColombia, mediodiaColombiaDesdeYmd } from "@/lib/fecha-colombia";
 
 type JsPdfConAutoTable = jsPDF & { lastAutoTable?: { finalY: number } };
 
@@ -90,9 +91,11 @@ function tituloDocumento(tipo: "cotizacion" | "remision"): string {
 
 function fechaLegible(iso: string): string {
   if (!iso || iso.length < 10) return iso;
-  const d = new Date(`${iso.slice(0, 10)}T12:00:00`);
+  const ymd = iso.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return iso;
+  const d = mediodiaColombiaDesdeYmd(ymd);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString("es-CO", { day: "numeric", month: "long", year: "numeric" });
+  return fechaColombia(d, { day: "numeric", month: "long", year: "numeric" });
 }
 
 function nombreArchivo(tipo: "cotizacion" | "remision", numero: string): string {

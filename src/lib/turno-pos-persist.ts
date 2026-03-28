@@ -13,6 +13,8 @@ export interface CajeroTurnoPersistido {
 
 export interface TurnoPersistidoV1 {
   version: 1;
+  /** Id único de esta apertura de turno (persistido con el turno abierto). */
+  turnoSesionId: string;
   turnoInicioIso: string;
   baseInicialCaja: number;
   cajeroTurnoActivo: CajeroTurnoPersistido;
@@ -39,6 +41,8 @@ export function leerTurnoPersistido(uid: string, puntoVenta: string): TurnoPersi
     if (!data || typeof data !== "object") return null;
     const o = data as Record<string, unknown>;
     if (o.version !== 1) return null;
+    const turnoSesionId =
+      typeof o.turnoSesionId === "string" && o.turnoSesionId.trim() ? o.turnoSesionId.trim() : "";
     if (typeof o.turnoInicioIso !== "string") return null;
     if (typeof o.baseInicialCaja !== "number" || !Number.isFinite(o.baseInicialCaja)) return null;
     const c = o.cajeroTurnoActivo;
@@ -50,6 +54,7 @@ export function leerTurnoPersistido(uid: string, puntoVenta: string): TurnoPersi
     const num = (k: string) => (typeof o[k] === "number" && Number.isFinite(o[k] as number) ? (o[k] as number) : 0);
     return {
       version: 1,
+      turnoSesionId,
       turnoInicioIso: o.turnoInicioIso,
       baseInicialCaja: o.baseInicialCaja,
       cajeroTurnoActivo: {

@@ -1,7 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 
-const WMS_URL =
-  process.env.NEXT_PUBLIC_WMS_URL || "https://maria-chorizos-wms.vercel.app";
+import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
 
 /**
  * Actualiza datos de un cajero POS en el WMS (p. ej. punto de venta).
@@ -21,7 +20,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ ok: false, message: "El correo del usuario es obligatorio." });
   }
 
-  const base = WMS_URL.replace(/\/$/, "");
+  const base = getWmsPublicBaseUrl();
   const url = `${base}/api/pos/usuarios/actualizar`;
   const auth = req.headers.authorization;
   const headers: HeadersInit = { "Content-Type": "application/json" };

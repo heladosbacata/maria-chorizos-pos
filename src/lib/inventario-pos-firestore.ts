@@ -10,6 +10,7 @@ import {
   orderBy,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { mediodiaColombiaDesdeYmd, ymdColombia } from "@/lib/fecha-colombia";
 import type { InsumoKitItem, InventarioMovimientoDoc, TipoMovimientoInventario } from "@/types/inventario-pos";
 
 /** Catálogo maestro de insumos / kit por franquicia (origen de productos del inventario POS). */
@@ -342,9 +343,8 @@ function fechaCargueValida(iso: string | undefined): string | undefined {
   if (iso == null || !iso.trim()) return undefined;
   const s = iso.trim();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return undefined;
-  const [y, mo, d] = s.split("-").map(Number);
-  const dt = new Date(y, mo - 1, d);
-  if (dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return undefined;
+  const dt = mediodiaColombiaDesdeYmd(s);
+  if (Number.isNaN(dt.getTime()) || ymdColombia(dt) !== s) return undefined;
   return s;
 }
 

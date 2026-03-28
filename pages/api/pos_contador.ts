@@ -1,7 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-
-const WMS_URL =
-  process.env.NEXT_PUBLIC_WMS_URL || "https://maria-chorizos-wms.vercel.app";
+import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
 
 /**
  * Proxy invitaciones de contador POS ↔ WMS.
@@ -14,7 +12,7 @@ const WMS_URL =
  *      Auth: Authorization: Bearer <Firebase ID token> (reenviado desde el cliente).
  */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const base = WMS_URL.replace(/\/$/, "");
+  const base = getWmsPublicBaseUrl();
   const headers: HeadersInit = {};
   const auth = req.headers.authorization;
   if (auth) headers.Authorization = auth;

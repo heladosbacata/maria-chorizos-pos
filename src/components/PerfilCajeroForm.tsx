@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import CajeroFichaFormFields from "@/components/CajeroFichaFormFields";
-import { POS_CAJERO_FICHA_STORAGE_KEY, POS_CAJERO_FOTO_STORAGE_KEY } from "@/constants/perfil-pos";
+import { POS_CAJERO_FICHA_STORAGE_KEY } from "@/constants/perfil-pos";
 import { loadPosPerfilCajeroFromFirestore, persistPosPerfilCajero } from "@/lib/pos-user-firestore";
 import type { CajeroFichaDatos } from "@/types/pos-perfil-cajero";
 import { emptyCajeroFicha } from "@/types/pos-perfil-cajero";
@@ -74,11 +74,6 @@ export default function PerfilCajeroForm({
     reader.onload = () => {
       const dataUrl = reader.result as string;
       onFotoChange(dataUrl);
-      try {
-        localStorage.setItem(POS_CAJERO_FOTO_STORAGE_KEY, dataUrl);
-      } catch {
-        /* quota */
-      }
     };
     reader.readAsDataURL(file);
     e.target.value = "";

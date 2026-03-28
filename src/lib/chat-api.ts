@@ -1,6 +1,5 @@
 import type { ChatUsuario } from "@/types";
-
-const WMS_URL = process.env.NEXT_PUBLIC_WMS_URL;
+import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
 
 export interface ChatUsuariosResponse {
   ok: boolean;
@@ -16,11 +15,7 @@ export interface ChatUsuariosResponse {
 export async function getChatUsuarios(
   idToken: string
 ): Promise<ChatUsuariosResponse> {
-  if (!WMS_URL) {
-    return { ok: false, message: "NEXT_PUBLIC_WMS_URL no está configurada" };
-  }
-
-  const url = `${WMS_URL.replace(/\/$/, "")}/api/chat/usuarios`;
+  const url = `${getWmsPublicBaseUrl()}/api/chat/usuarios`;
 
   try {
     const res = await fetch(url, {

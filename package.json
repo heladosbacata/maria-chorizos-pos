@@ -7,9 +7,10 @@
     "dev:3000": "next dev -p 3000",
     "dev:3004": "next dev -p 3004",
     "dev:clean": "node -e \"try{require('fs').rmSync('.next',{recursive:true,force:true})}catch(e){}\" && next dev -p 3040",
+    "dev:fresh": "node scripts/dev-fresh.mjs",
     "clean": "node -e \"try{require('fs').rmSync('.next',{recursive:true,force:true});console.log('.next eliminado')}catch(e){console.error(e);process.exit(1)}\"",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 3040",
     "lint": "next lint",
     "check:inventario": "node scripts/verificar-inventario-env.mjs"
   },

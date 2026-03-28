@@ -1,3 +1,5 @@
+import { fechaColombia, mediodiaColombiaDesdeYmd, ymdColombia } from "@/lib/fecha-colombia";
+
 export interface UsuarioPosRegistrado {
   email: string;
   /** UID Firebase del cajero (si el WMS lo envía) */
@@ -46,12 +48,12 @@ function valorAFechaIso(v: unknown): string | null {
   if (typeof v === "number" && Number.isFinite(v)) {
     const ms = v < 1e12 ? v * 1000 : v;
     const d = new Date(ms);
-    if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    if (!Number.isNaN(d.getTime())) return ymdColombia(d);
   }
   const sec = secondsFromFirestoreLike(v);
   if (sec != null) {
     const d = new Date(sec * 1000);
-    if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    if (!Number.isNaN(d.getTime())) return ymdColombia(d);
   }
   const s = typeof v === "string" ? v.trim() : String(v).trim();
   if (!s) return null;
@@ -68,7 +70,7 @@ function valorAFechaIso(v: unknown): string | null {
     }
   }
   const d = new Date(s);
-  if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+  if (!Number.isNaN(d.getTime())) return ymdColombia(d);
   return null;
 }
 
@@ -277,18 +279,21 @@ export async function getUsuariosPosRegistrados(idToken?: string | null): Promis
 
 export function formatearFechaTabla(iso: string | null): string {
   if (!iso) return "—";
-  const d = new Date(iso + "T12:00:00");
+  const ymd = iso.trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return "—";
+  const d = mediodiaColombiaDesdeYmd(ymd);
   if (Number.isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric" });
+  return fechaColombia(d, { day: "numeric", month: "short", year: "numeric" });
 }
 
 export function diasRestantesContrato(isoVencimiento: string | null): string {
   if (!isoVencimiento) return "—";
-  const end = new Date(isoVencimiento + "T12:00:00");
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  end.setHours(0, 0, 0, 0);
-  const diff = Math.ceil((end.getTime() - today.getTime()) / 86400000);
+  const ymdEnd = isoVencimiento.trim().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymdEnd)) return "—";
+  const end = mediodiaColombiaDesdeYmd(ymdEnd);
+  const start = mediodiaColombiaDesdeYmd(ymdColombia());
+  if (Number.isNaN(end.getTime())) return "—";
+  const diff = Math.round((end.getTime() - start.getTime()) / 86_400_000);
   if (diff < 0) return "Vencido";
   return `${diff} días`;
 }

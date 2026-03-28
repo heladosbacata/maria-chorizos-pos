@@ -1,7 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-
-const WMS_URL =
-  process.env.NEXT_PUBLIC_WMS_URL || "https://maria-chorizos-wms.vercel.app";
+import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
 
 /** Proxy GET → WMS /api/pos/envios-matriz/{id} */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -14,7 +12,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ ok: false, message: "Falta id del envío." });
   }
 
-  const base = WMS_URL.replace(/\/$/, "");
+  const base = getWmsPublicBaseUrl();
   const url = `${base}/api/pos/envios-matriz/${encodeURIComponent(id)}`;
 
   const headers: HeadersInit = {};

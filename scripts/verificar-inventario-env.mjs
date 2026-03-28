@@ -66,10 +66,11 @@ for (const k of firebasePublic) {
   }
 }
 
-if (env.NEXT_PUBLIC_WMS_URL?.trim()) ok("NEXT_PUBLIC_WMS_URL");
-else {
-  bad("NEXT_PUBLIC_WMS_URL vacío o ausente");
-  failed = true;
+if (env.NEXT_PUBLIC_WMS_URL?.trim()) {
+  ok("NEXT_PUBLIC_WMS_URL");
+  if (env.NEXT_PUBLIC_WMS_USE_LOCAL === "1") ok("NEXT_PUBLIC_WMS_USE_LOCAL=1 (WMS en localhost)");
+} else {
+  ok("NEXT_PUBLIC_WMS_URL ausente → el POS usará el WMS en Vercel por defecto");
 }
 
 const sa = env.FIREBASE_SERVICE_ACCOUNT_JSON ?? "";

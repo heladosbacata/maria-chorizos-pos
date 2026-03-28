@@ -1,7 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-
-const WMS_URL =
-  process.env.NEXT_PUBLIC_WMS_URL || "https://maria-chorizos-wms.vercel.app";
+import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
 
 /**
  * Proxy GET → WMS /api/pos/envios-matriz?estado=&limite=
@@ -12,7 +10,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ ok: false, message: "Method not allowed" });
   }
 
-  const base = WMS_URL.replace(/\/$/, "");
+  const base = getWmsPublicBaseUrl();
   const estado = typeof req.query.estado === "string" ? req.query.estado : "pendiente";
   const limite = typeof req.query.limite === "string" ? req.query.limite : "50";
   const url = `${base}/api/pos/envios-matriz?${new URLSearchParams({ estado, limite }).toString()}`;

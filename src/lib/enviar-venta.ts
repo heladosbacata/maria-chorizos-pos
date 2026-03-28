@@ -1,6 +1,5 @@
 import type { BulkVentasPayload } from "@/types";
-
-const WMS_URL = process.env.NEXT_PUBLIC_WMS_URL;
+import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
 
 export type EnvioEstado = "idle" | "enviando" | "exito" | "error";
 
@@ -9,14 +8,41 @@ export interface EnvioResultado {
   mensaje?: string;
 }
 
+/** Errores típicos de `fetch` cuando no hay red, CORS, SSL o el servidor caído. */
+export function esErrorRedVenta(mensaje: string | undefined): boolean {
+  if (!mensaje) return false;
+  const m = mensaje.toLowerCase();
+  return (
+    m.includes("failed to fetch") ||
+    m.includes("fetch failed") ||
+    m.includes("networkerror") ||
+    m.includes("network request failed") ||
+    m.includes("load failed") ||
+    m.includes("connection refused") ||
+    m.includes("aborted") ||
+    m.includes("err_connection") ||
+    m.includes("internet disconnected")
+  );
+}
+
+export function mensajeErrorVentaParaUsuario(mensaje: string | undefined): string {
+  if (esErrorRedVenta(mensaje)) {
+    const base = getWmsPublicBaseUrl();
+    return [
+      "No se pudo conectar con el servidor de ventas (WMS).",
+      `URL configurada: ${base}`,
+      "",
+      "Revisa conexión a internet, firewall/VPN y que el WMS en Vercel responda. Si usas WMS local, define NEXT_PUBLIC_WMS_USE_LOCAL=1 junto a la URL en localhost.",
+    ].join("\n");
+  }
+  return mensaje?.trim() || "No se pudo registrar la venta.";
+}
+
 export async function enviarReporteVenta(
   payload: BulkVentasPayload
 ): Promise<EnvioResultado> {
-  if (!WMS_URL) {
-    return { estado: "error", mensaje: "NEXT_PUBLIC_WMS_URL no está configurada" };
-  }
-
-  const url = `${WMS_URL.replace(/\/$/, "")}/api/ventas/bulk-guardar`;
+  const root = getWmsPublicBaseUrl();
+  const url = `${root}/api/ventas/bulk-guardar`;
 
   try {
     const res = await fetch(url, {

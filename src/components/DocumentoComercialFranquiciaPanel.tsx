@@ -12,6 +12,7 @@ import {
   type DocumentoComercialFirestoreDoc,
 } from "@/lib/documentos-comerciales-firestore";
 import { getCatalogoPOS } from "@/lib/catalogo-pos";
+import { ymdColombia } from "@/lib/fecha-colombia";
 import { descargarPdfDocumentoComercial, formatoMonedaCop } from "@/lib/pdf-documento-ventas";
 import type { ProductoPOS } from "@/types";
 
@@ -33,14 +34,14 @@ function idLinea(): string {
 }
 
 function hoyInput(): string {
-  return new Date().toISOString().slice(0, 10);
+  return ymdColombia();
 }
 
 function numeroSugerido(tipo: "cotizacion" | "remision"): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
+  const ymd = ymdColombia();
+  const y = ymd.slice(0, 4);
+  const m = ymd.slice(5, 7);
+  const day = ymd.slice(8, 10);
   const suf = Math.random().toString(36).slice(2, 6).toUpperCase();
   return tipo === "cotizacion" ? `COT-${y}${m}${day}-${suf}` : `REM-${y}${m}${day}-${suf}`;
 }

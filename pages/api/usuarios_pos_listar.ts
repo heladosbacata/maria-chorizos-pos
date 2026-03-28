@@ -1,13 +1,11 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-
-const WMS_URL =
-  process.env.NEXT_PUBLIC_WMS_URL || "https://maria-chorizos-wms.vercel.app";
+import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
 
 /**
  * Proxy al WMS: contrato del cajero (Firestore por usuario).
  *
  * WMS: GET /api/pos/usuarios/registrados
- * Base: NEXT_PUBLIC_WMS_URL (dev típico http://localhost:3002; prod Vercel del WMS, p. ej. maria-chorizos-wms.vercel.app).
+ * Base: Vercel por defecto; localhost solo con NEXT_PUBLIC_WMS_USE_LOCAL=1 (ver src/lib/wms-public-base.ts).
  * Auth: reenvía Authorization: Bearer <ID token Firebase> (mismo proyecto que valida el WMS).
  *
  * 200: { ok: true, usuarios: [ { ... } ] } — suele ser un solo elemento (usuario autenticado).
@@ -24,7 +22,7 @@ export default async function handler(
     return res.status(405).json({ ok: false, message: "Method not allowed" });
   }
 
-  const base = WMS_URL.replace(/\/$/, "");
+  const base = getWmsPublicBaseUrl();
   const url = `${base}/api/pos/usuarios/registrados`;
   const headers: HeadersInit = {};
   const auth = req.headers.authorization;
@@ -37,7 +35,7 @@ export default async function handler(
     if (!response.ok) {
       const hint =
         response.status === 404
-          ? " Comprueba que el WMS exponga GET /api/pos/usuarios/registrados y que NEXT_PUBLIC_WMS_URL sea correcta."
+          ? " Comprueba que el WMS exponga GET /api/pos/usuarios/registrados y la URL base del WMS (por defecto Vercel)."
           : "";
       return res.status(200).json({
         ok: false,
@@ -57,7 +55,7 @@ export default async function handler(
           : "Error al conectar con el WMS";
     return res.status(200).json({
       ok: false,
-      message: message + " Revisa NEXT_PUBLIC_WMS_URL (desarrollo: puerto del WMS, p. ej. http://localhost:3002).",
+      message: message + " Revisa conexión al WMS (Vercel por defecto; WMS local requiere NEXT_PUBLIC_WMS_USE_LOCAL=1).",
       usuarios: [],
     });
   }

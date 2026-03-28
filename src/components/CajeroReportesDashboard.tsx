@@ -1,15 +1,22 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { fechaColombia, mediodiaColombiaDesdeYmd } from "@/lib/fecha-colombia";
+import { auth } from "@/lib/firebase";
+import { listarVentasPosCloud } from "@/lib/pos-ventas-cloud-client";
 import {
   listarVentasPuntoVenta,
+  mergeVentasReporteNubeLocal,
   resumenPorDia,
   resumenUltimos7Dias,
   ymdDesdeFechaLocal,
   type ResumenDiaCajero,
+  type VentaGuardadaLocal,
 } from "@/lib/pos-ventas-local-storage";
 
 export interface CajeroReportesDashboardProps {
+  /** Firebase uid: las ventas locales se filtran por usuario. */
+  uid: string | null;
   puntoVenta: string | null;
 }
 
@@ -24,16 +31,54 @@ function medalla(i: number): string {
   return "";
 }
 
-export default function CajeroReportesDashboard({ puntoVenta }: CajeroReportesDashboardProps) {
+export default function CajeroReportesDashboard({ uid, puntoVenta }: CajeroReportesDashboardProps) {
+  const u = (uid ?? "").trim();
   const pv = (puntoVenta ?? "").trim();
   const hoyYmd = useMemo(() => ymdDesdeFechaLocal(new Date()), []);
   const [diaSeleccionado, setDiaSeleccionado] = useState(hoyYmd);
   const [tick, setTick] = useState(0);
+  const [ventasNube, setVentasNube] = useState<VentaGuardadaLocal[] | null>(null);
+  const [nubeAviso, setNubeAviso] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!u || !pv) {
+      setVentasNube(null);
+      setNubeAviso(null);
+      return;
+    }
+    let cancelled = false;
+    setNubeAviso(null);
+    (async () => {
+      try {
+        const token = await auth?.currentUser?.getIdToken();
+        if (!token || cancelled) return;
+        const rows = await listarVentasPosCloud(token);
+        if (!cancelled) {
+          setVentasNube(rows);
+          setNubeAviso(null);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setVentasNube([]);
+          setNubeAviso(
+            e instanceof Error
+              ? e.message
+              : "No se pudieron cargar las ventas desde la nube; solo se muestran las guardadas en este equipo."
+          );
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [u, pv, tick]);
 
   const ventas = useMemo(() => {
     void tick;
-    return listarVentasPuntoVenta(pv);
-  }, [pv, tick]);
+    const local = listarVentasPuntoVenta(u, pv);
+    if (ventasNube === null) return local;
+    return mergeVentasReporteNubeLocal(local, ventasNube);
+  }, [u, pv, tick, ventasNube]);
 
   const refrescar = useCallback(() => setTick((t) => t + 1), []);
 
@@ -56,6 +101,15 @@ export default function CajeroReportesDashboard({ puntoVenta }: CajeroReportesDa
     return ymdDesdeFechaLocal(dt);
   }, [hoyYmd]);
 
+  if (!u) {
+    return (
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-8 text-center text-amber-950">
+        <p className="text-lg font-semibold">No hay sesión</p>
+        <p className="mt-2 text-sm opacity-90">Inicia sesión para ver el resumen de tus ventas en este equipo.</p>
+      </div>
+    );
+  }
+
   if (!pv) {
     return (
       <div className="rounded-2xl border border-amber-200 bg-amber-50 p-8 text-center text-amber-950">
@@ -65,22 +119,34 @@ export default function CajeroReportesDashboard({ puntoVenta }: CajeroReportesDa
     );
   }
 
-  const fechaLegible = (() => {
-    const [y, m, d] = diaSeleccionado.split("-").map(Number);
-    const dt = new Date(y, m - 1, d);
-    return dt.toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" });
-  })();
+  const fechaLegible = fechaColombia(mediodiaColombiaDesdeYmd(diaSeleccionado), {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
 
   return (
     <div className="mx-auto max-w-4xl space-y-8 pb-10">
       <header className="text-center">
         <h2 className="text-3xl font-extrabold tracking-tight text-gray-900 md:text-4xl">Tu resumen de ventas</h2>
         <p className="mt-2 text-base text-gray-600">
-          Productos que vendiste en este equipo · <span className="font-semibold text-primary-700">{pv}</span>
+          Ventas con carrito en el punto de venta{" "}
+          <span className="font-semibold text-primary-700">{pv}</span>
+          {ventasNube !== null && !nubeAviso ? " (nube + este equipo)" : " (este equipo)"}.
         </p>
         <p className="mt-1 text-xs text-gray-500">
           Solo se guardan ventas hechas con el carrito (cobro con productos). Los montos manuales del día no aparecen aquí.
         </p>
+        {nubeAviso ? (
+          <p className="mx-auto mt-3 max-w-xl rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+            {nubeAviso}
+          </p>
+        ) : ventasNube !== null && !nubeAviso ? (
+          <p className="mt-2 text-xs text-emerald-800">
+            Incluye ventas sincronizadas en la nube del POS (mismo punto de venta); puedes verlas desde otro equipo con tu
+            sesión.
+          </p>
+        ) : null}
       </header>
 
       {/* Selector rápido */}

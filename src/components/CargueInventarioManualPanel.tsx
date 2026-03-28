@@ -5,6 +5,7 @@ import {
   fetchCatalogoInsumosDesdeSheet,
   type CatalogoSheetSetupHint,
 } from "@/lib/catalogo-insumos-sheet-client";
+import { fechaColombia, fechaHoraColombia, mediodiaColombiaDesdeYmd, ymdColombia } from "@/lib/fecha-colombia";
 import {
   CATALOGO_INSUMOS_KIT_COLLECTION,
   etiquetaTipoMovimiento,
@@ -20,19 +21,15 @@ export interface CargueInventarioManualPanelProps {
   email: string | null;
 }
 
-function fechaHoyIsoLocal(): string {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+function fechaHoyIsoColombia(): string {
+  return ymdColombia();
 }
 
 function formatMovFecha(createdAt: unknown): string {
   if (!createdAt || typeof createdAt !== "object") return "—";
   const s = (createdAt as { seconds?: number }).seconds;
   if (typeof s !== "number") return "—";
-  return new Date(s * 1000).toLocaleString("es-CO", {
+  return fechaHoraColombia(new Date(s * 1000), {
     dateStyle: "short",
     timeStyle: "short",
   });
@@ -40,10 +37,9 @@ function formatMovFecha(createdAt: unknown): string {
 
 function formatFechaCargueMostrar(iso: string | undefined): string {
   if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return "—";
-  const [y, mo, d] = iso.split("-").map(Number);
-  const dt = new Date(y, mo - 1, d);
+  const dt = mediodiaColombiaDesdeYmd(iso);
   if (Number.isNaN(dt.getTime())) return iso;
-  return dt.toLocaleDateString("es-CO", { dateStyle: "medium" });
+  return fechaColombia(dt, { dateStyle: "medium" });
 }
 
 export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: CargueInventarioManualPanelProps) {
@@ -55,7 +51,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
 
   const [busqueda, setBusqueda] = useState("");
   const [insumoId, setInsumoId] = useState("");
-  const [fechaCargue, setFechaCargue] = useState(fechaHoyIsoLocal);
+  const [fechaCargue, setFechaCargue] = useState(fechaHoyIsoColombia);
   const [cantidad, setCantidad] = useState("");
   const [anotaciones, setAnotaciones] = useState("");
   const [enviando, setEnviando] = useState(false);

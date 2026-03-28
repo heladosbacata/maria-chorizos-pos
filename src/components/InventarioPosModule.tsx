@@ -5,6 +5,7 @@ import EnviosCasaMatrizPanel from "@/components/EnviosCasaMatrizPanel";
 import { auth } from "@/lib/firebase";
 import { contarEnviosPendientesPos } from "@/lib/envios-matriz-api";
 import type { InsumoKitItem, TipoMovimientoInventario } from "@/types/inventario-pos";
+import { fechaColombia, fechaHoraColombia, mediodiaColombiaDesdeYmd } from "@/lib/fecha-colombia";
 import {
   CATALOGO_INSUMOS_KIT_COLLECTION,
   etiquetaTipoMovimiento,
@@ -29,7 +30,7 @@ function formatMovFecha(createdAt: unknown): string {
   if (!createdAt || typeof createdAt !== "object") return "—";
   const s = (createdAt as { seconds?: number }).seconds;
   if (typeof s !== "number") return "—";
-  return new Date(s * 1000).toLocaleString("es-CO", {
+  return fechaHoraColombia(new Date(s * 1000), {
     dateStyle: "short",
     timeStyle: "short",
   });
@@ -37,10 +38,9 @@ function formatMovFecha(createdAt: unknown): string {
 
 function formatFechaCargueHistorial(iso: string | undefined): string {
   if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return "—";
-  const [y, mo, d] = iso.split("-").map(Number);
-  const dt = new Date(y, mo - 1, d);
+  const dt = mediodiaColombiaDesdeYmd(iso);
   if (Number.isNaN(dt.getTime())) return "—";
-  return dt.toLocaleDateString("es-CO", { dateStyle: "medium" });
+  return fechaColombia(dt, { dateStyle: "medium" });
 }
 
 export interface InventarioPosModuleProps {

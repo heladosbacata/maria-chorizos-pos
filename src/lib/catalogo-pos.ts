@@ -1,7 +1,5 @@
 import type { ProductoPOS } from "@/types";
-
-const WMS_URL: string =
-  process.env.NEXT_PUBLIC_WMS_URL || "https://maria-chorizos-wms.vercel.app";
+import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
 
 export interface CatalogoPOSResult {
   ok: boolean;
@@ -14,24 +12,63 @@ interface PosProductoItem {
   sku?: string;
   skuBarcode?: string;
   skuProductoFinal?: string;
+  codigo?: string;
+  Codigo?: string;
   descripcion?: string;
+  nombre?: string;
+  Nombre?: string;
+  nombre_producto?: string;
   categoria?: string;
   precioUnitario?: number;
+  precio?: number;
+  Precio?: number;
+  precioVenta?: number;
   unidad?: string;
   urlImagen?: string | null;
   [key: string]: unknown;
 }
 
+/** Evita que `items: []` vacío tape un array con datos en otra clave del JSON. */
+function pickProductosRawArray(...cands: unknown[]): unknown[] {
+  for (const c of cands) {
+    if (Array.isArray(c) && c.length > 0) return c;
+  }
+  for (const c of cands) {
+    if (Array.isArray(c)) return c;
+  }
+  return [];
+}
+
+function numPrecio(v: unknown): number {
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string" && v.trim()) {
+    const n = Number(v.replace(/\s/g, "").replace(",", "."));
+    return Number.isFinite(n) ? n : NaN;
+  }
+  return NaN;
+}
+
 function toProductoPOS(item: PosProductoItem): ProductoPOS | null {
   const sku =
-    item.sku ?? item.skuBarcode ?? item.skuProductoFinal;
+    item.sku ??
+    item.skuBarcode ??
+    item.skuProductoFinal ??
+    item.codigo ??
+    item.Codigo;
   if (sku == null || String(sku).trim() === "") return null;
-  const precio = Number(item.precioUnitario);
+  const rawPrecio = item.precioUnitario ?? item.precio ?? item.Precio ?? item.precioVenta;
+  const precio = numPrecio(rawPrecio);
+  const desc =
+    item.descripcion ??
+    item.nombre ??
+    item.Nombre ??
+    item.nombre_producto ??
+    String(sku);
   return {
     sku: String(sku).trim(),
-    descripcion: item.descripcion ?? String(sku),
+    descripcion: desc,
     categoria: item.categoria ?? undefined,
-    precioUnitario: Number.isFinite(precio) ? precio : 0,
+    precioUnitario: Number.isFinite(precio) && !Number.isNaN(precio) ? precio : 0,
     unidad: item.unidad ?? undefined,
     urlImagen: item.urlImagen ?? null,
   };
@@ -49,7 +86,7 @@ export async function getCatalogoPOS(
   const isBrowser = typeof window !== "undefined";
   const url = isBrowser
     ? "/api/productos_listar"
-    : `${(WMS_URL || "https://maria-chorizos-wms.vercel.app").replace(/\/$/, "")}/api/pos/productos/listar`;
+    : `${getWmsPublicBaseUrl()}/api/pos/productos/listar`;
   const headers: HeadersInit = {};
   if (idToken) {
     headers.Authorization = `Bearer ${idToken}`;
@@ -72,12 +109,22 @@ export async function getCatalogoPOS(
       return { ok: false, message: data.message ?? "No se pudo cargar el catálogo." };
     }
 
-    const raw =
-      data?.data ??
-      data?.productos ??
-      data?.result ??
-      data?.items ??
-      (Array.isArray(data) ? data : []);
+    const d = data as Record<string, unknown>;
+    const nested =
+      d?.result && typeof d.result === "object" && !Array.isArray(d.result)
+        ? (d.result as Record<string, unknown>)
+        : null;
+    const raw = pickProductosRawArray(
+      d?.data,
+      d?.productos,
+      d?.result,
+      d?.items,
+      nested?.data,
+      nested?.productos,
+      nested?.items,
+      nested?.result,
+      Array.isArray(data) ? data : null
+    );
     const productos: ProductoPOS[] = [];
     for (const item of raw) {
       const p = toProductoPOS(item as PosProductoItem);

@@ -1,3 +1,4 @@
+import { ymdColombia } from "@/lib/fecha-colombia";
 import type {
   EnvioMatrizDetalleData,
   EnvioMatrizDetalleResponse,
@@ -25,7 +26,7 @@ export function mockListadoPendiente(): EnvioMatrizListadoResponse {
         estado: "PENDIENTE_RECEPCION",
         idDespacho: "DESP-MOCK-001",
         puntoVentaDestino: MOCK_PV,
-        fechaDespacho: new Date().toISOString().slice(0, 10),
+        fechaDespacho: ymdColombia(),
         lineas: MOCK_LINEAS,
         raw: {},
       },
@@ -62,7 +63,7 @@ export function mockDetalle(id: string): EnvioMatrizDetalleResponse {
     estado: id.includes("recibido") ? "RECIBIDO" : "PENDIENTE_RECEPCION",
     idDespacho: "DESP-MOCK-001",
     puntoVentaDestino: MOCK_PV,
-    fechaDespacho: new Date().toISOString().slice(0, 10),
+    fechaDespacho: ymdColombia(),
     lineas: MOCK_LINEAS,
     raw: {},
   };

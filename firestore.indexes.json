@@ -1,0 +1,13 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "posVentasCloud",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "puntoVenta", "order": "ASCENDING" },
+        { "fieldPath": "serverCreatedAt", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

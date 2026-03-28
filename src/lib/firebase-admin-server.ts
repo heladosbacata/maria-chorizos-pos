@@ -102,3 +102,123 @@ export async function crearCajeroPosViaAdmin(params: {
     return { ok: false, message: msg };
   }
 }
+
+const ROLES_PROVISION_WMS = new Set(["pos", "pos_contador"]);
+
+export type ProvisionUsuarioWmsResult =
+  | { ok: true; uid: string; created: boolean; message: string }
+  | { ok: false; message: string };
+
+/**
+ * Crea o actualiza usuario POS en Firebase (Auth + `users/{uid}`) cuando el WMS notifica un alta o cambio.
+ * Lo invoca la ruta `/api/wms_provision_usuario` con un secreto compartido; no usa token del cajero.
+ */
+export async function provisionUsuarioPosDesdeWms(params: {
+  email: string;
+  /** Obligatoria si el correo no existe en Auth (usuario nuevo). */
+  password?: string;
+  puntoVenta: string;
+  /** `pos` (defecto) o `pos_contador`. */
+  role?: string;
+  /** Si se envía, actualiza el flag `disabled` en Auth (`false` = habilitado). */
+  disabled?: boolean;
+  displayName?: string;
+}): Promise<ProvisionUsuarioWmsResult> {
+  const app = getFirebaseAdminApp();
+  if (!app) {
+    return { ok: false, message: "Firebase Admin no configurado (FIREBASE_SERVICE_ACCOUNT_JSON)." };
+  }
+
+  const email = params.email.trim().toLowerCase();
+  const pv = params.puntoVenta.trim();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { ok: false, message: "Correo electrónico inválido." };
+  }
+  if (!pv) {
+    return { ok: false, message: "puntoVenta es obligatorio." };
+  }
+
+  const roleRaw = params.role?.trim();
+  const role = roleRaw && ROLES_PROVISION_WMS.has(roleRaw) ? roleRaw : "pos";
+
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  let existing: Awaited<ReturnType<typeof auth.getUser>> | null = null;
+  try {
+    existing = await auth.getUserByEmail(email);
+  } catch (e: unknown) {
+    const code = typeof e === "object" && e !== null && "code" in e ? String((e as { code: string }).code) : "";
+    if (code !== "auth/user-not-found") {
+      const msg = e instanceof Error ? e.message : "Error al consultar Auth.";
+      return { ok: false, message: msg };
+    }
+  }
+
+  try {
+    let uid: string;
+    let created = false;
+
+    if (!existing) {
+      const pwd = params.password ?? "";
+      if (pwd.length < 8) {
+        return {
+          ok: false,
+          message:
+            "Contraseña obligatoria (mínimo 8 caracteres) para crear un usuario que aún no existe en Firebase Auth.",
+        };
+      }
+      const disabledCreate = params.disabled === true;
+      const rec = await auth.createUser({
+        email,
+        password: pwd,
+        emailVerified: false,
+        disabled: disabledCreate,
+        ...(params.displayName?.trim() ? { displayName: params.displayName.trim() } : {}),
+      });
+      uid = rec.uid;
+      created = true;
+    } else {
+      uid = existing.uid;
+      const patch: { disabled?: boolean; password?: string; displayName?: string } = {};
+      if (typeof params.disabled === "boolean") {
+        patch.disabled = params.disabled;
+      }
+      if (params.password && params.password.length >= 8) {
+        patch.password = params.password;
+      }
+      if (params.displayName?.trim()) {
+        patch.displayName = params.displayName.trim();
+      }
+      if (Object.keys(patch).length > 0) {
+        await auth.updateUser(uid, patch);
+      }
+    }
+
+    await db.collection("users").doc(uid).set(
+      {
+        email,
+        puntoVenta: pv,
+        role,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    return {
+      ok: true,
+      uid,
+      created,
+      message: created
+        ? "Usuario creado en Firebase Auth y documento users/{uid}."
+        : "Usuario actualizado en Firebase (Auth y/o Firestore).",
+    };
+  } catch (e: unknown) {
+    const code = typeof e === "object" && e !== null && "code" in e ? String((e as { code: string }).code) : "";
+    if (code === "auth/email-already-exists") {
+      return { ok: false, message: "Ese correo ya está registrado en Firebase Auth." };
+    }
+    const msg = e instanceof Error ? e.message : "Error al provisionar usuario.";
+    return { ok: false, message: msg };
+  }
+}

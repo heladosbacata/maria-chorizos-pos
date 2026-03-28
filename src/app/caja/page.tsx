@@ -12,6 +12,7 @@ import EdicionItemCuentaModal from "@/components/EdicionItemCuentaModal";
 import InventarioPosModule from "@/components/InventarioPosModule";
 import PerfilUsuarioModal from "@/components/PerfilUsuarioModal";
 import RegistrarPagoPanel, { type DetallePagoConfirmado } from "@/components/RegistrarPagoPanel";
+import TurnosHistorialModule from "@/components/TurnosHistorialModule";
 import SeleccionClienteVenta from "@/components/SeleccionClienteVenta";
 import {
   buildLineIdPos,
@@ -44,23 +45,45 @@ import {
   montoDescuentoLinea,
   subtotalNetoLinea,
 } from "@/lib/item-cuenta-linea";
-import { appendVentaLocal } from "@/lib/pos-ventas-local-storage";
+import {
+  mediosPagoDesdeDetalle,
+  sumarMediosPagoVentas,
+  type MediosPagoVentaGuardados,
+} from "@/lib/medios-pago-venta";
+import { registrarVentaPosCloud } from "@/lib/pos-ventas-cloud-client";
+import {
+  agregarProductosEnVentas,
+  appendVentaLocal,
+  listarVentasPuntoVenta,
+  ventasDelTurnoActivos,
+  ventasDelTurnoParaCierre,
+} from "@/lib/pos-ventas-local-storage";
 import {
   guardarTurnoPersistido,
   leerTurnoPersistido,
   limpiarTurnoPersistido,
 } from "@/lib/turno-pos-persist";
-import { enviarReporteVenta } from "@/lib/enviar-venta";
+import { appendTurnoCerrado, type TurnoCerradoV1 } from "@/lib/turno-historial-local";
+import { nombreArchivoInformeTurno, textoInformeTurno, triggerDescargaTexto } from "@/lib/turno-informe-texto";
+import {
+  enviarReporteVenta,
+  esErrorRedVenta,
+  mensajeErrorVentaParaUsuario,
+} from "@/lib/enviar-venta";
 import type { EnvioEstado } from "@/lib/enviar-venta";
 import type { TicketVentaLinea, TicketVentaPayload } from "@/types/impresion-pos";
 import type { ClientePosFirestoreDoc } from "@/types/clientes-pos";
 import { CONSUMIDOR_FINAL_ID, type ClienteVentaRef } from "@/types/clientes-pos";
 import type { ProductoPOS, TipoComprobanteVenta, VentaReporte } from "@/types";
 import type { ItemCuenta } from "@/types/pos-caja-item";
-import { POS_CAJERO_FOTO_STORAGE_KEY } from "@/constants/perfil-pos";
+import { readCajeroFotoDataUrl, writeCajeroFotoDataUrl } from "@/constants/perfil-pos";
+import { fechaColombia, fechaHoraColombia, ymdColombia } from "@/lib/fecha-colombia";
 
-function formatFechaHoy(): string {
-  return new Date().toISOString().slice(0, 10);
+function nuevoTurnoSesionId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
 }
 
 const EPS_PAGO = 0.01;
@@ -144,6 +167,17 @@ export default function CajaPage() {
     }
   }, [loading, user, router]);
 
+  /** Hidratar foto desde localStorage en el cliente (el inicializador de useState corre en SSR sin storage). */
+  useEffect(() => {
+    if (!user) return;
+    setFotoPerfil(readCajeroFotoDataUrl(user.uid));
+  }, [user?.uid]);
+
+  const handleFotoPerfilChange = useCallback((dataUrl: string | null) => {
+    setFotoPerfil(dataUrl);
+    writeCajeroFotoDataUrl(user?.uid, dataUrl);
+  }, [user?.uid]);
+
   const [moduloActivo, setModuloActivo] = useState<ModuloActivo>("ventas");
   const [precuentas, setPrecuentas] = useState<PrecuentaTab[]>([
     { id: "1", nombre: "Nueva pre-cuenta" },
@@ -183,10 +217,9 @@ export default function CajaPage() {
   const [precuentasEliminadasCount, setPrecuentasEliminadasCount] = useState(0);
   const [productosEliminadosCount, setProductosEliminadosCount] = useState(0);
   const [valorProductosEliminados, setValorProductosEliminados] = useState(0);
-  const [fotoPerfil, setFotoPerfil] = useState<string | null>(() => {
-    if (typeof window === "undefined") return null;
-    return localStorage.getItem(POS_CAJERO_FOTO_STORAGE_KEY);
-  });
+  /** Id estable del turno actual (ventas y cierre). */
+  const [turnoSesionId, setTurnoSesionId] = useState("");
+  const [fotoPerfil, setFotoPerfil] = useState<string | null>(null);
   const [showModalPerfilUsuario, setShowModalPerfilUsuario] = useState(false);
   const inputFotoRef = useRef<HTMLInputElement>(null);
   const [catalogoProductos, setCatalogoProductos] = useState<ProductoPOS[]>([]);
@@ -246,6 +279,7 @@ export default function CajaPage() {
       setPrecuentasEliminadasCount(snap.precuentasEliminadasCount);
       setProductosEliminadosCount(snap.productosEliminadosCount);
       setValorProductosEliminados(snap.valorProductosEliminados);
+      setTurnoSesionId(snap.turnoSesionId.trim() ? snap.turnoSesionId.trim() : nuevoTurnoSesionId());
     } else {
       setTurnoAbierto(false);
       setCajeroTurnoActivo(null);
@@ -257,6 +291,7 @@ export default function CajaPage() {
       setProductosEliminadosCount(0);
       setValorProductosEliminados(0);
       setBaseInicialCaja(0);
+      setTurnoSesionId("");
     }
     setTurnoHidratadoDesdeStorage(true);
   }, [user?.uid, user?.puntoVenta, user?.role]);
@@ -267,6 +302,7 @@ export default function CajaPage() {
     if (!turnoAbierto || !cajeroTurnoActivo) return;
     guardarTurnoPersistido(user.uid, user.puntoVenta, {
       version: 1,
+      turnoSesionId: turnoSesionId.trim(),
       turnoInicioIso: turnoInicio.toISOString(),
       baseInicialCaja,
       cajeroTurnoActivo,
@@ -285,6 +321,7 @@ export default function CajaPage() {
     user?.puntoVenta,
     user?.role,
     cajeroTurnoActivo,
+    turnoSesionId,
     turnoInicio,
     baseInicialCaja,
     totalVentasEnTurno,
@@ -295,6 +332,13 @@ export default function CajaPage() {
     productosEliminadosCount,
     valorProductosEliminados,
   ]);
+
+  useEffect(() => {
+    if (!turnoHidratadoDesdeStorage) return;
+    if (!turnoAbierto || !cajeroTurnoActivo) return;
+    if (turnoSesionId.trim()) return;
+    setTurnoSesionId(nuevoTurnoSesionId());
+  }, [turnoHidratadoDesdeStorage, turnoAbierto, cajeroTurnoActivo, turnoSesionId]);
 
   const cargarCatalogo = () => {
     if (user && esContadorInvitado(user.role)) return;
@@ -397,6 +441,165 @@ export default function CajaPage() {
     return mail && mail.length > 0 ? mail : "—";
   }, [cajeroTurnoActivo?.nombreDisplay, user?.email]);
 
+  const ventasTurnoActivales = useMemo(() => {
+    if (!user?.uid?.trim() || !user?.puntoVenta?.trim() || !turnoAbierto) return [];
+    const pv = user.puntoVenta.trim();
+    return ventasDelTurnoActivos(listarVentasPuntoVenta(user.uid, pv), turnoSesionId, turnoInicio);
+  }, [user?.uid, user?.puntoVenta, turnoAbierto, turnoSesionId, turnoInicio, totalVentasEnTurno]);
+
+  const mediosTurnoModal = useMemo(() => {
+    const rows = ventasTurnoActivales
+      .map((v) => v.mediosPago)
+      .filter((m): m is MediosPagoVentaGuardados => Boolean(m));
+    return rows.length
+      ? sumarMediosPagoVentas(rows)
+      : ({
+          efectivo: 0,
+          tarjeta: 0,
+          pagosLinea: 0,
+          otros: 0,
+          detalleLineas: [] as { tipo: string; monto: number }[],
+        } satisfies MediosPagoVentaGuardados);
+  }, [ventasTurnoActivales]);
+
+  const ejecutarCierreTurnoDefinitivo = useCallback(async () => {
+    const pv = user?.puntoVenta?.trim();
+    const uid = user?.uid;
+    if (!uid || !pv) {
+      window.alert("No hay sesión o punto de venta para guardar el turno.");
+      return;
+    }
+    const parseVal = (s: string) => parseFloat(String(s).replace(/,/g, ".")) || 0;
+    const efectivoReal = parseVal(cierreEfectivoReal);
+    const tarjeta = parseVal(cierreTarjeta);
+    const pagosLinea = parseVal(cierrePagosLinea);
+    const otrosMedios = parseVal(cierreOtrosMedios);
+    const totalIngresado = efectivoReal + tarjeta + pagosLinea + otrosMedios;
+    const totalEsperado = baseInicialCaja + totalVentasEnTurno;
+    const diferencia = totalIngresado - totalEsperado;
+
+    const fin = new Date();
+    const ventasPv = listarVentasPuntoVenta(uid, pv);
+    const ventasTurno = ventasDelTurnoParaCierre(ventasPv, turnoSesionId, turnoInicio, fin);
+    const mediosRows: MediosPagoVentaGuardados[] = ventasTurno
+      .map((v) => v.mediosPago)
+      .filter((m): m is MediosPagoVentaGuardados => Boolean(m));
+    const totalesMediosVentas = mediosRows.length
+      ? sumarMediosPagoVentas(mediosRows)
+      : ({
+          efectivo: 0,
+          tarjeta: 0,
+          pagosLinea: 0,
+          otros: 0,
+          detalleLineas: [] as { tipo: string; monto: number }[],
+        } satisfies MediosPagoVentaGuardados);
+    const totalVentasRegistradas = ventasTurno.reduce((s, v) => s + v.total, 0);
+    const agregadoProductos = agregarProductosEnVentas(ventasTurno);
+    const cr = cajeroTurnoActivo;
+
+    const registro: TurnoCerradoV1 = {
+      version: 1,
+      id: nuevoTurnoSesionId(),
+      turnoSesionId: turnoSesionId.trim() || "legacy",
+      uid,
+      puntoVenta: pv,
+      inicioIso: turnoInicio.toISOString(),
+      cierreIso: fin.toISOString(),
+      emailSesion: user?.email ?? undefined,
+      cajero: cr
+        ? { id: cr.id, nombreDisplay: cr.nombreDisplay, documento: cr.documento }
+        : { id: "—", nombreDisplay: "—", documento: "" },
+      baseInicialCaja,
+      totalVentasRegistradas,
+      numTickets: ventasTurno.length,
+      ventasCredito,
+      totalIngresoEfectivo,
+      totalRetiroEfectivo,
+      totalesMediosVentas,
+      cierre: {
+        efectivoReal,
+        tarjeta,
+        pagosLinea,
+        otrosMedios,
+        totalIngresado,
+        totalEsperado,
+        diferencia,
+      },
+      metricsPrecuentas: {
+        precuentasEliminadas: precuentasEliminadasCount,
+        productosEliminados: productosEliminadosCount,
+        valorProductosEliminados,
+      },
+      ventas: ventasTurno.map((v) => ({ ...v })),
+      agregadoProductos,
+    };
+
+    appendTurnoCerrado(uid, pv, registro);
+    const txt = textoInformeTurno(registro);
+    triggerDescargaTexto(nombreArchivoInformeTurno(registro), txt);
+
+    try {
+      const token = await auth?.currentUser?.getIdToken();
+      if (token) {
+        const r = await fetch("/api/pos_turno_informe_correo", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            subject: `Informe cierre turno ${pv} · ${fechaHoraColombia(fin)}`,
+            text: txt,
+          }),
+        });
+        const data = (await r.json().catch(() => ({}))) as { ok?: boolean; message?: string };
+        if (!r.ok || !data.ok) {
+          const msg = data.message ?? "";
+          if (r.status !== 503 && !/no configurado|Firebase Admin no está/i.test(msg)) {
+            window.alert(msg || "No se pudo enviar el correo con el informe.");
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("Informe turno: correo no enviado (red o servidor).", e);
+    }
+
+    limpiarTurnoPersistido(uid, pv);
+    setTurnoAbierto(false);
+    setCajeroTurnoActivo(null);
+    setTotalVentasEnTurno(0);
+    setTotalIngresoEfectivo(0);
+    setTotalRetiroEfectivo(0);
+    setVentasCredito(0);
+    setPrecuentasEliminadasCount(0);
+    setProductosEliminadosCount(0);
+    setValorProductosEliminados(0);
+    setBaseInicialCaja(0);
+    setTurnoSesionId("");
+    setCierreEfectivoReal("");
+    setCierreTarjeta("");
+    setCierrePagosLinea("");
+    setCierreOtrosMedios("");
+    setShowModalCierreTurno(false);
+  }, [
+    user,
+    cierreEfectivoReal,
+    cierreTarjeta,
+    cierrePagosLinea,
+    cierreOtrosMedios,
+    baseInicialCaja,
+    totalVentasEnTurno,
+    turnoSesionId,
+    turnoInicio,
+    ventasCredito,
+    totalIngresoEfectivo,
+    totalRetiroEfectivo,
+    precuentasEliminadasCount,
+    productosEliminadosCount,
+    valorProductosEliminados,
+    cajeroTurnoActivo,
+  ]);
+
   const handleEnviar = async () => {
     if (user && esContadorInvitado(user.role)) return;
     const valorVentaStr = activeDatos.valorVenta;
@@ -445,7 +648,7 @@ export default function CajaPage() {
       if (cr.numeroIdentificacion?.trim()) filaVenta.clienteNumeroIdentificacion = cr.numeroIdentificacion.trim();
     }
     const resultado = await enviarReporteVenta({
-      fecha: formatFechaHoy(),
+      fecha: ymdColombia(),
       uen: "Maria Chorizos",
       ventas: [filaVenta],
     });
@@ -455,7 +658,10 @@ export default function CajaPage() {
       [activePrecuentaId]: {
         ...prev[activePrecuentaId],
         estado: resultado.estado,
-        mensaje: resultado.mensaje ?? "",
+        mensaje:
+          resultado.estado === "exito"
+            ? (resultado.mensaje ?? "")
+            : mensajeErrorVentaParaUsuario(resultado.mensaje),
       },
     }));
     if (resultado.estado === "exito") {
@@ -605,7 +811,7 @@ export default function CajaPage() {
         titulo,
         puntoVenta: pv,
         precuentaNombre: nombrePrecuenta,
-        fechaHora: new Date().toLocaleString("es-CO"),
+        fechaHora: fechaHoraColombia(new Date()),
         clienteNombre: clienteActivoPrecuenta.nombreDisplay,
         tipoComprobanteLabel: etiquetaTipoComprobanteTicket(tipoComprobante),
         vendedorLabel: vendedorTicket,
@@ -702,8 +908,10 @@ export default function CajaPage() {
     setItemsPorPrecuenta((prev) => ({ ...prev, [activePrecuentaId]: [] }));
   }, [activePrecuentaId]);
 
+  type OpcionesCobroVenta = { notaPie?: string; detallePago?: DetallePagoConfirmado };
+
   const ejecutarCobroVenta = useCallback(
-    async (itemsSnap: ItemCuenta[], notaPie?: string): Promise<boolean> => {
+    async (itemsSnap: ItemCuenta[], opts?: OpcionesCobroVenta): Promise<boolean> => {
       if (!user || esContadorInvitado(user.role)) return false;
       if (!turnoAbierto) return false;
       const pv = user.puntoVenta?.trim();
@@ -711,6 +919,13 @@ export default function CajaPage() {
         window.alert("No hay punto de venta asignado.");
         return false;
       }
+
+      const notaPie =
+        opts?.notaPie ??
+        (opts?.detallePago ? construirNotaPiePago(opts.detallePago) : undefined);
+      const mediosPago =
+        opts?.detallePago != null ? mediosPagoDesdeDetalle(opts.detallePago) : undefined;
+      const sid = turnoSesionId.trim();
 
       const total = itemsSnap.reduce((s, i) => s + totalLineaItem(i), 0);
       if (!(total > 0)) return false;
@@ -741,45 +956,103 @@ export default function CajaPage() {
         }
 
         const resultado = await enviarReporteVenta({
-          fecha: formatFechaHoy(),
+          fecha: ymdColombia(),
           uen: "Maria Chorizos",
           ventas: [filaVenta],
         });
 
+        let ventaSoloEnPos = false;
         if (resultado.estado !== "exito") {
-          window.alert(resultado.mensaje ?? "No se pudo registrar la venta.");
-          return false;
+          if (esErrorRedVenta(resultado.mensaje)) {
+            const continuar = window.confirm(
+              "No hay conexión con el servidor de ventas (WMS).\n\n" +
+                "¿Registrar esta venta solo en este equipo?\n\n" +
+                "Podrás seguir cobrando. Cuando el WMS esté disponible, revisa si debes sincronizar o reenviar ventas según tu operación."
+            );
+            if (!continuar) {
+              window.alert(mensajeErrorVentaParaUsuario(resultado.mensaje));
+              return false;
+            }
+            ventaSoloEnPos = true;
+          } else {
+            window.alert(mensajeErrorVentaParaUsuario(resultado.mensaje));
+            return false;
+          }
         }
 
         setTotalVentasEnTurno((prev) => prev + total);
 
-        appendVentaLocal({
-          fechaYmd: formatFechaHoy(),
+        const notaPieTicket =
+          ventaSoloEnPos && notaPie
+            ? `${notaPie}\n[Venta solo en POS — WMS no disponible]`
+            : ventaSoloEnPos
+              ? "[Venta solo en POS — WMS no disponible]"
+              : notaPie;
+
+        const isoVenta = new Date().toISOString();
+        const lineasVenta = itemsSnap.map((it) => {
+          const li = lineInputDesdeItemCuentaLike(it);
+          const sub = subtotalNetoLinea(li);
+          const qty = Math.max(0.0001, it.cantidad);
+          return {
+            lineId: it.lineId,
+            sku: it.producto.sku,
+            descripcion: it.producto.descripcion,
+            cantidad: it.cantidad,
+            precioUnitario: Math.round((sub / qty) * 100) / 100,
+            detalleVariante: detalleVarianteTicketLinea(it),
+          };
+        });
+
+        const ventaLocalId = appendVentaLocal(user.uid, {
+          fechaYmd: ymdColombia(),
+          isoTimestamp: isoVenta,
           puntoVenta: pv,
           total,
-          lineas: itemsSnap.map((it) => {
-            const li = lineInputDesdeItemCuentaLike(it);
-            const sub = subtotalNetoLinea(li);
-            const qty = Math.max(0.0001, it.cantidad);
-            return {
-              lineId: it.lineId,
-              sku: it.producto.sku,
-              descripcion: it.producto.descripcion,
-              cantidad: it.cantidad,
-              precioUnitario: Math.round((sub / qty) * 100) / 100,
-              detalleVariante: detalleVarianteTicketLinea(it),
-            };
-          }),
+          ...(sid ? { turnoSesionId: sid } : {}),
+          lineas: lineasVenta,
           ...(ct
             ? {
                 cajeroTurnoId: ct.id,
                 cajeroNombre: ct.nombreDisplay,
               }
             : {}),
-          ...(notaPie ? { pagoResumen: notaPie } : {}),
+          ...(notaPieTicket ? { pagoResumen: notaPieTicket } : {}),
+          ...(mediosPago ? { mediosPago } : {}),
         });
 
-        const ticket = construirPayloadTicket("TICKET DE VENTA", itemsSnap, notaPie);
+        if (ventaLocalId) {
+          try {
+            const tokenCloud = await auth?.currentUser?.getIdToken();
+            if (tokenCloud) {
+              const sync = await registrarVentaPosCloud(tokenCloud, {
+                ventaLocalId,
+                fechaYmd: ymdColombia(),
+                isoTimestamp: isoVenta,
+                puntoVenta: pv,
+                total,
+                lineas: lineasVenta,
+                ...(sid ? { turnoSesionId: sid } : {}),
+                ...(ct
+                  ? {
+                      cajeroTurnoId: ct.id,
+                      cajeroNombre: ct.nombreDisplay,
+                    }
+                  : {}),
+                ...(notaPieTicket ? { pagoResumen: notaPieTicket } : {}),
+                ...(mediosPago ? { mediosPago } : {}),
+                wmsSincronizado: !ventaSoloEnPos,
+              });
+              if (!sync.ok) {
+                console.warn("Venta guardada en el equipo; nube POS:", sync.message ?? sync);
+              }
+            }
+          } catch (e) {
+            console.warn("Venta guardada en el equipo; no se pudo replicar en la nube del POS.", e);
+          }
+        }
+
+        const ticket = construirPayloadTicket("TICKET DE VENTA", itemsSnap, notaPieTicket);
         if (!ticket) return false;
 
         const prefs = loadImpresionPrefs();
@@ -809,6 +1082,7 @@ export default function CajaPage() {
     [
       user,
       turnoAbierto,
+      turnoSesionId,
       cajeroTurnoActivo,
       clienteActivoPrecuenta,
       tipoComprobante,
@@ -832,8 +1106,7 @@ export default function CajaPage() {
 
   const handleConfirmarRegistrarPago = async (detalle: DetallePagoConfirmado) => {
     const itemsSnap = [...itemsCuentaActiva];
-    const notaPie = construirNotaPiePago(detalle);
-    const ok = await ejecutarCobroVenta(itemsSnap, notaPie);
+    const ok = await ejecutarCobroVenta(itemsSnap, { detallePago: detalle });
     if (ok) setRegistrarPagoAbierto(false);
   };
 
@@ -873,6 +1146,7 @@ export default function CajaPage() {
     setCierreTarjeta("");
     setCierrePagosLinea("");
     setCierreOtrosMedios("");
+    setTurnoSesionId(nuevoTurnoSesionId());
     setShowModalAbrirTurno(false);
     setBaseInicialCajaInput("");
   };
@@ -896,12 +1170,7 @@ export default function CajaPage() {
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = reader.result as string;
-      setFotoPerfil(dataUrl);
-      try {
-        localStorage.setItem(POS_CAJERO_FOTO_STORAGE_KEY, dataUrl);
-      } catch {
-        // quota or disabled
-      }
+      handleFotoPerfilChange(dataUrl);
     };
     reader.readAsDataURL(file);
     e.target.value = "";
@@ -923,8 +1192,8 @@ export default function CajaPage() {
 
   const esContador = esContadorInvitado(user.role);
 
-  const fechaHoy = formatFechaHoy();
-  const fechaFormateada = new Date().toLocaleDateString("es-CO", {
+  const fechaHoy = ymdColombia();
+  const fechaFormateada = fechaColombia(new Date(), {
     weekday: "long",
     year: "numeric",
     month: "long",
@@ -1083,7 +1352,7 @@ export default function CajaPage() {
                     <span className="block text-sm font-semibold text-emerald-800">Turno abierto</span>
                     <span className="mt-0.5 block text-xs font-medium text-emerald-700">
                       Abierto a las{" "}
-                      {turnoInicio.toLocaleTimeString("es-CO", {
+                      {fechaHoraColombia(turnoInicio, {
                         hour: "2-digit",
                         minute: "2-digit",
                       })}
@@ -1111,6 +1380,84 @@ export default function CajaPage() {
             <p className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-2 py-2 text-center text-xs font-medium text-slate-700">
               Vista contador · solo tu punto de venta
             </p>
+          )}
+          {!esContador && (
+            <div className="mb-3 w-full">
+              {turnoAbierto && cajeroTurnoActivo ? (
+                <div
+                  className="relative overflow-hidden rounded-2xl border border-amber-200/60 bg-gradient-to-br from-stone-50 via-white to-amber-50/50 px-3 py-2.5 shadow-[0_8px_30px_-12px_rgba(146,110,60,0.35),inset_0_1px_0_rgba(255,255,255,0.95)] ring-1 ring-amber-900/[0.06]"
+                  title={`Opera el turno: ${cajeroTurnoActivo.nombreDisplay}`}
+                >
+                  <div
+                    className="pointer-events-none absolute -right-6 -top-8 h-24 w-24 rounded-full bg-gradient-to-br from-amber-200/30 to-transparent blur-2xl"
+                    aria-hidden
+                  />
+                  <div className="relative flex items-center gap-3">
+                    <div className="relative flex h-11 w-11 shrink-0 items-center justify-center">
+                      <span
+                        className="absolute inset-0 rounded-full bg-gradient-to-br from-amber-300 via-yellow-200 to-amber-600 shadow-[inset_0_2px_4px_rgba(255,255,255,0.45),0_2px_8px_rgba(180,130,40,0.35)]"
+                        aria-hidden
+                      />
+                      <span
+                        className="absolute inset-[2.5px] rounded-full bg-gradient-to-b from-white/95 to-amber-50/90 shadow-inner"
+                        aria-hidden
+                      />
+                      <svg
+                        className="relative z-[1] h-[22px] w-[22px] drop-shadow-[0_1px_1px_rgba(0,0,0,0.12)]"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        xmlns="http://www.w3.org/2000/svg"
+                        aria-hidden
+                      >
+                        <defs>
+                          <linearGradient id="cajeroTurnoIconGold" x1="4" y1="2" x2="20" y2="22" gradientUnits="userSpaceOnUse">
+                            <stop stopColor="#c9a227" />
+                            <stop offset="0.5" stopColor="#f0d78c" />
+                            <stop offset="1" stopColor="#8b6914" />
+                          </linearGradient>
+                        </defs>
+                        <path
+                          d="M12 2.2L4.5 5.4v5.35c0 4.05 2.6 7.85 7.5 10.05 4.9-2.2 7.5-6 7.5-10.05V5.4L12 2.2z"
+                          fill="url(#cajeroTurnoIconGold)"
+                          stroke="#6b4f0e"
+                          strokeWidth="0.55"
+                          strokeLinejoin="round"
+                        />
+                        <path
+                          d="M9.15 12.05 10.85 13.7 15.1 8.95"
+                          stroke="#fffdf5"
+                          strokeWidth="1.25"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                        <path
+                          d="M9.25 12 10.9 13.65 15 9.05"
+                          stroke="#5c450a"
+                          strokeWidth="0.8"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </div>
+                    <div className="min-w-0 flex-1 text-left">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-900/55">
+                        Cajero en turno
+                      </p>
+                      <p className="truncate font-semibold leading-snug tracking-tight text-gray-900">
+                        {cajeroTurnoActivo.nombreDisplay}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-dashed border-gray-200/90 bg-gray-50/90 px-3 py-2 text-center">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.15em] text-gray-500">
+                    Cajero en turno
+                  </p>
+                  <p className="mt-0.5 text-xs text-gray-600">Abre turno para asignar cajero</p>
+                </div>
+              )}
+            </div>
           )}
           {/* Perfil del cajero */}
           <div className="mb-3 flex flex-col items-center gap-2">
@@ -1188,7 +1535,7 @@ export default function CajaPage() {
         emailSesion={user.email}
         puntoVenta={user.puntoVenta}
         fotoPreview={fotoPerfil}
-        onFotoChange={setFotoPerfil}
+        onFotoChange={handleFotoPerfilChange}
         esContador={esContador}
       />
 
@@ -1290,7 +1637,13 @@ export default function CajaPage() {
                 <div>
                   <label className="text-gray-500">Fecha y hora de apertura:</label>
                   <p className="font-medium text-gray-900">
-                    {new Date().toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                    {fechaHoraColombia(new Date(), {
+                      day: "numeric",
+                      month: "short",
+                      year: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
                   </p>
                 </div>
                 <div>
@@ -1471,7 +1824,14 @@ export default function CajaPage() {
               <div className="mb-4 rounded-lg bg-gray-50 p-4 text-sm">
                 <p className="font-medium text-gray-900">Maria Chorizos</p>
                 <p className="mt-1 text-gray-600">
-                  Inicio: {turnoInicio.toLocaleDateString("es-CO", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                  Inicio:{" "}
+                  {fechaHoraColombia(turnoInicio, {
+                    day: "numeric",
+                    month: "short",
+                    year: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })}
                 </p>
                 <p className="text-gray-600">Fin: —</p>
                 <p className="mt-1 text-gray-600">
@@ -1498,10 +1858,22 @@ export default function CajaPage() {
                 {detalleVentasExpandido && (
                   <div className="border-t border-gray-100 px-4 py-3 text-sm text-gray-600">
                     <p>Total base inicial de caja: {baseInicialCaja.toLocaleString("es-CO", { minimumFractionDigits: 2 })}</p>
-                    <p className="mt-1">Total efectivo: {totalVentasEnTurno.toLocaleString("es-CO", { minimumFractionDigits: 2 })}</p>
-                    <p className="mt-1">Total tarjetas: 0,00</p>
-                    <p className="mt-1">Total pagos en línea: 0,00</p>
-                    <p className="mt-1">Total otros: 0,00</p>
+                    <p className="mt-1">
+                      Total ventas (WMS / acumulado turno):{" "}
+                      {totalVentasEnTurno.toLocaleString("es-CO", { minimumFractionDigits: 2 })}
+                    </p>
+                    <p className="mt-1">Tickets locales en turno: {ventasTurnoActivales.length}</p>
+                    <p className="mt-1">
+                      Suma tickets (detalle local):{" "}
+                      {ventasTurnoActivales
+                        .reduce((s, v) => s + v.total, 0)
+                        .toLocaleString("es-CO", { minimumFractionDigits: 2 })}
+                    </p>
+                    <p className="mt-2 font-medium text-gray-800">Medios de pago (suma por ticket)</p>
+                    <p className="mt-1">Efectivo: {mediosTurnoModal.efectivo.toLocaleString("es-CO", { minimumFractionDigits: 2 })}</p>
+                    <p className="mt-1">Tarjeta / datáfono: {mediosTurnoModal.tarjeta.toLocaleString("es-CO", { minimumFractionDigits: 2 })}</p>
+                    <p className="mt-1">Pagos en línea: {mediosTurnoModal.pagosLinea.toLocaleString("es-CO", { minimumFractionDigits: 2 })}</p>
+                    <p className="mt-1">Otros: {mediosTurnoModal.otros.toLocaleString("es-CO", { minimumFractionDigits: 2 })}</p>
                   </div>
                 )}
               </div>
@@ -1624,22 +1996,7 @@ export default function CajaPage() {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  if (user?.uid && user?.puntoVenta?.trim()) {
-                    limpiarTurnoPersistido(user.uid, user.puntoVenta);
-                  }
-                  setTurnoAbierto(false);
-                  setCajeroTurnoActivo(null);
-                  setTotalVentasEnTurno(0);
-                  setTotalIngresoEfectivo(0);
-                  setTotalRetiroEfectivo(0);
-                  setVentasCredito(0);
-                  setPrecuentasEliminadasCount(0);
-                  setProductosEliminadosCount(0);
-                  setValorProductosEliminados(0);
-                  setBaseInicialCaja(0);
-                  setShowModalCierreTurno(false);
-                }}
+                onClick={() => void ejecutarCierreTurnoDefinitivo()}
                 className="flex-1 rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
               >
                 Cerrar turno
@@ -1921,12 +2278,27 @@ export default function CajaPage() {
                 )}
               </div>
             </div>
+          ) : moduloActivo === "turnos" ? (
+            <TurnosHistorialModule
+              uid={user.uid}
+              puntoVenta={user.puntoVenta ?? ""}
+              turnoActivo={
+                turnoAbierto && cajeroTurnoActivo
+                  ? {
+                      inicio: turnoInicio,
+                      cajeroNombre: cajeroTurnoActivo.nombreDisplay,
+                      turnoSesionId,
+                      totalVentasAcumuladoWms: totalVentasEnTurno,
+                    }
+                  : null
+              }
+            />
           ) : moduloActivo === "cargueInventario" ? (
             <CargueInventarioManualPanel puntoVenta={user.puntoVenta} uid={user.uid} email={user.email} />
           ) : moduloActivo === "inventarios" ? (
             <InventarioPosModule puntoVenta={user.puntoVenta} uid={user.uid} email={user.email} />
           ) : moduloActivo === "reportes" ? (
-            <CajeroReportesDashboard puntoVenta={user.puntoVenta} />
+            <CajeroReportesDashboard uid={user.uid} puntoVenta={user.puntoVenta} />
           ) : moduloActivo === "mas" ? (
             <ConfiguracionMasModule />
           ) : (

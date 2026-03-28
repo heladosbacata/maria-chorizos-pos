@@ -1,9 +1,24 @@
 /**
  * Historial de ventas con detalle de líneas en este navegador (localStorage).
- * Sirve para el dashboard del cajero; no reemplaza el WMS.
+ * Los datos se guardan por usuario (Firebase uid) para no mezclar ventas entre cuentas en el mismo equipo.
  */
 
-const STORAGE_KEY = "pos_mc_ventas_cajero_v1";
+import type { MediosPagoVentaGuardados } from "@/lib/medios-pago-venta";
+import {
+  LOCALE_COL,
+  ZONA_HORARIA_COLOMBIA,
+  mediodiaColombiaDesdeYmd,
+  ymdColombia,
+  ymdColombiaMenosDias,
+} from "@/lib/fecha-colombia";
+
+/** Lista global antigua (una sola por navegador); se migra una vez al primer uid que lea. */
+const LEGACY_STORAGE_KEY = "pos_mc_ventas_cajero_v1";
+
+function storageKeyUid(uid: string): string {
+  return `pos_mc_ventas_cajero_v2:${uid.trim()}`;
+}
+
 const MAX_VENTAS = 500;
 
 export interface LineaVentaGuardada {
@@ -20,64 +35,146 @@ export interface VentaGuardadaLocal {
   fechaYmd: string;
   isoTimestamp: string;
   puntoVenta: string;
+  /** Usuario Firebase que registró la venta en este equipo. */
+  uidSesion?: string;
+  /** Id estable del turno (apertura→cierre); enlaza ventas al cierre. */
+  turnoSesionId?: string;
   cajeroTurnoId?: string;
   cajeroNombre?: string;
   total: number;
   lineas: LineaVentaGuardada[];
   /** Resumen de medios de pago u observaciones (solo local). */
   pagoResumen?: string;
+  /** Desglose estructurado por ticket (si el cobro usó el panel de pagos). */
+  mediosPago?: MediosPagoVentaGuardados;
 }
 
-function leerRaw(): VentaGuardadaLocal[] {
-  if (typeof window === "undefined") return [];
+function migrarLegacyAUid(uid: string): void {
+  if (typeof window === "undefined" || !uid.trim()) return;
+  const k2 = storageKeyUid(uid);
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    if (localStorage.getItem(k2)) return;
+    const oldRaw = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (!oldRaw) return;
+    const parsed = JSON.parse(oldRaw) as unknown;
+    if (!Array.isArray(parsed) || parsed.length === 0) return;
+    localStorage.setItem(k2, JSON.stringify(parsed));
+    localStorage.removeItem(LEGACY_STORAGE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+function leerRaw(uid: string): VentaGuardadaLocal[] {
+  if (typeof window === "undefined" || !uid.trim()) return [];
+  try {
+    migrarLegacyAUid(uid);
+    const raw = localStorage.getItem(storageKeyUid(uid));
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((v): v is VentaGuardadaLocal => v && typeof v === "object" && typeof (v as VentaGuardadaLocal).id === "string");
+    return parsed.filter(
+      (v): v is VentaGuardadaLocal => v && typeof v === "object" && typeof (v as VentaGuardadaLocal).id === "string"
+    );
   } catch {
     return [];
   }
 }
 
-function escribir(lista: VentaGuardadaLocal[]) {
+function escribir(uid: string, lista: VentaGuardadaLocal[]) {
+  if (!uid.trim()) return;
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(lista));
+    localStorage.setItem(storageKeyUid(uid), JSON.stringify(lista));
   } catch {
-    // quota: recortar a la mitad y reintentar una vez
     try {
       const mitad = lista.slice(Math.floor(lista.length / 2));
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(mitad));
+      localStorage.setItem(storageKeyUid(uid), JSON.stringify(mitad));
     } catch {
       /* ignore */
     }
   }
 }
 
+/** YYYY-MM-DD en calendario Colombia (nombre histórico "local"; ya no usa el huso del navegador). */
 export function ymdDesdeFechaLocal(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  return ymdColombia(d);
 }
 
-export function appendVentaLocal(venta: Omit<VentaGuardadaLocal, "id" | "isoTimestamp"> & { isoTimestamp?: string }): void {
-  if (typeof window === "undefined") return;
+export function appendVentaLocal(
+  uid: string,
+  venta: Omit<VentaGuardadaLocal, "id" | "isoTimestamp" | "uidSesion"> & { isoTimestamp?: string }
+): string | null {
+  if (typeof window === "undefined" || !uid.trim()) return null;
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
   const isoTimestamp = venta.isoTimestamp ?? new Date().toISOString();
-  const row: VentaGuardadaLocal = { ...venta, id, isoTimestamp };
-  const prev = leerRaw();
+  const row: VentaGuardadaLocal = { ...venta, id, isoTimestamp, uidSesion: uid.trim() };
+  const prev = leerRaw(uid);
   const next = [...prev, row];
-  const trimmed =
-    next.length > MAX_VENTAS ? next.slice(next.length - MAX_VENTAS) : next;
-  escribir(trimmed);
+  const trimmed = next.length > MAX_VENTAS ? next.slice(next.length - MAX_VENTAS) : next;
+  escribir(uid, trimmed);
+  return id;
 }
 
-export function listarVentasPuntoVenta(puntoVenta: string): VentaGuardadaLocal[] {
+/** Resumen de informes: combina local + nube (misma `id` gana la copia de nube). */
+export function mergeVentasReporteNubeLocal(
+  local: VentaGuardadaLocal[],
+  nube: VentaGuardadaLocal[]
+): VentaGuardadaLocal[] {
+  const map = new Map<string, VentaGuardadaLocal>();
+  for (const v of local) map.set(v.id, v);
+  for (const v of nube) map.set(v.id, v);
+  return Array.from(map.values()).sort(
+    (a, b) => new Date(b.isoTimestamp).getTime() - new Date(a.isoTimestamp).getTime()
+  );
+}
+
+export function listarVentasPuntoVenta(uid: string, puntoVenta: string): VentaGuardadaLocal[] {
+  const u = uid.trim();
   const pv = puntoVenta.trim();
-  if (!pv) return [];
-  return leerRaw().filter((v) => v.puntoVenta?.trim() === pv);
+  if (!u || !pv) return [];
+  return leerRaw(u).filter((v) => v.puntoVenta?.trim() === pv);
+}
+
+export function ventasDelTurnoSesion(ventas: VentaGuardadaLocal[], turnoSesionId: string): VentaGuardadaLocal[] {
+  const id = turnoSesionId.trim();
+  if (!id) return [];
+  return ventas.filter((v) => v.turnoSesionId === id);
+}
+
+/**
+ * Ventas del turno: por `turnoSesionId` si hay coincidencias; si no (turnos antiguos), por rango de hora.
+ */
+export function ventasDelTurnoParaCierre(
+  ventas: VentaGuardadaLocal[],
+  turnoSesionId: string,
+  inicioTurno: Date,
+  finTurno: Date
+): VentaGuardadaLocal[] {
+  const id = turnoSesionId.trim();
+  const porId = id ? ventas.filter((v) => v.turnoSesionId === id) : [];
+  if (porId.length > 0) return porId;
+  const t0 = inicioTurno.getTime();
+  const t1 = finTurno.getTime();
+  return ventas.filter((v) => {
+    const t = new Date(v.isoTimestamp).getTime();
+    return !Number.isNaN(t) && t >= t0 && t <= t1;
+  });
+}
+
+/** Turno aún abierto: mismas reglas que el cierre pero sin tope de hora fin (solo ≥ inicio). */
+export function ventasDelTurnoActivos(
+  ventas: VentaGuardadaLocal[],
+  turnoSesionId: string,
+  inicioTurno: Date
+): VentaGuardadaLocal[] {
+  const id = turnoSesionId.trim();
+  const porId = id ? ventas.filter((v) => v.turnoSesionId === id) : [];
+  if (porId.length > 0) return porId;
+  const t0 = inicioTurno.getTime();
+  return ventas.filter((v) => {
+    const t = new Date(v.isoTimestamp).getTime();
+    return !Number.isNaN(t) && t >= t0;
+  });
 }
 
 export interface AgregadoProductoDia {
@@ -164,14 +261,62 @@ export interface MiniDiaSemana {
   numTickets: number;
 }
 
-/** Últimos 7 días calendario terminando en `hasta` (inclusive), orden cronológico. */
+/** Agrega líneas de varios tickets por producto (SKU + descripción + variante). */
+export function agregarProductosEnVentas(ventas: VentaGuardadaLocal[]): AgregadoProductoDia[] {
+  const map = new Map<
+    string,
+    { descripcion: string; sku: string; cantidad: number; subtotal: number; detalleVariante?: string }
+  >();
+
+  for (const v of ventas) {
+    for (const linea of v.lineas) {
+      const clave = `${linea.sku}\x1f${linea.descripcion}\x1f${linea.detalleVariante ?? ""}`;
+      const addCant = linea.cantidad;
+      const addSub = linea.precioUnitario * linea.cantidad;
+      const prev = map.get(clave);
+      if (prev) {
+        map.set(clave, {
+          ...prev,
+          cantidad: prev.cantidad + addCant,
+          subtotal: prev.subtotal + addSub,
+        });
+      } else {
+        map.set(clave, {
+          descripcion: etiquetaLinea(linea),
+          sku: linea.sku,
+          cantidad: addCant,
+          subtotal: addSub,
+          detalleVariante: linea.detalleVariante,
+        });
+      }
+    }
+  }
+
+  return Array.from(map.entries())
+    .map(([clave, x]) => ({
+      clave,
+      descripcion: x.descripcion,
+      sku: x.sku,
+      cantidad: x.cantidad,
+      subtotal: x.subtotal,
+      detalleVariante: x.detalleVariante,
+    }))
+    .sort((a, b) => b.subtotal - a.subtotal);
+}
+
+/** Últimos 7 días calendario Colombia terminando en `hasta` (inclusive), orden cronológico. */
 export function resumenUltimos7Dias(ventas: VentaGuardadaLocal[], hasta: Date): MiniDiaSemana[] {
+  const endYmd = ymdColombia(hasta);
   const out: MiniDiaSemana[] = [];
   for (let i = 6; i >= 0; i--) {
-    const d = new Date(hasta.getFullYear(), hasta.getMonth(), hasta.getDate() - i);
-    const ymd = ymdDesdeFechaLocal(d);
+    const ymd = ymdColombiaMenosDias(endYmd, 6 - i);
+    const d = mediodiaColombiaDesdeYmd(ymd);
     const r = resumenPorDia(ventas, ymd);
-    const labelCorto = d.toLocaleDateString("es-CO", { weekday: "short", day: "numeric" });
+    const labelCorto = d.toLocaleDateString(LOCALE_COL, {
+      timeZone: ZONA_HORARIA_COLOMBIA,
+      weekday: "short",
+      day: "numeric",
+    });
     out.push({
       fechaYmd: ymd,
       labelCorto: labelCorto.charAt(0).toUpperCase() + labelCorto.slice(1),

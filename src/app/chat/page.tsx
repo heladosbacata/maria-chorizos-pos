@@ -14,16 +14,16 @@ import {
   subscribeChatMessages,
   sendChatMessage,
 } from "@/lib/chat-firestore";
+import { fechaHoraColombia, ymdColombia } from "@/lib/fecha-colombia";
 import type { ChatUsuario, ChatMessage } from "@/types";
 
 function formatMessageTime(createdAt: { seconds: number; nanoseconds: number }): string {
   const date = new Date(createdAt.seconds * 1000);
-  const now = new Date();
-  const isToday = date.toDateString() === now.toDateString();
+  const isToday = ymdColombia(date) === ymdColombia();
   if (isToday) {
-    return date.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
+    return fechaHoraColombia(date, { hour: "2-digit", minute: "2-digit" });
   }
-  return date.toLocaleDateString("es-CO", {
+  return fechaHoraColombia(date, {
     day: "2-digit",
     month: "short",
     hour: "2-digit",
