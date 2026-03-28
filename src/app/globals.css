@@ -24,3 +24,22 @@ body {
            active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed;
   }
 }
+
+/* Confeti — celebración cargue inventario (CargueCelebracionExito) */
+@keyframes cargue-celebracion-fall {
+  0% {
+    transform: translate3d(0, 0, 0) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(var(--cargue-drift, 0), 110vh, 0) rotate(var(--cargue-rot, 360deg));
+    opacity: 0.15;
+  }
+}
+
+.cargue-celebracion-piece {
+  animation-name: cargue-celebracion-fall;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+  animation-iteration-count: 1;
+}

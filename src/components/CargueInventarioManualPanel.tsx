@@ -8,12 +8,14 @@ import {
 import { fechaColombia, fechaHoraColombia, mediodiaColombiaDesdeYmd, ymdColombia } from "@/lib/fecha-colombia";
 import {
   CATALOGO_INSUMOS_KIT_COLLECTION,
+  corregirMovimientoCargueInventario,
   etiquetaTipoMovimiento,
   listarInsumosKitPorPuntoVenta,
   listarMovimientosInventario,
   registrarMovimientoInventario,
 } from "@/lib/inventario-pos-firestore";
-import type { InsumoKitItem } from "@/types/inventario-pos";
+import CargueCelebracionExito from "@/components/CargueCelebracionExito";
+import type { InsumoKitItem, InventarioMovimientoDoc } from "@/types/inventario-pos";
 
 export interface CargueInventarioManualPanelProps {
   puntoVenta: string | null;
@@ -40,6 +42,10 @@ function formatFechaCargueMostrar(iso: string | undefined): string {
   const dt = mediodiaColombiaDesdeYmd(iso);
   if (Number.isNaN(dt.getTime())) return iso;
   return fechaColombia(dt, { dateStyle: "medium" });
+}
+
+function formatLogEdicionEn(en: unknown): string {
+  return formatMovFecha(en);
 }
 
 /** Texto comparable en búsqueda (minúsculas, sin tildes). */
@@ -130,10 +136,19 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
   const [enviando, setEnviando] = useState(false);
   const [mensajeOk, setMensajeOk] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [celebracionCargueN, setCelebracionCargueN] = useState<number | null>(null);
+  const [celebracionCargueKey, setCelebracionCargueKey] = useState(0);
 
   const [historialCargue, setHistorialCargue] = useState<Awaited<ReturnType<typeof listarMovimientosInventario>>>([]);
   const [cargandoHist, setCargandoHist] = useState(false);
   const [fuenteCat, setFuenteCat] = useState<"sheet" | "firestore" | null>(null);
+
+  const [movDetalle, setMovDetalle] = useState<InventarioMovimientoDoc | null>(null);
+  const [editCantidad, setEditCantidad] = useState("");
+  const [editFechaCargue, setEditFechaCargue] = useState("");
+  const [editNotas, setEditNotas] = useState("");
+  const [guardandoEdicion, setGuardandoEdicion] = useState(false);
+  const [errorEdicion, setErrorEdicion] = useState<string | null>(null);
 
   const cargarCatalogo = useCallback(async () => {
     if (!pv) {
@@ -196,6 +211,55 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
     }
   }, [pv]);
 
+  const cerrarDetalleCargue = useCallback(() => {
+    setMovDetalle(null);
+    setErrorEdicion(null);
+  }, []);
+
+  const abrirDetalleCargue = useCallback((m: InventarioMovimientoDoc) => {
+    setMovDetalle(m);
+    setEditCantidad(String(m.delta));
+    setEditFechaCargue(m.fechaCargue ?? "");
+    setEditNotas(m.notas);
+    setErrorEdicion(null);
+  }, []);
+
+  const guardarEdicionCargue = useCallback(async () => {
+    if (!movDetalle || !pv) return;
+    setGuardandoEdicion(true);
+    setErrorEdicion(null);
+    try {
+      const n = parseFloat(editCantidad.replace(/,/g, "."));
+      const r = await corregirMovimientoCargueInventario({
+        movimientoId: movDetalle.id,
+        puntoVenta: pv,
+        nuevaCantidad: n,
+        fechaCargue: editFechaCargue,
+        notas: editNotas,
+        uid,
+        email,
+      });
+      if (!r.ok) {
+        setErrorEdicion(r.message ?? "No se pudo guardar.");
+        return;
+      }
+      const rows = await listarMovimientosInventario(pv, 80);
+      const filtrados = rows.filter((x) => x.tipo === "cargue");
+      setHistorialCargue(filtrados);
+      const actualizado = filtrados.find((x) => x.id === movDetalle.id);
+      if (actualizado) {
+        setMovDetalle(actualizado);
+        setEditCantidad(String(actualizado.delta));
+        setEditFechaCargue(actualizado.fechaCargue ?? "");
+        setEditNotas(actualizado.notas);
+      }
+      setMensajeOk("Corrección del cargue guardada.");
+      window.setTimeout(() => setMensajeOk(null), 4000);
+    } finally {
+      setGuardandoEdicion(false);
+    }
+  }, [movDetalle, pv, editCantidad, editFechaCargue, editNotas, uid, email]);
+
   useEffect(() => {
     void cargarCatalogo();
   }, [cargarCatalogo]);
@@ -203,6 +267,15 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
   useEffect(() => {
     void cargarHistorialCargues();
   }, [cargarHistorialCargues]);
+
+  useEffect(() => {
+    if (!movDetalle) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") cerrarDetalleCargue();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [movDetalle, cerrarDetalleCargue]);
 
   useEffect(() => {
     if (!panelSugerenciasAbierto) return;
@@ -337,10 +410,9 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
       setMensajeOk("Revisá la lista: quitá o corregí lo que falló y volvé a registrar.");
       return;
     }
-    setMensajeOk(
-      `Cargue registrado: ${keysOk.length} producto(s). Aparece en Inventarios → Historial.`
-    );
     setAnotaciones("");
+    setCelebracionCargueKey((k) => k + 1);
+    setCelebracionCargueN(keysOk.length);
   };
 
   if (!pv) {
@@ -353,6 +425,13 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
 
   return (
     <div className="mx-auto max-w-5xl space-y-6 pb-8">
+      {celebracionCargueN != null && celebracionCargueN > 0 && (
+        <CargueCelebracionExito
+          key={celebracionCargueKey}
+          cantidadProductos={celebracionCargueN}
+          onCerrar={() => setCelebracionCargueN(null)}
+        />
+      )}
       <div className="text-center">
         <h2 className="text-2xl font-bold text-gray-900">Cargue de inventario</h2>
         <p className="mt-2 text-sm text-gray-600">
@@ -751,18 +830,19 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                 <th className="px-3 py-2">Producto</th>
                 <th className="px-3 py-2 text-right">Cant.</th>
                 <th className="px-3 py-2">Anotaciones</th>
+                <th className="w-14 px-2 py-2 text-center">Detalle</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {cargandoHist ? (
                 <tr>
-                  <td colSpan={5} className="px-3 py-8 text-center text-gray-500">
+                  <td colSpan={6} className="px-3 py-8 text-center text-gray-500">
                     Cargando…
                   </td>
                 </tr>
               ) : historialCargue.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-3 py-8 text-center text-gray-500">
+                  <td colSpan={6} className="px-3 py-8 text-center text-gray-500">
                     Aún no hay cargues registrados.
                   </td>
                 </tr>
@@ -782,6 +862,27 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                     <td className="max-w-[180px] truncate px-3 py-2 text-xs text-gray-600" title={m.notas}>
                       {m.notas || "—"}
                     </td>
+                    <td className="px-2 py-2 text-center align-middle">
+                      <button
+                        type="button"
+                        onClick={() => abrirDetalleCargue(m)}
+                        className="inline-flex rounded-lg p-2 text-primary-600 hover:bg-primary-50 focus:outline-none focus:ring-2 focus:ring-primary-300"
+                        aria-label={`Ver detalle y corregir cargue ${m.insumoSku}`}
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          className="h-5 w-5"
+                          aria-hidden
+                        >
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                          <circle cx="12" cy="12" r="3" />
+                        </svg>
+                      </button>
+                    </td>
                   </tr>
                 ))
               )}
@@ -789,6 +890,154 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
           </table>
         </div>
       </div>
+
+      {movDetalle && (
+        <div
+          className="fixed inset-0 z-[60] flex items-end justify-center p-0 sm:items-center sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="detalle-cargue-titulo"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/45"
+            onClick={cerrarDetalleCargue}
+            aria-label="Cerrar detalle"
+          />
+          <div
+            className="relative z-10 flex max-h-[min(90vh,720px)] w-full max-w-lg flex-col rounded-t-2xl bg-white shadow-2xl sm:max-h-[85vh] sm:rounded-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-gray-100 px-5 py-4">
+              <div className="min-w-0">
+                <h2 id="detalle-cargue-titulo" className="text-lg font-bold text-gray-900">
+                  Detalle del cargue
+                </h2>
+                <p className="mt-1 text-xs text-gray-500">
+                  Corregí cantidad, fecha o notas; el inventario se ajusta y queda registro de cada cambio.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={cerrarDetalleCargue}
+                className="shrink-0 rounded-lg px-2 py-1 text-sm font-semibold text-gray-600 hover:bg-gray-100"
+              >
+                Cerrar
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              <dl className="grid gap-2 text-sm">
+                <div>
+                  <dt className="text-xs font-semibold uppercase text-gray-500">Producto</dt>
+                  <dd className="mt-0.5 font-mono text-xs text-gray-600">{movDetalle.insumoSku}</dd>
+                  <dd className="text-gray-900">{movDetalle.insumoDescripcion}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-semibold uppercase text-gray-500">Registrado en sistema</dt>
+                  <dd className="text-gray-700">{formatMovFecha(movDetalle.createdAt)}</dd>
+                </div>
+              </dl>
+
+              <div className="mt-5 space-y-4 border-t border-gray-100 pt-5">
+                <div>
+                  <label htmlFor="edit-cargue-cantidad" className="block text-sm font-semibold text-gray-800">
+                    Cantidad cargada
+                  </label>
+                  <input
+                    id="edit-cargue-cantidad"
+                    type="text"
+                    inputMode="decimal"
+                    value={editCantidad}
+                    onChange={(e) => setEditCantidad(e.target.value)}
+                    className="mt-2 w-full rounded-xl border-2 border-gray-200 px-3 py-2.5 text-base tabular-nums focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="edit-cargue-fecha" className="block text-sm font-semibold text-gray-800">
+                    Fecha del cargue
+                  </label>
+                  <input
+                    id="edit-cargue-fecha"
+                    type="date"
+                    value={editFechaCargue}
+                    onChange={(e) => setEditFechaCargue(e.target.value)}
+                    className="mt-2 w-full rounded-xl border-2 border-gray-200 px-3 py-2.5 text-base focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">Dejá el campo vacío para quitar la fecha en este movimiento.</p>
+                </div>
+                <div>
+                  <label htmlFor="edit-cargue-notas" className="block text-sm font-semibold text-gray-800">
+                    Anotaciones
+                  </label>
+                  <textarea
+                    id="edit-cargue-notas"
+                    value={editNotas}
+                    onChange={(e) => setEditNotas(e.target.value)}
+                    rows={3}
+                    maxLength={500}
+                    className="mt-2 w-full rounded-xl border-2 border-gray-200 px-3 py-2.5 text-base focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200"
+                  />
+                </div>
+              </div>
+
+              {(() => {
+                const log = [...(movDetalle.edicionesLog ?? [])].sort((a, b) => {
+                  const sa =
+                    a.en && typeof (a.en as { seconds?: number }).seconds === "number"
+                      ? (a.en as { seconds: number }).seconds
+                      : 0;
+                  const sb =
+                    b.en && typeof (b.en as { seconds?: number }).seconds === "number"
+                      ? (b.en as { seconds: number }).seconds
+                      : 0;
+                  return sa - sb;
+                });
+                if (log.length === 0) return null;
+                return (
+                  <div className="mt-6 border-t border-gray-100 pt-5">
+                    <h3 className="text-sm font-bold text-gray-900">Historial de correcciones</h3>
+                    <ul className="mt-3 space-y-3 text-sm">
+                      {log.map((entry, idx) => (
+                        <li key={`${idx}-${entry.texto}`} className="rounded-lg border border-gray-100 bg-gray-50/80 px-3 py-2">
+                          <p className="text-xs text-gray-500">
+                            {formatLogEdicionEn(entry.en)}
+                            {entry.email ? ` · ${entry.email}` : entry.uid ? ` · ${entry.uid}` : ""}
+                          </p>
+                          <p className="mt-1 text-gray-800">{entry.texto}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                );
+              })()}
+
+              {errorEdicion && (
+                <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                  {errorEdicion}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-col gap-2 border-t border-gray-100 px-5 py-4 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={cerrarDetalleCargue}
+                disabled={guardandoEdicion}
+                className="rounded-xl border-2 border-gray-200 py-3 text-sm font-semibold text-gray-800 hover:bg-gray-50 disabled:opacity-50 sm:px-6"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => void guardarEdicionCargue()}
+                disabled={guardandoEdicion}
+                className="rounded-xl bg-primary-600 py-3 text-sm font-bold text-white shadow-sm hover:bg-primary-700 disabled:opacity-50 sm:px-6"
+              >
+                {guardandoEdicion ? "Guardando…" : "Guardar cambios"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

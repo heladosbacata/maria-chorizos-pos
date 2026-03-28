@@ -1,7 +1,10 @@
 import {
+  arrayUnion,
   collection,
   deleteDoc,
+  deleteField,
   doc,
+  getDoc,
   getDocs,
   limit,
   query,
@@ -14,7 +17,12 @@ import {
 import { db } from "@/lib/firebase";
 import { mediodiaColombiaDesdeYmd, ymdColombia } from "@/lib/fecha-colombia";
 import { normPuntoVentaCatalogo } from "@/lib/punto-venta-catalogo-norm";
-import type { InsumoKitItem, InventarioMovimientoDoc, TipoMovimientoInventario } from "@/types/inventario-pos";
+import type {
+  InsumoKitItem,
+  InventarioMovimientoDoc,
+  InventarioMovimientoEdicionLogEntry,
+  TipoMovimientoInventario,
+} from "@/types/inventario-pos";
 
 /** Catálogo maestro de insumos / kit por franquicia (origen de productos del inventario POS). */
 export const CATALOGO_INSUMOS_KIT_COLLECTION = "DB_Franquicia_Insumos_Kit";
@@ -38,6 +46,22 @@ export const POS_INVENTARIO_MOVIMIENTOS_COLLECTION = "posInventarioMovimientos";
 
 /** Mínimos sugeridos editados por el usuario en el POS (por PV + SKU). */
 export const POS_INVENTARIO_MINIMOS_COLLECTION = "posInventarioMinimos";
+
+function parseEdicionesLogMovimiento(raw: unknown): InventarioMovimientoEdicionLogEntry[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: InventarioMovimientoEdicionLogEntry[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    out.push({
+      en: o.en,
+      uid: str(o.uid),
+      email: str(o.email),
+      texto: str(o.texto),
+    });
+  }
+  return out.length ? out : undefined;
+}
 
 function str(v: unknown): string {
   if (v == null) return "";
@@ -434,6 +458,7 @@ export async function listarMovimientosInventario(
         uid: str(x.uid),
         email: x.email != null ? str(x.email) : null,
         createdAt: x.createdAt,
+        edicionesLog: parseEdicionesLogMovimiento(x.edicionesLog),
       });
     });
     return out;
@@ -463,6 +488,7 @@ export async function listarMovimientosInventario(
           uid: str(x.uid),
           email: x.email != null ? str(x.email) : null,
           createdAt: x.createdAt,
+          edicionesLog: parseEdicionesLogMovimiento(x.edicionesLog),
         });
       });
       out.sort((a, b) => {
@@ -513,6 +539,33 @@ function fechaCargueValida(iso: string | undefined): string | undefined {
   const dt = mediodiaColombiaDesdeYmd(s);
   if (Number.isNaN(dt.getTime()) || ymdColombia(dt) !== s) return undefined;
   return s;
+}
+
+/** Resumen legible de diferencias entre el movimiento actual y la corrección pedida. */
+function partesResumenCorreccionCargue(
+  m: Record<string, unknown>,
+  newDelta: number,
+  fechaQuitar: boolean,
+  fechaNorm: string | undefined,
+  notasNueva: string
+): string[] {
+  const oldDelta = Number(m.delta) || 0;
+  const oldFecha = str(m.fechaCargue) || "";
+  const oldNotas = str(m.notas);
+  const partes: string[] = [];
+  if (oldDelta !== newDelta) {
+    partes.push(`Cantidad: +${oldDelta} → +${newDelta}`);
+  }
+  const nuevoFechaKey = fechaQuitar ? "" : fechaNorm ?? "";
+  if ((oldFecha || "") !== nuevoFechaKey) {
+    const oldFechaShow = oldFecha || "(sin fecha)";
+    const newFechaShow = fechaQuitar ? "(sin fecha)" : fechaNorm ?? "";
+    partes.push(`Fecha cargue: ${oldFechaShow} → ${newFechaShow}`);
+  }
+  if (oldNotas !== notasNueva) {
+    partes.push("Notas actualizadas");
+  }
+  return partes;
 }
 
 export async function registrarMovimientoInventario(params: {
@@ -581,5 +634,126 @@ export async function registrarMovimientoInventario(params: {
       return { ok: false, message: "Stock insuficiente para esta salida. Revisa el saldo o usa ajuste a más primero." };
     }
     return { ok: false, message: e instanceof Error ? e.message : "No se pudo registrar el movimiento." };
+  }
+}
+
+/**
+ * Corrige un movimiento de tipo «cargue»: ajusta el saldo como si se deshiciera el delta anterior y se aplicara el nuevo,
+ * y deja trazabilidad en `edicionesLog`.
+ */
+export async function corregirMovimientoCargueInventario(params: {
+  movimientoId: string;
+  puntoVenta: string;
+  nuevaCantidad: number;
+  /** YYYY-MM-DD; cadena vacía borra la fecha en el movimiento. */
+  fechaCargue: string;
+  notas: string;
+  uid: string;
+  email: string | null;
+  permitirNegativo?: boolean;
+}): Promise<{ ok: boolean; message?: string }> {
+  if (!db) return { ok: false, message: "Firestore no está disponible." };
+  const fs = db;
+  const pv = params.puntoVenta.trim();
+  if (!pv) return { ok: false, message: "Falta punto de venta." };
+  const movId = params.movimientoId.trim();
+  if (!movId) return { ok: false, message: "Falta el movimiento." };
+  const newDelta = Math.abs(Number(params.nuevaCantidad));
+  if (!Number.isFinite(newDelta) || newDelta <= 0) {
+    return { ok: false, message: "La cantidad debe ser un número mayor que cero." };
+  }
+
+  const movRef = doc(fs, POS_INVENTARIO_MOVIMIENTOS_COLLECTION, movId);
+  const notasNueva = params.notas.trim().slice(0, 500);
+  const fechaInput = params.fechaCargue.trim();
+  const fechaNorm = fechaInput ? fechaCargueValida(fechaInput) : undefined;
+  if (fechaInput && !fechaNorm) {
+    return { ok: false, message: "La fecha de cargue debe ser válida (AAAA-MM-DD)." };
+  }
+  const fechaQuitar = fechaInput === "";
+
+  try {
+    const preSnap = await getDoc(movRef);
+    if (!preSnap.exists()) return { ok: false, message: "No se encontró el movimiento." };
+    const pre = preSnap.data() as Record<string, unknown>;
+    if (str(pre.puntoVenta) !== pv) return { ok: false, message: "El movimiento no pertenece a este punto de venta." };
+    if (pre.tipo !== "cargue") return { ok: false, message: "Solo se pueden corregir movimientos de cargue." };
+
+    const partesPre = partesResumenCorreccionCargue(pre, newDelta, fechaQuitar, fechaNorm, notasNueva);
+    if (partesPre.length === 0) {
+      return { ok: false, message: "No hay cambios para guardar." };
+    }
+
+    await runTransaction(fs, async (transaction) => {
+      const movSnap = await transaction.get(movRef);
+      if (!movSnap.exists()) throw new Error("MOV_NO_EXISTE");
+      const m = movSnap.data() as Record<string, unknown>;
+      if (str(m.puntoVenta) !== pv) throw new Error("PV_DISTINTO");
+      if (m.tipo !== "cargue") throw new Error("NO_ES_CARGUE");
+
+      const oldDelta = Number(m.delta) || 0;
+      const insumoId = str(m.insumoId);
+      if (!insumoId) throw new Error("SIN_INSUMO");
+
+      const saldoDocId = idSaldoInventario(pv, insumoId);
+      const saldoRef = doc(fs, POS_INVENTARIO_SALDOS_COLLECTION, saldoDocId);
+      const saldoSnap = await transaction.get(saldoRef);
+      const saldoActual = saldoSnap.exists() ? Number(saldoSnap.data()?.cantidad) || 0 : 0;
+      const saldoNuevo = saldoActual - oldDelta + newDelta;
+      if (!params.permitirNegativo && saldoNuevo < 0) throw new Error("STOCK_NEGATIVO");
+
+      const partesTx = partesResumenCorreccionCargue(m, newDelta, fechaQuitar, fechaNorm, notasNueva);
+      const logEntry =
+        partesTx.length > 0
+          ? {
+              en: serverTimestamp(),
+              uid: params.uid,
+              email: params.email ?? "",
+              texto: partesTx.join(" · "),
+            }
+          : null;
+
+      transaction.set(
+        saldoRef,
+        {
+          puntoVenta: pv,
+          insumoId,
+          insumoSku: str(m.insumoSku) || str(saldoSnap.data()?.insumoSku),
+          cantidad: saldoNuevo,
+          updatedAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      const patch: Record<string, unknown> = {
+        delta: newDelta,
+        cantidadAnterior: saldoNuevo - newDelta,
+        cantidadNueva: saldoNuevo,
+        notas: notasNueva,
+      };
+      if (logEntry) {
+        patch.edicionesLog = arrayUnion(logEntry);
+      }
+      if (fechaQuitar) {
+        patch.fechaCargue = deleteField();
+      } else if (fechaNorm) {
+        patch.fechaCargue = fechaNorm;
+      }
+      transaction.update(movRef, patch);
+    });
+    return { ok: true };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "";
+    if (msg === "STOCK_NEGATIVO") {
+      return {
+        ok: false,
+        message: "El ajuste dejaría stock negativo. Revisa la cantidad o habilita corrección con saldo negativo (solo administración).",
+      };
+    }
+    if (msg === "MOV_NO_EXISTE") return { ok: false, message: "No se encontró el movimiento." };
+    if (msg === "PV_DISTINTO") return { ok: false, message: "El movimiento no pertenece a este punto de venta." };
+    if (msg === "NO_ES_CARGUE") return { ok: false, message: "Solo se pueden corregir movimientos de cargue." };
+    if (msg === "SIN_INSUMO") return { ok: false, message: "El movimiento no tiene insumo asociado." };
+    return { ok: false, message: e instanceof Error ? e.message : "No se pudo guardar la corrección." };
   }
 }

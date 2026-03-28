@@ -25,6 +25,16 @@ export type TipoMovimientoInventario =
   | "merma"
   | "consumo_interno";
 
+/** Entrada de la bitácora cuando se corrige un cargue en el historial. */
+export interface InventarioMovimientoEdicionLogEntry {
+  /** Firestore Timestamp u otro; el cliente formatea con seconds. */
+  en?: unknown;
+  uid: string;
+  email: string;
+  /** Resumen legible de qué cambió (ej. «Cantidad: 60 → 55»). */
+  texto: string;
+}
+
 export interface InventarioMovimientoDoc {
   id: string;
   puntoVenta: string;
@@ -42,4 +52,6 @@ export interface InventarioMovimientoDoc {
   uid: string;
   email: string | null;
   createdAt?: unknown;
+  /** Correcciones guardadas desde el historial de cargues (si existen). */
+  edicionesLog?: InventarioMovimientoEdicionLogEntry[];
 }
