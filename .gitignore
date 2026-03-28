@@ -17,6 +17,7 @@ out/
 # Build
 dist/
 build/
+*.tsbuildinfo
 
 # Debug
 npm-debug.log*

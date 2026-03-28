@@ -9,10 +9,12 @@ import {
 } from "@/lib/medios-pago-venta";
 import {
   agregarProductosEnVentas,
+  filtrarVentasVigentes,
   listarVentasPuntoVenta,
   ventasDelTurnoActivos,
 } from "@/lib/pos-ventas-local-storage";
 import { fechaHoraColombia, finDiaColombiaMs, inicioDiaColombiaMs } from "@/lib/fecha-colombia";
+import { descargarInformeTurnoPdf } from "@/lib/turno-informe-pdf";
 import {
   csvAgregadoProductos,
   nombreArchivoInformeTurno,
@@ -106,10 +108,12 @@ export default function TurnosHistorialModule({
 
   const ventasTurnoEnCurso = useMemo(() => {
     if (!uid.trim() || !turnoActivo || !pv) return [];
-    return ventasDelTurnoActivos(
-      listarVentasPuntoVenta(uid, pv),
-      turnoActivo.turnoSesionId,
-      turnoActivo.inicio
+    return filtrarVentasVigentes(
+      ventasDelTurnoActivos(
+        listarVentasPuntoVenta(uid, pv),
+        turnoActivo.turnoSesionId,
+        turnoActivo.inicio
+      )
     );
   }, [uid, turnoActivo, pv, turnoActivo?.totalVentasAcumuladoWms]);
 
@@ -151,6 +155,10 @@ export default function TurnosHistorialModule({
     const csv = csvAgregadoProductos(t.agregadoProductos);
     const nombre = nombreArchivoInformeTurno(t).replace(/\.txt$/i, ".csv");
     triggerDescargaTexto(nombre, "\uFEFF" + csv);
+  };
+
+  const descargarPdf = (t: TurnoCerradoV1) => {
+    descargarInformeTurnoPdf(t);
   };
 
   if (!pv) {
@@ -402,6 +410,14 @@ export default function TurnosHistorialModule({
                       >
                         CSV
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => descargarPdf(t)}
+                        className="rounded-lg border border-gray-800 bg-gray-800 px-2 py-1.5 text-xs font-medium text-white hover:bg-gray-900"
+                        title="Informe completo en PDF"
+                      >
+                        PDF
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -602,6 +618,13 @@ export default function TurnosHistorialModule({
                 className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
               >
                 Descargar informe (TXT)
+              </button>
+              <button
+                type="button"
+                onClick={() => descargarPdf(detalle)}
+                className="rounded-lg bg-gray-800 px-4 py-2 text-sm font-semibold text-white hover:bg-gray-900"
+              >
+                Descargar informe (PDF)
               </button>
               <button
                 type="button"

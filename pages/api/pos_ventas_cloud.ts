@@ -25,6 +25,11 @@ function docToVenta(id: string, data: DocumentData): VentaGuardadaLocal | null {
       ? data.uidRegistro.trim()
       : undefined;
 
+  const anulada = data.anulada === true;
+  const anuladaMotivo = typeof data.anuladaMotivo === "string" ? data.anuladaMotivo.trim() : "";
+  const anuladaEnIso = typeof data.anuladaEnIso === "string" ? data.anuladaEnIso.trim() : "";
+  const anuladaPorUid = typeof data.anuladaPorUid === "string" ? data.anuladaPorUid.trim() : "";
+
   return {
     id,
     fechaYmd,
@@ -38,6 +43,10 @@ function docToVenta(id: string, data: DocumentData): VentaGuardadaLocal | null {
     lineas,
     ...(typeof data.pagoResumen === "string" ? { pagoResumen: data.pagoResumen } : {}),
     ...(data.mediosPago && typeof data.mediosPago === "object" ? { mediosPago: data.mediosPago } : {}),
+    ...(anulada ? { anulada: true as const } : {}),
+    ...(anulada && anuladaMotivo ? { anuladaMotivo } : {}),
+    ...(anulada && anuladaEnIso ? { anuladaEnIso } : {}),
+    ...(anulada && anuladaPorUid ? { anuladaPorUid } : {}),
   };
 }
 

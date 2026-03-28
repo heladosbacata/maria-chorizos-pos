@@ -21,13 +21,13 @@ function isLinea(x: unknown): boolean {
 }
 
 /**
- * Guarda una venta con detalle en Firestore (proyecto del POS en Vercel).
- * Requiere `FIREBASE_SERVICE_ACCOUNT_JSON` en el servidor.
+ * POST: guarda una venta con detalle en Firestore.
+ * PATCH: marca anulación (mismo `ventaLocalId` que documento).
  *
  * El franquiciado y los cajeros del mismo punto de venta consultan con GET `/api/pos_ventas_cloud`.
  */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== "POST") {
+  if (req.method !== "POST" && req.method !== "PATCH") {
     return res.status(405).json({ ok: false, message: "Method not allowed" });
   }
 
@@ -58,6 +58,50 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ok: false,
       message: "Tu perfil no tiene punto de venta. Configúralo antes de sincronizar ventas.",
     });
+  }
+
+  const db = getFirestore(app);
+
+  if (req.method === "PATCH") {
+    const b = req.body as Record<string, unknown>;
+    const ventaLocalId = typeof b?.ventaLocalId === "string" ? b.ventaLocalId.trim() : "";
+    if (ventaLocalId.length < 8 || ventaLocalId.length > 120) {
+      return res.status(400).json({ ok: false, message: "ventaLocalId inválido." });
+    }
+    const motivo = typeof b?.motivo === "string" ? b.motivo.trim().slice(0, 500) : "";
+    if (motivo.length < 3) {
+      return res.status(400).json({ ok: false, message: "motivo demasiado corto." });
+    }
+    const anuladaEnIso = typeof b?.anuladaEnIso === "string" ? b.anuladaEnIso.trim() : "";
+    if (!anuladaEnIso || Number.isNaN(Date.parse(anuladaEnIso))) {
+      return res.status(400).json({ ok: false, message: "anuladaEnIso inválido." });
+    }
+    try {
+      const ref = db.collection(COLLECTION).doc(ventaLocalId);
+      const snap = await ref.get();
+      if (!snap.exists) {
+        return res.status(404).json({ ok: false, message: "Venta no encontrada en nube." });
+      }
+      const dataSnap = snap.data();
+      const pvDoc = typeof dataSnap?.puntoVenta === "string" ? dataSnap.puntoVenta.trim() : "";
+      if (pvDoc !== ctx.puntoVenta) {
+        return res.status(403).json({ ok: false, message: "El ticket no pertenece a tu punto de venta." });
+      }
+      await ref.set(
+        {
+          anulada: true,
+          anuladaMotivo: motivo,
+          anuladaEnIso,
+          anuladaPorUid: ctx.uid,
+          serverAnuladaAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      return res.status(200).json({ ok: true });
+    } catch (e) {
+      console.error("pos_venta_cloud PATCH", e);
+      return res.status(500).json({ ok: false, message: "No se pudo registrar la anulación en nube." });
+    }
   }
 
   const b = req.body as Record<string, unknown>;
@@ -125,7 +169,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const db = getFirestore(app);
     await db.collection(COLLECTION).doc(ventaLocalId).set(doc, { merge: true });
     return res.status(200).json({ ok: true });
   } catch (e) {

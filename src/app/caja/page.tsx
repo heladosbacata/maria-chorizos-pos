@@ -15,6 +15,7 @@ import ModalCobroSinInternet from "@/components/ModalCobroSinInternet";
 import ModalInformeCierreCorreo from "@/components/ModalInformeCierreCorreo";
 import RegistrarPagoPanel, { type DetallePagoConfirmado } from "@/components/RegistrarPagoPanel";
 import TurnosHistorialModule from "@/components/TurnosHistorialModule";
+import UltimosRecibosModule from "@/components/UltimosRecibosModule";
 import SeleccionClienteVenta from "@/components/SeleccionClienteVenta";
 import {
   buildLineIdPos,
@@ -40,7 +41,11 @@ import {
 } from "@/lib/cajeros-turno-firestore";
 import { listarClientesPorPuntoVenta, nombreDisplayCliente } from "@/lib/clientes-pos-firestore";
 import { loadImpresionPrefs } from "@/lib/impresion-pos-storage";
-import { imprimirTicketConQz, imprimirTicketEnNavegador } from "@/lib/pos-geb-print";
+import {
+  imprimirTicketConQz,
+  imprimirTicketEnNavegador,
+  reservarVentanaTicketNavegador,
+} from "@/lib/pos-geb-print";
 import { getCatalogoPOS } from "@/lib/catalogo-pos";
 import {
   lineInputDesdeItemCuentaLike,
@@ -57,6 +62,7 @@ import { registrarVentaPosCloud } from "@/lib/pos-ventas-cloud-client";
 import {
   agregarProductosEnVentas,
   appendVentaLocal,
+  filtrarVentasVigentes,
   listarVentasPuntoVenta,
   ventasDelTurnoActivos,
   ventasDelTurnoParaCierre,
@@ -167,7 +173,14 @@ function etiquetaTipoComprobanteTicket(t: TipoComprobanteVenta): string {
   return t === "documento_interno" ? "Doc. interno" : "Factura electrónica de venta";
 }
 
-type ModuloActivo = "ventas" | "turnos" | "cargueInventario" | "inventarios" | "reportes" | "mas";
+type ModuloActivo =
+  | "ventas"
+  | "ultimosRecibos"
+  | "turnos"
+  | "cargueInventario"
+  | "inventarios"
+  | "reportes"
+  | "mas";
 
 type TipoComprobante = TipoComprobanteVenta;
 
@@ -484,7 +497,9 @@ export default function CajaPage() {
   const ventasTurnoActivales = useMemo(() => {
     if (!user?.uid?.trim() || !user?.puntoVenta?.trim() || !turnoAbierto) return [];
     const pv = user.puntoVenta.trim();
-    return ventasDelTurnoActivos(listarVentasPuntoVenta(user.uid, pv), turnoSesionId, turnoInicio);
+    return filtrarVentasVigentes(
+      ventasDelTurnoActivos(listarVentasPuntoVenta(user.uid, pv), turnoSesionId, turnoInicio)
+    );
   }, [user?.uid, user?.puntoVenta, turnoAbierto, turnoSesionId, turnoInicio, totalVentasEnTurno]);
 
   const mediosTurnoModal = useMemo(() => {
@@ -554,7 +569,8 @@ export default function CajaPage() {
 
     const fin = new Date();
     const ventasPv = listarVentasPuntoVenta(uid, pv);
-    const ventasTurno = ventasDelTurnoParaCierre(ventasPv, turnoSesionId, turnoInicio, fin);
+    const ventasTurnoTodas = ventasDelTurnoParaCierre(ventasPv, turnoSesionId, turnoInicio, fin);
+    const ventasTurno = filtrarVentasVigentes(ventasTurnoTodas);
     const mediosRows: MediosPagoVentaGuardados[] = ventasTurno
       .map((v) => v.mediosPago)
       .filter((m): m is MediosPagoVentaGuardados => Boolean(m));
@@ -604,7 +620,7 @@ export default function CajaPage() {
         productosEliminados: productosEliminadosCount,
         valorProductosEliminados,
       },
-      ventas: ventasTurno.map((v) => ({ ...v })),
+      ventas: ventasTurnoTodas.map((v) => ({ ...v })),
       agregadoProductos,
     };
 
@@ -994,12 +1010,22 @@ export default function CajaPage() {
       itemsCuentaActiva,
       "Borrador — no es comprobante de pago."
     );
-    if (!payload) return;
+    if (!payload) {
+      window.alert("No se pudo generar la pre-cuenta. Revisa que tengas punto de venta asignado.");
+      return;
+    }
     setGuardandoPrecuenta(true);
     try {
       const prefs = loadImpresionPrefs();
+      const reservada = prefs.metodo === "directa" ? reservarVentanaTicketNavegador() : null;
       if (prefs.metodo === "directa") {
-        await imprimirTicketConQz(prefs, payload);
+        try {
+          await imprimirTicketConQz(prefs, payload);
+          if (reservada && !reservada.closed) reservada.close();
+        } catch (qzErr) {
+          console.warn("Pre-cuenta: QZ no disponible, usando ventana del navegador.", qzErr);
+          imprimirTicketEnNavegador(payload, reservada);
+        }
       } else {
         imprimirTicketEnNavegador(payload);
       }
@@ -1220,7 +1246,12 @@ export default function CajaPage() {
           void (async () => {
             try {
               if (prefs.metodo === "directa") {
-                await imprimirTicketConQz(prefs, ticket);
+                try {
+                  await imprimirTicketConQz(prefs, ticket);
+                } catch (qzErr) {
+                  console.warn("Ticket venta: QZ falló, intentando navegador.", qzErr);
+                  imprimirTicketEnNavegador(ticket);
+                }
               } else {
                 imprimirTicketEnNavegador(ticket);
               }
@@ -1365,18 +1396,22 @@ export default function CajaPage() {
   });
 
   const tituloModulo = esContador
-    ? "Reportes"
+    ? moduloActivo === "ultimosRecibos"
+      ? "Últimos recibos"
+      : "Reportes"
     : moduloActivo === "ventas"
       ? "Ventas e ingresos"
-      : moduloActivo === "turnos"
-        ? "Turnos"
-        : moduloActivo === "cargueInventario"
-          ? "Cargue de inventario"
-          : moduloActivo === "inventarios"
-            ? "Inventarios"
-            : moduloActivo === "reportes"
-              ? "Reportes"
-              : "Más";
+      : moduloActivo === "ultimosRecibos"
+        ? "Últimos recibos"
+        : moduloActivo === "turnos"
+          ? "Turnos"
+          : moduloActivo === "cargueInventario"
+            ? "Cargue de inventario"
+            : moduloActivo === "inventarios"
+              ? "Inventarios"
+              : moduloActivo === "reportes"
+                ? "Reportes"
+                : "Más";
 
   return (
     <div className="flex h-dvh max-h-dvh min-h-0 overflow-hidden bg-gray-100/90">
@@ -1459,6 +1494,25 @@ export default function CajaPage() {
               </button>
             </>
           )}
+          <button
+            type="button"
+            onClick={() => setModuloActivo("ultimosRecibos")}
+            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
+              moduloActivo === "ultimosRecibos"
+                ? "bg-brand-yellow/25 text-gray-900 border border-brand-yellow/50"
+                : "text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            <svg className="h-5 w-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"
+              />
+            </svg>
+            Últimos recibos
+          </button>
           <button
             type="button"
             onClick={() => setModuloActivo("reportes")}
@@ -2194,17 +2248,28 @@ export default function CajaPage() {
       <main className="min-h-0 min-w-0 flex-1 overflow-y-auto pt-0">
         <div className="p-4 sm:p-5 lg:p-4">
           {esContador ? (
-            <div className="rounded-xl border border-gray-200 bg-white p-8 shadow-sm">
-              <h2 className="text-lg font-semibold text-gray-900">Reportes · punto de venta</h2>
-              <p className="mt-2 text-sm text-gray-600">
-                Tu cuenta es de <strong className="text-gray-800">contador invitado</strong>. Solo tienes contexto del
-                punto de venta <strong className="text-gray-900">{user.puntoVenta ?? "—"}</strong>. No puedes operar la
-                caja, abrir turnos, enviar ventas al WMS ni abrir la configuración enlazada al WMS desde este acceso.
-              </p>
-              <p className="mt-4 text-sm text-gray-500">
-                Cuando haya reportes o exportaciones para este punto de venta, aparecerán en esta sección.
-              </p>
-            </div>
+            moduloActivo === "ultimosRecibos" ? (
+              <UltimosRecibosModule
+                uid={user.uid}
+                email={user.email}
+                puntoVenta={user.puntoVenta ?? ""}
+                turnoSesionId=""
+                turnoAbierto={false}
+                soloConsultaContador
+              />
+            ) : (
+              <div className="space-y-4">
+                <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
+                  <p>
+                    Cuenta <strong>contador invitado</strong> · punto de venta{" "}
+                    <strong className="text-slate-900">{user.puntoVenta ?? "—"}</strong>. No podés operar caja ni turnos;
+                    usá <strong>Últimos recibos</strong> en el menú para ver recibos de este equipo o{" "}
+                    <strong>Reportes</strong> para el resumen.
+                  </p>
+                </div>
+                <CajeroReportesDashboard uid={user.uid} puntoVenta={user.puntoVenta} />
+              </div>
+            )
           ) : moduloActivo === "ventas" ? (
             <div className="space-y-4">
               {!turnoAbierto && (
@@ -2461,6 +2526,19 @@ export default function CajaPage() {
                 )}
               </div>
             </div>
+          ) : moduloActivo === "ultimosRecibos" ? (
+            <UltimosRecibosModule
+              uid={user.uid}
+              email={user.email}
+              puntoVenta={user.puntoVenta ?? ""}
+              turnoSesionId={turnoSesionId}
+              turnoAbierto={turnoAbierto}
+              onAnulacionExitosa={(v) => {
+                if (turnoAbierto && v.turnoSesionId?.trim() === turnoSesionId.trim()) {
+                  setTotalVentasEnTurno((prev) => Math.max(0, prev - v.total));
+                }
+              }}
+            />
           ) : moduloActivo === "turnos" ? (
             <TurnosHistorialModule
               uid={user.uid}

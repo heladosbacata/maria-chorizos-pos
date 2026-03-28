@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import CajeroFichaFormFields from "@/components/CajeroFichaFormFields";
 import { POS_CAJERO_FICHA_STORAGE_KEY } from "@/constants/perfil-pos";
+import {
+  EVENTO_PERFIL_CAJERO_GUARDADO,
+  nombreCompletoDesdeFicha,
+} from "@/lib/pos-perfil-cajero-display";
 import { loadPosPerfilCajeroFromFirestore, persistPosPerfilCajero } from "@/lib/pos-user-firestore";
 import type { CajeroFichaDatos } from "@/types/pos-perfil-cajero";
 import { emptyCajeroFicha } from "@/types/pos-perfil-cajero";
@@ -79,6 +83,8 @@ export default function PerfilCajeroForm({
     e.target.value = "";
   };
 
+  const nombrePerfilLinea = nombreCompletoDesdeFicha(datos);
+
   const guardar = async () => {
     try {
       localStorage.setItem(POS_CAJERO_FICHA_STORAGE_KEY, JSON.stringify(datos));
@@ -91,14 +97,17 @@ export default function PerfilCajeroForm({
       const r = await persistPosPerfilCajero(uidSesion, datos);
       setGuardando(false);
       if (!r.ok) {
+        window.dispatchEvent(new CustomEvent(EVENTO_PERFIL_CAJERO_GUARDADO));
         window.alert(
           `Guardado local OK. No se pudo sincronizar con la nube: ${r.message ?? "error"}. Revisa reglas de Firestore (escritura en users/{tu uid}).`
         );
         return;
       }
+      window.dispatchEvent(new CustomEvent(EVENTO_PERFIL_CAJERO_GUARDADO));
       window.alert("Perfil guardado en tu usuario (Firestore) y en este dispositivo.");
       return;
     }
+    window.dispatchEvent(new CustomEvent(EVENTO_PERFIL_CAJERO_GUARDADO));
     window.alert("Perfil guardado solo en este dispositivo (sin sesión UID).");
   };
 
@@ -123,6 +132,34 @@ export default function PerfilCajeroForm({
             Volver
           </button>
         </div>
+      </div>
+
+      <div className="mt-3 rounded-xl border border-sky-100 bg-sky-50/90 px-3 py-2.5 text-sm text-sky-950">
+        <p>
+          <span className="font-semibold text-sky-900">Nombre en perfil:</span>{" "}
+          {nombrePerfilLinea ? (
+            <span className="font-medium text-sky-950">{nombrePerfilLinea}</span>
+          ) : (
+            <span className="text-sky-800/90">
+              Aún sin indicar — completá nombres y apellidos abajo; mientras tanto se usa tu correo de sesión para
+              identificarte en caja.
+            </span>
+          )}
+        </p>
+        <p className="mt-2 text-xs leading-relaxed text-sky-900/88">
+          <span className="font-semibold text-sky-900">Dónde se guarda:</span> copia en este navegador
+          {uidSesion ? (
+            <>
+              {" "}
+              y en la nube en el documento{" "}
+              <code className="rounded bg-white/80 px-1 py-0.5 text-[11px] text-sky-950">users/{uidSesion}</code>
+            </>
+          ) : (
+            " (sin UID de sesión no hay copia en Firestore)"
+          )}
+          . Sesión actual:{" "}
+          <span className="font-mono font-medium text-sky-950">{emailSesion?.trim() || "—"}</span>
+        </p>
       </div>
 
       {cargandoPerfil && (

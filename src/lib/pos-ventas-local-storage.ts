@@ -47,6 +47,20 @@ export interface VentaGuardadaLocal {
   pagoResumen?: string;
   /** Desglose estructurado por ticket (si el cobro usó el panel de pagos). */
   mediosPago?: MediosPagoVentaGuardados;
+  /** Venta anulada en caja; no cuenta en totales de reporte ni en cierre. */
+  anulada?: boolean;
+  anuladaMotivo?: string;
+  anuladaEnIso?: string;
+  anuladaPorUid?: string;
+}
+
+/** Ventas que siguen contando como ingreso y stock vendido. */
+export function esVentaVigente(v: VentaGuardadaLocal): boolean {
+  return v.anulada !== true;
+}
+
+export function filtrarVentasVigentes(ventas: VentaGuardadaLocal[]): VentaGuardadaLocal[] {
+  return ventas.filter(esVentaVigente);
 }
 
 function migrarLegacyAUid(uid: string): void {
@@ -115,14 +129,21 @@ export function appendVentaLocal(
   return id;
 }
 
-/** Resumen de informes: combina local + nube (misma `id` gana la copia de nube). */
+/** Resumen de informes: combina local + nube; si en local está anulada, se conserva el estado de anulación. */
 export function mergeVentasReporteNubeLocal(
   local: VentaGuardadaLocal[],
   nube: VentaGuardadaLocal[]
 ): VentaGuardadaLocal[] {
   const map = new Map<string, VentaGuardadaLocal>();
-  for (const v of local) map.set(v.id, v);
   for (const v of nube) map.set(v.id, v);
+  for (const L of local) {
+    const N = map.get(L.id);
+    if (L.anulada) {
+      map.set(L.id, N ? { ...N, ...L, anulada: true } : L);
+    } else {
+      map.set(L.id, N ?? L);
+    }
+  }
   return Array.from(map.values()).sort(
     (a, b) => new Date(b.isoTimestamp).getTime() - new Date(a.isoTimestamp).getTime()
   );
@@ -133,6 +154,46 @@ export function listarVentasPuntoVenta(uid: string, puntoVenta: string): VentaGu
   const pv = puntoVenta.trim();
   if (!u || !pv) return [];
   return leerRaw(u).filter((v) => v.puntoVenta?.trim() === pv);
+}
+
+/**
+ * Marca la venta como anulada en el almacenamiento de este navegador.
+ * @returns la venta actualizada o null si no existe el id.
+ */
+export function marcarVentaAnuladaLocal(
+  uid: string,
+  ventaId: string,
+  opts: { motivo: string; anuladaPorUid: string }
+): VentaGuardadaLocal | null {
+  const u = uid.trim();
+  const id = ventaId.trim();
+  if (typeof window === "undefined" || !u || !id) return null;
+  const motivo = opts.motivo.trim().slice(0, 500);
+  if (!motivo) return null;
+  const prev = leerRaw(u);
+  const idx = prev.findIndex((v) => v.id === id);
+  if (idx < 0) return null;
+  const row = prev[idx];
+  if (row.anulada) return row;
+  const anuladaEnIso = new Date().toISOString();
+  const next: VentaGuardadaLocal = {
+    ...row,
+    anulada: true,
+    anuladaMotivo: motivo,
+    anuladaEnIso,
+    anuladaPorUid: opts.anuladaPorUid.trim() || undefined,
+  };
+  const lista = [...prev];
+  lista[idx] = next;
+  escribir(u, lista);
+  return next;
+}
+
+export function ventaPorIdLocal(uid: string, ventaId: string): VentaGuardadaLocal | null {
+  const u = uid.trim();
+  const id = ventaId.trim();
+  if (!u || !id) return null;
+  return leerRaw(u).find((v) => v.id === id) ?? null;
 }
 
 export function ventasDelTurnoSesion(ventas: VentaGuardadaLocal[], turnoSesionId: string): VentaGuardadaLocal[] {
@@ -200,7 +261,7 @@ function etiquetaLinea(l: LineaVentaGuardada): string {
 }
 
 export function resumenPorDia(ventas: VentaGuardadaLocal[], fechaYmd: string): ResumenDiaCajero {
-  const delDia = ventas.filter((v) => v.fechaYmd === fechaYmd);
+  const delDia = ventas.filter((v) => v.fechaYmd === fechaYmd && esVentaVigente(v));
   const map = new Map<
     string,
     { descripcion: string; sku: string; cantidad: number; subtotal: number; detalleVariante?: string }
@@ -269,6 +330,7 @@ export function agregarProductosEnVentas(ventas: VentaGuardadaLocal[]): Agregado
   >();
 
   for (const v of ventas) {
+    if (!esVentaVigente(v)) continue;
     for (const linea of v.lineas) {
       const clave = `${linea.sku}\x1f${linea.descripcion}\x1f${linea.detalleVariante ?? ""}`;
       const addCant = linea.cantidad;
@@ -305,6 +367,24 @@ export function agregarProductosEnVentas(ventas: VentaGuardadaLocal[]): Agregado
 }
 
 /** Últimos 7 días calendario Colombia terminando en `hasta` (inclusive), orden cronológico. */
+/** Anulaciones con fecha de anulación (calendario Colombia) dentro del rango inclusive. */
+export function listarAnulacionesFiltradasPorFecha(
+  ventas: VentaGuardadaLocal[],
+  desdeYmd: string,
+  hastaYmd: string
+): VentaGuardadaLocal[] {
+  return ventas
+    .filter((v) => {
+      if (!v.anulada || !v.anuladaEnIso?.trim()) return false;
+      const ymd = ymdColombia(new Date(v.anuladaEnIso));
+      return ymd >= desdeYmd && ymd <= hastaYmd;
+    })
+    .sort(
+      (a, b) =>
+        new Date(b.anuladaEnIso ?? "").getTime() - new Date(a.anuladaEnIso ?? "").getTime()
+    );
+}
+
 export function resumenUltimos7Dias(ventas: VentaGuardadaLocal[], hasta: Date): MiniDiaSemana[] {
   const endYmd = ymdColombia(hasta);
   const out: MiniDiaSemana[] = [];

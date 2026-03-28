@@ -37,6 +37,25 @@ export async function registrarVentaPosCloud(
   return { ok: true };
 }
 
+export async function anularVentaPosCloud(
+  idToken: string,
+  body: { ventaLocalId: string; motivo: string; anuladaEnIso: string }
+): Promise<{ ok: boolean; message?: string }> {
+  const r = await fetch("/api/pos_venta_cloud", {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${idToken}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const data = (await r.json().catch(() => ({}))) as { ok?: boolean; message?: string };
+  if (!r.ok || !data.ok) {
+    return { ok: false, message: data.message ?? `Error ${r.status}` };
+  }
+  return { ok: true };
+}
+
 export async function listarVentasPosCloud(idToken: string): Promise<VentaGuardadaLocal[]> {
   const r = await fetch("/api/pos_ventas_cloud", {
     headers: { Authorization: `Bearer ${idToken}` },

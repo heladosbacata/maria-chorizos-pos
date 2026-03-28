@@ -1,10 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { fechaColombia, mediodiaColombiaDesdeYmd } from "@/lib/fecha-colombia";
+import {
+  fechaColombia,
+  fechaHoraColombia,
+  mediodiaColombiaDesdeYmd,
+  ymdColombiaMenosDias,
+} from "@/lib/fecha-colombia";
 import { auth } from "@/lib/firebase";
 import { listarVentasPosCloud } from "@/lib/pos-ventas-cloud-client";
 import {
+  listarAnulacionesFiltradasPorFecha,
   listarVentasPuntoVenta,
   mergeVentasReporteNubeLocal,
   resumenPorDia,
@@ -36,6 +42,8 @@ export default function CajeroReportesDashboard({ uid, puntoVenta }: CajeroRepor
   const pv = (puntoVenta ?? "").trim();
   const hoyYmd = useMemo(() => ymdDesdeFechaLocal(new Date()), []);
   const [diaSeleccionado, setDiaSeleccionado] = useState(hoyYmd);
+  const [anulDesde, setAnulDesde] = useState(() => ymdColombiaMenosDias(hoyYmd, 29));
+  const [anulHasta, setAnulHasta] = useState(hoyYmd);
   const [tick, setTick] = useState(0);
   const [ventasNube, setVentasNube] = useState<VentaGuardadaLocal[] | null>(null);
   const [nubeAviso, setNubeAviso] = useState<string | null>(null);
@@ -95,6 +103,11 @@ export default function CajeroReportesDashboard({ uid, puntoVenta }: CajeroRepor
 
   const maxCant = resumenDia.productos[0]?.cantidad ?? 1;
 
+  const anulacionesLista = useMemo(
+    () => listarAnulacionesFiltradasPorFecha(ventas, anulDesde, anulHasta),
+    [ventas, anulDesde, anulHasta]
+  );
+
   const ayerYmd = useMemo(() => {
     const [y, m, d] = hoyYmd.split("-").map(Number);
     const dt = new Date(y, m - 1, d - 1);
@@ -136,6 +149,7 @@ export default function CajeroReportesDashboard({ uid, puntoVenta }: CajeroRepor
         </p>
         <p className="mt-1 text-xs text-gray-500">
           Solo se guardan ventas hechas con el carrito (cobro con productos). Los montos manuales del día no aparecen aquí.
+          Las ventas <strong className="font-medium text-gray-700">anuladas</strong> no suman en totales ni en productos del día.
         </p>
         {nubeAviso ? (
           <p className="mx-auto mt-3 max-w-xl rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
@@ -289,6 +303,71 @@ export default function CajeroReportesDashboard({ uid, puntoVenta }: CajeroRepor
               );
             })}
           </ul>
+        )}
+      </section>
+
+      <section className="rounded-2xl border-2 border-rose-100 bg-white p-5 shadow-sm md:p-8">
+        <h3 className="text-xl font-bold text-gray-900">Anulaciones</h3>
+        <p className="mt-1 text-sm text-gray-500">
+          Recibos anulados desde caja (motivo obligatorio). Fecha según cuándo se anuló, en horario Colombia.
+        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2 ring-1 ring-gray-200">
+            <span className="text-sm font-medium text-gray-600">Desde</span>
+            <input
+              type="date"
+              value={anulDesde}
+              onChange={(e) => e.target.value && setAnulDesde(e.target.value)}
+              className="rounded-lg border-0 bg-transparent text-sm font-semibold text-gray-900 focus:ring-0"
+            />
+          </label>
+          <label className="flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2 ring-1 ring-gray-200">
+            <span className="text-sm font-medium text-gray-600">Hasta</span>
+            <input
+              type="date"
+              value={anulHasta}
+              onChange={(e) => e.target.value && setAnulHasta(e.target.value)}
+              className="rounded-lg border-0 bg-transparent text-sm font-semibold text-gray-900 focus:ring-0"
+            />
+          </label>
+        </div>
+
+        {anulacionesLista.length === 0 ? (
+          <p className="mt-8 text-center text-sm text-gray-500">No hay anulaciones en este rango de fechas.</p>
+        ) : (
+          <div className="mt-6 overflow-x-auto rounded-xl border border-gray-100">
+            <table className="min-w-full divide-y divide-gray-100 text-sm">
+              <thead className="bg-rose-50/80">
+                <tr>
+                  <th className="px-3 py-2.5 text-left font-bold text-gray-800">Fecha anulación</th>
+                  <th className="px-3 py-2.5 text-left font-bold text-gray-800">Recibo</th>
+                  <th className="px-3 py-2.5 text-right font-bold text-gray-800">Total</th>
+                  <th className="px-3 py-2.5 text-left font-bold text-gray-800">Motivo</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50 bg-white">
+                {anulacionesLista.map((a: VentaGuardadaLocal) => {
+                  const t = a.anuladaEnIso ? new Date(a.anuladaEnIso) : null;
+                  const fechaAnul =
+                    t && !Number.isNaN(t.getTime())
+                      ? fechaHoraColombia(t, { dateStyle: "short", timeStyle: "short" })
+                      : "—";
+                  return (
+                    <tr key={a.id} className="hover:bg-gray-50/80">
+                      <td className="whitespace-nowrap px-3 py-2.5 text-gray-700">{fechaAnul}</td>
+                      <td className="max-w-[140px] truncate px-3 py-2.5 font-mono text-xs text-gray-600" title={a.id}>
+                        {a.id.slice(0, 18)}…
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular-nums text-gray-900">
+                        {formatMoney(a.total)}
+                      </td>
+                      <td className="max-w-md px-3 py-2.5 text-gray-700">{a.anuladaMotivo ?? "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
     </div>

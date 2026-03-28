@@ -42,12 +42,38 @@ export function construirTextoTicketPlano(payload: TicketVentaPayload): string {
   return rows.join("\n");
 }
 
-export function imprimirTicketEnNavegador(payload: TicketVentaPayload): void {
-  const body = construirTextoTicketPlano(payload).replace(/\n/g, "<br/>");
-  const w = window.open("", "_blank", "width=420,height=640");
+function escapeHtmlTextoPlano(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+/**
+ * Abre una ventana en blanco en el mismo evento de usuario (síncrono).
+ * Úsala antes de `await` si luego puede hacerse fallback a impresión en navegador tras fallar QZ;
+ * si no, el navegador bloquea `window.open` después del await.
+ */
+export function reservarVentanaTicketNavegador(): Window | null {
+  try {
+    return window.open("about:blank", "_blank", "width=420,height=640");
+  } catch {
+    return null;
+  }
+}
+
+export function imprimirTicketEnNavegador(payload: TicketVentaPayload, ventanaExistente?: Window | null): void {
+  const plain = construirTextoTicketPlano(payload);
+  const body = escapeHtmlTextoPlano(plain).replace(/\n/g, "<br/>");
+  const w =
+    ventanaExistente != null && !ventanaExistente.closed
+      ? ventanaExistente
+      : window.open("", "_blank", "width=420,height=640");
   if (!w) {
     throw new Error("Permite ventanas emergentes para imprimir desde el navegador.");
   }
+  w.document.open();
   w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Ticket POS GEB</title>
     <style>
       body{font-family:ui-monospace,monospace;font-size:12px;padding:12px;max-width:360px;margin:0 auto;}
