@@ -156,6 +156,76 @@ export function listarVentasPuntoVenta(uid: string, puntoVenta: string): VentaGu
   return leerRaw(u).filter((v) => v.puntoVenta?.trim() === pv);
 }
 
+function esVentaGuardadaValida(v: unknown): v is VentaGuardadaLocal {
+  return Boolean(v && typeof v === "object" && typeof (v as VentaGuardadaLocal).id === "string");
+}
+
+/** Si hay dos copias del mismo ticket, prioriza anulación y luego el registro más reciente. */
+function elegirMejorCopiaVenta(a: VentaGuardadaLocal, b: VentaGuardadaLocal): VentaGuardadaLocal {
+  const aA = a.anulada === true;
+  const bA = b.anulada === true;
+  if (aA && !bA) return a;
+  if (bA && !aA) return b;
+  const ta = new Date(a.isoTimestamp).getTime();
+  const tb = new Date(b.isoTimestamp).getTime();
+  if (!Number.isNaN(ta) && !Number.isNaN(tb) && ta !== tb) {
+    return ta >= tb ? a : b;
+  }
+  return a;
+}
+
+/**
+ * Todas las ventas del punto de venta guardadas en este navegador, **sin importar qué cajero** cerró sesión
+ * (recorre `pos_mc_ventas_cajero_v2:*` y la clave legacy). Para el reporte consolidado del PV en el equipo.
+ */
+export function listarVentasPuntoVentaEnEsteEquipo(puntoVenta: string): VentaGuardadaLocal[] {
+  const pv = puntoVenta.trim();
+  if (!pv || typeof window === "undefined") return [];
+  const porId = new Map<string, VentaGuardadaLocal>();
+
+  const incorporarLista = (lista: unknown) => {
+    if (!Array.isArray(lista)) return;
+    for (const item of lista) {
+      if (!esVentaGuardadaValida(item)) continue;
+      if (item.puntoVenta?.trim() !== pv) continue;
+      const id = item.id.trim();
+      if (!id) continue;
+      const prev = porId.get(id);
+      if (!prev) {
+        porId.set(id, item);
+      } else {
+        porId.set(id, elegirMejorCopiaVenta(prev, item));
+      }
+    }
+  };
+
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key || !key.startsWith("pos_mc_ventas_cajero_v2:")) continue;
+      try {
+        const raw = localStorage.getItem(key);
+        if (!raw) continue;
+        incorporarLista(JSON.parse(raw) as unknown);
+      } catch {
+        /* ignore key */
+      }
+    }
+    try {
+      const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEY);
+      if (legacyRaw) incorporarLista(JSON.parse(legacyRaw) as unknown);
+    } catch {
+      /* ignore */
+    }
+  } catch {
+    return [];
+  }
+
+  return Array.from(porId.values()).sort(
+    (a, b) => new Date(b.isoTimestamp).getTime() - new Date(a.isoTimestamp).getTime()
+  );
+}
+
 /**
  * Marca la venta como anulada en el almacenamiento de este navegador.
  * @returns la venta actualizada o null si no existe el id.

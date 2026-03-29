@@ -11,7 +11,7 @@ import { auth } from "@/lib/firebase";
 import { listarVentasPosCloud } from "@/lib/pos-ventas-cloud-client";
 import {
   listarAnulacionesFiltradasPorFecha,
-  listarVentasPuntoVenta,
+  listarVentasPuntoVentaEnEsteEquipo,
   mergeVentasReporteNubeLocal,
   resumenPorDia,
   resumenUltimos7Dias,
@@ -21,7 +21,7 @@ import {
 } from "@/lib/pos-ventas-local-storage";
 
 export interface CajeroReportesDashboardProps {
-  /** Firebase uid: las ventas locales se filtran por usuario. */
+  /** Firebase uid: sesión y carga de ventas en nube. El reporte agrega por punto de venta (todos los cajeros). */
   uid: string | null;
   puntoVenta: string | null;
 }
@@ -83,10 +83,10 @@ export default function CajeroReportesDashboard({ uid, puntoVenta }: CajeroRepor
 
   const ventas = useMemo(() => {
     void tick;
-    const local = listarVentasPuntoVenta(u, pv);
+    const local = listarVentasPuntoVentaEnEsteEquipo(pv);
     if (ventasNube === null) return local;
     return mergeVentasReporteNubeLocal(local, ventasNube);
-  }, [u, pv, tick, ventasNube]);
+  }, [pv, tick, ventasNube]);
 
   const refrescar = useCallback(() => setTick((t) => t + 1), []);
 
@@ -118,7 +118,7 @@ export default function CajeroReportesDashboard({ uid, puntoVenta }: CajeroRepor
     return (
       <div className="rounded-2xl border border-amber-200 bg-amber-50 p-8 text-center text-amber-950">
         <p className="text-lg font-semibold">No hay sesión</p>
-        <p className="mt-2 text-sm opacity-90">Inicia sesión para ver el resumen de tus ventas en este equipo.</p>
+        <p className="mt-2 text-sm opacity-90">Inicia sesión para ver el resumen de ventas del punto en este equipo.</p>
       </div>
     );
   }
@@ -127,7 +127,7 @@ export default function CajeroReportesDashboard({ uid, puntoVenta }: CajeroRepor
     return (
       <div className="rounded-2xl border border-amber-200 bg-amber-50 p-8 text-center text-amber-950">
         <p className="text-lg font-semibold">Falta el punto de venta</p>
-        <p className="mt-2 text-sm opacity-90">Configura tu perfil para ver tus ventas.</p>
+        <p className="mt-2 text-sm opacity-90">Configura tu perfil para ver las ventas del punto.</p>
       </div>
     );
   }
@@ -141,11 +141,14 @@ export default function CajeroReportesDashboard({ uid, puntoVenta }: CajeroRepor
   return (
     <div className="mx-auto max-w-4xl space-y-8 pb-10">
       <header className="text-center">
-        <h2 className="text-3xl font-extrabold tracking-tight text-gray-900 md:text-4xl">Tu resumen de ventas</h2>
+        <h2 className="text-3xl font-extrabold tracking-tight text-gray-900 md:text-4xl">Resumen de ventas del punto</h2>
         <p className="mt-2 text-base text-gray-600">
-          Ventas con carrito en el punto de venta{" "}
+          Total cobrado con carrito en{" "}
           <span className="font-semibold text-primary-700">{pv}</span>
-          {ventasNube !== null && !nubeAviso ? " (nube + este equipo)" : " (este equipo)"}.
+          , <strong className="font-medium text-gray-800">todos los cajeros</strong>
+          {ventasNube !== null && !nubeAviso
+            ? " (nube + ventas guardadas en este navegador)."
+            : " (solo ventas guardadas en este navegador; sin nube no ves otros equipos)."}
         </p>
         <p className="mt-1 text-xs text-gray-500">
           Solo se guardan ventas hechas con el carrito (cobro con productos). Los montos manuales del día no aparecen aquí.
@@ -157,8 +160,7 @@ export default function CajeroReportesDashboard({ uid, puntoVenta }: CajeroRepor
           </p>
         ) : ventasNube !== null && !nubeAviso ? (
           <p className="mt-2 text-xs text-emerald-800">
-            Incluye ventas sincronizadas en la nube del POS (mismo punto de venta); puedes verlas desde otro equipo con tu
-            sesión.
+            La nube agrupa ventas del mismo punto de venta aunque las haya cobrado otro cajero o equipo (si sincronizaron).
           </p>
         ) : null}
       </header>
@@ -214,25 +216,25 @@ export default function CajeroReportesDashboard({ uid, puntoVenta }: CajeroRepor
           <p className="mt-2 text-4xl font-black tabular-nums tracking-tight md:text-5xl">
             {formatMoney(resumenDia.totalPesos)}
           </p>
-          <p className="mt-2 text-sm text-emerald-100">Suma de tus cobros con carrito</p>
+          <p className="mt-2 text-sm text-emerald-100">Suma de cobros con carrito (todo el PV en vista)</p>
         </div>
         <div className="rounded-2xl bg-gradient-to-br from-sky-500 to-indigo-600 p-6 text-white shadow-lg">
           <p className="text-sm font-medium text-sky-100">Unidades vendidas</p>
           <p className="mt-2 text-4xl font-black tabular-nums md:text-5xl">{resumenDia.unidadesVendidas}</p>
-          <p className="mt-2 text-sm text-sky-100">Piezas que salieron en tickets</p>
+          <p className="mt-2 text-sm text-sky-100">Unidades en todos los tickets del día (PV)</p>
         </div>
         <div className="rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 p-6 text-gray-900 shadow-lg">
           <p className="text-sm font-bold text-gray-800/90">Tickets del día</p>
           <p className="mt-2 text-4xl font-black tabular-nums md:text-5xl">{resumenDia.numTickets}</p>
-          <p className="mt-2 text-sm font-medium text-gray-800/80">Veces que cobraste</p>
+          <p className="mt-2 text-sm font-medium text-gray-800/80">Tickets del día en el punto de venta</p>
         </div>
       </div>
 
       {/* Semana visual */}
       <section className="rounded-2xl border-2 border-gray-100 bg-white p-5 shadow-sm">
-        <h3 className="text-lg font-bold text-gray-900">Tus 7 días en vista</h3>
+        <h3 className="text-lg font-bold text-gray-900">7 días en vista (punto de venta)</h3>
         <p className="text-sm text-gray-500">
-          Cada columna es un día; la de la derecha es el día que estás revisando. Toca una para cambiar.
+          Cada columna es un día; la de la derecha es el día seleccionado. Tocá una para cambiar.
         </p>
         <div className="mt-4 grid grid-cols-7 gap-2">
           {semana.map((dia) => {
@@ -263,7 +265,7 @@ export default function CajeroReportesDashboard({ uid, puntoVenta }: CajeroRepor
       {/* Productos del día */}
       <section className="rounded-2xl border-2 border-gray-100 bg-white p-5 shadow-sm md:p-8">
         <h3 className="text-xl font-bold text-gray-900">Productos más vendidos ese día</h3>
-        <p className="text-sm text-gray-500">Ordenados por cantidad — lo que más moviste en caja</p>
+        <p className="text-sm text-gray-500">Ordenados por cantidad — todo el PV ese día</p>
 
         {resumenDia.productos.length === 0 ? (
           <div className="mt-8 rounded-xl border border-dashed border-gray-200 bg-gray-50/80 py-14 text-center">
