@@ -50,8 +50,13 @@ service cloud.firestore {
     }
 
     match /posInventarioSaldos/{id} {
+      // `resource == null`: el POS hace get en transacción antes de crear el saldo; si el doc no existe,
+      // `resource.data` fallaba y Firestore devolvía permission-denied (p. ej. primer cargue FRAN-KIT-6).
       allow read: if request.auth != null
-        && resource.data.puntoVenta == posInventarioPuntoVentaUsuario();
+        && (
+          resource == null
+          || resource.data.puntoVenta == posInventarioPuntoVentaUsuario()
+        );
       allow create: if request.auth != null
         && request.resource.data.puntoVenta == posInventarioPuntoVentaUsuario()
         && request.resource.data.keys().hasAll(['puntoVenta', 'insumoId', 'cantidad']);
@@ -65,7 +70,10 @@ service cloud.firestore {
     // Mínimos sugeridos editados en pantalla Inventarios (por PV + SKU).
     match /posInventarioMinimos/{id} {
       allow read: if request.auth != null
-        && resource.data.puntoVenta == posInventarioPuntoVentaUsuario();
+        && (
+          resource == null
+          || resource.data.puntoVenta == posInventarioPuntoVentaUsuario()
+        );
       allow create, update: if request.auth != null
         && request.resource.data.puntoVenta == posInventarioPuntoVentaUsuario()
         && request.resource.data.uid == request.auth.uid
@@ -143,7 +151,10 @@ service cloud.firestore {
 
     match /posInventarioMovimientos/{id} {
       allow read: if request.auth != null
-        && resource.data.puntoVenta == posInventarioPuntoVentaUsuario();
+        && (
+          resource == null
+          || resource.data.puntoVenta == posInventarioPuntoVentaUsuario()
+        );
       allow create: if request.auth != null
         && request.resource.data.puntoVenta == posInventarioPuntoVentaUsuario()
         && request.resource.data.uid == request.auth.uid

@@ -95,3 +95,17 @@ npm run check:inventario
 2. Consola del navegador (Firestore)  
 3. Red → `/api/catalogo_insumos_sheet`  
 4. **Código del PV** idéntico en perfil, Sheet y documentos del catálogo  
+
+### `permission-denied` en `posInventarioSaldos` / `BatchGetDocuments`
+
+- **Reglas desactualizadas:** si la lectura exige `resource.data.puntoVenta` pero el documento de saldo **aún no existe**, en Firestore `resource` es `null` y la regla falla. Copiá el bloque actualizado de `firestore.rules.example` (incluye `resource == null || …`) y **publicá** las reglas en Firebase Console → Firestore → Reglas.
+- **`users/{uid}` sin `puntoVenta`:** la función `posInventarioPuntoVentaUsuario()` no puede validar el PV; completá el perfil en Firestore o en la app.
+
+### Consola: `ERR_BLOCKED_BY_CLIENT` en URLs de `firestore.googleapis.com`
+
+Suele ser **bloqueador de anuncios / privacidad** (uBlock, Brave agresivo, etc.). Desactivá el bloqueo para el dominio del POS o añadí una excepción para `firestore.googleapis.com`.
+
+### Impresión: QZ y «Permite ventanas emergentes»
+
+- **QZ Tray** debe estar instalado y en ejecución para impresión directa; si no, el POS intenta el navegador.
+- Para impresión por **ventana emergente**, permití pop-ups para el sitio del POS en el navegador.
