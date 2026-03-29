@@ -7,7 +7,7 @@ import {
   signOut as firebaseSignOut,
   onAuthStateChanged,
 } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { POS_CONTADOR_ROLE } from "@/lib/auth-roles";
 import { persistPuntoVentaUsuario } from "@/lib/pos-user-firestore";
@@ -65,7 +65,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         const userDoc = await getDoc(doc(db, "users", user.uid));
         const data = userDoc.data();
-        const puntoVentaFirestore = data?.puntoVenta as string | undefined;
+        const rawPv = data?.puntoVenta;
+        const puntoTrim =
+          typeof rawPv === "string" && rawPv.trim().length > 0 ? rawPv.trim() : undefined;
+        if (typeof rawPv === "string" && puntoTrim && rawPv !== puntoTrim) {
+          try {
+            await setDoc(doc(db, "users", user.uid), { puntoVenta: puntoTrim }, { merge: true });
+          } catch {
+            /* si las reglas impiden el parche, el API Admin igual usa .trim() al validar */
+          }
+        }
+        const puntoVentaFirestore = puntoTrim;
         const roleFirestore = (data?.role as string | undefined) ?? null;
 
         if (puntoVentaFirestore) {

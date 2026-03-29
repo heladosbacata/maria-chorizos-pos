@@ -14,7 +14,7 @@ import {
   where,
   orderBy,
 } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
 import { mediodiaColombiaDesdeYmd, ymdColombia } from "@/lib/fecha-colombia";
 import { normPuntoVentaCatalogo } from "@/lib/punto-venta-catalogo-norm";
 import type {
@@ -580,11 +580,60 @@ export async function registrarMovimientoInventario(params: {
   /** Fecha del cargue (solo informativa; YYYY-MM-DD). */
   fechaCargue?: string;
 }): Promise<{ ok: boolean; message?: string }> {
-  if (!db) return { ok: false, message: "Firestore no está disponible." };
   const pv = params.puntoVenta.trim();
   if (!pv) return { ok: false, message: "Falta punto de venta." };
   const delta = deltaPorTipo(params.tipo, params.cantidad);
   if (delta === 0) return { ok: false, message: "La cantidad debe ser mayor que cero." };
+
+  if (typeof window !== "undefined" && auth?.currentUser) {
+    try {
+      const token = await auth.currentUser.getIdToken();
+      const res = await fetch("/api/pos_inventario_movimiento", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          puntoVenta: pv,
+          insumo: params.insumo,
+          tipo: params.tipo,
+          cantidad: params.cantidad,
+          notas: params.notas,
+          fechaCargue: params.fechaCargue,
+          permitirNegativo: params.permitirNegativo === true,
+        }),
+      });
+      let data: { ok?: boolean; message?: string } = {};
+      try {
+        data = (await res.json()) as { ok?: boolean; message?: string };
+      } catch {
+        /* cuerpo vacío o no JSON */
+      }
+      if (res.ok && data.ok) {
+        return { ok: true };
+      }
+      const msgLower = String(data.message ?? "").toLowerCase();
+      const sinAdmin =
+        res.status === 503 && (msgLower.includes("firebase_service_account") || msgLower.includes("no está configurada"));
+      if (sinAdmin) {
+        /* continuar con SDK web abajo */
+      } else {
+        return {
+          ok: false,
+          message:
+            data.message ??
+            (res.status === 401
+              ? "Sesión expirada. Volvé a iniciar sesión."
+              : "No se pudo registrar el movimiento."),
+        };
+      }
+    } catch {
+      /* sin red o API caída → intentar cliente */
+    }
+  }
+
+  if (!db) return { ok: false, message: "Firestore no está disponible." };
 
   const saldoDocId = idSaldoInventario(pv, params.insumo.id);
   const saldoRef = doc(db, POS_INVENTARIO_SALDOS_COLLECTION, saldoDocId);

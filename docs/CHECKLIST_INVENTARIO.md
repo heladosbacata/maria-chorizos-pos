@@ -98,8 +98,10 @@ npm run check:inventario
 
 ### `permission-denied` en `posInventarioSaldos` / `BatchGetDocuments`
 
+- **Registro vía servidor (recomendado):** el POS intenta primero `POST /api/pos_inventario_movimiento` con tu ID token; la escritura la hace **Firebase Admin** y **no depende** de las reglas del SDK web. Requiere `FIREBASE_SERVICE_ACCOUNT_JSON` en **Vercel** (o en local en `.env.local`). Si esa variable falta, se vuelve al cliente y pueden volver a aparecer errores de reglas.
 - **Reglas desactualizadas:** si la lectura exige `resource.data.puntoVenta` pero el documento de saldo **aún no existe**, en Firestore `resource` es `null` y la regla falla. Copiá el bloque actualizado de `firestore.rules.example` (incluye `resource == null || …`) y **publicá** las reglas en Firebase Console → Firestore → Reglas.
 - **`users/{uid}` sin `puntoVenta`:** la función `posInventarioPuntoVentaUsuario()` no puede validar el PV; completá el perfil en Firestore o en la app.
+- **Espacios en `puntoVenta`:** el perfil en Firestore con espacios al inicio/fin puede no coincidir con el valor recortado en el POS; la app intenta autocorregir al iniciar sesión; el API Admin compara con `.trim()`.
 
 ### Consola: `ERR_BLOCKED_BY_CLIENT` en URLs de `firestore.googleapis.com`
 
