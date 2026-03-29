@@ -65,6 +65,7 @@ import {
   sumarMediosPagoVentas,
   type MediosPagoVentaGuardados,
 } from "@/lib/medios-pago-venta";
+import { encolarAplicarEnsamblePendiente, procesarColaAplicarEnsamblePendiente } from "@/lib/pos-wms-ensamble-pendiente";
 import { encolarVentaPendienteWms, procesarColaVentasPendientesWms } from "@/lib/pos-ventas-pendientes-wms";
 import { registrarVentaPosCloud } from "@/lib/pos-ventas-cloud-client";
 import {
@@ -87,6 +88,11 @@ import {
   esErrorRedVenta,
   mensajeErrorVentaParaUsuario,
 } from "@/lib/enviar-venta";
+import {
+  aplicarVentaEnsambleWms,
+  lineasWmsEnsambleDesdeItemsCuenta,
+  mensajeAplicarEnsambleParaCajero,
+} from "@/lib/wms-aplicar-venta-ensamble";
 import type { EnvioEstado } from "@/lib/enviar-venta";
 import type { TicketVentaLinea, TicketVentaPayload } from "@/types/impresion-pos";
 import type { ClientePosFirestoreDoc } from "@/types/clientes-pos";
@@ -209,10 +215,13 @@ export default function CajaPage() {
     }
   }, [loading, user, router]);
 
-  /** Reintenta ventas que quedaron fuera del WMS por red (cola local). */
+  /** Reintenta ventas que quedaron fuera del WMS por red (cola local) y descuentos ensamble pendientes. */
   useEffect(() => {
     if (!user || esContadorInvitado(user.role)) return;
-    const run = () => void procesarColaVentasPendientesWms();
+    const run = () => {
+      void procesarColaVentasPendientesWms();
+      void procesarColaAplicarEnsamblePendiente(async () => (await auth?.currentUser?.getIdToken()) ?? null);
+    };
     run();
     const onVis = () => {
       if (document.visibilityState === "visible") run();
@@ -1323,6 +1332,34 @@ export default function CajaPage() {
         });
 
         if (ventaLocalId) {
+          const lineasEnsamble = lineasWmsEnsambleDesdeItemsCuenta(itemsSnap);
+          if (lineasEnsamble.length > 0) {
+            const bodyEnsamble = { lineas: lineasEnsamble, idVenta: ventaLocalId };
+            try {
+              const tokenEns = await auth?.currentUser?.getIdToken();
+              if (tokenEns) {
+                let rEns = await aplicarVentaEnsambleWms(tokenEns, bodyEnsamble);
+                if (!rEns.ok && (rEns.status === 0 || rEns.status >= 500)) {
+                  await new Promise((r) => setTimeout(r, 1500));
+                  const t2 = await auth?.currentUser?.getIdToken();
+                  if (t2) rEns = await aplicarVentaEnsambleWms(t2, bodyEnsamble);
+                }
+                if (!rEns.ok) {
+                  if (rEns.status === 0 || rEns.status >= 500) {
+                    encolarAplicarEnsamblePendiente(bodyEnsamble);
+                  }
+                  window.alert(mensajeAplicarEnsambleParaCajero(rEns));
+                }
+              }
+            } catch (e) {
+              console.warn("aplicar-venta-ensamble", e);
+              encolarAplicarEnsamblePendiente(bodyEnsamble);
+              window.alert(
+                "La venta quedó registrada en caja, pero hubo un error al sincronizar el inventario por ensamble. Se reintentará automáticamente cuando haya conexión."
+              );
+            }
+          }
+
           try {
             const tokenCloud = await auth?.currentUser?.getIdToken();
             if (tokenCloud) {
@@ -1395,6 +1432,7 @@ export default function CajaPage() {
         }
 
         void procesarColaVentasPendientesWms();
+        void procesarColaAplicarEnsamblePendiente(async () => (await auth?.currentUser?.getIdToken()) ?? null);
 
         return true;
       } finally {

@@ -1,8 +1,9 @@
 /**
- * URL pública del WMS para el POS (catálogo, ventas, APIs proxy, chat).
+ * URL pública del WMS para el POS (catálogo, proxy `productos_listar`, `pos_aplicar_venta_ensamble`, ventas, chat).
  *
- * Por defecto se usa el WMS en Vercel: en muchos equipos el servidor local no está encendido.
- * Para apuntar a un WMS en localhost (desarrollo), define además NEXT_PUBLIC_WMS_USE_LOCAL=1.
+ * En despliegue se recomienda definir siempre `NEXT_PUBLIC_WMS_URL` (ej. https://maria-chorizos-wms.vercel.app).
+ * Si falta, se usa el WMS en Vercel por defecto.
+ * Para WMS en localhost: `NEXT_PUBLIC_WMS_URL=http://localhost:3002` y `NEXT_PUBLIC_WMS_USE_LOCAL=1`.
  */
 
 export const WMS_VERCEL_URL = "https://maria-chorizos-wms.vercel.app";
