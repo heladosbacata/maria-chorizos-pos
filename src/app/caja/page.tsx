@@ -11,6 +11,7 @@ import CrearClientePosModal from "@/components/CrearClientePosModal";
 import EdicionItemCuentaModal from "@/components/EdicionItemCuentaModal";
 import InventarioPosModule from "@/components/InventarioPosModule";
 import PerfilUsuarioModal from "@/components/PerfilUsuarioModal";
+import CobroImpresionCelebracionOverlay from "@/components/CobroImpresionCelebracionOverlay";
 import ModalCobroSinInternet from "@/components/ModalCobroSinInternet";
 import ModalInformeCierreCorreo from "@/components/ModalInformeCierreCorreo";
 import RegistrarPagoPanel, { type DetallePagoConfirmado } from "@/components/RegistrarPagoPanel";
@@ -103,6 +104,8 @@ import { emailDesdeFichaFranquiciado, getFranquiciadoPorPuntoVenta } from "@/lib
 
 const LS_INFORME_TURNO_PARA = "pos_mc_informe_turno_para_v1";
 const LS_INFORME_TURNO_CC = "pos_mc_informe_turno_cc_v1";
+/** Tiempo mínimo visible del overlay de impresión al cobrar (experiencia pulida). */
+const MIN_COBRO_IMPRESION_OVERLAY_MS = 2600;
 
 function emailValidoSimple(s: string): boolean {
   const t = s.trim();
@@ -329,6 +332,7 @@ export default function CajaPage() {
   const [clientesPosLista, setClientesPosLista] = useState<ClientePosFirestoreDoc[]>([]);
   const [showModalCrearCliente, setShowModalCrearCliente] = useState(false);
   const [cobrando, setCobrando] = useState(false);
+  const [cobroImpresionOverlayOpen, setCobroImpresionOverlayOpen] = useState(false);
   const [registrarPagoAbierto, setRegistrarPagoAbierto] = useState(false);
   const [modalCobroSinInternetAbierto, setModalCobroSinInternetAbierto] = useState(false);
   const resolverCobroSinInternetRef = useRef<((aceptar: boolean) => void) | null>(null);
@@ -1356,27 +1360,38 @@ export default function CajaPage() {
 
         const prefs = loadImpresionPrefs();
         if (prefs.imprimirAutomaticoAlCobrar) {
-          void (async () => {
-            try {
-              if (prefs.metodo === "directa") {
-                try {
-                  await imprimirTicketConQz(prefs, ticket);
-                } catch (qzErr) {
-                  console.warn("Ticket venta: QZ falló, intentando navegador.", qzErr);
-                  imprimirTicketEnNavegador(ticket);
-                }
-              } else {
+          setCobroImpresionOverlayOpen(true);
+          await new Promise<void>((resolve) => {
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => resolve());
+            });
+          });
+          const overlayInicio = Date.now();
+          try {
+            if (prefs.metodo === "directa") {
+              try {
+                await imprimirTicketConQz(prefs, ticket);
+              } catch (qzErr) {
+                console.warn("Ticket venta: QZ falló, intentando navegador.", qzErr);
                 imprimirTicketEnNavegador(ticket);
               }
-            } catch (printErr) {
-              console.error(printErr);
-              window.alert(
-                printErr instanceof Error
-                  ? `Venta registrada. No se pudo imprimir: ${printErr.message}`
-                  : "Venta registrada. Revisa la impresión."
-              );
+            } else {
+              imprimirTicketEnNavegador(ticket);
             }
-          })();
+          } catch (printErr) {
+            console.error(printErr);
+            window.alert(
+              printErr instanceof Error
+                ? `Venta registrada. No se pudo imprimir: ${printErr.message}`
+                : "Venta registrada. Revisa la impresión."
+            );
+          } finally {
+            const restante = Math.max(0, MIN_COBRO_IMPRESION_OVERLAY_MS - (Date.now() - overlayInicio));
+            if (restante > 0) {
+              await new Promise((r) => setTimeout(r, restante));
+            }
+            setCobroImpresionOverlayOpen(false);
+          }
         }
 
         void procesarColaVentasPendientesWms();
@@ -3233,6 +3248,8 @@ export default function CajaPage() {
         onGuardarEnCaja={() => cerrarModalCobroSinInternet(true)}
         onVolver={() => cerrarModalCobroSinInternet(false)}
       />
+
+      <CobroImpresionCelebracionOverlay open={cobroImpresionOverlayOpen} />
 
     </div>
   );
