@@ -18,9 +18,22 @@ export function posCajeroFotoStorageKey(uid: string | null | undefined): string 
   return u ? `${POS_CAJERO_FOTO_STORAGE_KEY}:${u}` : POS_CAJERO_FOTO_STORAGE_KEY;
 }
 
+function readCajeroFotoDataUrlPorUid(uid: string | null | undefined): string | null {
+  const k = posCajeroFotoStorageKey(uid);
+  let v = localStorage.getItem(k);
+  if (!v && uid?.trim()) {
+    const legacy = localStorage.getItem(POS_CAJERO_FOTO_STORAGE_KEY);
+    if (legacy) {
+      localStorage.setItem(k, legacy);
+      v = legacy;
+    }
+  }
+  return v;
+}
+
 /**
- * Foto en localStorage. Si `cajeroTurnoFirestoreId` está definido, es la del cajero del catálogo en turno;
- * si no, la de la sesión Firebase (`uid`).
+ * Foto en localStorage. Si `cajeroTurnoFirestoreId` está definido, primero la clave del cajero en turno;
+ * si no hay foto ahí, usa la de la sesión (`uid`) para no perder imágenes guardadas antes de abrir turno con catálogo.
  */
 export function readCajeroFotoDataUrl(
   uid: string | null | undefined,
@@ -30,18 +43,11 @@ export function readCajeroFotoDataUrl(
   try {
     const cid = cajeroTurnoFirestoreId?.trim();
     if (cid) {
-      return localStorage.getItem(`${CAJERO_TURNO_FOTO_PREFIX}${cid}`);
+      const porTurno = localStorage.getItem(`${CAJERO_TURNO_FOTO_PREFIX}${cid}`);
+      if (porTurno) return porTurno;
+      return readCajeroFotoDataUrlPorUid(uid);
     }
-    const k = posCajeroFotoStorageKey(uid);
-    let v = localStorage.getItem(k);
-    if (!v && uid) {
-      const legacy = localStorage.getItem(POS_CAJERO_FOTO_STORAGE_KEY);
-      if (legacy) {
-        localStorage.setItem(k, legacy);
-        v = legacy;
-      }
-    }
-    return v;
+    return readCajeroFotoDataUrlPorUid(uid);
   } catch {
     return null;
   }
