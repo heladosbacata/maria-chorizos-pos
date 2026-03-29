@@ -206,12 +206,6 @@ export default function CajaPage() {
     }
   }, [loading, user, router]);
 
-  /** Hidratar foto desde localStorage en el cliente (el SSR no tiene storage). */
-  useEffect(() => {
-    if (!user) return;
-    setFotoPerfil(readCajeroFotoDataUrl(user.uid));
-  }, [user?.uid]);
-
   /** Reintenta ventas que quedaron fuera del WMS por red (cola local). */
   useEffect(() => {
     if (!user || esContadorInvitado(user.role)) return;
@@ -227,31 +221,6 @@ export default function CajaPage() {
       window.clearInterval(t);
     };
   }, [user]);
-
-  const handleFotoPerfilChange = useCallback((dataUrl: string | null) => {
-    const uid = user?.uid;
-    if (!dataUrl) {
-      setFotoPerfil(null);
-      if (!writeCajeroFotoDataUrl(uid, null)) {
-        window.alert(
-          "No se pudo actualizar la foto en este navegador. Revisá que no esté bloqueado el almacenamiento del sitio."
-        );
-      }
-      return;
-    }
-    void (async () => {
-      const compressed = await comprimirDataUrlFotoCajero(dataUrl);
-      const ok = writeCajeroFotoDataUrl(uid, compressed);
-      if (!ok) {
-        window.alert(
-          "No se pudo guardar la foto en este navegador (suele ser por imagen muy grande o cuota llena). " +
-            "Probá con otra foto o liberá espacio; la imagen se comprime al guardar."
-        );
-        return;
-      }
-      setFotoPerfil(compressed);
-    })();
-  }, [user?.uid]);
 
   const [moduloActivo, setModuloActivo] = useState<ModuloActivo>("ventas");
   const [precuentas, setPrecuentas] = useState<PrecuentaTab[]>([
@@ -297,6 +266,41 @@ export default function CajaPage() {
     }
     return null;
   }, [turnoAbierto, cajeroTurnoActivo?.id]);
+
+  /** Misma clave que el modal: `uid` en sesión / cajero del catálogo cuando el turno está abierto. */
+  useEffect(() => {
+    if (!user) return;
+    setFotoPerfil(readCajeroFotoDataUrl(user.uid, cajeroFirestoreIdPerfil));
+  }, [user?.uid, cajeroFirestoreIdPerfil]);
+
+  const handleFotoPerfilChange = useCallback(
+    (dataUrl: string | null) => {
+      const uid = user?.uid;
+      if (!dataUrl) {
+        setFotoPerfil(null);
+        if (!writeCajeroFotoDataUrl(uid, null, cajeroFirestoreIdPerfil)) {
+          window.alert(
+            "No se pudo actualizar la foto en este navegador. Revisá que no esté bloqueado el almacenamiento del sitio."
+          );
+        }
+        return;
+      }
+      void (async () => {
+        const compressed = await comprimirDataUrlFotoCajero(dataUrl);
+        const ok = writeCajeroFotoDataUrl(uid, compressed, cajeroFirestoreIdPerfil);
+        if (!ok) {
+          window.alert(
+            "No se pudo guardar la foto en este navegador (suele ser por imagen muy grande o cuota llena). " +
+              "Probá con otra foto o liberá espacio; la imagen se comprime al guardar."
+          );
+          return;
+        }
+        setFotoPerfil(compressed);
+      })();
+    },
+    [user?.uid, cajeroFirestoreIdPerfil]
+  );
+
   const [totalVentasEnTurno, setTotalVentasEnTurno] = useState(0);
   const [totalIngresoEfectivo, setTotalIngresoEfectivo] = useState(0);
   const [totalRetiroEfectivo, setTotalRetiroEfectivo] = useState(0);
@@ -352,6 +356,7 @@ export default function CajaPage() {
       const uid = user?.uid;
       if (!dataUrl) {
         setFotoPerfilModal(null);
+        setFotoPerfil(null);
         if (!writeCajeroFotoDataUrl(uid, null, cajeroFirestoreIdPerfil)) {
           window.alert(
             "No se pudo actualizar la foto en este navegador. Revisá que no esté bloqueado el almacenamiento del sitio."
@@ -370,6 +375,7 @@ export default function CajaPage() {
           return;
         }
         setFotoPerfilModal(compressed);
+        setFotoPerfil(compressed);
       })();
     },
     [user?.uid, cajeroFirestoreIdPerfil]
@@ -1466,6 +1472,24 @@ export default function CajaPage() {
         .toUpperCase() || "CA"
     : "CA";
 
+  /** Iniciales para el avatar del cajero en turno (evita mostrar las del correo de sesión, p. ej. "CC"). */
+  const inicialesCajeroTurnoNombre = cajeroTurnoActivo?.nombreDisplay
+    ? (() => {
+        const t = cajeroTurnoActivo.nombreDisplay.trim();
+        if (!t) return inicialesCajero;
+        const parts = t.split(/\s+/).filter(Boolean);
+        if (parts.length >= 2) {
+          return `${parts[0].charAt(0)}${parts[parts.length - 1].charAt(0)}`.toUpperCase();
+        }
+        return (
+          t
+            .replace(/[^a-zA-ZáéíóúÁÉÍÓÚñÑ]/g, "")
+            .slice(0, 2)
+            .toUpperCase() || inicialesCajero
+        );
+      })()
+    : inicialesCajero;
+
   const handleCambiarFoto = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file?.type.startsWith("image/")) return;
@@ -1723,60 +1747,87 @@ export default function CajaPage() {
                     className="pointer-events-none absolute -right-6 -top-8 h-24 w-24 rounded-full bg-gradient-to-br from-amber-200/30 to-transparent blur-2xl"
                     aria-hidden
                   />
-                  <div className="relative flex items-center gap-3">
-                    <div className="relative flex h-11 w-11 shrink-0 items-center justify-center">
-                      <span
-                        className="absolute inset-0 rounded-full bg-gradient-to-br from-amber-300 via-yellow-200 to-amber-600 shadow-[inset_0_2px_4px_rgba(255,255,255,0.45),0_2px_8px_rgba(180,130,40,0.35)]"
-                        aria-hidden
-                      />
-                      <span
-                        className="absolute inset-[2.5px] rounded-full bg-gradient-to-b from-white/95 to-amber-50/90 shadow-inner"
-                        aria-hidden
-                      />
-                      <svg
-                        className="relative z-[1] h-[22px] w-[22px] drop-shadow-[0_1px_1px_rgba(0,0,0,0.12)]"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        xmlns="http://www.w3.org/2000/svg"
-                        aria-hidden
-                      >
-                        <defs>
-                          <linearGradient id="cajeroTurnoIconGold" x1="4" y1="2" x2="20" y2="22" gradientUnits="userSpaceOnUse">
-                            <stop stopColor="#c9a227" />
-                            <stop offset="0.5" stopColor="#f0d78c" />
-                            <stop offset="1" stopColor="#8b6914" />
-                          </linearGradient>
-                        </defs>
-                        <path
-                          d="M12 2.2L4.5 5.4v5.35c0 4.05 2.6 7.85 7.5 10.05 4.9-2.2 7.5-6 7.5-10.05V5.4L12 2.2z"
-                          fill="url(#cajeroTurnoIconGold)"
-                          stroke="#6b4f0e"
-                          strokeWidth="0.55"
-                          strokeLinejoin="round"
+                  <div className="relative flex flex-col gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="relative flex h-11 w-11 shrink-0 items-center justify-center">
+                        <span
+                          className="absolute inset-0 rounded-full bg-gradient-to-br from-amber-300 via-yellow-200 to-amber-600 shadow-[inset_0_2px_4px_rgba(255,255,255,0.45),0_2px_8px_rgba(180,130,40,0.35)]"
+                          aria-hidden
                         />
-                        <path
-                          d="M9.15 12.05 10.85 13.7 15.1 8.95"
-                          stroke="#fffdf5"
-                          strokeWidth="1.25"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
+                        <span
+                          className="absolute inset-[2.5px] rounded-full bg-gradient-to-b from-white/95 to-amber-50/90 shadow-inner"
+                          aria-hidden
                         />
-                        <path
-                          d="M9.25 12 10.9 13.65 15 9.05"
-                          stroke="#5c450a"
-                          strokeWidth="0.8"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
+                        <svg
+                          className="relative z-[1] h-[22px] w-[22px] drop-shadow-[0_1px_1px_rgba(0,0,0,0.12)]"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          xmlns="http://www.w3.org/2000/svg"
+                          aria-hidden
+                        >
+                          <defs>
+                            <linearGradient id="cajeroTurnoIconGold" x1="4" y1="2" x2="20" y2="22" gradientUnits="userSpaceOnUse">
+                              <stop stopColor="#c9a227" />
+                              <stop offset="0.5" stopColor="#f0d78c" />
+                              <stop offset="1" stopColor="#8b6914" />
+                            </linearGradient>
+                          </defs>
+                          <path
+                            d="M12 2.2L4.5 5.4v5.35c0 4.05 2.6 7.85 7.5 10.05 4.9-2.2 7.5-6 7.5-10.05V5.4L12 2.2z"
+                            fill="url(#cajeroTurnoIconGold)"
+                            stroke="#6b4f0e"
+                            strokeWidth="0.55"
+                            strokeLinejoin="round"
+                          />
+                          <path
+                            d="M9.15 12.05 10.85 13.7 15.1 8.95"
+                            stroke="#fffdf5"
+                            strokeWidth="1.25"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                          <path
+                            d="M9.25 12 10.9 13.65 15 9.05"
+                            stroke="#5c450a"
+                            strokeWidth="0.8"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </div>
+                      <div className="min-w-0 flex-1 text-left">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-900/55">
+                          Cajero en turno
+                        </p>
+                        <p className="truncate font-semibold leading-snug tracking-tight text-gray-900">
+                          {cajeroTurnoActivo.nombreDisplay}
+                        </p>
+                      </div>
                     </div>
-                    <div className="min-w-0 flex-1 text-left">
-                      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-900/55">
-                        Cajero en turno
-                      </p>
-                      <p className="truncate font-semibold leading-snug tracking-tight text-gray-900">
-                        {cajeroTurnoActivo.nombreDisplay}
-                      </p>
+                    <div className="flex flex-col items-center gap-1 border-t border-amber-200/50 pt-3">
+                      <button
+                        type="button"
+                        onClick={() => inputFotoRef.current?.click()}
+                        className="group relative flex h-[4.5rem] w-[4.5rem] flex-shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-amber-300/80 bg-white shadow-md ring-2 ring-amber-100 transition-all hover:border-brand-yellow hover:ring-brand-yellow/40 focus:outline-none focus:ring-2 focus:ring-brand-yellow"
+                        title="Cambiar foto del cajero en turno"
+                      >
+                        {fotoPerfil ? (
+                          <img
+                            src={fotoPerfil}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          <span className="text-xl font-bold text-amber-900/80">{inicialesCajeroTurnoNombre}</span>
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => inputFotoRef.current?.click()}
+                        className="text-xs font-medium text-amber-900/70 hover:text-amber-950 hover:underline"
+                      >
+                        Cambiar foto
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -1790,7 +1841,7 @@ export default function CajaPage() {
               )}
             </div>
           )}
-          {/* Perfil del cajero */}
+          {/* Perfil del cajero (avatar duplicado solo si no hay turno con cajero: la foto va en la tarjeta de turno) */}
           <div className="mb-3 flex flex-col items-center gap-2">
             <input
               ref={inputFotoRef}
@@ -1800,32 +1851,34 @@ export default function CajaPage() {
               onChange={handleCambiarFoto}
               aria-label="Cambiar foto de perfil"
             />
-            <button
-              type="button"
-              onClick={abrirModalPerfil}
-              className="group relative flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-gray-200 bg-gray-100 ring-2 ring-white shadow-md transition-all hover:border-brand-yellow hover:ring-brand-yellow/30 focus:outline-none focus:ring-2 focus:ring-brand-yellow"
-              title="Perfil del usuario"
-            >
-              {fotoPerfil ? (
-                <img
-                  src={fotoPerfil}
-                  alt="Foto del cajero"
-                  className="h-full w-full object-cover"
-                />
-              ) : (
-                <span className="text-lg font-bold text-primary-600">
-                  {inicialesCajero}
-                </span>
-              )}
-            </button>
-            {!esContador && (
-              <button
-                type="button"
-                onClick={() => inputFotoRef.current?.click()}
-                className="text-xs font-medium text-gray-700 hover:text-gray-900 hover:underline"
-              >
-                Cambiar foto
-              </button>
+            {!esContador && !(turnoAbierto && cajeroTurnoActivo) && (
+              <>
+                <button
+                  type="button"
+                  onClick={abrirModalPerfil}
+                  className="group relative flex h-14 w-14 flex-shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-gray-200 bg-gray-100 ring-2 ring-white shadow-md transition-all hover:border-brand-yellow hover:ring-brand-yellow/30 focus:outline-none focus:ring-2 focus:ring-brand-yellow"
+                  title="Perfil del usuario"
+                >
+                  {fotoPerfil ? (
+                    <img
+                      src={fotoPerfil}
+                      alt="Foto del cajero"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-lg font-bold text-primary-600">
+                      {inicialesCajero}
+                    </span>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => inputFotoRef.current?.click()}
+                  className="text-xs font-medium text-gray-700 hover:text-gray-900 hover:underline"
+                >
+                  Cambiar foto
+                </button>
+              </>
             )}
             <button
               type="button"
