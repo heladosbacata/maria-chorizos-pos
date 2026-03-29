@@ -21,6 +21,7 @@ import {
 } from "@/lib/inventario-pos-firestore";
 import {
   leerUltimoEnsambleSesion,
+  skuBaseDesdeSkuProductoEnsamble,
   type UltimoEnsambleSesionDiag,
 } from "@/lib/wms-aplicar-venta-ensamble";
 
@@ -358,6 +359,39 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                     {diagEnsamble.aplicadosCount != null ? ` · aplicados: ${diagEnsamble.aplicadosCount}` : ""}
                   </dd>
                 </div>
+                {diagEnsamble.ok && diagEnsamble.aplicadosCount == null && (
+                  <div className="rounded border border-amber-300 bg-amber-50 px-2 py-1.5 text-amber-950">
+                    El WMS respondió bien pero <strong className="font-semibold">no envió el campo «aplicados»</strong>. No
+                    podemos confirmar desde el POS si hubo descuento; revisá saldos,{" "}
+                    <code className="rounded bg-white px-0.5">message</code> /{" "}
+                    <code className="rounded bg-white px-0.5">detalle</code> y los logs del WMS.
+                  </div>
+                )}
+                {diagEnsamble.ok && diagEnsamble.aplicadosCount === 0 && (
+                  <div className="rounded border border-red-200 bg-red-50 px-2 py-1.5 text-red-950">
+                    <strong className="font-semibold">aplicados: 0</strong> — no hubo líneas de composición aplicadas. Lo
+                    habitual es que en <strong className="font-medium">DB_POS_Composición</strong> no exista fila para el
+                    mismo SKU/variante que envió el POS (ver abajo).
+                  </div>
+                )}
+                {diagEnsamble.firebaseProjectId && (
+                  <div>
+                    <dt className="inline text-slate-500">Firebase projectId (POS): </dt>
+                    <dd className="inline break-all">{diagEnsamble.firebaseProjectId}</dd>
+                  </div>
+                )}
+                {diagEnsamble.nextPublicWmsUrl && (
+                  <div>
+                    <dt className="inline text-slate-500">NEXT_PUBLIC_WMS_URL (cliente): </dt>
+                    <dd className="inline break-all">{diagEnsamble.nextPublicWmsUrl}</dd>
+                  </div>
+                )}
+                {diagEnsamble.wmsUpstreamUrl && (
+                  <div>
+                    <dt className="inline text-slate-500">URL usada por el proxy (servidor POS): </dt>
+                    <dd className="inline break-all text-primary-800">{diagEnsamble.wmsUpstreamUrl}</dd>
+                  </div>
+                )}
                 {diagEnsamble.movimientoId && (
                   <div>
                     <dt className="inline text-slate-500">movimientoId: </dt>
@@ -379,11 +413,17 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                 <div>
                   <dt className="text-slate-500">SKUs enviados (producto × cantidad):</dt>
                   <dd className="mt-1 space-y-0.5">
-                    {diagEnsamble.lineasEnviadas.map((l, i) => (
-                      <div key={i} className="break-all">
-                        ×{l.cantidad} {l.skuProducto}
-                      </div>
-                    ))}
+                    {diagEnsamble.lineasEnviadas.map((l, i) => {
+                      const base = skuBaseDesdeSkuProductoEnsamble(l.skuProducto);
+                      return (
+                        <div key={i} className="break-all">
+                          ×{l.cantidad} <span className="font-semibold">{l.skuProducto}</span>
+                          {base !== l.skuProducto && (
+                            <span className="block pl-2 text-slate-600">→ SKU base para buscar en composición: {base}</span>
+                          )}
+                        </div>
+                      );
+                    })}
                   </dd>
                 </div>
                 {diagEnsamble.detalleResumen && (
@@ -399,6 +439,23 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                 Cruzá estos <code className="rounded bg-white px-0.5">skuProducto</code> con la hoja{" "}
                 <strong className="font-medium">DB_POS_Composición</strong> en el WMS (misma variante / id compuesto).
               </p>
+              <ul className="mt-2 list-inside list-disc text-[11px] text-slate-600">
+                <li>
+                  La tabla de stock lista códigos tipo <strong className="font-medium">FRAN-KIT-*</strong> (insumos). Lo que
+                  vendés en caja es el <strong className="font-medium">SKU del catálogo POS</strong> (WMS); la composición
+                  debe decir qué FRAN-KIT bajar por cada venta.
+                </li>
+                <li>
+                  Si en <code className="rounded bg-white px-0.5">.env.local</code> tenés{" "}
+                  <code className="rounded bg-white px-0.5">NEXT_PUBLIC_WMS_URL=http://localhost:…</code> sin{" "}
+                  <code className="rounded bg-white px-0.5">NEXT_PUBLIC_WMS_USE_LOCAL=1</code>, el servidor del POS puede estar
+                  llamando al <strong className="font-medium">WMS de Vercel</strong>, no al de tu PC.
+                </li>
+                <li>
+                  El <code className="rounded bg-white px-0.5">projectId</code> de Firebase del POS debe ser el mismo que usa
+                  el WMS al escribir <code className="rounded bg-white px-0.5">posInventarioSaldos</code>.
+                </li>
+              </ul>
             </details>
           )}
         </div>

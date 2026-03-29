@@ -1365,6 +1365,11 @@ export default function CajaPage() {
                   const aplicados = contarAplicadosEnsambleReportados(rEns);
                   if (aplicados === 0) {
                     window.alert(mensajeEnsambleOkSinDescuentoInventario(rEns));
+                  } else if (aplicados === null) {
+                    console.warn(
+                      "[POS] Ensamble WMS: respuesta OK pero sin campo «aplicados». Revisá Inventarios → Diagnóstico último cobro, Firebase projectId y que DB_POS_Composición use el mismo SKU/variante que el POS.",
+                      rEns
+                    );
                   }
                 }
               }

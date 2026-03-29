@@ -23,6 +23,8 @@ export interface WmsAplicarVentaEnsambleResult {
   movimientoId?: string;
   message?: string;
   error?: string;
+  /** URL del WMS usada por el proxy (header o cuerpo en error de red). */
+  wmsUpstreamUrl?: string;
 }
 
 function cantidadEnteraPositiva(c: number): number {
@@ -34,6 +36,13 @@ function cantidadEnteraPositiva(c: number): number {
  * Construye líneas alineadas con el flujo María Chorizos: `skuProducto` puede ser compuesto
  * `SKU|chorizo:picante|arepa:arepa_queso` (mismo criterio que `lineId` en caja).
  */
+/** Parte antes del primer `|` (SKU catálogo POS); el resto son variantes María Chorizos. */
+export function skuBaseDesdeSkuProductoEnsamble(skuProducto: string): string {
+  const s = skuProducto.trim();
+  const i = s.indexOf("|");
+  return i === -1 ? s : s.slice(0, i).trim();
+}
+
 export function lineasWmsEnsambleDesdeItemsCuenta(items: ItemCuenta[]): WmsAplicarVentaEnsambleLinea[] {
   const out: WmsAplicarVentaEnsambleLinea[] = [];
   for (const it of items) {
@@ -92,6 +101,12 @@ export interface UltimoEnsambleSesionDiag {
   error?: string;
   movimientoId?: string;
   detalleResumen?: string;
+  /** Mismo proyecto que usa el cliente Firestore del POS (debe coincidir con el WMS). */
+  firebaseProjectId?: string;
+  /** URL a la que el servidor del POS reenvió el POST (si se expuso). */
+  wmsUpstreamUrl?: string;
+  /** NEXT_PUBLIC_WMS_URL en el build del cliente (puede no coincidir con el servidor en algunos despliegues). */
+  nextPublicWmsUrl?: string;
 }
 
 function detalleToResumen(d: unknown): string | undefined {
@@ -110,6 +125,8 @@ export function guardarUltimoEnsambleEnSesion(
   result: WmsAplicarVentaEnsambleResult
 ): void {
   if (typeof window === "undefined") return;
+  const fp = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID?.trim();
+  const wmsPublic = process.env.NEXT_PUBLIC_WMS_URL?.trim();
   const diag: UltimoEnsambleSesionDiag = {
     atIso: new Date().toISOString(),
     idVenta: body.idVenta,
@@ -121,6 +138,9 @@ export function guardarUltimoEnsambleEnSesion(
     error: result.error,
     movimientoId: result.movimientoId,
     detalleResumen: detalleToResumen(result.detalle),
+    ...(fp ? { firebaseProjectId: fp } : {}),
+    ...(result.wmsUpstreamUrl ? { wmsUpstreamUrl: result.wmsUpstreamUrl } : {}),
+    ...(wmsPublic ? { nextPublicWmsUrl: wmsPublic } : {}),
   };
   try {
     sessionStorage.setItem(ULTIMO_ENSAMBLE_SESSION_KEY, JSON.stringify(diag));
@@ -187,6 +207,9 @@ export async function aplicarVentaEnsambleWms(
 
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     const ok = res.ok && data?.ok !== false;
+    const upstreamHeader = res.headers.get("x-pos-wms-upstream")?.trim();
+    const upstreamBody =
+      typeof data?._posUpstreamTried === "string" ? (data._posUpstreamTried as string) : undefined;
 
     return {
       ok,
@@ -196,6 +219,7 @@ export async function aplicarVentaEnsambleWms(
       movimientoId: typeof data?.movimientoId === "string" ? data.movimientoId : undefined,
       message: typeof data?.message === "string" ? data.message : undefined,
       error: typeof data?.error === "string" ? data.error : undefined,
+      wmsUpstreamUrl: upstreamHeader || upstreamBody,
     };
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);

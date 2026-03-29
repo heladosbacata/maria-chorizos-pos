@@ -29,18 +29,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
+    console.info("[pos_aplicar_venta_ensamble] POST →", url);
     const response = await fetch(url, {
       method: "POST",
       headers,
       body: bodyStr,
     });
     const data = await response.json().catch(() => ({}));
+    /** En dev el cliente puede leer el encabezado y guardarlo en el diagnóstico de Inventarios. */
+    if (process.env.NODE_ENV === "development" || process.env.POS_EXPOSE_WMS_UPSTREAM === "1") {
+      res.setHeader("X-Pos-Wms-Upstream", url);
+    }
     return sendJson(res, response.status, data);
   } catch (e) {
     const message = e instanceof Error ? e.message : "Error de red";
     return sendJson(res, 200, {
       ok: false,
       error: message,
+      _posUpstreamTried: url,
     });
   }
 }
