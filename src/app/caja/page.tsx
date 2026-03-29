@@ -90,8 +90,12 @@ import {
 } from "@/lib/enviar-venta";
 import {
   aplicarVentaEnsambleWms,
+  contarAplicadosEnsambleReportados,
+  guardarUltimoEnsambleEnSesion,
   lineasWmsEnsambleDesdeItemsCuenta,
   mensajeAplicarEnsambleParaCajero,
+  mensajeEnsambleOkSinDescuentoInventario,
+  type WmsAplicarVentaEnsambleResult,
 } from "@/lib/wms-aplicar-venta-ensamble";
 import type { EnvioEstado } from "@/lib/enviar-venta";
 import type { TicketVentaLinea, TicketVentaPayload } from "@/types/impresion-pos";
@@ -1335,28 +1339,53 @@ export default function CajaPage() {
           const lineasEnsamble = lineasWmsEnsambleDesdeItemsCuenta(itemsSnap);
           if (lineasEnsamble.length > 0) {
             const bodyEnsamble = { lineas: lineasEnsamble, idVenta: ventaLocalId };
+            let ultimoEnsamble: WmsAplicarVentaEnsambleResult = {
+              ok: false,
+              status: 0,
+              error: "Ensamble no ejecutado",
+            };
             try {
               const tokenEns = await auth?.currentUser?.getIdToken();
-              if (tokenEns) {
+              if (!tokenEns) {
+                ultimoEnsamble = { ok: false, status: 401, error: "Sin token de sesión para ensamble." };
+              } else {
                 let rEns = await aplicarVentaEnsambleWms(tokenEns, bodyEnsamble);
                 if (!rEns.ok && (rEns.status === 0 || rEns.status >= 500)) {
                   await new Promise((r) => setTimeout(r, 1500));
                   const t2 = await auth?.currentUser?.getIdToken();
                   if (t2) rEns = await aplicarVentaEnsambleWms(t2, bodyEnsamble);
                 }
+                ultimoEnsamble = rEns;
                 if (!rEns.ok) {
                   if (rEns.status === 0 || rEns.status >= 500) {
                     encolarAplicarEnsamblePendiente(bodyEnsamble);
                   }
                   window.alert(mensajeAplicarEnsambleParaCajero(rEns));
+                } else {
+                  const aplicados = contarAplicadosEnsambleReportados(rEns);
+                  if (aplicados === 0) {
+                    window.alert(mensajeEnsambleOkSinDescuentoInventario(rEns));
+                  }
                 }
               }
             } catch (e) {
               console.warn("aplicar-venta-ensamble", e);
+              ultimoEnsamble = {
+                ok: false,
+                status: 0,
+                error: e instanceof Error ? e.message : String(e),
+              };
               encolarAplicarEnsamblePendiente(bodyEnsamble);
               window.alert(
                 "La venta quedó registrada en caja, pero hubo un error al sincronizar el inventario por ensamble. Se reintentará automáticamente cuando haya conexión."
               );
+            } finally {
+              guardarUltimoEnsambleEnSesion(bodyEnsamble, ultimoEnsamble);
+              console.info("[POS] aplicar-venta-ensamble", {
+                idVenta: ventaLocalId,
+                skus: bodyEnsamble.lineas.map((l) => l.skuProducto),
+                ...ultimoEnsamble,
+              });
             }
           }
 

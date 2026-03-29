@@ -60,6 +60,91 @@ export function esErrorRedAplicarEnsamble(msg: string): boolean {
   );
 }
 
+/** Si el WMS devuelve `aplicados`, permite saber si hubo descuentos reales de insumos. */
+export function contarAplicadosEnsambleReportados(r: WmsAplicarVentaEnsambleResult): number | null {
+  const a = r.aplicados;
+  if (a == null) return null;
+  if (typeof a === "number" && Number.isFinite(a)) return Math.max(0, a);
+  if (Array.isArray(a)) return a.length;
+  return null;
+}
+
+/** Aviso cuando la venta OK pero no hubo líneas de ensamble aplicadas (p. ej. sin BOM en Sheets). */
+export function mensajeEnsambleOkSinDescuentoInventario(r?: WmsAplicarVentaEnsambleResult): string {
+  const base =
+    "Venta registrada. El inventario de insumos no cambió: el WMS no aplicó ensamble para estos productos " +
+    "(suele faltar composición en DB_POS_Composición o el SKU/variante no coincide con la hoja). " +
+    "En Inventarios abrí «Diagnóstico último cobro» y usá «Actualizar stock».";
+  const extra = r?.message?.trim() ? `\n\nDetalle del servidor: ${r.message.trim()}` : "";
+  return base + extra;
+}
+
+export const ULTIMO_ENSAMBLE_SESSION_KEY = "pos_mc_ultimo_ensamble_v1";
+
+export interface UltimoEnsambleSesionDiag {
+  atIso: string;
+  idVenta?: string;
+  lineasEnviadas: { skuProducto: string; cantidad: number }[];
+  ok: boolean;
+  status: number;
+  aplicadosCount: number | null;
+  message?: string;
+  error?: string;
+  movimientoId?: string;
+  detalleResumen?: string;
+}
+
+function detalleToResumen(d: unknown): string | undefined {
+  if (d == null) return undefined;
+  try {
+    const s = JSON.stringify(d);
+    return s.length > 800 ? `${s.slice(0, 800)}…` : s;
+  } catch {
+    return String(d);
+  }
+}
+
+/** Guarda el último intento de ensamble en la pestaña (sessionStorage) y avisa a Inventarios. */
+export function guardarUltimoEnsambleEnSesion(
+  body: WmsAplicarVentaEnsambleBody,
+  result: WmsAplicarVentaEnsambleResult
+): void {
+  if (typeof window === "undefined") return;
+  const diag: UltimoEnsambleSesionDiag = {
+    atIso: new Date().toISOString(),
+    idVenta: body.idVenta,
+    lineasEnviadas: body.lineas.map((l) => ({ skuProducto: l.skuProducto, cantidad: l.cantidad })),
+    ok: result.ok,
+    status: result.status,
+    aplicadosCount: contarAplicadosEnsambleReportados(result),
+    message: result.message,
+    error: result.error,
+    movimientoId: result.movimientoId,
+    detalleResumen: detalleToResumen(result.detalle),
+  };
+  try {
+    sessionStorage.setItem(ULTIMO_ENSAMBLE_SESSION_KEY, JSON.stringify(diag));
+    window.dispatchEvent(new CustomEvent("pos-ultimo-ensamble-actualizado"));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function leerUltimoEnsambleSesion(): UltimoEnsambleSesionDiag | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = sessionStorage.getItem(ULTIMO_ENSAMBLE_SESSION_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw) as unknown;
+    if (!p || typeof p !== "object") return null;
+    const o = p as Record<string, unknown>;
+    if (typeof o.atIso !== "string" || !Array.isArray(o.lineasEnviadas)) return null;
+    return p as UltimoEnsambleSesionDiag;
+  } catch {
+    return null;
+  }
+}
+
 export function mensajeAplicarEnsambleParaCajero(r: WmsAplicarVentaEnsambleResult): string {
   if (r.ok) return "";
   const base = r.error || r.message || `Error ${r.status}`;

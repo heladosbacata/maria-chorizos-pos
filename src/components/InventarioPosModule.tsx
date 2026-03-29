@@ -19,6 +19,10 @@ import {
   registrarMovimientoInventario,
   type InventarioSaldoRow,
 } from "@/lib/inventario-pos-firestore";
+import {
+  leerUltimoEnsambleSesion,
+  type UltimoEnsambleSesionDiag,
+} from "@/lib/wms-aplicar-venta-ensamble";
 
 type Pestaña = "stock" | "movimiento" | "historial";
 
@@ -78,8 +82,20 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
 
   const [historial, setHistorial] = useState<Awaited<ReturnType<typeof listarMovimientosInventario>>>([]);
   const [cargandoHist, setCargandoHist] = useState(false);
+  const [diagEnsamble, setDiagEnsamble] = useState<UltimoEnsambleSesionDiag | null>(null);
 
   const pv = (puntoVenta ?? "").trim();
+
+  const refrescarDiagEnsamble = useCallback(() => {
+    setDiagEnsamble(leerUltimoEnsambleSesion());
+  }, []);
+
+  useEffect(() => {
+    refrescarDiagEnsamble();
+    const onEvt = () => refrescarDiagEnsamble();
+    window.addEventListener("pos-ultimo-ensamble-actualizado", onEvt);
+    return () => window.removeEventListener("pos-ultimo-ensamble-actualizado", onEvt);
+  }, [refrescarDiagEnsamble]);
 
   const cargarTodo = useCallback(async () => {
     if (!pv) {
@@ -134,8 +150,9 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       setFuenteCatalogo(null);
     } finally {
       setCargando(false);
+      refrescarDiagEnsamble();
     }
-  }, [pv, uid]);
+  }, [pv, uid, refrescarDiagEnsamble]);
 
   const commitMinimoSugerido = useCallback(
     (item: InsumoKitItem, raw: string, teniaMinimoUsuario: boolean, minimoEfectivoEnFila: number | null) => {
@@ -301,7 +318,11 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
             <code className="rounded bg-gray-100 px-1 text-xs">{CATALOGO_INSUMOS_KIT_COLLECTION}</code>. El{" "}
             <span className="font-medium">mínimo sugerido</span> puede venir de la hoja y cada franquicia lo puede cambiar
             aquí: el ajuste se guarda solo en <span className="font-medium">la memoria de este equipo</span> (navegador,
-            usuario de sesión y punto de venta), no en la nube. Saldos y movimientos:{" "}
+            usuario de sesión y punto de venta), no en la nube. Los <span className="font-medium">saldos</span> y los
+            movimientos por cargue o ajuste viven en Firestore; al <span className="font-medium">cobrar ventas</span> con
+            carrito, el descuento de insumos por ensamble (BOM) lo calcula y registra el <strong className="font-medium">WMS</strong>{" "}
+            en la misma colección de saldos. Si un producto no tiene composición configurada allí, el saldo no baja al
+            vender. Tras cobrar, usá <span className="font-medium">«Actualizar stock»</span> para refrescar. Punto:{" "}
             <span className="font-medium text-gray-800">{pv}</span>.
           </p>
           {fuenteCatalogo && (
@@ -311,6 +332,75 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
             </p>
           )}
           <p className="mt-2 text-xs font-medium text-primary-700">Punto de venta: {pv}</p>
+          {diagEnsamble && (
+            <details className="mt-3 max-w-2xl rounded-lg border border-slate-200 bg-slate-50/90 px-3 py-2 text-xs text-slate-800">
+              <summary className="cursor-pointer select-none font-semibold text-slate-900">
+                Diagnóstico último cobro (WMS ensamble)
+              </summary>
+              <dl className="mt-2 space-y-1.5 border-t border-slate-200/80 pt-2 font-mono text-[11px] leading-relaxed">
+                <div>
+                  <dt className="inline text-slate-500">Hora: </dt>
+                  <dd className="inline">
+                    {fechaHoraColombia(new Date(diagEnsamble.atIso), { dateStyle: "short", timeStyle: "medium" })}{" "}
+                    <span className="text-slate-500">({diagEnsamble.atIso})</span>
+                  </dd>
+                </div>
+                {diagEnsamble.idVenta && (
+                  <div>
+                    <dt className="inline text-slate-500">idVenta POS: </dt>
+                    <dd className="inline break-all">{diagEnsamble.idVenta}</dd>
+                  </div>
+                )}
+                <div>
+                  <dt className="inline text-slate-500">Respuesta: </dt>
+                  <dd className="inline">
+                    {diagEnsamble.ok ? "ok" : "error"} · HTTP {diagEnsamble.status}
+                    {diagEnsamble.aplicadosCount != null ? ` · aplicados: ${diagEnsamble.aplicadosCount}` : ""}
+                  </dd>
+                </div>
+                {diagEnsamble.movimientoId && (
+                  <div>
+                    <dt className="inline text-slate-500">movimientoId: </dt>
+                    <dd className="inline break-all">{diagEnsamble.movimientoId}</dd>
+                  </div>
+                )}
+                {diagEnsamble.message && (
+                  <div>
+                    <dt className="text-slate-500">message (WMS):</dt>
+                    <dd className="mt-0.5 whitespace-pre-wrap break-words">{diagEnsamble.message}</dd>
+                  </div>
+                )}
+                {diagEnsamble.error && (
+                  <div>
+                    <dt className="text-slate-500">error:</dt>
+                    <dd className="mt-0.5 whitespace-pre-wrap break-words text-amber-900">{diagEnsamble.error}</dd>
+                  </div>
+                )}
+                <div>
+                  <dt className="text-slate-500">SKUs enviados (producto × cantidad):</dt>
+                  <dd className="mt-1 space-y-0.5">
+                    {diagEnsamble.lineasEnviadas.map((l, i) => (
+                      <div key={i} className="break-all">
+                        ×{l.cantidad} {l.skuProducto}
+                      </div>
+                    ))}
+                  </dd>
+                </div>
+                {diagEnsamble.detalleResumen && (
+                  <div>
+                    <dt className="text-slate-500">detalle (recorte):</dt>
+                    <dd className="mt-0.5 max-h-32 overflow-y-auto whitespace-pre-wrap break-words text-slate-700">
+                      {diagEnsamble.detalleResumen}
+                    </dd>
+                  </div>
+                )}
+              </dl>
+              <p className="mt-2 border-t border-slate-200/80 pt-2 text-[11px] text-slate-600">
+                Cruzá estos <code className="rounded bg-white px-0.5">skuProducto</code> con la hoja{" "}
+                <strong className="font-medium">DB_POS_Composición</strong> en el WMS (misma variante / id compuesto).
+              </p>
+            </details>
+          )}
         </div>
         <button
           type="button"
