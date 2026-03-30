@@ -1637,7 +1637,7 @@ export default function CajaPage() {
         : moduloActivo === "turnos"
           ? "Turnos"
           : moduloActivo === "cargueInventarioMasivo"
-            ? "Cargue masivo de inventario"
+            ? "Cargue inicial de inventario"
             : moduloActivo === "cargueInventario"
               ? "Cargue de inventario"
               : moduloActivo === "inventarios"
@@ -1691,25 +1691,6 @@ export default function CajaPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setModuloActivo("cargueInventario")}
-                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
-                  moduloActivo === "cargueInventario"
-                    ? "bg-brand-yellow/25 text-gray-900 border border-brand-yellow/50"
-                    : "text-gray-600 hover:bg-gray-50"
-                }`}
-              >
-                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-                  />
-                </svg>
-                Cargue inventario
-              </button>
-              <button
-                type="button"
                 onClick={() => setModuloActivo("cargueInventarioMasivo")}
                 className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
                   moduloActivo === "cargueInventarioMasivo"
@@ -1717,7 +1698,7 @@ export default function CajaPage() {
                     : "text-gray-600 hover:bg-gray-50"
                 }`}
               >
-                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="h-5 w-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -1725,7 +1706,32 @@ export default function CajaPage() {
                     d="M4 6h16M4 10h16M4 14h10M4 18h10"
                   />
                 </svg>
-                Cargue masivo
+                <span className="min-w-0 flex-1 leading-snug">
+                  <span className="block">Cargue inicial</span>
+                  <span className="block text-[10px] font-normal text-gray-500">Tabla · todos los productos</span>
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setModuloActivo("cargueInventario")}
+                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
+                  moduloActivo === "cargueInventario"
+                    ? "bg-brand-yellow/25 text-gray-900 border border-brand-yellow/50"
+                    : "text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                <svg className="h-5 w-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+                  />
+                </svg>
+                <span className="min-w-0 flex-1 leading-snug">
+                  <span className="block">Cargue inventario</span>
+                  <span className="block text-[10px] font-normal text-gray-500">Por producto, lote y lista</span>
+                </span>
               </button>
               <button
                 type="button"

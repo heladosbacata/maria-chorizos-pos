@@ -203,11 +203,12 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       <div className="shrink-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-        <h2 className="text-lg font-semibold text-gray-900">Cargue masivo (inicial / rápido)</h2>
+        <h2 className="text-lg font-semibold text-gray-900">Cargue inicial de inventario</h2>
         <p className="mt-1 text-sm text-gray-600">
-          Una sola pantalla con todos los insumos del catálogo: completá solo las cantidades que entraron (cargue). Las filas
-          vacías o en cero se omiten. Para cargues con lote o correcciones, seguí usando{" "}
-          <strong className="font-medium">Cargue inventario</strong> (herramienta detallada).
+          Una sola tabla con <strong className="font-medium text-gray-800">todos</strong> los insumos del catálogo: completá
+          solo las cantidades que entraron. Las filas vacías o en cero se omiten. Para cargue con{" "}
+          <strong className="font-medium">lote</strong> por producto o lista paso a paso, usá el menú{" "}
+          <strong className="font-medium">Cargue inventario</strong>.
         </p>
       </div>
 
