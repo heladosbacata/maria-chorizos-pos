@@ -2,9 +2,30 @@ import { describe, expect, it } from "vitest";
 import {
   cantidadSaldoParaInsumoKit,
   claveParaConsolidarSaldoKit,
+  saldoRowDesdeFirestoreSaldoDoc,
   type InventarioSaldoRow,
 } from "./inventario-pos-firestore";
 import type { InsumoKitItem } from "@/types/inventario-pos";
+
+describe("saldoRowDesdeFirestoreSaldoDoc (WMS)", () => {
+  it("arma fila solo con skuComponente y cantidad (sin insumoId)", () => {
+    const row = saldoRowDesdeFirestoreSaldoDoc({
+      skuComponente: "FRAN-KIT-5",
+      cantidad: 97,
+      puntoVenta: "CC Altavista Usme",
+    });
+    expect(row).toEqual({
+      insumoId: "FRAN-KIT-5",
+      insumoSku: "FRAN-KIT-5",
+      cantidad: 97,
+    });
+  });
+
+  it("acepta stock como alias de cantidad", () => {
+    const row = saldoRowDesdeFirestoreSaldoDoc({ insumoId: "FRAN-KIT-1", stock: 42 });
+    expect(row?.cantidad).toBe(42);
+  });
+});
 
 describe("claveParaConsolidarSaldoKit", () => {
   it("usa insumoSku cuando existe", () => {

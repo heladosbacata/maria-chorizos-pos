@@ -10,6 +10,7 @@ import {
 } from "@/lib/inventario-minimos-local-storage";
 import type { InsumoKitItem, TipoMovimientoInventario } from "@/types/inventario-pos";
 import { fechaColombia, fechaHoraColombia, mediodiaColombiaDesdeYmd } from "@/lib/fecha-colombia";
+import { normPuntoVentaCatalogo } from "@/lib/punto-venta-catalogo-norm";
 import {
   CATALOGO_INSUMOS_KIT_COLLECTION,
   cantidadSaldoParaInsumoKit,
@@ -221,8 +222,10 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
   useEffect(() => {
     if (!pv || !db) return;
     let legacy: InventarioSaldoRow[] = [];
-    let ens: InventarioSaldoRow[] = [];
+    let ensPorPv: InventarioSaldoRow[] = [];
+    let ensPorClave: InventarioSaldoRow[] = [];
     const pushMerged = () => {
+      const ens = mergeSaldosInventarioLegacyYEnsamble(ensPorPv, ensPorClave);
       setSaldoRows(mergeSaldosInventarioLegacyYEnsamble(legacy, ens));
     };
     const qLeg = query(collection(db, POS_INVENTARIO_SALDOS_COLLECTION), where("puntoVenta", "==", pv));
@@ -241,17 +244,37 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     const unsubEns = onSnapshot(
       qEns,
       (snap) => {
-        ens = querySnapshotToSaldoRows(snap);
+        ensPorPv = querySnapshotToSaldoRows(snap);
         pushMerged();
       },
       () => {
-        ens = [];
+        ensPorPv = [];
         pushMerged();
       }
     );
+    const pvClave = normPuntoVentaCatalogo(pv);
+    const qEnsClave =
+      pvClave.length > 0
+        ? query(collection(db, POS_INVENTARIO_ENSAMBLE_SALDOS_COLLECTION), where("puntoVentaClave", "==", pvClave))
+        : null;
+    const unsubEnsClave =
+      qEnsClave != null
+        ? onSnapshot(
+            qEnsClave,
+            (snap) => {
+              ensPorClave = querySnapshotToSaldoRows(snap);
+              pushMerged();
+            },
+            () => {
+              ensPorClave = [];
+              pushMerged();
+            }
+          )
+        : null;
     return () => {
       unsubLeg();
       unsubEns();
+      unsubEnsClave?.();
     };
   }, [pv]);
 
@@ -534,7 +557,9 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                 <li>
                   Catálogo desde <strong className="font-medium">hoja Google</strong>: cada fila tiene <code className="rounded bg-white px-0.5">id</code> tipo{" "}
                   <code className="rounded bg-white px-0.5">sheet-fran-kit-6</code> y <code className="rounded bg-white px-0.5">sku</code>{" "}
-                  <code className="rounded bg-white px-0.5">FRAN-KIT-6</code>. El WMS escribe saldo con <code className="rounded bg-white px-0.5">insumoId</code> = código kit; el POS fusiona por ese SKU para que el saldo baje en pantalla tras «Actualizar stock».
+                  <code className="rounded bg-white px-0.5">FRAN-KIT-6</code>. El WMS escribe saldo con <code className="rounded bg-white px-0.5">insumoId</code> o{" "}
+                  <code className="rounded bg-white px-0.5">skuComponente</code> = código kit; el POS fusiona por SKU. También consulta{" "}
+                  <code className="rounded bg-white px-0.5">puntoVentaClave</code> (normalizado) si el doc no trae el mismo texto de <code className="rounded bg-white px-0.5">puntoVenta</code> que tu perfil.
                 </li>
               </ul>
             </details>

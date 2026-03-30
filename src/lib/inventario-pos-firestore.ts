@@ -339,19 +339,39 @@ export function cantidadSaldoParaInsumoKit(item: InsumoKitItem, rows: Inventario
   return sum;
 }
 
+/**
+ * Interpreta un documento de saldo (legacy o `pos_inventario_ensamble_saldo`).
+ * El WMS a veces persiste el código kit solo en `skuComponente` (como en el JSON de `detalle` del ensamble),
+ * no en `insumoId`; sin esto el POS ignoraba el doc y el saldo no bajaba en pantalla.
+ */
+export function saldoRowDesdeFirestoreSaldoDoc(data: Record<string, unknown>): InventarioSaldoRow | null {
+  const idish =
+    str(data.insumoId) ||
+    str(data.skuComponente) ||
+    str(data.sku_componente) ||
+    str(data.codigoInsumo) ||
+    str(data.codigo_insumo);
+  if (!idish) return null;
+  const sku =
+    str(data.insumoSku) ||
+    str(data.skuComponente) ||
+    str(data.sku_componente) ||
+    idish;
+  const rawCant = data.cantidad ?? data.stock ?? data.saldo ?? data.qty ?? data.quantity ?? data.cantidadActual;
+  const c = Number(rawCant);
+  return {
+    insumoId: idish,
+    insumoSku: sku,
+    cantidad: Number.isFinite(c) ? c : 0,
+  };
+}
+
 /** Convierte un snapshot de consulta (getDocs u onSnapshot) en filas de saldo. */
 export function querySnapshotToSaldoRows(snap: QuerySnapshot): InventarioSaldoRow[] {
   const rows: InventarioSaldoRow[] = [];
   snap.forEach((d) => {
-    const x = d.data() as Record<string, unknown>;
-    const insumoId = str(x.insumoId);
-    if (!insumoId) return;
-    const c = Number(x.cantidad);
-    rows.push({
-      insumoId,
-      insumoSku: str(x.insumoSku),
-      cantidad: Number.isFinite(c) ? c : 0,
-    });
+    const row = saldoRowDesdeFirestoreSaldoDoc(d.data() as Record<string, unknown>);
+    if (row) rows.push(row);
   });
   return rows;
 }
@@ -393,9 +413,26 @@ export async function listarSaldosInventarioPorPuntoVenta(puntoVenta: string): P
   }
 
   try {
-    const qEns = query(collection(db, POS_INVENTARIO_ENSAMBLE_SALDOS_COLLECTION), where("puntoVenta", "==", pv));
-    const snapEns = await getDocs(qEns);
-    for (const r of querySnapshotToSaldoRows(snapEns)) {
+    const colEns = collection(db, POS_INVENTARIO_ENSAMBLE_SALDOS_COLLECTION);
+    const byDocId = new Map<string, InventarioSaldoRow>();
+    const ingestEnsambleSnap = (snap: QuerySnapshot) => {
+      snap.forEach((d) => {
+        const row = saldoRowDesdeFirestoreSaldoDoc(d.data() as Record<string, unknown>);
+        if (row) byDocId.set(d.id, row);
+      });
+    };
+    const snapPv = await getDocs(query(colEns, where("puntoVenta", "==", pv)));
+    ingestEnsambleSnap(snapPv);
+    const pvClave = normPuntoVentaCatalogo(pv);
+    if (pvClave) {
+      try {
+        const snapClave = await getDocs(query(colEns, where("puntoVentaClave", "==", pvClave)));
+        ingestEnsambleSnap(snapClave);
+      } catch {
+        /* índice faltante o campo no usado en Firestore */
+      }
+    }
+    for (const r of Array.from(byDocId.values())) {
       map.set(claveParaConsolidarSaldoKit(r), r);
     }
   } catch {
