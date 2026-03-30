@@ -8,22 +8,26 @@ import {
   escribirMinimoInventarioLocal,
   leerMinimosInventarioLocal,
 } from "@/lib/inventario-minimos-local-storage";
-import type { InsumoKitItem, TipoMovimientoInventario } from "@/types/inventario-pos";
+import type { InsumoKitItem, InventarioMovimientoDoc, TipoMovimientoInventario } from "@/types/inventario-pos";
 import { fechaColombia, fechaHoraColombia, mediodiaColombiaDesdeYmd } from "@/lib/fecha-colombia";
 import { normPuntoVentaCatalogo } from "@/lib/punto-venta-catalogo-norm";
 import {
   CATALOGO_INSUMOS_KIT_COLLECTION,
-  cantidadSaldoParaInsumoKit,
   etiquetaTipoMovimiento,
   listarInsumosKitPorPuntoVenta,
   listarMovimientosInventario,
-  listarSaldosInventarioPorPuntoVenta,
+  listarMovimientosRecientesPorInsumoKit,
+  listarSaldosInventarioConFuentePorPuntoVenta,
+  mapSaldosLegacyYEnsambleConFuente,
   mergeSaldosInventarioLegacyYEnsamble,
+  NOTAS_PREFIJO_AJUSTE_SALDO_STOCK,
   normSkuInventario,
   POS_INVENTARIO_ENSAMBLE_SALDOS_COLLECTION,
   POS_INVENTARIO_SALDOS_COLLECTION,
   querySnapshotToSaldoRows,
   registrarMovimientoInventario,
+  saldoMostradoYFuenteParaInsumoKit,
+  type InventarioSaldoConFuente,
   type InventarioSaldoRow,
 } from "@/lib/inventario-pos-firestore";
 import {
@@ -60,6 +64,9 @@ function formatFechaCargueHistorial(iso: string | undefined): string {
   return fechaColombia(dt, { dateStyle: "medium" });
 }
 
+/** Clave para desbloquear el ajuste de saldo al hacer clic en «Saldo actual» (pantalla Inventarios). */
+const CLAVE_AJUSTE_SALDO_INVENTARIO = "MC2026";
+
 export interface InventarioPosModuleProps {
   puntoVenta: string | null;
   uid: string;
@@ -70,6 +77,9 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
   const [pestaña, setPestaña] = useState<Pestaña>("stock");
   const [insumos, setInsumos] = useState<InsumoKitItem[]>([]);
   const [saldoRows, setSaldoRows] = useState<InventarioSaldoRow[]>([]);
+  const [saldosPorClaveMap, setSaldosPorClaveMap] = useState<Map<string, InventarioSaldoConFuente>>(
+    () => new Map()
+  );
   const [minimosUsuario, setMinimosUsuario] = useState<Map<string, number>>(new Map());
   const [fuenteCatalogo, setFuenteCatalogo] = useState<"sheet" | "firestore" | null>(null);
   const [avisoCatalogo, setAvisoCatalogo] = useState<string | null>(null);
@@ -92,6 +102,19 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
   const [cargandoHist, setCargandoHist] = useState(false);
   const [diagEnsamble, setDiagEnsamble] = useState<UltimoEnsambleSesionDiag | null>(null);
 
+  type AjusteSaldoModalState = { fase: "clave" | "formulario"; insumo: InsumoKitItem; saldoAlAbrir: number };
+  const [ajusteSaldoModal, setAjusteSaldoModal] = useState<AjusteSaldoModalState | null>(null);
+  const [claveAjusteSaldoInput, setClaveAjusteSaldoInput] = useState("");
+  const [errorClaveAjuste, setErrorClaveAjuste] = useState<string | null>(null);
+  const [nuevoSaldoAjusteInput, setNuevoSaldoAjusteInput] = useState("");
+  const [notasAjusteSaldo, setNotasAjusteSaldo] = useState("");
+  const [guardandoAjusteSaldo, setGuardandoAjusteSaldo] = useState(false);
+
+  const [detalleMovsModalItem, setDetalleMovsModalItem] = useState<InsumoKitItem | null>(null);
+  const [detalleMovsRows, setDetalleMovsRows] = useState<InventarioMovimientoDoc[]>([]);
+  const [detalleMovsCargando, setDetalleMovsCargando] = useState(false);
+  const [detalleMovsError, setDetalleMovsError] = useState<string | null>(null);
+
   const pv = (puntoVenta ?? "").replace(/\u00a0/g, " ").trim();
 
   const refrescarDiagEnsamble = useCallback(() => {
@@ -109,6 +132,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     if (!pv) {
       setInsumos([]);
       setSaldoRows([]);
+      setSaldosPorClaveMap(new Map());
       setMinimosUsuario(new Map());
       setFuenteCatalogo(null);
       setAvisoCatalogo(null);
@@ -122,11 +146,12 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     setAvisoCatalogo(null);
     setAvisoPvHoja(null);
     try {
-      const [sheetRes, saldosR] = await Promise.all([
+      const [sheetRes, saldosPack] = await Promise.all([
         fetchCatalogoInsumosDesdeSheet(pv),
-        listarSaldosInventarioPorPuntoVenta(pv),
+        listarSaldosInventarioConFuentePorPuntoVenta(pv),
       ]);
-      setSaldoRows(saldosR);
+      setSaldoRows(saldosPack.saldoRows);
+      setSaldosPorClaveMap(saldosPack.porClave);
       setMinimosUsuario(leerMinimosInventarioLocal(uid, pv));
 
       if (sheetRes.ok && sheetRes.data.length > 0) {
@@ -226,7 +251,9 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     let ensPorClave: InventarioSaldoRow[] = [];
     const pushMerged = () => {
       const ens = mergeSaldosInventarioLegacyYEnsamble(ensPorPv, ensPorClave);
-      setSaldoRows(mergeSaldosInventarioLegacyYEnsamble(legacy, ens));
+      const mapFuente = mapSaldosLegacyYEnsambleConFuente(legacy, ens);
+      setSaldosPorClaveMap(mapFuente);
+      setSaldoRows(Array.from(mapFuente.values()).map((v) => v.row));
     };
     const qLeg = query(collection(db, POS_INVENTARIO_SALDOS_COLLECTION), where("puntoVenta", "==", pv));
     const unsubLeg = onSnapshot(
@@ -282,7 +309,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     if (!pv) return;
     setCargandoHist(true);
     try {
-      const rows = await listarMovimientosInventario(pv, 100);
+      const rows = await listarMovimientosInventario(pv, 150);
       setHistorial(rows);
     } catch {
       setHistorial([]);
@@ -292,13 +319,135 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
   }, [pv]);
 
   useEffect(() => {
-    if (pestaña === "historial" && pv) void cargarHistorial();
+    if ((pestaña === "stock" || pestaña === "historial") && pv) void cargarHistorial();
   }, [pestaña, pv, cargarHistorial]);
+
+  const historialAjustesSaldoDesdeStock = useMemo(() => {
+    return historial.filter(
+      (m) =>
+        (m.tipo === "ajuste_positivo" || m.tipo === "ajuste_negativo") &&
+        m.notas.trimStart().startsWith(NOTAS_PREFIJO_AJUSTE_SALDO_STOCK)
+    );
+  }, [historial]);
+
+  const abrirDetalleMovimientosProducto = useCallback(
+    (item: InsumoKitItem) => {
+      if (!pv) return;
+      setDetalleMovsModalItem(item);
+      setDetalleMovsRows([]);
+      setDetalleMovsError(null);
+      setDetalleMovsCargando(true);
+      void listarMovimientosRecientesPorInsumoKit(pv, item, { maxScan: 500, maxResultados: 60 })
+        .then((rows) => setDetalleMovsRows(rows))
+        .catch(() => setDetalleMovsError("No se pudo cargar el historial de movimientos."))
+        .finally(() => setDetalleMovsCargando(false));
+    },
+    [pv]
+  );
+
+  const cerrarDetalleMovimientosProducto = useCallback(() => {
+    setDetalleMovsModalItem(null);
+    setDetalleMovsRows([]);
+    setDetalleMovsError(null);
+  }, []);
+
+  const cerrarModalAjusteSaldo = useCallback(() => {
+    setAjusteSaldoModal(null);
+    setClaveAjusteSaldoInput("");
+    setErrorClaveAjuste(null);
+    setNuevoSaldoAjusteInput("");
+    setNotasAjusteSaldo("");
+  }, []);
+
+  const abrirModalAjusteSaldo = useCallback((insumo: InsumoKitItem, saldoAlAbrir: number) => {
+    setMensajeOk(null);
+    setError(null);
+    setClaveAjusteSaldoInput("");
+    setErrorClaveAjuste(null);
+    setNuevoSaldoAjusteInput(String(saldoAlAbrir));
+    setNotasAjusteSaldo("");
+    setAjusteSaldoModal({ fase: "clave", insumo, saldoAlAbrir });
+  }, []);
+
+  const validarClaveYMostrarFormularioAjuste = useCallback(() => {
+    if (!ajusteSaldoModal) return;
+    if (claveAjusteSaldoInput.trim() !== CLAVE_AJUSTE_SALDO_INVENTARIO) {
+      setErrorClaveAjuste("Clave incorrecta.");
+      return;
+    }
+    setErrorClaveAjuste(null);
+    setNuevoSaldoAjusteInput(String(ajusteSaldoModal.saldoAlAbrir));
+    setAjusteSaldoModal({ ...ajusteSaldoModal, fase: "formulario" });
+  }, [ajusteSaldoModal, claveAjusteSaldoInput]);
+
+  const confirmarAjusteSaldoDesdeModal = useCallback(async () => {
+    const m = ajusteSaldoModal;
+    if (!m || m.fase !== "formulario" || !pv) return;
+    const n = parseFloat(nuevoSaldoAjusteInput.replace(/,/g, "."));
+    if (!Number.isFinite(n)) {
+      setError("Indicá un saldo numérico válido.");
+      return;
+    }
+    const redondeado = Math.round(n * 1000) / 1000;
+    const diff = redondeado - m.saldoAlAbrir;
+    if (Math.abs(diff) < 1e-9) {
+      cerrarModalAjusteSaldo();
+      setMensajeOk("Sin cambios respecto al saldo actual.");
+      return;
+    }
+    setGuardandoAjusteSaldo(true);
+    setError(null);
+    const sufijo = notasAjusteSaldo.trim();
+    const notasMov = `${NOTAS_PREFIJO_AJUSTE_SALDO_STOCK}${sufijo ? ` ${sufijo}` : ""}`.slice(0, 500);
+    const r =
+      diff > 0
+        ? await registrarMovimientoInventario({
+            puntoVenta: pv,
+            insumo: m.insumo,
+            tipo: "ajuste_positivo",
+            cantidad: diff,
+            notas: notasMov,
+            uid,
+            email,
+            permitirNegativo: true,
+          })
+        : await registrarMovimientoInventario({
+            puntoVenta: pv,
+            insumo: m.insumo,
+            tipo: "ajuste_negativo",
+            cantidad: Math.abs(diff),
+            notas: notasMov,
+            uid,
+            email,
+            permitirNegativo: true,
+          });
+    setGuardandoAjusteSaldo(false);
+    if (!r.ok) {
+      setError(r.message ?? "No se pudo registrar el ajuste.");
+      return;
+    }
+    cerrarModalAjusteSaldo();
+    setMensajeOk("Ajuste de saldo registrado.");
+    void cargarHistorial();
+  }, [
+    ajusteSaldoModal,
+    pv,
+    nuevoSaldoAjusteInput,
+    notasAjusteSaldo,
+    uid,
+    email,
+    cerrarModalAjusteSaldo,
+    cargarHistorial,
+  ]);
 
   const filasStock = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
     const base = insumos.map((i) => {
-      const saldo = cantidadSaldoParaInsumoKit(i, saldoRows);
+      const { saldo, editable: saldoEditableClic } = saldoMostradoYFuenteParaInsumoKit(
+        i,
+        saldosPorClaveMap,
+        saldoRows
+      );
       const skuK = normSkuInventario(i.sku);
       const minUsuario = minimosUsuario.get(skuK);
       const minSheet = i.minimoSugeridoSheet;
@@ -307,6 +456,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       return {
         ...i,
         saldo,
+        saldoEditableClic,
         minimoEfectivo,
         minimoUsuario: minUsuario,
         minimoSheet: minSheet,
@@ -320,7 +470,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
         r.descripcion.toLowerCase().includes(q) ||
         (r.categoria && r.categoria.toLowerCase().includes(q))
     );
-  }, [insumos, saldoRows, minimosUsuario, busqueda]);
+  }, [insumos, saldoRows, saldosPorClaveMap, minimosUsuario, busqueda]);
 
   const cantidadBajoMinimo = useMemo(() => filasStock.filter((r) => r.bajoMinimo).length, [filasStock]);
 
@@ -379,22 +529,6 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       <div className="flex flex-wrap items-start justify-between gap-4 border-b border-gray-200 pb-4">
         <div>
           <h2 className="text-xl font-bold text-gray-900 md:text-2xl">Inventarios</h2>
-          <p className="mt-1 max-w-2xl text-sm text-gray-600">
-            Control de stock por punto de venta. La lista de productos se obtiene de la hoja{" "}
-            <strong className="font-medium text-gray-800">DB_Franquicia_Insumos_Kit</strong> (Google Sheets); si la hoja no
-            está disponible, se usa el catálogo Firestore{" "}
-            <code className="rounded bg-gray-100 px-1 text-xs">{CATALOGO_INSUMOS_KIT_COLLECTION}</code>. El{" "}
-            <span className="font-medium">mínimo sugerido</span> puede venir de la hoja y cada franquicia lo puede cambiar
-            aquí: el ajuste se guarda solo en <span className="font-medium">la memoria de este equipo</span> (navegador,
-            usuario de sesión y punto de venta), no en la nube. Los <span className="font-medium">saldos</span> y los
-            movimientos por cargue o ajuste viven en Firestore; al <span className="font-medium">cobrar ventas</span> con
-            carrito, el descuento de insumos por ensamble (BOM) lo calcula y registra el <strong className="font-medium">WMS</strong>{" "}
-            en la colección de saldos de ensamble. Los números de stock se actualizan en vivo mientras esta pantalla está
-            abierta. <span className="font-medium">«Actualizar stock»</span> vuelve a cargar catálogo y saldos desde la
-            hoja/Firestore por si hubo cambios externos. Si un producto no tiene composición en el WMS, el saldo no baja al
-            vender. Punto:{" "}
-            <span className="font-medium text-gray-800">{pv}</span>.
-          </p>
           {fuenteCatalogo && (
             <p className="mt-2 text-xs font-medium text-primary-700">
               Catálogo activo:{" "}
@@ -622,6 +756,13 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
               onChange={(e) => setBusqueda(e.target.value)}
               className="w-full max-w-md rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
             />
+            <p className="mt-2 max-w-2xl text-xs text-gray-600">
+              <span className="font-medium text-gray-800">Saldo actual:</span> si el valor viene del inventario POS (cargue),
+              podés hacer clic para ajustarlo tras ingresar la clave. Si el saldo lo marca solo el{" "}
+              <span className="font-medium">WMS</span> (ventas con ensamble), el número no es clicable: usá{" "}
+              <span className="font-medium">Registrar movimiento</span> o el backoffice del WMS. El ícono de{" "}
+              <span className="font-medium">ojo</span> al lado muestra los últimos movimientos de ese producto (POS + WMS).
+            </p>
             {!cargando && cantidadBajoMinimo > 0 && (
               <div
                 className="mt-4 flex items-start gap-3 rounded-xl border border-amber-400/70 bg-gradient-to-r from-amber-50 to-orange-50/90 px-4 py-3 text-sm text-amber-950 shadow-sm"
@@ -689,8 +830,66 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                         <td className="px-4 py-2.5 font-mono text-xs text-gray-800">{row.sku}</td>
                         <td className="px-4 py-2.5 text-gray-900">{row.descripcion}</td>
                         <td className="px-4 py-2.5 text-gray-600">{row.unidad}</td>
-                        <td className="px-4 py-2.5 text-right font-semibold tabular-nums text-gray-900">
-                          {row.saldo.toLocaleString("es-CO", { maximumFractionDigits: 3 })}
+                        <td className="px-4 py-2.5 text-right align-middle">
+                          <div className="inline-flex max-w-full items-center justify-end gap-1.5">
+                            {row.saldoEditableClic ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  abrirModalAjusteSaldo(
+                                    {
+                                      id: row.id,
+                                      sku: row.sku,
+                                      descripcion: row.descripcion,
+                                      unidad: row.unidad,
+                                      ...(row.categoria != null ? { categoria: row.categoria } : {}),
+                                    },
+                                    row.saldo
+                                  )
+                                }
+                                className="rounded px-1 py-0.5 text-right font-semibold tabular-nums text-primary-700 underline decoration-primary-300 underline-offset-2 hover:bg-primary-50 hover:text-primary-800"
+                              >
+                                {row.saldo.toLocaleString("es-CO", { maximumFractionDigits: 3 })}
+                              </button>
+                            ) : (
+                              <span
+                                className="font-semibold tabular-nums text-gray-800"
+                                title="Saldo del WMS (ensamble). No se puede ajustar desde aquí con clic; usá Registrar movimiento o el WMS."
+                              >
+                                {row.saldo.toLocaleString("es-CO", { maximumFractionDigits: 3 })}
+                              </span>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                abrirDetalleMovimientosProducto({
+                                  id: row.id,
+                                  sku: row.sku,
+                                  descripcion: row.descripcion,
+                                  unidad: row.unidad,
+                                  ...(row.categoria != null ? { categoria: row.categoria } : {}),
+                                })
+                              }
+                              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 shadow-sm hover:border-primary-300 hover:bg-primary-50 hover:text-primary-700"
+                              title="Últimos movimientos de este producto"
+                              aria-label={`Ver movimientos de ${row.sku}`}
+                            >
+                              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                                />
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                                />
+                              </svg>
+                            </button>
+                          </div>
                         </td>
                         <td className="px-4 py-2 text-right align-middle">
                           <div className="flex flex-col items-end gap-0.5">
@@ -762,6 +961,76 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                 )}
               </tbody>
             </table>
+          </div>
+          <div className="border-t border-gray-200 bg-gray-50/80 px-4 py-4">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-gray-900">Historial de ajustes por saldo (clave)</h3>
+              <button
+                type="button"
+                onClick={() => void cargarHistorial()}
+                disabled={cargandoHist}
+                className="text-xs font-medium text-primary-600 hover:underline disabled:opacity-50"
+              >
+                {cargandoHist ? "Actualizando…" : "Refrescar"}
+              </button>
+            </div>
+            <p className="mb-3 text-xs text-gray-600">
+              Solo se listan los ajustes hechos desde esta pantalla (clic en saldo). El historial completo está en la pestaña{" "}
+              <span className="font-medium">Historial</span>.
+            </p>
+            <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+              <table className="min-w-full text-left text-sm">
+                <thead className="border-b border-gray-200 bg-gray-100 text-xs font-semibold uppercase text-gray-600">
+                  <tr>
+                    <th className="px-3 py-2">Fecha</th>
+                    <th className="px-3 py-2">Producto</th>
+                    <th className="px-3 py-2 text-right">Δ</th>
+                    <th className="px-3 py-2 text-right">Saldo después</th>
+                    <th className="px-3 py-2">Notas</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {cargandoHist && historialAjustesSaldoDesdeStock.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-3 py-6 text-center text-gray-500">
+                        Cargando…
+                      </td>
+                    </tr>
+                  ) : historialAjustesSaldoDesdeStock.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-3 py-6 text-center text-gray-500">
+                        Todavía no hay ajustes desde el clic en saldo en este punto de venta.
+                      </td>
+                    </tr>
+                  ) : (
+                    historialAjustesSaldoDesdeStock.slice(0, 40).map((m) => (
+                      <tr key={m.id} className="hover:bg-gray-50/80">
+                        <td className="whitespace-nowrap px-3 py-2 text-gray-600">{formatMovFecha(m.createdAt)}</td>
+                        <td className="px-3 py-2">
+                          <span className="font-mono text-xs text-gray-600">{m.insumoSku}</span>
+                          <br />
+                          <span className="text-gray-900">{m.insumoDescripcion}</span>
+                        </td>
+                        <td
+                          className={`px-3 py-2 text-right font-semibold tabular-nums ${
+                            m.delta >= 0 ? "text-emerald-700" : "text-red-700"
+                          }`}
+                        >
+                          {m.delta >= 0 ? "+" : ""}
+                          {m.delta.toLocaleString("es-CO", { maximumFractionDigits: 3 })}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums text-gray-800">
+                          {m.cantidadNueva.toLocaleString("es-CO", { maximumFractionDigits: 3 })}
+                        </td>
+                        <td className="max-w-[220px] truncate px-3 py-2 text-xs text-gray-600" title={m.notas}>
+                          {m.notas || "—"}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -902,6 +1171,246 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {ajusteSaldoModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="ajuste-saldo-titulo"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/45"
+            aria-label="Cerrar"
+            disabled={guardandoAjusteSaldo}
+            onClick={() => !guardandoAjusteSaldo && cerrarModalAjusteSaldo()}
+          />
+          <div className="relative z-[1] w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-xl">
+            <h3 id="ajuste-saldo-titulo" className="text-lg font-semibold text-gray-900">
+              {ajusteSaldoModal.fase === "clave" ? "Clave de ajuste" : "Ajustar saldo"}
+            </h3>
+            {ajusteSaldoModal.fase === "clave" ? (
+              <div className="mt-4 space-y-4">
+                <p className="text-sm text-gray-600">
+                  Ingresá la clave para modificar el saldo de{" "}
+                  <span className="font-mono font-medium text-gray-900">{ajusteSaldoModal.insumo.sku}</span> —{" "}
+                  {ajusteSaldoModal.insumo.descripcion}
+                </p>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-700">Clave</label>
+                  <input
+                    type="password"
+                    autoComplete="off"
+                    value={claveAjusteSaldoInput}
+                    onChange={(e) => {
+                      setClaveAjusteSaldoInput(e.target.value);
+                      setErrorClaveAjuste(null);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") validarClaveYMostrarFormularioAjuste();
+                    }}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+                  />
+                  {errorClaveAjuste && (
+                    <p className="mt-1 text-xs text-red-600">{errorClaveAjuste}</p>
+                  )}
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={cerrarModalAjusteSaldo}
+                    className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={validarClaveYMostrarFormularioAjuste}
+                    className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700"
+                  >
+                    Continuar
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 space-y-4">
+                <p className="text-sm text-gray-600">
+                  <span className="font-mono font-medium text-gray-900">{ajusteSaldoModal.insumo.sku}</span> —{" "}
+                  {ajusteSaldoModal.insumo.descripcion}
+                </p>
+                <p className="text-sm text-gray-700">
+                  Saldo al abrir:{" "}
+                  <span className="font-semibold tabular-nums">
+                    {ajusteSaldoModal.saldoAlAbrir.toLocaleString("es-CO", { maximumFractionDigits: 3 })}
+                  </span>
+                </p>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-700">Nuevo saldo</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={nuevoSaldoAjusteInput}
+                    onChange={(e) => setNuevoSaldoAjusteInput(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm tabular-nums focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-gray-700">Motivo / notas (opcional)</label>
+                  <textarea
+                    value={notasAjusteSaldo}
+                    onChange={(e) => setNotasAjusteSaldo(e.target.value)}
+                    rows={2}
+                    placeholder="Ej. Conteo físico 28/03…"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    disabled={guardandoAjusteSaldo}
+                    onClick={cerrarModalAjusteSaldo}
+                    className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={guardandoAjusteSaldo}
+                    onClick={() => void confirmarAjusteSaldoDesdeModal()}
+                    className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50"
+                  >
+                    {guardandoAjusteSaldo ? "Guardando…" : "Guardar ajuste"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {detalleMovsModalItem && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="detalle-movs-titulo"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/45"
+            aria-label="Cerrar"
+            onClick={cerrarDetalleMovimientosProducto}
+          />
+          <div className="relative z-[1] flex max-h-[min(90vh,680px)] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl">
+            <div className="shrink-0 border-b border-gray-100 px-5 py-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h3 id="detalle-movs-titulo" className="text-lg font-semibold text-gray-900">
+                    Movimientos del producto
+                  </h3>
+                  <p className="mt-1 text-sm text-gray-600">
+                    <span className="font-mono font-medium text-gray-800">{detalleMovsModalItem.sku}</span>
+                    {" — "}
+                    {detalleMovsModalItem.descripcion}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  disabled={detalleMovsCargando}
+                  onClick={() => abrirDetalleMovimientosProducto(detalleMovsModalItem)}
+                  className="shrink-0 rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                >
+                  {detalleMovsCargando ? "Actualizando…" : "Refrescar"}
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-gray-500">
+                Incluye movimientos registrados en el POS y descuentos por venta (WMS). Se muestran hasta 60 entradas
+                recientes que coinciden con este código; si el producto tuvo poca actividad, puede haber menos filas.
+              </p>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto px-4 py-3 sm:px-5">
+              {detalleMovsError && (
+                <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">
+                  {detalleMovsError}
+                </div>
+              )}
+              {detalleMovsCargando && detalleMovsRows.length === 0 && !detalleMovsError ? (
+                <p className="py-10 text-center text-sm text-gray-500">Cargando movimientos…</p>
+              ) : !detalleMovsCargando && !detalleMovsError && detalleMovsRows.length === 0 ? (
+                <p className="py-10 text-center text-sm text-gray-500">
+                  No hay movimientos recientes para este producto en este punto de venta.
+                </p>
+              ) : (
+                <div className="overflow-x-auto rounded-lg border border-gray-200">
+                  <table className="min-w-[720px] w-full text-left text-xs sm:text-sm">
+                    <thead className="sticky top-0 z-[1] border-b border-gray-200 bg-gray-100 text-[10px] font-semibold uppercase text-gray-600 sm:text-xs">
+                      <tr>
+                        <th className="whitespace-nowrap px-2 py-2 sm:px-3">Origen</th>
+                        <th className="whitespace-nowrap px-2 py-2 sm:px-3">Fecha registro</th>
+                        <th className="px-2 py-2 sm:px-3">Tipo</th>
+                        <th className="whitespace-nowrap px-2 py-2 text-right sm:px-3">Δ</th>
+                        <th className="whitespace-nowrap px-2 py-2 text-right sm:px-3">Antes</th>
+                        <th className="whitespace-nowrap px-2 py-2 text-right sm:px-3">Después</th>
+                        <th className="whitespace-nowrap px-2 py-2 sm:px-3">F. cargue</th>
+                        <th className="min-w-[8rem] px-2 py-2 sm:px-3">Notas</th>
+                        <th className="min-w-[6rem] px-2 py-2 sm:px-3">Usuario</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100 bg-white">
+                      {detalleMovsRows.map((m) => {
+                        const origen = m.id.startsWith("wmsEns:") ? "WMS" : "POS";
+                        return (
+                          <tr key={m.id} className="align-top hover:bg-gray-50/90">
+                            <td className="whitespace-nowrap px-2 py-2 font-medium text-gray-800 sm:px-3">{origen}</td>
+                            <td className="whitespace-nowrap px-2 py-2 text-gray-600 sm:px-3">{formatMovFecha(m.createdAt)}</td>
+                            <td className="px-2 py-2 text-gray-800 sm:px-3">{etiquetaTipoMovimiento(m.tipo)}</td>
+                            <td
+                              className={`whitespace-nowrap px-2 py-2 text-right font-semibold tabular-nums sm:px-3 ${
+                                m.delta >= 0 ? "text-emerald-700" : "text-red-700"
+                              }`}
+                            >
+                              {m.delta >= 0 ? "+" : ""}
+                              {m.delta.toLocaleString("es-CO", { maximumFractionDigits: 3 })}
+                            </td>
+                            <td className="whitespace-nowrap px-2 py-2 text-right tabular-nums text-gray-700 sm:px-3">
+                              {m.cantidadAnterior.toLocaleString("es-CO", { maximumFractionDigits: 3 })}
+                            </td>
+                            <td className="whitespace-nowrap px-2 py-2 text-right font-medium tabular-nums text-gray-900 sm:px-3">
+                              {m.cantidadNueva.toLocaleString("es-CO", { maximumFractionDigits: 3 })}
+                            </td>
+                            <td className="whitespace-nowrap px-2 py-2 text-gray-600 sm:px-3">
+                              {formatFechaCargueHistorial(m.fechaCargue)}
+                            </td>
+                            <td className="max-w-[14rem] px-2 py-2 break-words text-gray-700 sm:max-w-xs sm:px-3">
+                              {m.notas || "—"}
+                            </td>
+                            <td className="px-2 py-2 text-[11px] text-gray-600 sm:px-3">
+                              {m.email ||
+                                (m.uid
+                                  ? `${m.uid.slice(0, 8)}${m.uid.length > 8 ? "…" : ""}`
+                                  : "—")}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+            <div className="shrink-0 border-t border-gray-100 px-5 py-3 text-right">
+              <button
+                type="button"
+                onClick={cerrarDetalleMovimientosProducto}
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Cerrar
+              </button>
+            </div>
           </div>
         </div>
       )}

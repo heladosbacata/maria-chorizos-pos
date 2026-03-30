@@ -390,28 +390,92 @@ export function mergeSaldosInventarioLegacyYEnsamble(
   return Array.from(map.values());
 }
 
-/**
- * Saldos mostrados en Inventarios: lee `posInventarioSaldos` (cargue/ajustes POS) y
- * `pos_inventario_ensamble_saldo` (WMS tras ventas). Fusiona por **clave de kit** (`insumoSku` o
- * sufijo tras `sheet-`/`gs-` en `insumoId`) para que el ensamble reemplace al legacy aunque el WMS use
- * `FRAN-KIT-*` y la hoja genere `id` `sheet-fran-kit-*`.
- */
-export async function listarSaldosInventarioPorPuntoVenta(puntoVenta: string): Promise<InventarioSaldoRow[]> {
-  if (!db) return [];
-  const pv = puntoVenta.replace(/\u00a0/g, " ").trim();
-  if (!pv) return [];
-  const map = new Map<string, InventarioSaldoRow>();
+/** Origen del saldo mostrado: POS legacy vs WMS ensamble (este último no se puede corregir desde esta pantalla). */
+export type InventarioSaldoConFuente = { row: InventarioSaldoRow; fuente: "legacy" | "ensamble" };
 
+/**
+ * Igual que `mergeSaldosInventarioLegacyYEnsamble` pero indica si el valor consolidado proviene del WMS
+ * (sobrescribe al legacy cuando comparten clave de kit).
+ */
+export function mapSaldosLegacyYEnsambleConFuente(
+  legacy: InventarioSaldoRow[],
+  ensamble: InventarioSaldoRow[]
+): Map<string, InventarioSaldoConFuente> {
+  const map = new Map<string, InventarioSaldoConFuente>();
+  for (const r of legacy) {
+    map.set(claveParaConsolidarSaldoKit(r), { row: r, fuente: "legacy" });
+  }
+  for (const r of ensamble) {
+    map.set(claveParaConsolidarSaldoKit(r), { row: r, fuente: "ensamble" });
+  }
+  return map;
+}
+
+/** Prefijo en `notas` de movimientos creados desde «clic en saldo» en Inventarios (historial filtrable). */
+export const NOTAS_PREFIJO_AJUSTE_SALDO_STOCK = "[Ajuste saldo]";
+
+/**
+ * Saldo mostrado y si permite ajuste por clic (solo filas cuyo saldo consolidado viene de `posInventarioSaldos`,
+ * no del WMS).
+ */
+export function saldoMostradoYFuenteParaInsumoKit(
+  item: InsumoKitItem,
+  porClave: Map<string, InventarioSaldoConFuente>,
+  saldoRowsMerged: InventarioSaldoRow[]
+): { saldo: number; fuente: "legacy" | "ensamble" | "ninguno"; editable: boolean } {
+  const saldo = cantidadSaldoParaInsumoKit(item, saldoRowsMerged);
+  const synthetic: InventarioSaldoRow = { insumoId: item.id, insumoSku: item.sku, cantidad: 0 };
+  const ck = claveParaConsolidarSaldoKit(synthetic);
+  const ent = porClave.get(ck);
+  if (ent) {
+    return { saldo, fuente: ent.fuente, editable: ent.fuente !== "ensamble" };
+  }
+  const k = normSkuInventario(item.sku);
+  if (k) {
+    for (const e of Array.from(porClave.values())) {
+      const r = e.row;
+      if (normSkuInventario(r.insumoSku) === k || normSkuInventario(r.insumoId) === k) {
+        return { saldo, fuente: e.fuente, editable: e.fuente !== "ensamble" };
+      }
+    }
+  }
+  for (const e of Array.from(porClave.values())) {
+    if (e.row.insumoId === item.id) {
+      return { saldo, fuente: e.fuente, editable: e.fuente !== "ensamble" };
+    }
+  }
+  return { saldo, fuente: "ninguno", editable: true };
+}
+
+/**
+ * Saldos + mapa por clave de kit con fuente (legacy vs ensamble). Misma lectura que
+ * `listarSaldosInventarioPorPuntoVenta`.
+ */
+export async function listarSaldosInventarioConFuentePorPuntoVenta(puntoVenta: string): Promise<{
+  saldoRows: InventarioSaldoRow[];
+  porClave: Map<string, InventarioSaldoConFuente>;
+}> {
+  const empty = (): { saldoRows: InventarioSaldoRow[]; porClave: Map<string, InventarioSaldoConFuente> } => ({
+    saldoRows: [],
+    porClave: new Map(),
+  });
+  if (!db) return empty();
+  const pv = puntoVenta.replace(/\u00a0/g, " ").trim();
+  if (!pv) return empty();
+
+  const legacyByClave = new Map<string, InventarioSaldoRow>();
   try {
     const qLegacy = query(collection(db, POS_INVENTARIO_SALDOS_COLLECTION), where("puntoVenta", "==", pv));
     const snapLegacy = await getDocs(qLegacy);
     for (const r of querySnapshotToSaldoRows(snapLegacy)) {
-      map.set(claveParaConsolidarSaldoKit(r), r);
+      legacyByClave.set(claveParaConsolidarSaldoKit(r), r);
     }
   } catch {
     /* ignore */
   }
+  const legacyRows = Array.from(legacyByClave.values());
 
+  const ensByClave = new Map<string, InventarioSaldoRow>();
   try {
     const colEns = collection(db, POS_INVENTARIO_ENSAMBLE_SALDOS_COLLECTION);
     const byDocId = new Map<string, InventarioSaldoRow>();
@@ -433,13 +497,29 @@ export async function listarSaldosInventarioPorPuntoVenta(puntoVenta: string): P
       }
     }
     for (const r of Array.from(byDocId.values())) {
-      map.set(claveParaConsolidarSaldoKit(r), r);
+      ensByClave.set(claveParaConsolidarSaldoKit(r), r);
     }
   } catch {
     /* ignore: colección nueva o reglas */
   }
+  const ensRows = Array.from(ensByClave.values());
 
-  return Array.from(map.values());
+  const porClave = mapSaldosLegacyYEnsambleConFuente(legacyRows, ensRows);
+  return {
+    saldoRows: Array.from(porClave.values()).map((v) => v.row),
+    porClave,
+  };
+}
+
+/**
+ * Saldos mostrados en Inventarios: lee `posInventarioSaldos` (cargue/ajustes POS) y
+ * `pos_inventario_ensamble_saldo` (WMS tras ventas). Fusiona por **clave de kit** (`insumoSku` o
+ * sufijo tras `sheet-`/`gs-` en `insumoId`) para que el ensamble reemplace al legacy aunque el WMS use
+ * `FRAN-KIT-*` y la hoja genere `id` `sheet-fran-kit-*`.
+ */
+export async function listarSaldosInventarioPorPuntoVenta(puntoVenta: string): Promise<InventarioSaldoRow[]> {
+  const x = await listarSaldosInventarioConFuentePorPuntoVenta(puntoVenta);
+  return x.saldoRows;
 }
 
 export async function obtenerSaldosPorPuntoVenta(
@@ -611,6 +691,32 @@ export async function listarMovimientosInventario(
   const merged = [...legacy, ...ensamble];
   merged.sort((a, b) => secondsCreatedAt(b) - secondsCreatedAt(a));
   return merged.slice(0, max);
+}
+
+/** Indica si un movimiento (POS o WMS) corresponde al ítem del catálogo (id hoja o SKU kit). */
+export function movimientoInventarioCorrespondeAInsumoKit(
+  m: InventarioMovimientoDoc,
+  item: InsumoKitItem
+): boolean {
+  if (m.insumoId === item.id) return true;
+  const k = normSkuInventario(item.sku);
+  if (!k) return false;
+  return normSkuInventario(m.insumoSku) === k || normSkuInventario(m.insumoId) === k;
+}
+
+/**
+ * Últimos movimientos de un insumo en el punto de venta (legacy + ensamble WMS), más recientes primero.
+ * Filtra en cliente sobre un barrido acotado para no exigir índices compuestos en Firestore.
+ */
+export async function listarMovimientosRecientesPorInsumoKit(
+  puntoVenta: string,
+  item: InsumoKitItem,
+  opciones?: { maxScan?: number; maxResultados?: number }
+): Promise<InventarioMovimientoDoc[]> {
+  const maxScan = opciones?.maxScan ?? 400;
+  const maxResultados = opciones?.maxResultados ?? 50;
+  const todos = await listarMovimientosInventario(puntoVenta, maxScan);
+  return todos.filter((m) => movimientoInventarioCorrespondeAInsumoKit(m, item)).slice(0, maxResultados);
 }
 
 function deltaPorTipo(tipo: TipoMovimientoInventario, cantidad: number): number {

@@ -8,6 +8,25 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      keyframes: {
+        "metas-shimmer": {
+          "0%": { transform: "translateX(-100%)" },
+          "100%": { transform: "translateX(100%)" },
+        },
+        "metas-float": {
+          "0%, 100%": { transform: "translateY(0)" },
+          "50%": { transform: "translateY(-6px)" },
+        },
+        "metas-glow": {
+          "0%, 100%": { opacity: "0.45", transform: "scale(1)" },
+          "50%": { opacity: "0.9", transform: "scale(1.02)" },
+        },
+      },
+      animation: {
+        "metas-shimmer": "metas-shimmer 2.4s ease-in-out infinite",
+        "metas-float": "metas-float 3.2s ease-in-out infinite",
+        "metas-glow": "metas-glow 2.2s ease-in-out infinite",
+      },
       colors: {
         brand: {
           red: "#C41E3A",

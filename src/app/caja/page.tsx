@@ -5,7 +5,9 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import CajeroReportesDashboard from "@/components/CajeroReportesDashboard";
+import MetasBonificacionesModule from "@/components/MetasBonificacionesModule";
 import CargueInventarioManualPanel from "@/components/CargueInventarioManualPanel";
+import CargueInventarioMasivoPanel from "@/components/CargueInventarioMasivoPanel";
 import ConfiguracionMasModule from "@/components/ConfiguracionMasModule";
 import CrearClientePosModal from "@/components/CrearClientePosModal";
 import EdicionItemCuentaModal from "@/components/EdicionItemCuentaModal";
@@ -202,7 +204,9 @@ type ModuloActivo =
   | "ultimosRecibos"
   | "turnos"
   | "cargueInventario"
+  | "cargueInventarioMasivo"
   | "inventarios"
+  | "metasBonificaciones"
   | "reportes"
   | "mas";
 
@@ -1623,20 +1627,26 @@ export default function CajaPage() {
   const tituloModulo = esContador
     ? moduloActivo === "ultimosRecibos"
       ? "Últimos recibos"
-      : "Reportes"
+      : moduloActivo === "metasBonificaciones"
+        ? "Metas y bonificaciones"
+        : "Reportes"
     : moduloActivo === "ventas"
       ? "Ventas e ingresos"
       : moduloActivo === "ultimosRecibos"
         ? "Últimos recibos"
         : moduloActivo === "turnos"
           ? "Turnos"
-          : moduloActivo === "cargueInventario"
-            ? "Cargue de inventario"
-            : moduloActivo === "inventarios"
-              ? "Inventarios"
-              : moduloActivo === "reportes"
-                ? "Reportes"
-                : "Más";
+          : moduloActivo === "cargueInventarioMasivo"
+            ? "Cargue masivo de inventario"
+            : moduloActivo === "cargueInventario"
+              ? "Cargue de inventario"
+              : moduloActivo === "inventarios"
+                ? "Inventarios"
+                : moduloActivo === "metasBonificaciones"
+                  ? "Metas y bonificaciones"
+                  : moduloActivo === "reportes"
+                    ? "Reportes"
+                    : "Más";
 
   return (
     <div className="flex h-dvh max-h-dvh min-h-0 overflow-hidden bg-gray-100/90">
@@ -1700,6 +1710,25 @@ export default function CajaPage() {
               </button>
               <button
                 type="button"
+                onClick={() => setModuloActivo("cargueInventarioMasivo")}
+                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
+                  moduloActivo === "cargueInventarioMasivo"
+                    ? "bg-brand-yellow/25 text-gray-900 border border-brand-yellow/50"
+                    : "text-gray-600 hover:bg-gray-50"
+                }`}
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 6h16M4 10h16M4 14h10M4 18h10"
+                  />
+                </svg>
+                Cargue masivo
+              </button>
+              <button
+                type="button"
                 onClick={() => setModuloActivo("inventarios")}
                 className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
                   moduloActivo === "inventarios"
@@ -1737,6 +1766,25 @@ export default function CajaPage() {
               />
             </svg>
             Últimos recibos
+          </button>
+          <button
+            type="button"
+            onClick={() => setModuloActivo("metasBonificaciones")}
+            className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
+              moduloActivo === "metasBonificaciones"
+                ? "bg-brand-yellow/25 text-gray-900 border border-brand-yellow/50"
+                : "text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            <svg className="h-5 w-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z"
+              />
+            </svg>
+            Metas y bonificaciones
           </button>
           <button
             type="button"
@@ -2681,6 +2729,8 @@ export default function CajaPage() {
                 turnoInicio={null}
                 soloConsultaContador
               />
+            ) : moduloActivo === "metasBonificaciones" ? (
+              <MetasBonificacionesModule puntoVenta={user.puntoVenta} />
             ) : (
               <div className="space-y-4">
                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
@@ -2979,10 +3029,14 @@ export default function CajaPage() {
                   : null
               }
             />
+          ) : moduloActivo === "cargueInventarioMasivo" ? (
+            <CargueInventarioMasivoPanel puntoVenta={user.puntoVenta} uid={user.uid} email={user.email} />
           ) : moduloActivo === "cargueInventario" ? (
             <CargueInventarioManualPanel puntoVenta={user.puntoVenta} uid={user.uid} email={user.email} />
           ) : moduloActivo === "inventarios" ? (
             <InventarioPosModule puntoVenta={user.puntoVenta} uid={user.uid} email={user.email} />
+          ) : moduloActivo === "metasBonificaciones" ? (
+            <MetasBonificacionesModule puntoVenta={user.puntoVenta} />
           ) : moduloActivo === "reportes" ? (
             <CajeroReportesDashboard uid={user.uid} puntoVenta={user.puntoVenta} />
           ) : moduloActivo === "mas" ? (
