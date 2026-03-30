@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { fetchCatalogoInsumosDesdeSheet } from "@/lib/catalogo-insumos-sheet-client";
+import { db } from "@/lib/firebase";
 import {
   escribirMinimoInventarioLocal,
   leerMinimosInventarioLocal,
@@ -15,7 +17,11 @@ import {
   listarInsumosKitPorPuntoVenta,
   listarMovimientosInventario,
   listarSaldosInventarioPorPuntoVenta,
+  mergeSaldosInventarioLegacyYEnsamble,
   normSkuInventario,
+  POS_INVENTARIO_ENSAMBLE_SALDOS_COLLECTION,
+  POS_INVENTARIO_SALDOS_COLLECTION,
+  querySnapshotToSaldoRows,
   registrarMovimientoInventario,
   type InventarioSaldoRow,
 } from "@/lib/inventario-pos-firestore";
@@ -211,6 +217,44 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     void cargarTodo();
   }, [cargarTodo]);
 
+  /** Sincroniza saldos en tiempo real: tras cobrar, el WMS escribe en `pos_inventario_ensamble_saldo` y la grilla se actualiza sin pulsar «Actualizar stock». */
+  useEffect(() => {
+    if (!pv || !db) return;
+    let legacy: InventarioSaldoRow[] = [];
+    let ens: InventarioSaldoRow[] = [];
+    const pushMerged = () => {
+      setSaldoRows(mergeSaldosInventarioLegacyYEnsamble(legacy, ens));
+    };
+    const qLeg = query(collection(db, POS_INVENTARIO_SALDOS_COLLECTION), where("puntoVenta", "==", pv));
+    const unsubLeg = onSnapshot(
+      qLeg,
+      (snap) => {
+        legacy = querySnapshotToSaldoRows(snap);
+        pushMerged();
+      },
+      () => {
+        legacy = [];
+        pushMerged();
+      }
+    );
+    const qEns = query(collection(db, POS_INVENTARIO_ENSAMBLE_SALDOS_COLLECTION), where("puntoVenta", "==", pv));
+    const unsubEns = onSnapshot(
+      qEns,
+      (snap) => {
+        ens = querySnapshotToSaldoRows(snap);
+        pushMerged();
+      },
+      () => {
+        ens = [];
+        pushMerged();
+      }
+    );
+    return () => {
+      unsubLeg();
+      unsubEns();
+    };
+  }, [pv]);
+
   const cargarHistorial = useCallback(async () => {
     if (!pv) return;
     setCargandoHist(true);
@@ -322,8 +366,10 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
             usuario de sesión y punto de venta), no en la nube. Los <span className="font-medium">saldos</span> y los
             movimientos por cargue o ajuste viven en Firestore; al <span className="font-medium">cobrar ventas</span> con
             carrito, el descuento de insumos por ensamble (BOM) lo calcula y registra el <strong className="font-medium">WMS</strong>{" "}
-            en la misma colección de saldos. Si un producto no tiene composición configurada allí, el saldo no baja al
-            vender. Tras cobrar, usá <span className="font-medium">«Actualizar stock»</span> para refrescar. Punto:{" "}
+            en la colección de saldos de ensamble. Los números de stock se actualizan en vivo mientras esta pantalla está
+            abierta. <span className="font-medium">«Actualizar stock»</span> vuelve a cargar catálogo y saldos desde la
+            hoja/Firestore por si hubo cambios externos. Si un producto no tiene composición en el WMS, el saldo no baja al
+            vender. Punto:{" "}
             <span className="font-medium text-gray-800">{pv}</span>.
           </p>
           {fuenteCatalogo && (

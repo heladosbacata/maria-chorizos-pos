@@ -13,6 +13,7 @@ import {
   setDoc,
   where,
   orderBy,
+  type QuerySnapshot,
 } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { mediodiaColombiaDesdeYmd, ymdColombia } from "@/lib/fecha-colombia";
@@ -317,7 +318,8 @@ export function cantidadSaldoParaInsumoKit(item: InsumoKitItem, rows: Inventario
   return sum;
 }
 
-function filasSaldoDesdeSnap(snap: Awaited<ReturnType<typeof getDocs>>): InventarioSaldoRow[] {
+/** Convierte un snapshot de consulta (getDocs u onSnapshot) en filas de saldo. */
+export function querySnapshotToSaldoRows(snap: QuerySnapshot): InventarioSaldoRow[] {
   const rows: InventarioSaldoRow[] = [];
   snap.forEach((d) => {
     const x = d.data() as Record<string, unknown>;
@@ -334,6 +336,20 @@ function filasSaldoDesdeSnap(snap: Awaited<ReturnType<typeof getDocs>>): Inventa
 }
 
 /**
+ * Une saldos POS (`posInventarioSaldos`) con ensamble WMS (`pos_inventario_ensamble_saldo`).
+ * Si el mismo `insumoId` existe en ambas, gana ensamble (descuentos por venta).
+ */
+export function mergeSaldosInventarioLegacyYEnsamble(
+  legacy: InventarioSaldoRow[],
+  ensamble: InventarioSaldoRow[]
+): InventarioSaldoRow[] {
+  const map = new Map<string, InventarioSaldoRow>();
+  for (const r of legacy) map.set(r.insumoId, r);
+  for (const r of ensamble) map.set(r.insumoId, r);
+  return Array.from(map.values());
+}
+
+/**
  * Saldos mostrados en Inventarios: lee `posInventarioSaldos` (cargue/ajustes POS) y
  * `pos_inventario_ensamble_saldo` (WMS tras ventas). Si el mismo `insumoId` existe en ambas,
  * gana la fila del ensamble WMS (es el saldo que refleja descuentos por venta).
@@ -347,7 +363,7 @@ export async function listarSaldosInventarioPorPuntoVenta(puntoVenta: string): P
   try {
     const qLegacy = query(collection(db, POS_INVENTARIO_SALDOS_COLLECTION), where("puntoVenta", "==", pv));
     const snapLegacy = await getDocs(qLegacy);
-    for (const r of filasSaldoDesdeSnap(snapLegacy)) {
+    for (const r of querySnapshotToSaldoRows(snapLegacy)) {
       map.set(r.insumoId, r);
     }
   } catch {
@@ -357,7 +373,7 @@ export async function listarSaldosInventarioPorPuntoVenta(puntoVenta: string): P
   try {
     const qEns = query(collection(db, POS_INVENTARIO_ENSAMBLE_SALDOS_COLLECTION), where("puntoVenta", "==", pv));
     const snapEns = await getDocs(qEns);
-    for (const r of filasSaldoDesdeSnap(snapEns)) {
+    for (const r of querySnapshotToSaldoRows(snapEns)) {
       map.set(r.insumoId, r);
     }
   } catch {

@@ -83,4 +83,9 @@ describe("contarAplicadosEnsambleReportados", () => {
   it("null si no viene aplicados", () => {
     expect(contarAplicadosEnsambleReportados({ ok: true, status: 200 })).toBeNull();
   });
+  it("usa componentesAfectados del WMS si aplicados no viene", () => {
+    expect(
+      contarAplicadosEnsambleReportados({ ok: true, status: 200, componentesAfectados: 4 })
+    ).toBe(4);
+  });
 });

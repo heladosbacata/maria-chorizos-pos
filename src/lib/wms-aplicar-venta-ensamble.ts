@@ -24,6 +24,8 @@ export interface WmsAplicarVentaEnsambleResult {
   ok: boolean;
   status: number;
   aplicados?: unknown;
+  /** Conteo que envía el WMS cuando hay descuento por línea de composición (alias útil si `aplicados` no se parsea). */
+  componentesAfectados?: number;
   detalle?: unknown;
   movimientoId?: string;
   message?: string;
@@ -84,12 +86,15 @@ export function esErrorRedAplicarEnsamble(msg: string): boolean {
   );
 }
 
-/** Si el WMS devuelve `aplicados`, permite saber si hubo descuentos reales de insumos. */
+/** Si el WMS devuelve `aplicados` o `componentesAfectados`, permite saber si hubo descuentos reales de insumos. */
 export function contarAplicadosEnsambleReportados(r: WmsAplicarVentaEnsambleResult): number | null {
   const a = r.aplicados;
-  if (a == null) return null;
-  if (typeof a === "number" && Number.isFinite(a)) return Math.max(0, a);
-  if (Array.isArray(a)) return a.length;
+  if (a != null) {
+    if (typeof a === "number" && Number.isFinite(a)) return Math.max(0, a);
+    if (Array.isArray(a)) return a.length;
+  }
+  const c = r.componentesAfectados;
+  if (typeof c === "number" && Number.isFinite(c)) return Math.max(0, c);
   return null;
 }
 
@@ -242,10 +247,12 @@ export async function aplicarVentaEnsambleWms(
     const upstreamBody =
       typeof data?._posUpstreamTried === "string" ? (data._posUpstreamTried as string) : undefined;
 
+    const comp = data?.componentesAfectados;
     return {
       ok,
       status: res.status,
       aplicados: data?.aplicados,
+      ...(typeof comp === "number" && Number.isFinite(comp) ? { componentesAfectados: comp } : {}),
       detalle: data?.detalle,
       movimientoId: typeof data?.movimientoId === "string" ? data.movimientoId : undefined,
       message: typeof data?.message === "string" ? data.message : undefined,
