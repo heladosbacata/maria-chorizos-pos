@@ -64,12 +64,28 @@ La pantalla de venta (módulo **Ventas e ingresos** en `/caja`) carga el catálo
 
 Tras confirmar la venta, el POS llama al WMS:
 
-`POST [NEXT_PUBLIC_WMS_URL]/api/pos/inventario/aplicar-venta-ensamble` (vía proxy `/api/pos_aplicar_venta_ensamble`).
+`POST [NEXT_PUBLIC_WMS_URL]/api/pos/inventario/aplicar-venta-ensamble` (vía proxy **`/api/pos_aplicar_venta_ensamble`** en el servidor Next, que reenvía `Authorization: Bearer <Firebase idToken>`).
 
 Cuerpo JSON que envía el POS (resumen):
 
 - `lineas[]`: cada ítem incluye `skuProducto` (id compuesto con `|chorizo:…|arepa:…` si aplica), `cantidad` (entero ≥ 1), **`sku`** (base catálogo), y cuando hay modal de variantes también **`varianteChorizo`**, **`varianteArepaCombo`** y el array **`variantes`** (`["chorizo:tradicional"]`, etc.) para que el WMS pueda cruzar con la hoja aunque no parsee el string compuesto.
-- **`puntoVenta`**: código del punto (mismo que el perfil del cajero); el WMS debe usarlo para descontar en `posInventarioSaldos`.
-- `idVenta`: id de ticket local (idempotencia).
+- **`puntoVenta`**: código del punto (**mismo** que `users/{uid}.puntoVenta` del cajero en Firebase); el WMS debe validarlo y escribir **ese** valor en los documentos de Firestore.
+- **`idVenta`**: id de ticket local (idempotencia en el WMS, p. ej. `pos_inventario_ensamble_venta_idem`).
 
-El WMS debe resolver la composición (BOM) y actualizar Firestore. Pruebas unitarias del armado de líneas: `npm run test`.
+### Firestore que escribe el WMS (ensamble)
+
+El POS **lee** el stock en pantalla Inventarios fusionando:
+
+| Colección | Uso |
+|-----------|-----|
+| **`pos_inventario_ensamble_saldo`** | Saldos actualizados por el WMS al aplicar ensamble (prevalece sobre legacy si el mismo `insumoId` existe en ambas). |
+| **`pos_inventario_ensamble_movimientos`** | Movimientos por línea de descuento (`tipo` p. ej. `venta_ensamble`). |
+| **`posInventarioSaldos`** | Legacy: cargue y ajustes hechos **desde el POS**; sigue siendo fuente si no hay fila ensamble para ese insumo. |
+
+Código en el repo: `src/lib/inventario-pos-firestore.ts` (`listarSaldosInventarioPorPuntoVenta`, `listarMovimientosInventario`). Query de saldos: `where("puntoVenta", "==", pv)` en cada colección. **Merge en cliente:** por clave de kit (`claveParaConsolidarSaldoKit`): prioriza `insumoSku` y, en hoja Google, el sufijo tras prefijos `sheet-` / `gs-` en `insumoId`, para que el saldo del WMS (`insumoId` = `FRAN-KIT-*`) reemplace al legacy aunque el catálogo muestre `id` tipo `sheet-fran-kit-*`.
+
+El WMS debe resolver la composición (**DB_POS_Composición** / BOM) y escribir en **`pos_inventario_ensamble_*`** con **`insumoId` / `insumoSku` alineados al catálogo kit** (`DB_Franquicia_Insumos_Kit`). Reglas de ejemplo para lectura cliente: `firestore.rules.example`.
+
+Pruebas unitarias del armado de líneas hacia el WMS: `npm run test` (`src/lib/wms-aplicar-venta-ensamble.test.ts`).
+
+Más checklist de inventario y reglas: `docs/CHECKLIST_INVENTARIO.md`.

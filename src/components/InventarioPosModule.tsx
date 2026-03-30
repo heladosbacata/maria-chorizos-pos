@@ -91,7 +91,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
   const [cargandoHist, setCargandoHist] = useState(false);
   const [diagEnsamble, setDiagEnsamble] = useState<UltimoEnsambleSesionDiag | null>(null);
 
-  const pv = (puntoVenta ?? "").trim();
+  const pv = (puntoVenta ?? "").replace(/\u00a0/g, " ").trim();
 
   const refrescarDiagEnsamble = useCallback(() => {
     setDiagEnsamble(leerUltimoEnsambleSesion());
@@ -530,6 +530,11 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                   <code className="rounded bg-white px-0.5">pos_inventario_ensamble_saldo</code> /{" "}
                   <code className="rounded bg-white px-0.5">pos_inventario_ensamble_movimientos</code> (y, si aplica,{" "}
                   <code className="rounded bg-white px-0.5">posInventarioSaldos</code> para cargue manual).
+                </li>
+                <li>
+                  Catálogo desde <strong className="font-medium">hoja Google</strong>: cada fila tiene <code className="rounded bg-white px-0.5">id</code> tipo{" "}
+                  <code className="rounded bg-white px-0.5">sheet-fran-kit-6</code> y <code className="rounded bg-white px-0.5">sku</code>{" "}
+                  <code className="rounded bg-white px-0.5">FRAN-KIT-6</code>. El WMS escribe saldo con <code className="rounded bg-white px-0.5">insumoId</code> = código kit; el POS fusiona por ese SKU para que el saldo baje en pantalla tras «Actualizar stock».
                 </li>
               </ul>
             </details>
