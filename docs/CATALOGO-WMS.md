@@ -89,3 +89,7 @@ El WMS debe resolver la composición (**DB_POS_Composición** / BOM) y escribir 
 Pruebas unitarias del armado de líneas hacia el WMS: `npm run test` (`src/lib/wms-aplicar-venta-ensamble.test.ts`).
 
 Más checklist de inventario y reglas: `docs/CHECKLIST_INVENTARIO.md`.
+
+### Error HTTP 500: transacción Firestore en el WMS
+
+Si el diagnóstico muestra *«Firestore transactions require all reads to be executed before all writes»*, el arreglo es **solo en el WMS** (reordenar `get` antes de `set` en `aplicar-venta-ensamble`). Ver **`docs/WMS-ENSAMBLE-TRANSACCION-FIRESTORE.md`**.
