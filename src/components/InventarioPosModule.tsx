@@ -374,6 +374,12 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                     mismo SKU/variante que envió el POS (ver abajo).
                   </div>
                 )}
+                {diagEnsamble.puntoVentaEnviado && (
+                  <div>
+                    <dt className="inline text-slate-500">puntoVenta (enviado al WMS): </dt>
+                    <dd className="inline break-all font-semibold">{diagEnsamble.puntoVentaEnviado}</dd>
+                  </div>
+                )}
                 {diagEnsamble.firebaseProjectId && (
                   <div>
                     <dt className="inline text-slate-500">Firebase projectId (POS): </dt>
@@ -418,9 +424,14 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                       return (
                         <div key={i} className="break-all">
                           ×{l.cantidad} <span className="font-semibold">{l.skuProducto}</span>
-                          {base !== l.skuProducto && (
-                            <span className="block pl-2 text-slate-600">→ SKU base para buscar en composición: {base}</span>
-                          )}
+                          {l.sku ? (
+                            <span className="block pl-2 text-slate-600">
+                              → <code className="rounded bg-white px-0.5">sku</code> catálogo: {l.sku}
+                            </span>
+                          ) : null}
+                          {base !== l.skuProducto ? (
+                            <span className="block pl-2 text-slate-600">→ SKU base (antes de |): {base}</span>
+                          ) : null}
                         </div>
                       );
                     })}

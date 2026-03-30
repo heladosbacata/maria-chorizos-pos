@@ -59,3 +59,17 @@ El contrato detallado de la API (ej. códigos de error, autenticación, filtros)
 ## Dónde se usa en el POS
 
 La pantalla de venta (módulo **Ventas e ingresos** en `/caja`) carga el catálogo al entrar en ese módulo y muestra los productos con **imagen**, **descripción** y **precio**. Hay búsqueda por código, descripción o categoría.
+
+## Descuento de inventario por ensamble (tras cada cobro)
+
+Tras confirmar la venta, el POS llama al WMS:
+
+`POST [NEXT_PUBLIC_WMS_URL]/api/pos/inventario/aplicar-venta-ensamble` (vía proxy `/api/pos_aplicar_venta_ensamble`).
+
+Cuerpo JSON que envía el POS (resumen):
+
+- `lineas[]`: cada ítem incluye `skuProducto` (puede ser id compuesto con `|chorizo:…|arepa:…`), `cantidad` (entero ≥ 1) y **`sku`** (SKU base del catálogo, sin sufijos).
+- **`puntoVenta`**: código del punto (mismo que el perfil del cajero); el WMS debe usarlo para descontar en `posInventarioSaldos`.
+- `idVenta`: id de ticket local (idempotencia).
+
+El WMS debe resolver la composición (BOM) y actualizar Firestore. Pruebas unitarias del armado de líneas: `npm run test`.

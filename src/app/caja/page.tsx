@@ -1335,65 +1335,72 @@ export default function CajaPage() {
           ...(mediosPago ? { mediosPago } : {}),
         });
 
-        if (ventaLocalId) {
-          const lineasEnsamble = lineasWmsEnsambleDesdeItemsCuenta(itemsSnap);
-          if (lineasEnsamble.length > 0) {
-            const bodyEnsamble = { lineas: lineasEnsamble, idVenta: ventaLocalId };
-            let ultimoEnsamble: WmsAplicarVentaEnsambleResult = {
-              ok: false,
-              status: 0,
-              error: "Ensamble no ejecutado",
-            };
-            try {
-              const tokenEns = await auth?.currentUser?.getIdToken();
-              if (!tokenEns) {
-                ultimoEnsamble = { ok: false, status: 401, error: "Sin token de sesión para ensamble." };
-              } else {
-                let rEns = await aplicarVentaEnsambleWms(tokenEns, bodyEnsamble);
-                if (!rEns.ok && (rEns.status === 0 || rEns.status >= 500)) {
-                  await new Promise((r) => setTimeout(r, 1500));
-                  const t2 = await auth?.currentUser?.getIdToken();
-                  if (t2) rEns = await aplicarVentaEnsambleWms(t2, bodyEnsamble);
+        const lineasEnsamble = lineasWmsEnsambleDesdeItemsCuenta(itemsSnap);
+        const idEnsamble =
+          ventaLocalId ?? `ens-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+        if (lineasEnsamble.length > 0) {
+          const bodyEnsamble = {
+            lineas: lineasEnsamble,
+            idVenta: idEnsamble,
+            puntoVenta: pv,
+          };
+          let ultimoEnsamble: WmsAplicarVentaEnsambleResult = {
+            ok: false,
+            status: 0,
+            error: "Ensamble no ejecutado",
+          };
+          try {
+            const tokenEns = await auth?.currentUser?.getIdToken();
+            if (!tokenEns) {
+              ultimoEnsamble = { ok: false, status: 401, error: "Sin token de sesión para ensamble." };
+            } else {
+              let rEns = await aplicarVentaEnsambleWms(tokenEns, bodyEnsamble);
+              if (!rEns.ok && (rEns.status === 0 || rEns.status >= 500)) {
+                await new Promise((r) => setTimeout(r, 1500));
+                const t2 = await auth?.currentUser?.getIdToken();
+                if (t2) rEns = await aplicarVentaEnsambleWms(t2, bodyEnsamble);
+              }
+              ultimoEnsamble = rEns;
+              if (!rEns.ok) {
+                if (rEns.status === 0 || rEns.status >= 500) {
+                  encolarAplicarEnsamblePendiente(bodyEnsamble);
                 }
-                ultimoEnsamble = rEns;
-                if (!rEns.ok) {
-                  if (rEns.status === 0 || rEns.status >= 500) {
-                    encolarAplicarEnsamblePendiente(bodyEnsamble);
-                  }
-                  window.alert(mensajeAplicarEnsambleParaCajero(rEns));
-                } else {
-                  const aplicados = contarAplicadosEnsambleReportados(rEns);
-                  if (aplicados === 0) {
-                    window.alert(mensajeEnsambleOkSinDescuentoInventario(rEns));
-                  } else if (aplicados === null) {
-                    console.warn(
-                      "[POS] Ensamble WMS: respuesta OK pero sin campo «aplicados». Revisá Inventarios → Diagnóstico último cobro, Firebase projectId y que DB_POS_Composición use el mismo SKU/variante que el POS.",
-                      rEns
-                    );
-                  }
+                window.alert(mensajeAplicarEnsambleParaCajero(rEns));
+              } else {
+                const aplicados = contarAplicadosEnsambleReportados(rEns);
+                if (aplicados === 0) {
+                  window.alert(mensajeEnsambleOkSinDescuentoInventario(rEns));
+                } else if (aplicados === null) {
+                  console.warn(
+                    "[POS] Ensamble WMS: respuesta OK pero sin campo «aplicados». Revisá Inventarios → Diagnóstico último cobro, Firebase projectId y que DB_POS_Composición use el mismo SKU/variante que el POS.",
+                    rEns
+                  );
                 }
               }
-            } catch (e) {
-              console.warn("aplicar-venta-ensamble", e);
-              ultimoEnsamble = {
-                ok: false,
-                status: 0,
-                error: e instanceof Error ? e.message : String(e),
-              };
-              encolarAplicarEnsamblePendiente(bodyEnsamble);
-              window.alert(
-                "La venta quedó registrada en caja, pero hubo un error al sincronizar el inventario por ensamble. Se reintentará automáticamente cuando haya conexión."
-              );
-            } finally {
-              guardarUltimoEnsambleEnSesion(bodyEnsamble, ultimoEnsamble);
-              console.info("[POS] aplicar-venta-ensamble", {
-                idVenta: ventaLocalId,
-                skus: bodyEnsamble.lineas.map((l) => l.skuProducto),
-                ...ultimoEnsamble,
-              });
             }
+          } catch (e) {
+            console.warn("aplicar-venta-ensamble", e);
+            ultimoEnsamble = {
+              ok: false,
+              status: 0,
+              error: e instanceof Error ? e.message : String(e),
+            };
+            encolarAplicarEnsamblePendiente(bodyEnsamble);
+            window.alert(
+              "La venta quedó registrada en caja, pero hubo un error al sincronizar el inventario por ensamble. Se reintentará automáticamente cuando haya conexión."
+            );
+          } finally {
+            guardarUltimoEnsambleEnSesion(bodyEnsamble, ultimoEnsamble);
+            console.info("[POS] aplicar-venta-ensamble", {
+              idVenta: idEnsamble,
+              puntoVenta: pv,
+              skus: bodyEnsamble.lineas.map((l) => l.skuProducto),
+              ...ultimoEnsamble,
+            });
           }
+        }
 
+        if (ventaLocalId) {
           try {
             const tokenCloud = await auth?.currentUser?.getIdToken();
             if (tokenCloud) {

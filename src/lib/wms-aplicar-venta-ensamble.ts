@@ -3,8 +3,11 @@ import type { ItemCuenta } from "@/types/pos-caja-item";
 
 /** Línea enviada a POST /api/pos/inventario/aplicar-venta-ensamble (WMS). */
 export interface WmsAplicarVentaEnsambleLinea {
+  /** Id compuesto o SKU catálogo (p. ej. `SKU|chorizo:picante|arepa:arepa_queso`). */
   skuProducto: string;
   cantidad: number;
+  /** SKU base del catálogo POS (sin sufijos `|…`); algunos despliegues del WMS lo leen como `sku`. */
+  sku?: string;
   variantes?: string[];
   varianteChorizo?: string;
   varianteArepaCombo?: string;
@@ -13,6 +16,8 @@ export interface WmsAplicarVentaEnsambleLinea {
 export interface WmsAplicarVentaEnsambleBody {
   lineas: WmsAplicarVentaEnsambleLinea[];
   idVenta?: string;
+  /** Punto de venta explícito (el WMS puede usarlo además de `users/{uid}.puntoVenta`). */
+  puntoVenta?: string;
 }
 
 export interface WmsAplicarVentaEnsambleResult {
@@ -53,7 +58,7 @@ export function lineasWmsEnsambleDesdeItemsCuenta(items: ItemCuenta[]): WmsAplic
       varianteChorizo: it.varianteChorizo,
       varianteArepaCombo: it.varianteArepaCombo,
     });
-    out.push({ skuProducto, cantidad });
+    out.push({ skuProducto, cantidad, sku: skuBase });
   }
   return out;
 }
@@ -93,7 +98,8 @@ export const ULTIMO_ENSAMBLE_SESSION_KEY = "pos_mc_ultimo_ensamble_v1";
 export interface UltimoEnsambleSesionDiag {
   atIso: string;
   idVenta?: string;
-  lineasEnviadas: { skuProducto: string; cantidad: number }[];
+  lineasEnviadas: { skuProducto: string; cantidad: number; sku?: string }[];
+  puntoVentaEnviado?: string;
   ok: boolean;
   status: number;
   aplicadosCount: number | null;
@@ -130,7 +136,12 @@ export function guardarUltimoEnsambleEnSesion(
   const diag: UltimoEnsambleSesionDiag = {
     atIso: new Date().toISOString(),
     idVenta: body.idVenta,
-    lineasEnviadas: body.lineas.map((l) => ({ skuProducto: l.skuProducto, cantidad: l.cantidad })),
+    lineasEnviadas: body.lineas.map((l) => ({
+      skuProducto: l.skuProducto,
+      cantidad: l.cantidad,
+      ...(l.sku ? { sku: l.sku } : {}),
+    })),
+    ...(body.puntoVenta?.trim() ? { puntoVentaEnviado: body.puntoVenta.trim() } : {}),
     ok: result.ok,
     status: result.status,
     aplicadosCount: contarAplicadosEnsambleReportados(result),
