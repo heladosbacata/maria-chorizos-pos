@@ -24,6 +24,8 @@ export interface CajeroReportesDashboardProps {
   /** Firebase uid: sesión y carga de ventas en nube. El reporte agrega por punto de venta (todos los cajeros). */
   uid: string | null;
   puntoVenta: string | null;
+  /** Contador / soporte: muestra el mensaje de error crudo si falla la lista en nube (p. ej. índice Firestore). En caja habitual se omite. */
+  mostrarDetalleErrorNube?: boolean;
 }
 
 function formatMoney(n: number): string {
@@ -37,7 +39,11 @@ function medalla(i: number): string {
   return "";
 }
 
-export default function CajeroReportesDashboard({ uid, puntoVenta }: CajeroReportesDashboardProps) {
+export default function CajeroReportesDashboard({
+  uid,
+  puntoVenta,
+  mostrarDetalleErrorNube = false,
+}: CajeroReportesDashboardProps) {
   const u = (uid ?? "").trim();
   const pv = (puntoVenta ?? "").trim();
   const hoyYmd = useMemo(() => ymdDesdeFechaLocal(new Date()), []);
@@ -47,15 +53,19 @@ export default function CajeroReportesDashboard({ uid, puntoVenta }: CajeroRepor
   const [tick, setTick] = useState(0);
   const [ventasNube, setVentasNube] = useState<VentaGuardadaLocal[] | null>(null);
   const [nubeAviso, setNubeAviso] = useState<string | null>(null);
+  /** `null` = cargando o aún no hubo intento con sesión+PV; `true` = GET nube OK; `false` = falló. */
+  const [nubeSincronizada, setNubeSincronizada] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (!u || !pv) {
       setVentasNube(null);
       setNubeAviso(null);
+      setNubeSincronizada(null);
       return;
     }
     let cancelled = false;
     setNubeAviso(null);
+    setNubeSincronizada(null);
     (async () => {
       try {
         const token = await auth?.currentUser?.getIdToken();
@@ -64,22 +74,24 @@ export default function CajeroReportesDashboard({ uid, puntoVenta }: CajeroRepor
         if (!cancelled) {
           setVentasNube(rows);
           setNubeAviso(null);
+          setNubeSincronizada(true);
         }
       } catch (e) {
         if (!cancelled) {
           setVentasNube([]);
-          setNubeAviso(
+          setNubeSincronizada(false);
+          const msg =
             e instanceof Error
               ? e.message
-              : "No se pudieron cargar las ventas desde la nube; solo se muestran las guardadas en este equipo."
-          );
+              : "No se pudieron cargar las ventas desde la nube; solo se muestran las guardadas en este equipo.";
+          setNubeAviso(mostrarDetalleErrorNube ? msg : null);
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [u, pv, tick]);
+  }, [u, pv, tick, mostrarDetalleErrorNube]);
 
   const ventas = useMemo(() => {
     void tick;
@@ -146,7 +158,7 @@ export default function CajeroReportesDashboard({ uid, puntoVenta }: CajeroRepor
           Total cobrado con carrito en{" "}
           <span className="font-semibold text-primary-700">{pv}</span>
           , <strong className="font-medium text-gray-800">todos los cajeros</strong>
-          {ventasNube !== null && !nubeAviso
+          {nubeSincronizada === true
             ? " (nube + ventas guardadas en este navegador)."
             : " (solo ventas guardadas en este navegador; sin nube no ves otros equipos)."}
         </p>
@@ -158,7 +170,7 @@ export default function CajeroReportesDashboard({ uid, puntoVenta }: CajeroRepor
           <p className="mx-auto mt-3 max-w-xl rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
             {nubeAviso}
           </p>
-        ) : ventasNube !== null && !nubeAviso ? (
+        ) : nubeSincronizada === true ? (
           <p className="mt-2 text-xs text-emerald-800">
             La nube agrupa ventas del mismo punto de venta aunque las haya cobrado otro cajero o equipo (si sincronizaron).
           </p>

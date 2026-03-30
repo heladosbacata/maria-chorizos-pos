@@ -109,12 +109,12 @@ export function crearPdfInformeTurno(t: TurnoCerradoV1): jsPDF {
   const c = t.cierre;
   autoTable(doc, {
     startY: y,
-    head: [["Cierre declarado en caja", ""]],
+    head: [["Cierre (tickets + base)", ""]],
     body: [
-      ["Efectivo real", `$ ${fmtCop(c.efectivoReal)}`],
-      ["Tarjeta declarada", `$ ${fmtCop(c.tarjeta)}`],
-      ["Pagos en linea declarados", `$ ${fmtCop(c.pagosLinea)}`],
-      ["Otros medios declarados", `$ ${fmtCop(c.otrosMedios)}`],
+      ["Efectivo (base + ventas efectivo)", `$ ${fmtCop(c.efectivoReal)}`],
+      ["Tarjeta / datáfono", `$ ${fmtCop(c.tarjeta)}`],
+      ["Pagos en línea", `$ ${fmtCop(c.pagosLinea)}`],
+      ["Otros medios", `$ ${fmtCop(c.otrosMedios)}`],
       ["Total ingresado (cierre)", `$ ${fmtCop(c.totalIngresado)}`],
       ["Total esperado", `$ ${fmtCop(c.totalEsperado)}`],
       ["Diferencia", `$ ${fmtCop(c.diferencia)}`],

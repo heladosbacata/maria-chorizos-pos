@@ -67,6 +67,7 @@ import {
   sumarMediosPagoVentas,
   type MediosPagoVentaGuardados,
 } from "@/lib/medios-pago-venta";
+import { anularVentaEnEquipoInventarioYNube } from "@/lib/pos-anular-venta-inventario-nube";
 import { encolarAplicarEnsamblePendiente, procesarColaAplicarEnsamblePendiente } from "@/lib/pos-wms-ensamble-pendiente";
 import { encolarVentaPendienteWms, procesarColaVentasPendientesWms } from "@/lib/pos-ventas-pendientes-wms";
 import { registrarVentaPosCloud } from "@/lib/pos-ventas-cloud-client";
@@ -120,8 +121,26 @@ import { emailDesdeFichaFranquiciado, getFranquiciadoPorPuntoVenta } from "@/lib
 
 const LS_INFORME_TURNO_PARA = "pos_mc_informe_turno_para_v1";
 const LS_INFORME_TURNO_CC = "pos_mc_informe_turno_cc_v1";
+/** Clave maestra para abrir el menú «Más» (misma que contabilidad, inventario y contrato POS en el proyecto). */
+const CLAVE_ACCESO_MAS = "MC2026";
 /** Tiempo mínimo visible del overlay de impresión al cobrar (experiencia pulida). */
 const MIN_COBRO_IMPRESION_OVERLAY_MS = 2600;
+
+/** Vista previa post-cobro: permite anular y restaurar la cuenta con el mismo criterio que «Últimos recibos». */
+type VistaPreviaCobroPendiente = {
+  ticket: TicketVentaPayload;
+  ventaLocalId: string | null;
+  itemsRestaurar: ItemCuenta[];
+  total: number;
+};
+
+function clonarItemsCuenta(items: ItemCuenta[]): ItemCuenta[] {
+  try {
+    return structuredClone(items);
+  } catch {
+    return JSON.parse(JSON.stringify(items)) as ItemCuenta[];
+  }
+}
 
 function emailValidoSimple(s: string): boolean {
   const t = s.trim();
@@ -264,11 +283,6 @@ export default function CajaPage() {
   const [procesandoCierreTurno, setProcesandoCierreTurno] = useState(false);
   const [errorInformeCierreCorreo, setErrorInformeCierreCorreo] = useState<string | null>(null);
   const [detalleVentasExpandido, setDetalleVentasExpandido] = useState(true);
-  /** Valores ingresados en el cierre de turno */
-  const [cierreEfectivoReal, setCierreEfectivoReal] = useState("");
-  const [cierreTarjeta, setCierreTarjeta] = useState("");
-  const [cierrePagosLinea, setCierrePagosLinea] = useState("");
-  const [cierreOtrosMedios, setCierreOtrosMedios] = useState("");
   const [baseInicialCaja, setBaseInicialCaja] = useState(0);
   const [showModalAbrirTurno, setShowModalAbrirTurno] = useState(false);
   const [baseInicialCajaInput, setBaseInicialCajaInput] = useState("");
@@ -276,6 +290,8 @@ export default function CajaPage() {
   const [cargandoCajerosTurnoModal, setCargandoCajerosTurnoModal] = useState(false);
   const [cajeroIdSeleccionAbrirTurno, setCajeroIdSeleccionAbrirTurno] = useState<string>(CAJERO_TURNO_ID_SESION);
   const [errorModalAbrirTurno, setErrorModalAbrirTurno] = useState<string | null>(null);
+  const [showModalClaveMas, setShowModalClaveMas] = useState(false);
+  const [inputClaveMas, setInputClaveMas] = useState("");
   /** Cajero que opera el turno actual (ventas / reportes al WMS). */
   const [cajeroTurnoActivo, setCajeroTurnoActivo] = useState<{
     id: string;
@@ -338,8 +354,6 @@ export default function CajaPage() {
   /** Foto en el modal de perfil (cajero en turno o sesión, según turno abierto). */
   const [fotoPerfilModal, setFotoPerfilModal] = useState<string | null>(null);
   const inputFotoRef = useRef<HTMLInputElement>(null);
-  /** Evita sobrescribir el cierre si el usuario editó con el modal abierto. */
-  const cierreTurnoYaPrecargadoRef = useRef(false);
   const [catalogoProductos, setCatalogoProductos] = useState<ProductoPOS[]>([]);
   const [catalogoLoading, setCatalogoLoading] = useState(false);
   const [catalogoError, setCatalogoError] = useState<string | null>(null);
@@ -354,7 +368,8 @@ export default function CajaPage() {
   const [cobrando, setCobrando] = useState(false);
   const [cobroImpresionOverlayOpen, setCobroImpresionOverlayOpen] = useState(false);
   /** Ticket listo para imprimir: primero se muestra vista previa si imprimir automático está activo. */
-  const [previsualizacionTicketCobro, setPrevisualizacionTicketCobro] = useState<TicketVentaPayload | null>(null);
+  const [previsualizacionCobro, setPrevisualizacionCobro] = useState<VistaPreviaCobroPendiente | null>(null);
+  const [cancelandoTransaccionVistaPrevia, setCancelandoTransaccionVistaPrevia] = useState(false);
   const [registrarPagoAbierto, setRegistrarPagoAbierto] = useState(false);
   const [modalCobroSinInternetAbierto, setModalCobroSinInternetAbierto] = useState(false);
   const resolverCobroSinInternetRef = useRef<((aceptar: boolean) => void) | null>(null);
@@ -629,7 +644,7 @@ export default function CajaPage() {
     };
   }, [ventasTurnoActivales]);
 
-  /** Mismos totales que el resumen «Ver detalle» (para precargar cierre de caja). */
+  /** Mismos totales que el resumen «Ver detalle» (cierre de caja solo lectura desde tickets). */
   const cierreCamposDesdeVentas = useMemo(
     () => ({
       efectivo: mediosTurnoModal.efectivo,
@@ -640,19 +655,16 @@ export default function CajaPage() {
     [mediosTurnoModal]
   );
 
-  useEffect(() => {
-    if (!showModalCierreTurno) {
-      cierreTurnoYaPrecargadoRef.current = false;
-      return;
-    }
-    if (cierreTurnoYaPrecargadoRef.current) return;
-    cierreTurnoYaPrecargadoRef.current = true;
-    const c = cierreCamposDesdeVentas;
-    setCierreEfectivoReal(formatPesosCop(c.efectivo));
-    setCierreTarjeta(formatPesosCop(c.tarjeta));
-    setCierrePagosLinea(formatPesosCop(c.pagosLinea));
-    setCierreOtrosMedios(formatPesosCop(c.otros));
-  }, [showModalCierreTurno, cierreCamposDesdeVentas]);
+  /** Efectivo en caja = base inicial + ventas en efectivo; el resto son ventas por medio. No editable. */
+  const valoresCierreCajaSegunVentas = useMemo(() => {
+    const m = cierreCamposDesdeVentas;
+    const efectivoEnCaja = Math.round((baseInicialCaja + m.efectivo) * 100) / 100;
+    const tarjeta = Math.round(m.tarjeta * 100) / 100;
+    const pagosLinea = Math.round(m.pagosLinea * 100) / 100;
+    const otros = Math.round(m.otros * 100) / 100;
+    const totalIngresado = Math.round((efectivoEnCaja + tarjeta + pagosLinea + otros) * 100) / 100;
+    return { efectivoEnCaja, tarjeta, pagosLinea, otros, totalIngresado };
+  }, [cierreCamposDesdeVentas, baseInicialCaja]);
 
   const ejecutarCierreTurnoDefinitivo = useCallback(
     async (correoInforme?: { para: string; cc?: string }) => {
@@ -664,11 +676,8 @@ export default function CajaPage() {
     }
     setProcesandoCierreTurno(true);
     try {
-    const efectivoReal = parsePesosCopInput(cierreEfectivoReal);
-    const tarjeta = parsePesosCopInput(cierreTarjeta);
-    const pagosLinea = parsePesosCopInput(cierrePagosLinea);
-    const otrosMedios = parsePesosCopInput(cierreOtrosMedios);
-    const totalIngresado = efectivoReal + tarjeta + pagosLinea + otrosMedios;
+    const { efectivoEnCaja: efectivoReal, tarjeta, pagosLinea, otros: otrosMedios, totalIngresado } =
+      valoresCierreCajaSegunVentas;
     const totalEsperado = baseInicialCaja + totalVentasEnTurno;
     const diferencia = totalIngresado - totalEsperado;
 
@@ -791,20 +800,13 @@ export default function CajaPage() {
     setValorProductosEliminados(0);
     setBaseInicialCaja(0);
     setTurnoSesionId("");
-    setCierreEfectivoReal("");
-    setCierreTarjeta("");
-    setCierrePagosLinea("");
-    setCierreOtrosMedios("");
     setShowModalCierreTurno(false);
     } finally {
       setProcesandoCierreTurno(false);
     }
   }, [
     user,
-    cierreEfectivoReal,
-    cierreTarjeta,
-    cierrePagosLinea,
-    cierreOtrosMedios,
+    valoresCierreCajaSegunVentas,
     baseInicialCaja,
     totalVentasEnTurno,
     turnoSesionId,
@@ -1186,16 +1188,13 @@ export default function CajaPage() {
     }
     const pv = user.puntoVenta?.trim();
     if (!pv) return { ok: false, message: "No hay punto de venta asignado." };
+    const sku = skuStickerFidelizacion();
+    /** Sin SKU en el despliegue (p. ej. Vercel): el QR de fidelización sigue activo; no se descuenta inventario. */
+    if (!sku) {
+      return { ok: true };
+    }
     if (!turnoAbierto) {
       return { ok: false, message: "Abrí el turno para descontar el sticker de fidelización en inventario." };
-    }
-    const sku = skuStickerFidelizacion();
-    if (!sku) {
-      return {
-        ok: false,
-        message:
-          "Falta configurar NEXT_PUBLIC_POS_SKU_STICKER_FIDELIZACION (código SKU del sticker de fidelización en la hoja de insumos). Pídeselo a quien administra el despliegue del POS.",
-      };
     }
     try {
       const sheetRes = await fetchCatalogoInsumosDesdeSheet(pv);
@@ -1315,6 +1314,66 @@ export default function CajaPage() {
       setCobroImpresionOverlayOpen(false);
     }
   }, []);
+
+  const handleCancelarTransaccionVistaPrevia = useCallback(async () => {
+    const pack = previsualizacionCobro;
+    if (!pack || !user?.uid?.trim()) return;
+    const pv = user.puntoVenta?.trim();
+    if (!pv) {
+      window.alert("No hay punto de venta asignado.");
+      return;
+    }
+    const okConfirm = window.confirm(
+      "¿Anular por completo esta venta?\n\n" +
+        "Se devolverán los productos a la cuenta actual, se marcará el recibo como anulado y se intentará devolver stock en inventario POS (como en «Últimos recibos»).\n\n" +
+        "El envío de la venta a red / WMS ya realizado no se revierte automáticamente; coordiná con soporte si hace falta corregir reportes o ensamble."
+    );
+    if (!okConfirm) return;
+
+    setCancelandoTransaccionVistaPrevia(true);
+    try {
+      if (pack.ventaLocalId) {
+        const r = await anularVentaEnEquipoInventarioYNube({
+          uid: user.uid,
+          email: user.email ?? null,
+          puntoVenta: pv,
+          ventaId: pack.ventaLocalId,
+          motivo: "Cancelación desde vista previa del comprobante (error del cajero).",
+        });
+        if (!r.ok) {
+          window.alert(r.message);
+          return;
+        }
+        if (turnoAbierto && r.venta.turnoSesionId?.trim() === turnoSesionId.trim()) {
+          setTotalVentasEnTurno((prev) => Math.max(0, prev - r.venta.total));
+        }
+        if (r.fallosSku.length > 0) {
+          window.alert(
+            `La venta quedó anulada, pero no se pudo devolver inventario en algunas líneas:\n${r.fallosSku.slice(0, 8).join("\n")}${r.fallosSku.length > 8 ? "\n…" : ""}`
+          );
+        }
+      } else {
+        window.alert(
+          "No hay id de venta local para registrar la anulación en el historial. Se restauró la cuenta y se ajustó el total del turno en pantalla; revisá «Últimos recibos», inventario y reportes con soporte si los números no cuadran."
+        );
+        setTotalVentasEnTurno((prev) => Math.max(0, prev - pack.total));
+      }
+
+      setItemsPorPrecuenta((prev) => ({
+        ...prev,
+        [activePrecuentaId]: clonarItemsCuenta(pack.itemsRestaurar),
+      }));
+      setPrevisualizacionCobro(null);
+    } finally {
+      setCancelandoTransaccionVistaPrevia(false);
+    }
+  }, [
+    previsualizacionCobro,
+    user,
+    turnoAbierto,
+    turnoSesionId,
+    activePrecuentaId,
+  ]);
 
   type OpcionesCobroVenta = { notaPie?: string; detallePago?: DetallePagoConfirmado };
 
@@ -1559,7 +1618,12 @@ export default function CajaPage() {
 
         const prefs = loadImpresionPrefs();
         if (prefs.imprimirAutomaticoAlCobrar) {
-          setPrevisualizacionTicketCobro(ticket);
+          setPrevisualizacionCobro({
+            ticket,
+            ventaLocalId: ventaLocalId ?? null,
+            itemsRestaurar: clonarItemsCuenta(itemsSnap),
+            total,
+          });
         }
 
         void procesarColaVentasPendientesWms();
@@ -1634,10 +1698,6 @@ export default function CajaPage() {
     setPrecuentasEliminadasCount(0);
     setProductosEliminadosCount(0);
     setValorProductosEliminados(0);
-    setCierreEfectivoReal("");
-    setCierreTarjeta("");
-    setCierrePagosLinea("");
-    setCierreOtrosMedios("");
     setTurnoSesionId(nuevoTurnoSesionId());
     setShowModalAbrirTurno(false);
     setBaseInicialCajaInput("");
@@ -1647,6 +1707,26 @@ export default function CajaPage() {
     await signOut();
     router.replace("/");
   };
+
+  const abrirModuloMasConClave = useCallback(() => {
+    setInputClaveMas("");
+    setShowModalClaveMas(true);
+  }, []);
+
+  const confirmarClaveMas = useCallback(() => {
+    if (inputClaveMas.trim() !== CLAVE_ACCESO_MAS) {
+      window.alert("Clave incorrecta.");
+      return;
+    }
+    setShowModalClaveMas(false);
+    setInputClaveMas("");
+    setModuloActivo("mas");
+  }, [inputClaveMas]);
+
+  const cerrarModalClaveMas = useCallback(() => {
+    setShowModalClaveMas(false);
+    setInputClaveMas("");
+  }, []);
 
   const inicialesCajero = user?.email
     ? user.email
@@ -1869,7 +1949,10 @@ export default function CajaPage() {
           {!esContador && (
             <button
               type="button"
-              onClick={() => setModuloActivo("mas")}
+              onClick={() => {
+                if (moduloActivo === "mas") return;
+                abrirModuloMasConClave();
+              }}
               className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
                 moduloActivo === "mas" ? "bg-brand-yellow/25 text-gray-900 border border-brand-yellow/50" : "text-gray-600 hover:bg-gray-50"
               }`}
@@ -2138,6 +2221,72 @@ export default function CajaPage() {
         onFotoChange={handleFotoPerfilModalChange}
         esContador={esContador}
       />
+
+      {/* Modal clave «Más» */}
+      {showModalClaveMas && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="modal-clave-mas-titulo"
+        >
+          <div className="absolute inset-0 bg-black/50" onClick={cerrarModalClaveMas} aria-hidden="true" />
+          <div className="relative w-full max-w-md overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
+              <h2 id="modal-clave-mas-titulo" className="text-lg font-semibold text-gray-900">
+                Acceso a Más
+              </h2>
+              <button
+                type="button"
+                onClick={cerrarModalClaveMas}
+                className="rounded p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+                aria-label="Cerrar"
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <form
+              className="px-6 py-5"
+              onSubmit={(e) => {
+                e.preventDefault();
+                confirmarClaveMas();
+              }}
+            >
+              <p className="text-sm text-gray-600">
+                Ingresá la clave maestra para abrir configuración y herramientas adicionales.
+              </p>
+              <label htmlFor="clave-mas-input" className="mb-1 mt-4 block text-xs font-medium text-gray-700">
+                Clave
+              </label>
+              <input
+                id="clave-mas-input"
+                type="password"
+                autoComplete="off"
+                value={inputClaveMas}
+                onChange={(e) => setInputClaveMas(e.target.value)}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/30"
+              />
+              <div className="mt-5 flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={cerrarModalClaveMas}
+                  className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-bold text-white hover:bg-primary-700"
+                >
+                  Ingresar
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Modal Abrir turno */}
       {showModalAbrirTurno && (
@@ -2485,81 +2634,65 @@ export default function CajaPage() {
                 <p className="mt-1 text-gray-600">Total retiro de efectivo: $ {totalRetiroEfectivo.toLocaleString("es-CO", { minimumFractionDigits: 2 })}</p>
               </div>
 
-              {/* Ingrese el valor de las ventas registradas */}
-              <p className="mb-2 text-sm font-medium text-gray-900">
-                Ingrese el valor de las ventas registradas en el turno
+              {/* Totales del cierre desde tickets (solo lectura) */}
+              <p className="mb-1 text-sm font-medium text-gray-900">
+                Totales según ventas registradas en el turno
+              </p>
+              <p className="mb-3 text-xs text-gray-500">
+                Calculados automáticamente desde los tickets de esta caja; el cajero no puede modificarlos.
               </p>
               <div className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-xs text-gray-600">Total real de efectivo en caja</label>
-                  <div className="flex rounded-lg border border-gray-300 bg-white">
+                  <label className="mb-1 block text-xs text-gray-600">
+                    Efectivo en caja (base inicial + ventas en efectivo)
+                  </label>
+                  <div className="flex rounded-lg border border-gray-200 bg-gray-50">
                     <span className="flex items-center px-3 text-gray-500">$</span>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={cierreEfectivoReal}
-                      onChange={(e) => setCierreEfectivoReal(e.target.value)}
-                      placeholder="0,00"
-                      className="w-full py-2 pr-3 focus:outline-none focus:ring-0"
-                    />
+                    <span className="w-full py-2 pr-3 text-gray-900 tabular-nums">
+                      {formatPesosCop(valoresCierreCajaSegunVentas.efectivoEnCaja)}
+                    </span>
                   </div>
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs text-gray-600">Total ventas con tarjeta</label>
-                  <div className="flex rounded-lg border border-gray-300 bg-white">
+                  <label className="mb-1 block text-xs text-gray-600">Ventas con tarjeta / datáfono</label>
+                  <div className="flex rounded-lg border border-gray-200 bg-gray-50">
                     <span className="flex items-center px-3 text-gray-500">$</span>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={cierreTarjeta}
-                      onChange={(e) => setCierreTarjeta(e.target.value)}
-                      placeholder="0,00"
-                      className="w-full py-2 pr-3 focus:outline-none focus:ring-0"
-                    />
+                    <span className="w-full py-2 pr-3 text-gray-900 tabular-nums">
+                      {formatPesosCop(valoresCierreCajaSegunVentas.tarjeta)}
+                    </span>
                   </div>
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs text-gray-600">Total ventas con pagos en línea</label>
-                  <div className="flex rounded-lg border border-gray-300 bg-white">
+                  <label className="mb-1 block text-xs text-gray-600">Ventas con pagos en línea</label>
+                  <div className="flex rounded-lg border border-gray-200 bg-gray-50">
                     <span className="flex items-center px-3 text-gray-500">$</span>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={cierrePagosLinea}
-                      onChange={(e) => setCierrePagosLinea(e.target.value)}
-                      placeholder="0,00"
-                      className="w-full py-2 pr-3 focus:outline-none focus:ring-0"
-                    />
+                    <span className="w-full py-2 pr-3 text-gray-900 tabular-nums">
+                      {formatPesosCop(valoresCierreCajaSegunVentas.pagosLinea)}
+                    </span>
                   </div>
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs text-gray-600">Total ventas otros medios de pago</label>
-                  <div className="flex rounded-lg border border-gray-300 bg-white">
+                  <label className="mb-1 block text-xs text-gray-600">Ventas otros medios de pago</label>
+                  <div className="flex rounded-lg border border-gray-200 bg-gray-50">
                     <span className="flex items-center px-3 text-gray-500">$</span>
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={cierreOtrosMedios}
-                      onChange={(e) => setCierreOtrosMedios(e.target.value)}
-                      placeholder="0,00"
-                      className="w-full py-2 pr-3 focus:outline-none focus:ring-0"
-                    />
+                    <span className="w-full py-2 pr-3 text-gray-900 tabular-nums">
+                      {formatPesosCop(valoresCierreCajaSegunVentas.otros)}
+                    </span>
                   </div>
                 </div>
               </div>
 
               {/* Resumen cierre */}
               {(() => {
-                const decEfe = parsePesosCopInput(cierreEfectivoReal);
-                const decTar = parsePesosCopInput(cierreTarjeta);
-                const decLin = parsePesosCopInput(cierrePagosLinea);
-                const decOtr = parsePesosCopInput(cierreOtrosMedios);
-                const totalIngresado = decEfe + decTar + decLin + decOtr;
+                const decEfe = valoresCierreCajaSegunVentas.efectivoEnCaja;
+                const decTar = valoresCierreCajaSegunVentas.tarjeta;
+                const decLin = valoresCierreCajaSegunVentas.pagosLinea;
+                const decOtr = valoresCierreCajaSegunVentas.otros;
+                const totalIngresado = valoresCierreCajaSegunVentas.totalIngresado;
                 const totalEsperado = baseInicialCaja + totalVentasEnTurno;
                 const diferencia = totalIngresado - totalEsperado;
                 const cuadreExacto = Math.abs(diferencia) < 0.005;
                 const haySobrante = diferencia > 0.005;
-                const hayFaltante = diferencia < -0.005;
                 const claseDiferencia = cuadreExacto
                   ? "text-emerald-800 font-medium"
                   : haySobrante
@@ -2575,16 +2708,6 @@ export default function CajaPage() {
                 const sumaTicketsTurno = ventasTurnoActivales.reduce((s, v) => s + v.total, 0);
                 const sumaEsperadaPorTickets = baseInicialCaja + sumaTicketsTurno;
                 const wmsDiffiereDeTickets = Math.abs(totalEsperado - sumaEsperadaPorTickets) >= 0.02;
-                const diffEfe = decEfe - esperadoEfectivoEnCaja;
-                const diffTar = decTar - espTar;
-                const diffLin = decLin - espLin;
-                const diffOtr = decOtr - espOtr;
-                const fmtDelta = (d: number) => {
-                  const abs = Math.abs(d) < 0.005;
-                  const cls = abs ? "text-gray-600" : d > 0 ? "text-amber-800" : "text-red-700";
-                  const sign = d > 0.005 ? "+" : "";
-                  return <span className={`font-medium tabular-nums ${cls}`}>{sign}$ {fmtCop(d)}</span>;
-                };
                 return (
                   <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
                     <p className="flex justify-between">
@@ -2592,7 +2715,7 @@ export default function CajaPage() {
                       <span className="font-medium">$ {fmtCop(totalIngresado)}</span>
                     </p>
                     <p className="mt-1 text-xs text-gray-500">
-                      Suma de lo que declarás arriba: efectivo en caja, tarjeta, pagos en línea y otros medios.
+                      Suma automática: base + ventas en efectivo, más tarjeta, pagos en línea y otros medios según tickets.
                     </p>
                     <p className="mt-2 flex justify-between">
                       <span className="text-gray-600">Total esperado en cierre de caja</span>
@@ -2650,45 +2773,35 @@ export default function CajaPage() {
                     </div>
 
                     <div className="mt-3 rounded-md border border-gray-200 bg-white p-3 text-xs">
-                      <p className="font-semibold text-gray-900">Tu declaración vs lo esperado (por medio)</p>
+                      <p className="font-semibold text-gray-900">Desglose usado en el cierre (tickets + base)</p>
                       <p className="mt-1 text-gray-600">
-                        Compará cada campo del formulario con la columna «Esperado (tickets)». La columna «Dif» es declarado −
-                        esperado; sirve para ver en qué medio está el descuadre.
+                        Mismos importes que el recuadro verde de arriba; un solo origen de datos (ventas del turno en este
+                        equipo).
                       </p>
                       <div className="mt-2 overflow-x-auto">
-                        <table className="w-full min-w-[280px] border-collapse text-left text-[11px]">
+                        <table className="w-full min-w-[220px] border-collapse text-left text-[11px]">
                           <thead>
                             <tr className="border-b border-gray-200 text-gray-600">
                               <th className="py-1 pr-2 font-medium">Medio</th>
-                              <th className="py-1 pr-2 text-right font-medium">Declarado</th>
-                              <th className="py-1 pr-2 text-right font-medium">Esperado (tickets)</th>
-                              <th className="py-1 text-right font-medium">Dif</th>
+                              <th className="py-1 text-right font-medium">Importe</th>
                             </tr>
                           </thead>
                           <tbody className="text-gray-900">
                             <tr className="border-b border-gray-100">
-                              <td className="py-1.5 pr-2">Efectivo en caja</td>
-                              <td className="py-1.5 pr-2 text-right tabular-nums">$ {fmtCop(decEfe)}</td>
-                              <td className="py-1.5 pr-2 text-right tabular-nums">$ {fmtCop(esperadoEfectivoEnCaja)}</td>
-                              <td className="py-1.5 text-right">{fmtDelta(diffEfe)}</td>
+                              <td className="py-1.5 pr-2">Efectivo en caja (base + ventas efectivo)</td>
+                              <td className="py-1.5 text-right tabular-nums">$ {fmtCop(decEfe)}</td>
                             </tr>
                             <tr className="border-b border-gray-100">
-                              <td className="py-1.5 pr-2">Tarjeta</td>
-                              <td className="py-1.5 pr-2 text-right tabular-nums">$ {fmtCop(decTar)}</td>
-                              <td className="py-1.5 pr-2 text-right tabular-nums">$ {fmtCop(espTar)}</td>
-                              <td className="py-1.5 text-right">{fmtDelta(diffTar)}</td>
+                              <td className="py-1.5 pr-2">Tarjeta / datáfono</td>
+                              <td className="py-1.5 text-right tabular-nums">$ {fmtCop(decTar)}</td>
                             </tr>
                             <tr className="border-b border-gray-100">
                               <td className="py-1.5 pr-2">Pagos en línea</td>
-                              <td className="py-1.5 pr-2 text-right tabular-nums">$ {fmtCop(decLin)}</td>
-                              <td className="py-1.5 pr-2 text-right tabular-nums">$ {fmtCop(espLin)}</td>
-                              <td className="py-1.5 text-right">{fmtDelta(diffLin)}</td>
+                              <td className="py-1.5 text-right tabular-nums">$ {fmtCop(decLin)}</td>
                             </tr>
                             <tr>
                               <td className="py-1.5 pr-2">Otros medios</td>
-                              <td className="py-1.5 pr-2 text-right tabular-nums">$ {fmtCop(decOtr)}</td>
-                              <td className="py-1.5 pr-2 text-right tabular-nums">$ {fmtCop(espOtr)}</td>
-                              <td className="py-1.5 text-right">{fmtDelta(diffOtr)}</td>
+                              <td className="py-1.5 text-right tabular-nums">$ {fmtCop(decOtr)}</td>
                             </tr>
                           </tbody>
                         </table>
@@ -2699,7 +2812,7 @@ export default function CajaPage() {
                       <span className="min-w-0">
                         <span className="block">Diferencia (global)</span>
                         <span className="mt-0.5 block text-[11px] font-normal normal-case text-gray-600">
-                          Ingresado − (base + acumulado ventas sistema)
+                          Total según tickets (este equipo) − (base + acumulado ventas sistema)
                         </span>
                       </span>
                       <span className="shrink-0 tabular-nums">
@@ -2709,25 +2822,25 @@ export default function CajaPage() {
                     <div className="mt-2 rounded-md border border-gray-200 bg-white p-3 text-xs leading-relaxed text-gray-700">
                       <p className="font-semibold text-gray-900">¿Qué significa este valor?</p>
                       <p className="mt-1.5">
-                        Es la diferencia entre <strong>todo lo que declarás</strong> en el cierre y el{" "}
-                        <strong>total que el sistema espera</strong> (base inicial + acumulado de ventas del turno). El cuadro
-                        verde de arriba descompone <strong>cuánto de eso corresponde a efectivo físico</strong> (base + ventas en
-                        efectivo) y <strong>cuánto a cada otro medio</strong>, según los tickets cargados en este equipo.
+                        Es la diferencia entre el <strong>total calculado desde los tickets</strong> de este equipo (base + ventas
+                        por medio) y el <strong>total que el sistema acumuló</strong> para el turno (base + ventas WMS). El cuadro
+                        verde descompone el efectivo esperado en gaveta y el resto de medios según esos mismos tickets.
                       </p>
                       {cuadreExacto ? (
                         <p className="mt-1.5 text-emerald-800">
-                          <strong>Cuadre:</strong> ambos totales coinciden; no hay sobrecaja ni faltante según estos números.
+                          <strong>Cuadre:</strong> ambos totales coinciden; no hay diferencia entre tickets locales y acumulado del
+                          sistema.
                         </p>
                       ) : haySobrante ? (
                         <p className="mt-1.5 text-amber-900">
-                          <strong>Sobrante (valor positivo):</strong> declaraste más dinero del total esperado por el sistema.
-                          Usá la tabla por medio para ver si sobra efectivo, tarjeta u otro canal; revisá digitación y retiros no
-                          registrados.
+                          <strong>Sobrante (valor positivo):</strong> la suma de tickets en este equipo supera el acumulado del
+                          sistema. Revisá sincronización con el WMS o ventas registradas fuera de esta caja.
                         </p>
                       ) : (
                         <p className="mt-1.5 text-red-800">
-                          <strong>Faltante (valor negativo):</strong> declaraste menos del total esperado. Revisá sobre todo el
-                          conteo de efectivo frente a «Efectivo físico esperado en caja» y luego tarjeta / en línea / otros.
+                          <strong>Faltante (valor negativo):</strong> los tickets de este equipo suman menos que el acumulado del
+                          sistema. Revisá que todas las ventas del turno estén en este navegador o que no falte registrar algún
+                          cobro.
                         </p>
                       )}
                     </div>
@@ -2809,7 +2922,11 @@ export default function CajaPage() {
                     <strong>Reportes</strong> para el resumen.
                   </p>
                 </div>
-                <CajeroReportesDashboard uid={user.uid} puntoVenta={user.puntoVenta} />
+                <CajeroReportesDashboard
+                  uid={user.uid}
+                  puntoVenta={user.puntoVenta}
+                  mostrarDetalleErrorNube
+                />
               </div>
             )
           ) : moduloActivo === "ventas" ? (
@@ -3440,6 +3557,7 @@ export default function CajaPage() {
           cobrando={cobrando}
           onConfirmar={handleConfirmarRegistrarPago}
           onAntesActivarClienteFrecuente={antesActivarClienteFrecuente}
+          stickerFidelizacionConfigurado={Boolean(skuStickerFidelizacion())}
         />
       )}
 
@@ -3450,15 +3568,16 @@ export default function CajaPage() {
       />
 
       <TicketPrevisualizacionModal
-        open={previsualizacionTicketCobro != null}
-        ticket={previsualizacionTicketCobro}
+        open={previsualizacionCobro != null}
+        ticket={previsualizacionCobro?.ticket ?? null}
+        cancelandoTransaccion={cancelandoTransaccionVistaPrevia}
         onImprimir={() => {
-          const t = previsualizacionTicketCobro;
-          if (!t) return;
-          setPrevisualizacionTicketCobro(null);
-          void ejecutarImpresionPostCobro(t);
+          const pack = previsualizacionCobro;
+          if (!pack) return;
+          setPrevisualizacionCobro(null);
+          void ejecutarImpresionPostCobro(pack.ticket);
         }}
-        onCerrarSinImprimir={() => setPrevisualizacionTicketCobro(null)}
+        onCancelarTransaccion={() => void handleCancelarTransaccionVistaPrevia()}
       />
 
       <CobroImpresionCelebracionOverlay open={cobroImpresionOverlayOpen} />

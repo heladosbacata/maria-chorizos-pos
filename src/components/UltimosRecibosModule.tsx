@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { auth } from "@/lib/firebase";
 import { fechaHoraColombia } from "@/lib/fecha-colombia";
 import { loadImpresionPrefs } from "@/lib/impresion-pos-storage";
 import {
@@ -9,19 +8,13 @@ import {
   imprimirTicketEnNavegador,
   reservarVentanaTicketNavegador,
 } from "@/lib/pos-geb-print";
-import { anularVentaPosCloud } from "@/lib/pos-ventas-cloud-client";
+import { anularVentaEnEquipoInventarioYNube } from "@/lib/pos-anular-venta-inventario-nube";
 import {
   filtrarVentasVigentes,
   listarVentasPuntoVenta,
-  marcarVentaAnuladaLocal,
   ventasDelTurnoActivos,
   type VentaGuardadaLocal,
 } from "@/lib/pos-ventas-local-storage";
-import {
-  insumoKitDesdeCatalogoPorSku,
-  listarInsumosKitPorPuntoVenta,
-  registrarMovimientoInventario,
-} from "@/lib/inventario-pos-firestore";
 import {
   EVENTO_PERFIL_CAJERO_GUARDADO,
   etiquetaCuentaParaGuardado,
@@ -242,7 +235,7 @@ export interface UltimosRecibosModuleProps {
   turnoAbierto: boolean;
   /** Ajusta totales del turno abierto cuando la venta anulada pertenece al turno actual. */
   onAnulacionExitosa?: (venta: VentaGuardadaLocal) => void;
-  /** Contador invitado: solo ver y reimprimir, sin anular. */
+  /** Contador invitado: solo ver y reimprimir, sin anular. También muestra el aviso técnico de sesión (Firebase/PV). */
   soloConsultaContador?: boolean;
   /** Inicio del turno abierto (para listar las últimas ventas del turno). */
   turnoInicio?: Date | null;
@@ -363,53 +356,19 @@ export default function UltimosRecibosModule({
     setProcesando(true);
     setErrorModal(null);
     try {
-      const actualizada = marcarVentaAnuladaLocal(uid, v.id, { motivo, anuladaPorUid: uid });
-      if (!actualizada) {
-        setErrorModal("No se encontró la venta en este equipo o ya estaba anulada.");
+      const resultado = await anularVentaEnEquipoInventarioYNube({
+        uid,
+        email,
+        puntoVenta: pv,
+        ventaId: v.id,
+        motivo,
+      });
+      if (!resultado.ok) {
+        setErrorModal(resultado.message);
         setProcesando(false);
         return;
       }
-
-      const catalog = await listarInsumosKitPorPuntoVenta(pv);
-      const notasBase = `Anulación recibo ${v.id}. ${motivo}`;
-      const fallosSku: string[] = [];
-      for (const linea of v.lineas) {
-        const qty = linea.cantidad;
-        if (!(qty > 0)) continue;
-        const insumo = insumoKitDesdeCatalogoPorSku(catalog, linea.sku);
-        if (!insumo) {
-          fallosSku.push(linea.sku || linea.descripcion);
-          continue;
-        }
-        const r = await registrarMovimientoInventario({
-          puntoVenta: pv,
-          insumo,
-          tipo: "ajuste_positivo",
-          cantidad: qty,
-          notas: notasBase.slice(0, 500),
-          uid,
-          email,
-        });
-        if (!r.ok) {
-          fallosSku.push(`${linea.sku}: ${r.message ?? "error"}`);
-        }
-      }
-
-      try {
-        const token = await auth?.currentUser?.getIdToken();
-        if (token) {
-          const sync = await anularVentaPosCloud(token, {
-            ventaLocalId: v.id,
-            motivo,
-            anuladaEnIso: actualizada.anuladaEnIso ?? new Date().toISOString(),
-          });
-          if (!sync.ok) {
-            console.warn("Anulación local OK; nube:", sync.message);
-          }
-        }
-      } catch (e) {
-        console.warn("Anulación local OK; no se pudo replicar en nube.", e);
-      }
+      const { venta: actualizada, fallosSku } = resultado;
 
       if (turnoAbierto && v.turnoSesionId?.trim() === turnoSesionId.trim()) {
         onAnulacionExitosa?.(actualizada);
@@ -443,23 +402,25 @@ export default function UltimosRecibosModule({
     <div className="mx-auto max-w-3xl space-y-6 pb-12">
       <header>
         <h2 className="text-2xl font-extrabold tracking-tight text-gray-900">Últimos recibos</h2>
-        <div className="mt-2 rounded-xl border border-primary-100 bg-primary-50/85 px-3 py-2.5 text-sm text-primary-950">
-          <p>
-            <span className="font-semibold text-primary-900">Perfil / sesión activa:</span>{" "}
-            <span className="font-medium">{etiquetaPerfilSesion}</span>
-            {email?.trim() ? (
-              <span className="mt-0.5 block text-xs font-normal text-primary-900/85">
-                Correo de sesión: <span className="font-mono">{email.trim()}</span>
-              </span>
-            ) : null}
-          </p>
-          <p className="mt-2 text-xs leading-relaxed text-primary-900/88">
-            Los recibos de esta lista se guardan en este navegador bajo tu usuario Firebase{" "}
-            <code className="rounded bg-white/70 px-1 py-0.5 text-[11px]">{uid.trim().slice(0, 10)}…</code> y punto de
-            venta <strong>{pv}</strong>. Si completaste <strong>Perfil del usuario → Perfil del cajero</strong>, el nombre
-            mostrado arriba coincide con esa ficha.
-          </p>
-        </div>
+        {soloConsultaContador ? (
+          <div className="mt-2 rounded-xl border border-primary-100 bg-primary-50/85 px-3 py-2.5 text-sm text-primary-950">
+            <p>
+              <span className="font-semibold text-primary-900">Perfil / sesión activa:</span>{" "}
+              <span className="font-medium">{etiquetaPerfilSesion}</span>
+              {email?.trim() ? (
+                <span className="mt-0.5 block text-xs font-normal text-primary-900/85">
+                  Correo de sesión: <span className="font-mono">{email.trim()}</span>
+                </span>
+              ) : null}
+            </p>
+            <p className="mt-2 text-xs leading-relaxed text-primary-900/88">
+              Los recibos de esta lista se guardan en este navegador bajo tu usuario Firebase{" "}
+              <code className="rounded bg-white/70 px-1 py-0.5 text-[11px]">{uid.trim().slice(0, 10)}…</code> y punto de
+              venta <strong>{pv}</strong>. Si completaste <strong>Perfil del usuario → Perfil del cajero</strong>, el nombre
+              mostrado arriba coincide con esa ficha.
+            </p>
+          </div>
+        ) : null}
         <p className="mt-3 text-sm text-gray-600">
           {soloConsultaContador ? (
             <>

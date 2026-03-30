@@ -317,6 +317,7 @@ export default function ConfiguracionMasModule({ puntoVenta, uid }: Configuracio
   }, [categoriaActiva, pendingScrollItemId]);
 
   return (
+    <>
     <div className="flex min-h-[calc(100vh-8rem)] flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm lg:flex-row">
       {/* Sidebar categorías */}
       <aside className="w-full flex-shrink-0 border-b border-gray-200 bg-gray-50/80 lg:w-72 lg:border-b-0 lg:border-r">
@@ -516,5 +517,6 @@ export default function ConfiguracionMasModule({ puntoVenta, uid }: Configuracio
         )}
       </div>
     </div>
+    </>
   );
 }

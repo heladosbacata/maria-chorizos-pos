@@ -45,6 +45,8 @@ export interface RegistrarPagoPanelProps {
    * Si devuelve ok: false, el modo no se activa y no se abre el aviso.
    */
   onAntesActivarClienteFrecuente?: () => Promise<{ ok: true } | { ok: false; message: string }>;
+  /** Si false, el despliegue no tiene SKU de sticker: no se descuenta inventario pero el QR de fidelización sigue disponible. */
+  stickerFidelizacionConfigurado?: boolean;
 }
 
 type LineaOnline = { id: string; tipo: string; tipoOtro: string; montoStr: string };
@@ -66,6 +68,7 @@ export default function RegistrarPagoPanel({
   cobrando,
   onConfirmar,
   onAntesActivarClienteFrecuente,
+  stickerFidelizacionConfigurado = true,
 }: RegistrarPagoPanelProps) {
   const baseId = useId();
   const [tab, setTab] = useState<"contado">("contado");
@@ -525,9 +528,13 @@ export default function RegistrarPagoPanel({
           </button>
           <p className="mt-1.5 text-center text-[11px] leading-snug text-slate-500">
             {onAntesActivarClienteFrecuente
-              ? clienteFrecuenteActivo
-                ? "El ticket llevará QR para sumar puntos en la app María Chorizos. Ya se descontó 1 sticker de fidelización en inventario."
-                : "Activá antes de cobrar: se descuenta 1 sticker de fidelización y el aviso recuerda qué decirle al cliente (app, tarjeta y QR)."
+              ? stickerFidelizacionConfigurado
+                ? clienteFrecuenteActivo
+                  ? "El ticket llevará QR para sumar puntos en la app María Chorizos. Ya se descontó 1 sticker de fidelización en inventario."
+                  : "Activá antes de cobrar: se descuenta 1 sticker de fidelización y el aviso recuerda qué decirle al cliente (app, tarjeta y QR)."
+                : clienteFrecuenteActivo
+                  ? "El ticket llevará QR para sumar puntos en la app María Chorizos."
+                  : "Activá antes de cobrar para el QR de fidelización. En este despliegue no está configurado el descuento automático de sticker en inventario."
               : clienteFrecuenteActivo
                 ? "El ticket llevará QR para sumar puntos en la app María Chorizos."
                 : "Activá antes de cobrar si el cliente quiere acumular puntos."}

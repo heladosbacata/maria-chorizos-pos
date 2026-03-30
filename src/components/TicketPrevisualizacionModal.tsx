@@ -1,15 +1,23 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import { LOGO_ORG_URL } from "@/lib/brand";
 import { textoParaPrevisualizacionTicket } from "@/lib/pos-geb-print";
 import type { TicketVentaPayload } from "@/types/impresion-pos";
 
 export interface TicketPrevisualizacionModalProps {
   open: boolean;
   ticket: TicketVentaPayload | null;
+  /** Cierra el modal y dispara el flujo de impresión; toda venta debe salir con recibo. */
   onImprimir: () => void;
-  onCerrarSinImprimir: () => void;
+  /**
+   * Anula la venta recién registrada, restaura la cuenta en pantalla y ajusta inventario/nube como en «Últimos recibos».
+   * Si no se pasa, no se muestra el botón.
+   */
+  onCancelarTransaccion?: () => void | Promise<void>;
+  cancelandoTransaccion?: boolean;
 }
 
 /**
@@ -19,7 +27,8 @@ export default function TicketPrevisualizacionModal({
   open,
   ticket,
   onImprimir,
-  onCerrarSinImprimir,
+  onCancelarTransaccion,
+  cancelandoTransaccion = false,
 }: TicketPrevisualizacionModalProps) {
   const [mounted, setMounted] = useState(false);
 
@@ -40,6 +49,7 @@ export default function TicketPrevisualizacionModal({
 
   const texto = textoParaPrevisualizacionTicket(ticket);
   const qr = ticket.fidelizacionQrDataUrl?.trim();
+  const busy = cancelandoTransaccion;
 
   return createPortal(
     <div
@@ -48,12 +58,7 @@ export default function TicketPrevisualizacionModal({
       aria-modal="true"
       aria-labelledby="ticket-prev-titulo"
     >
-      <button
-        type="button"
-        className="absolute inset-0 bg-slate-900/55 backdrop-blur-sm"
-        aria-label="Cerrar vista previa"
-        onClick={onCerrarSinImprimir}
-      />
+      <div className="absolute inset-0 bg-slate-900/55 backdrop-blur-sm" aria-hidden role="presentation" />
 
       <div className="relative z-[1] flex max-h-[min(92vh,720px)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xl">
         <div className="border-b border-slate-100 bg-gradient-to-r from-slate-50 to-sky-50/40 px-5 py-4">
@@ -61,20 +66,36 @@ export default function TicketPrevisualizacionModal({
             Vista previa del comprobante
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-            Revisá el ticket y tocá <span className="font-semibold text-slate-800">Imprimir</span> para continuar.
+            Toda venta debe salir con recibo: tocá <span className="font-semibold text-slate-800">Imprimir</span> para
+            continuar.
+            {onCancelarTransaccion ? (
+              <>
+                {" "}
+                Si el cobro fue por error, usá{" "}
+                <span className="font-medium text-rose-800">Cancelar transacción</span>.
+              </>
+            ) : null}
           </p>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/90 p-4 shadow-inner">
+            <div className="mb-3 flex justify-center border-b border-slate-200/80 pb-3">
+              <Image
+                src={LOGO_ORG_URL}
+                alt="María Chorizos"
+                width={140}
+                height={48}
+                className="h-11 w-auto object-contain"
+                priority
+              />
+            </div>
             <pre className="whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-slate-800">
               {texto}
             </pre>
             {qr ? (
               <div className="mt-4 border-t border-slate-200 pt-4 text-center">
-                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-600">
-                  Cliente frecuente
-                </p>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-600">Cliente frecuente</p>
                 {/* eslint-disable-next-line @next/next/no-img-element -- data URL del QR */}
                 <img
                   src={qr}
@@ -89,18 +110,22 @@ export default function TicketPrevisualizacionModal({
           </div>
         </div>
 
-        <div className="flex flex-shrink-0 flex-col gap-2 border-t border-slate-100 bg-slate-50/90 px-5 py-4 sm:flex-row sm:justify-end">
+        <div className="flex flex-shrink-0 flex-col gap-2 border-t border-slate-100 bg-slate-50/90 px-5 py-4 sm:flex-row sm:flex-wrap sm:justify-end">
+          {onCancelarTransaccion ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void onCancelarTransaccion()}
+              className="w-full rounded-xl border-2 border-rose-200 bg-rose-50 px-5 py-3 text-sm font-semibold text-rose-900 transition-colors hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60 sm:order-1 sm:mr-auto sm:w-auto"
+            >
+              {busy ? "Anulando…" : "Cancelar transacción"}
+            </button>
+          ) : null}
           <button
             type="button"
-            onClick={onCerrarSinImprimir}
-            className="order-2 rounded-xl border-2 border-slate-200 bg-white px-5 py-3 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 sm:order-1"
-          >
-            Cerrar sin imprimir
-          </button>
-          <button
-            type="button"
+            disabled={busy}
             onClick={onImprimir}
-            className="order-1 rounded-xl bg-emerald-600 px-6 py-3 text-sm font-bold text-white shadow-md transition-colors hover:bg-emerald-700 sm:order-2"
+            className="w-full rounded-xl bg-emerald-600 px-6 py-3 text-sm font-bold text-white shadow-md transition-colors hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60 sm:order-2 sm:w-auto sm:min-w-[200px]"
           >
             Imprimir
           </button>

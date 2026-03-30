@@ -571,8 +571,8 @@ export default function TurnosHistorialModule({
                   <p>Otros: $ {fmtCop(detalle.totalesMediosVentas.otros)}</p>
                 </div>
                 <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Cierre declarado</p>
-                  <p className="mt-1">Efectivo real: $ {fmtCop(detalle.cierre.efectivoReal)}</p>
+                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Cierre (tickets + base)</p>
+                  <p className="mt-1">Efectivo (base + ventas efectivo): $ {fmtCop(detalle.cierre.efectivoReal)}</p>
                   <p>Tarjeta: $ {fmtCop(detalle.cierre.tarjeta)}</p>
                   <p>En línea: $ {fmtCop(detalle.cierre.pagosLinea)}</p>
                   <p>Otros: $ {fmtCop(detalle.cierre.otrosMedios)}</p>

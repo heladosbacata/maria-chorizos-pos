@@ -1,4 +1,6 @@
+import { LOGO_ORG_URL } from "@/lib/brand";
 import { fechaHoraColombia } from "@/lib/fecha-colombia";
+import { loadImpresionPrefs } from "@/lib/impresion-pos-storage";
 import type { ImpresionPosPrefs, TicketVentaPayload } from "@/types/impresion-pos";
 
 /** Evita caracteres fuera de CP437 en muchas térmicas; mantiene legibilidad. */
@@ -92,11 +94,16 @@ export function reservarVentanaTicketNavegador(): Window | null {
 }
 
 export function imprimirTicketEnNavegador(payload: TicketVentaPayload, ventanaExistente?: Window | null): void {
+  const prefsNav = loadImpresionPrefs();
   const tieneQrImg = Boolean(payload.fidelizacionQrDataUrl?.trim());
   const plain = construirTextoTicketPlano(
     tieneQrImg ? { ...payload, fidelizacionPayloadTexto: undefined } : payload
   );
   const body = escapeHtmlTextoPlano(plain).replace(/\n/g, "<br/>");
+  const logoBlock =
+    !prefsNav.impresionSimpleSinLogo && typeof window !== "undefined"
+      ? `<div style="text-align:center;margin-bottom:10px"><img src="${window.location.origin}${LOGO_ORG_URL}" alt="" width="120" height="40" style="max-height:52px;width:auto;object-fit:contain;display:inline-block" /></div>`
+      : "";
   const qrBlock =
     payload.fidelizacionQrDataUrl?.trim() != null && payload.fidelizacionQrDataUrl.trim() !== ""
       ? `<div style="margin-top:14px;text-align:center;border-top:1px dashed #ccc;padding-top:12px">
@@ -117,7 +124,7 @@ export function imprimirTicketEnNavegador(payload: TicketVentaPayload, ventanaEx
     <style>
       body{font-family:ui-monospace,monospace;font-size:12px;padding:12px;max-width:360px;margin:0 auto;}
       @media print{@page{size:auto;margin:8mm}}
-    </style></head><body><pre style="white-space:pre-wrap;font:inherit;margin:0">${body}</pre>${qrBlock}
+    </style></head><body>${logoBlock}<pre style="white-space:pre-wrap;font:inherit;margin:0">${body}</pre>${qrBlock}
     <script>window.onload=function(){window.print();setTimeout(function(){window.close()},250);}</script>
     </body></html>`);
   w.document.close();

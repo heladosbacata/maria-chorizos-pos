@@ -43,12 +43,12 @@ export function textoInformeTurno(t: TurnoCerradoV1): string {
   lines.push(`Pagos en línea (Nequi, Daviplata, transferencia): $ ${fmtCop(m.pagosLinea)}`);
   lines.push(`Otros medios: $ ${fmtCop(m.otros)}`);
   lines.push("");
-  lines.push("--- Cierre declarado en caja ---");
+  lines.push("--- Cierre (valores según tickets + base en esta caja) ---");
   const c = t.cierre;
-  lines.push(`Efectivo real en caja: $ ${fmtCop(c.efectivoReal)}`);
-  lines.push(`Tarjeta declarada: $ ${fmtCop(c.tarjeta)}`);
-  lines.push(`Pagos en línea declarados: $ ${fmtCop(c.pagosLinea)}`);
-  lines.push(`Otros medios declarados: $ ${fmtCop(c.otrosMedios)}`);
+  lines.push(`Efectivo en caja (base + ventas efectivo): $ ${fmtCop(c.efectivoReal)}`);
+  lines.push(`Tarjeta / datáfono: $ ${fmtCop(c.tarjeta)}`);
+  lines.push(`Pagos en línea: $ ${fmtCop(c.pagosLinea)}`);
+  lines.push(`Otros medios: $ ${fmtCop(c.otrosMedios)}`);
   lines.push(`Total ingresado (cierre): $ ${fmtCop(c.totalIngresado)}`);
   lines.push(`Total esperado: $ ${fmtCop(c.totalEsperado)}`);
   lines.push(`Diferencia: $ ${fmtCop(c.diferencia)}`);
