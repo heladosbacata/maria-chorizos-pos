@@ -38,13 +38,24 @@ describe("lineasWmsEnsambleDesdeItemsCuenta", () => {
     const lines = lineasWmsEnsambleDesdeItemsCuenta([item("MC-001", 2)]);
     expect(lines).toEqual([{ skuProducto: "MC-001", cantidad: 2, sku: "MC-001" }]);
   });
-  it("incluye variantes María Chorizos en skuProducto", () => {
+  it("incluye variantes María Chorizos en skuProducto y campos estructurados para el WMS", () => {
     const lines = lineasWmsEnsambleDesdeItemsCuenta([
       item("MC-CHO", 1, { varianteChorizo: "picante", varianteArepaCombo: "arepa_queso" }),
     ]);
     expect(lines[0]?.skuProducto).toBe("MC-CHO|chorizo:picante|arepa:arepa_queso");
     expect(lines[0]?.sku).toBe("MC-CHO");
     expect(lines[0]?.cantidad).toBe(1);
+    expect(lines[0]?.varianteChorizo).toBe("picante");
+    expect(lines[0]?.varianteArepaCombo).toBe("arepa_queso");
+    expect(lines[0]?.variantes).toEqual(["chorizo:picante", "arepa:arepa_queso"]);
+  });
+  it("arepa paisa + chorizo tradicional: solo sufijo chorizo (caso típico)", () => {
+    const lines = lineasWmsEnsambleDesdeItemsCuenta([
+      item("FRAN-KIT-1", 1, { varianteChorizo: "tradicional" }),
+    ]);
+    expect(lines[0]?.skuProducto).toBe("FRAN-KIT-1|chorizo:tradicional");
+    expect(lines[0]?.varianteChorizo).toBe("tradicional");
+    expect(lines[0]?.variantes).toEqual(["chorizo:tradicional"]);
   });
   it("redondea cantidad y mínimo 1", () => {
     const lines = lineasWmsEnsambleDesdeItemsCuenta([item("A", 0.4)]);

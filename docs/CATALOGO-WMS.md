@@ -68,7 +68,7 @@ Tras confirmar la venta, el POS llama al WMS:
 
 Cuerpo JSON que envía el POS (resumen):
 
-- `lineas[]`: cada ítem incluye `skuProducto` (puede ser id compuesto con `|chorizo:…|arepa:…`), `cantidad` (entero ≥ 1) y **`sku`** (SKU base del catálogo, sin sufijos).
+- `lineas[]`: cada ítem incluye `skuProducto` (id compuesto con `|chorizo:…|arepa:…` si aplica), `cantidad` (entero ≥ 1), **`sku`** (base catálogo), y cuando hay modal de variantes también **`varianteChorizo`**, **`varianteArepaCombo`** y el array **`variantes`** (`["chorizo:tradicional"]`, etc.) para que el WMS pueda cruzar con la hoja aunque no parsee el string compuesto.
 - **`puntoVenta`**: código del punto (mismo que el perfil del cajero); el WMS debe usarlo para descontar en `posInventarioSaldos`.
 - `idVenta`: id de ticket local (idempotencia).
 

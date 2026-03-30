@@ -58,7 +58,17 @@ export function lineasWmsEnsambleDesdeItemsCuenta(items: ItemCuenta[]): WmsAplic
       varianteChorizo: it.varianteChorizo,
       varianteArepaCombo: it.varianteArepaCombo,
     });
-    out.push({ skuProducto, cantidad, sku: skuBase });
+    const variantes: string[] = [];
+    if (it.varianteChorizo) variantes.push(`chorizo:${it.varianteChorizo}`);
+    if (it.varianteArepaCombo) variantes.push(`arepa:${it.varianteArepaCombo}`);
+    out.push({
+      skuProducto,
+      cantidad,
+      sku: skuBase,
+      ...(variantes.length ? { variantes } : {}),
+      ...(it.varianteChorizo ? { varianteChorizo: it.varianteChorizo } : {}),
+      ...(it.varianteArepaCombo ? { varianteArepaCombo: it.varianteArepaCombo } : {}),
+    });
   }
   return out;
 }
@@ -98,7 +108,14 @@ export const ULTIMO_ENSAMBLE_SESSION_KEY = "pos_mc_ultimo_ensamble_v1";
 export interface UltimoEnsambleSesionDiag {
   atIso: string;
   idVenta?: string;
-  lineasEnviadas: { skuProducto: string; cantidad: number; sku?: string }[];
+  lineasEnviadas: {
+    skuProducto: string;
+    cantidad: number;
+    sku?: string;
+    variantes?: string[];
+    varianteChorizo?: string;
+    varianteArepaCombo?: string;
+  }[];
   puntoVentaEnviado?: string;
   ok: boolean;
   status: number;
@@ -140,6 +157,9 @@ export function guardarUltimoEnsambleEnSesion(
       skuProducto: l.skuProducto,
       cantidad: l.cantidad,
       ...(l.sku ? { sku: l.sku } : {}),
+      ...(l.variantes?.length ? { variantes: [...l.variantes] } : {}),
+      ...(l.varianteChorizo ? { varianteChorizo: l.varianteChorizo } : {}),
+      ...(l.varianteArepaCombo ? { varianteArepaCombo: l.varianteArepaCombo } : {}),
     })),
     ...(body.puntoVenta?.trim() ? { puntoVentaEnviado: body.puntoVenta.trim() } : {}),
     ok: result.ok,

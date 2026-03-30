@@ -429,6 +429,22 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                               → <code className="rounded bg-white px-0.5">sku</code> catálogo: {l.sku}
                             </span>
                           ) : null}
+                          {"varianteChorizo" in l && l.varianteChorizo ? (
+                            <span className="block pl-2 text-slate-600">
+                              → <code className="rounded bg-white px-0.5">varianteChorizo</code>: {l.varianteChorizo}
+                            </span>
+                          ) : null}
+                          {"varianteArepaCombo" in l && l.varianteArepaCombo ? (
+                            <span className="block pl-2 text-slate-600">
+                              → <code className="rounded bg-white px-0.5">varianteArepaCombo</code>:{" "}
+                              {l.varianteArepaCombo}
+                            </span>
+                          ) : null}
+                          {"variantes" in l && Array.isArray(l.variantes) && l.variantes.length > 0 ? (
+                            <span className="block pl-2 text-slate-600">
+                              → <code className="rounded bg-white px-0.5">variantes</code>: {l.variantes.join(", ")}
+                            </span>
+                          ) : null}
                           {base !== l.skuProducto ? (
                             <span className="block pl-2 text-slate-600">→ SKU base (antes de |): {base}</span>
                           ) : null}
