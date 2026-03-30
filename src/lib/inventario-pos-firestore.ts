@@ -38,11 +38,17 @@ export const CATALOGO_CAMPO_GLOBAL = "posCatalogoGlobal";
  */
 export const CATALOGO_CAMPO_PV_CODES = "posCatalogoPvCodes";
 
-/** Saldos por punto de venta + ítem de catálogo. */
+/** Saldos por punto de venta + ítem de catálogo (cargue / ajustes desde el POS). */
 export const POS_INVENTARIO_SALDOS_COLLECTION = "posInventarioSaldos";
 
-/** Bitácora de movimientos (cargue, salidas, ajustes). */
+/** Bitácora de movimientos (cargue, salidas, ajustes) desde el POS. */
 export const POS_INVENTARIO_MOVIMIENTOS_COLLECTION = "posInventarioMovimientos";
+
+/** Saldos actualizados por el WMS al descontar ensamble por venta (`aplicar-venta-ensamble`). */
+export const POS_INVENTARIO_ENSAMBLE_SALDOS_COLLECTION = "pos_inventario_ensamble_saldo";
+
+/** Movimientos generados por el WMS al aplicar ensamble. */
+export const POS_INVENTARIO_ENSAMBLE_MOVIMIENTOS_COLLECTION = "pos_inventario_ensamble_movimientos";
 
 /** Mínimos sugeridos editados por el usuario en el POS (por PV + SKU). */
 export const POS_INVENTARIO_MINIMOS_COLLECTION = "posInventarioMinimos";
@@ -311,29 +317,54 @@ export function cantidadSaldoParaInsumoKit(item: InsumoKitItem, rows: Inventario
   return sum;
 }
 
-export async function listarSaldosInventarioPorPuntoVenta(puntoVenta: string): Promise<InventarioSaldoRow[]> {
-  const out: InventarioSaldoRow[] = [];
-  if (!db) return out;
-  const pv = puntoVenta.trim();
-  if (!pv) return out;
-  try {
-    const q = query(collection(db, POS_INVENTARIO_SALDOS_COLLECTION), where("puntoVenta", "==", pv));
-    const snap = await getDocs(q);
-    snap.forEach((d) => {
-      const x = d.data();
-      const insumoId = str(x.insumoId);
-      if (!insumoId) return;
-      const c = Number(x.cantidad);
-      out.push({
-        insumoId,
-        insumoSku: str(x.insumoSku),
-        cantidad: Number.isFinite(c) ? c : 0,
-      });
+function filasSaldoDesdeSnap(snap: Awaited<ReturnType<typeof getDocs>>): InventarioSaldoRow[] {
+  const rows: InventarioSaldoRow[] = [];
+  snap.forEach((d) => {
+    const x = d.data() as Record<string, unknown>;
+    const insumoId = str(x.insumoId);
+    if (!insumoId) return;
+    const c = Number(x.cantidad);
+    rows.push({
+      insumoId,
+      insumoSku: str(x.insumoSku),
+      cantidad: Number.isFinite(c) ? c : 0,
     });
+  });
+  return rows;
+}
+
+/**
+ * Saldos mostrados en Inventarios: lee `posInventarioSaldos` (cargue/ajustes POS) y
+ * `pos_inventario_ensamble_saldo` (WMS tras ventas). Si el mismo `insumoId` existe en ambas,
+ * gana la fila del ensamble WMS (es el saldo que refleja descuentos por venta).
+ */
+export async function listarSaldosInventarioPorPuntoVenta(puntoVenta: string): Promise<InventarioSaldoRow[]> {
+  if (!db) return [];
+  const pv = puntoVenta.trim();
+  if (!pv) return [];
+  const map = new Map<string, InventarioSaldoRow>();
+
+  try {
+    const qLegacy = query(collection(db, POS_INVENTARIO_SALDOS_COLLECTION), where("puntoVenta", "==", pv));
+    const snapLegacy = await getDocs(qLegacy);
+    for (const r of filasSaldoDesdeSnap(snapLegacy)) {
+      map.set(r.insumoId, r);
+    }
   } catch {
     /* ignore */
   }
-  return out;
+
+  try {
+    const qEns = query(collection(db, POS_INVENTARIO_ENSAMBLE_SALDOS_COLLECTION), where("puntoVenta", "==", pv));
+    const snapEns = await getDocs(qEns);
+    for (const r of filasSaldoDesdeSnap(snapEns)) {
+      map.set(r.insumoId, r);
+    }
+  } catch {
+    /* ignore: colección nueva o reglas */
+  }
+
+  return Array.from(map.values());
 }
 
 export async function obtenerSaldosPorPuntoVenta(
@@ -425,6 +456,71 @@ export async function eliminarMinimoUsuarioInventario(
   }
 }
 
+function movimientoDocDesdeFirestore(
+  d: { id: string; data: () => Record<string, unknown> },
+  idPrefix = ""
+): InventarioMovimientoDoc {
+  const x = d.data();
+  return {
+    id: idPrefix ? `${idPrefix}${d.id}` : d.id,
+    puntoVenta: str(x.puntoVenta),
+    insumoId: str(x.insumoId),
+    insumoSku: str(x.insumoSku),
+    insumoDescripcion: str(x.insumoDescripcion),
+    tipo: tipoMovimientoDesdeFirestore(x.tipo),
+    delta: Number(x.delta) || 0,
+    cantidadAnterior: Number(x.cantidadAnterior) || 0,
+    cantidadNueva: Number(x.cantidadNueva) || 0,
+    notas: str(x.notas),
+    fechaCargue: str(x.fechaCargue) || undefined,
+    uid: str(x.uid),
+    email: x.email != null ? str(x.email) : null,
+    createdAt: x.createdAt,
+    edicionesLog: parseEdicionesLogMovimiento(x.edicionesLog),
+  };
+}
+
+function secondsCreatedAt(m: InventarioMovimientoDoc): number {
+  const c = m.createdAt;
+  if (c && typeof c === "object" && typeof (c as { seconds?: number }).seconds === "number") {
+    return (c as { seconds: number }).seconds;
+  }
+  return 0;
+}
+
+async function listarMovimientosUnaColeccion(
+  colName: string,
+  pv: string,
+  maxPerCol: number,
+  idPrefix = ""
+): Promise<InventarioMovimientoDoc[]> {
+  if (!db) return [];
+  try {
+    const q = query(
+      collection(db, colName),
+      where("puntoVenta", "==", pv),
+      orderBy("createdAt", "desc"),
+      limit(maxPerCol)
+    );
+    const snap = await getDocs(q);
+    const out: InventarioMovimientoDoc[] = [];
+    snap.forEach((d) => out.push(movimientoDocDesdeFirestore(d, idPrefix)));
+    return out;
+  } catch {
+    try {
+      const q2 = query(collection(db, colName), where("puntoVenta", "==", pv), limit(maxPerCol));
+      const snap = await getDocs(q2);
+      const out: InventarioMovimientoDoc[] = [];
+      snap.forEach((d) => out.push(movimientoDocDesdeFirestore(d, idPrefix)));
+      out.sort((a, b) => secondsCreatedAt(b) - secondsCreatedAt(a));
+      return out;
+    } catch {
+      return [];
+    }
+  }
+}
+
+/** Incluye movimientos del POS y del WMS (`pos_inventario_ensamble_movimientos`), unificados por fecha. */
 export async function listarMovimientosInventario(
   puntoVenta: string,
   max: number = 80
@@ -432,75 +528,14 @@ export async function listarMovimientosInventario(
   if (!db) return [];
   const pv = puntoVenta.trim();
   if (!pv) return [];
-  try {
-    const q = query(
-      collection(db, POS_INVENTARIO_MOVIMIENTOS_COLLECTION),
-      where("puntoVenta", "==", pv),
-      orderBy("createdAt", "desc"),
-      limit(max)
-    );
-    const snap = await getDocs(q);
-    const out: InventarioMovimientoDoc[] = [];
-    snap.forEach((d) => {
-      const x = d.data();
-      out.push({
-        id: d.id,
-        puntoVenta: str(x.puntoVenta),
-        insumoId: str(x.insumoId),
-        insumoSku: str(x.insumoSku),
-        insumoDescripcion: str(x.insumoDescripcion),
-        tipo: x.tipo as TipoMovimientoInventario,
-        delta: Number(x.delta) || 0,
-        cantidadAnterior: Number(x.cantidadAnterior) || 0,
-        cantidadNueva: Number(x.cantidadNueva) || 0,
-        notas: str(x.notas),
-        fechaCargue: str(x.fechaCargue) || undefined,
-        uid: str(x.uid),
-        email: x.email != null ? str(x.email) : null,
-        createdAt: x.createdAt,
-        edicionesLog: parseEdicionesLogMovimiento(x.edicionesLog),
-      });
-    });
-    return out;
-  } catch {
-    try {
-      const q2 = query(
-        collection(db, POS_INVENTARIO_MOVIMIENTOS_COLLECTION),
-        where("puntoVenta", "==", pv),
-        limit(max)
-      );
-      const snap = await getDocs(q2);
-      const out: InventarioMovimientoDoc[] = [];
-      snap.forEach((d) => {
-        const x = d.data();
-        out.push({
-          id: d.id,
-          puntoVenta: str(x.puntoVenta),
-          insumoId: str(x.insumoId),
-          insumoSku: str(x.insumoSku),
-          insumoDescripcion: str(x.insumoDescripcion),
-          tipo: x.tipo as TipoMovimientoInventario,
-          delta: Number(x.delta) || 0,
-          cantidadAnterior: Number(x.cantidadAnterior) || 0,
-          cantidadNueva: Number(x.cantidadNueva) || 0,
-          notas: str(x.notas),
-          fechaCargue: str(x.fechaCargue) || undefined,
-          uid: str(x.uid),
-          email: x.email != null ? str(x.email) : null,
-          createdAt: x.createdAt,
-          edicionesLog: parseEdicionesLogMovimiento(x.edicionesLog),
-        });
-      });
-      out.sort((a, b) => {
-        const sa = a.createdAt && typeof (a.createdAt as { seconds?: number }).seconds === "number" ? (a.createdAt as { seconds: number }).seconds : 0;
-        const sb = b.createdAt && typeof (b.createdAt as { seconds?: number }).seconds === "number" ? (b.createdAt as { seconds: number }).seconds : 0;
-        return sb - sa;
-      });
-      return out.slice(0, max);
-    } catch {
-      return [];
-    }
-  }
+  const per = Math.max(max, Math.ceil(max / 2) + 20);
+  const [legacy, ensamble] = await Promise.all([
+    listarMovimientosUnaColeccion(POS_INVENTARIO_MOVIMIENTOS_COLLECTION, pv, per, ""),
+    listarMovimientosUnaColeccion(POS_INVENTARIO_ENSAMBLE_MOVIMIENTOS_COLLECTION, pv, per, "wmsEns:"),
+  ]);
+  const merged = [...legacy, ...ensamble];
+  merged.sort((a, b) => secondsCreatedAt(b) - secondsCreatedAt(a));
+  return merged.slice(0, max);
 }
 
 function deltaPorTipo(tipo: TipoMovimientoInventario, cantidad: number): number {
@@ -513,6 +548,7 @@ function deltaPorTipo(tipo: TipoMovimientoInventario, cantidad: number): number 
     case "ajuste_negativo":
     case "merma":
     case "consumo_interno":
+    case "venta_ensamble":
       return -c;
     default:
       return 0;
@@ -526,10 +562,30 @@ const ETIQUETA_TIPO: Record<TipoMovimientoInventario, string> = {
   ajuste_negativo: "Ajuste a menos (conteo)",
   merma: "Merma / vencimiento",
   consumo_interno: "Consumo interno / uso en tienda",
+  venta_ensamble: "Venta POS — descuento ensamble (WMS)",
 };
 
 export function etiquetaTipoMovimiento(tipo: TipoMovimientoInventario): string {
   return ETIQUETA_TIPO[tipo] ?? tipo;
+}
+
+const TIPOS_MOVIMIENTO_CONOCIDOS: TipoMovimientoInventario[] = [
+  "cargue",
+  "salida_danio",
+  "ajuste_positivo",
+  "ajuste_negativo",
+  "merma",
+  "consumo_interno",
+  "venta_ensamble",
+];
+
+function tipoMovimientoDesdeFirestore(raw: unknown): TipoMovimientoInventario {
+  const t = str(raw);
+  if (TIPOS_MOVIMIENTO_CONOCIDOS.includes(t as TipoMovimientoInventario)) {
+    return t as TipoMovimientoInventario;
+  }
+  if (/ensamble|venta_?pos|aplicar_?venta/i.test(t)) return "venta_ensamble";
+  return "consumo_interno";
 }
 
 function fechaCargueValida(iso: string | undefined): string | undefined {

@@ -21,6 +21,7 @@ function deltaPorTipo(tipo: TipoMovimientoInventario, cantidad: number): number 
     case "ajuste_negativo":
     case "merma":
     case "consumo_interno":
+    case "venta_ensamble":
       return -c;
     default:
       return 0;

@@ -162,6 +162,30 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // WMS — inventario ensamble (solo lectura desde el POS; el WMS escribe con Admin SDK).
+    match /pos_inventario_ensamble_saldo/{id} {
+      allow read: if request.auth != null
+        && (
+          resource == null
+          || resource.data.puntoVenta == posInventarioPuntoVentaUsuario()
+        );
+      allow write: if false;
+    }
+
+    match /pos_inventario_ensamble_movimientos/{id} {
+      allow read: if request.auth != null
+        && (
+          resource == null
+          || resource.data.puntoVenta == posInventarioPuntoVentaUsuario()
+        );
+      allow write: if false;
+    }
+
+    // Idempotencia venta ensamble (WMS); el cliente POS no necesita leer/escribir aquí.
+    match /pos_inventario_ensamble_venta_idem/{id} {
+      allow read, write: if false;
+    }
+
     // Clientes del franquiciado por punto de venta (POS — fidelización / ventas).
     match /posClientes/{id} {
       allow read: if request.auth != null

@@ -23,7 +23,9 @@ export type TipoMovimientoInventario =
   | "ajuste_positivo"
   | "ajuste_negativo"
   | "merma"
-  | "consumo_interno";
+  | "consumo_interno"
+  /** Salida registrada por el WMS al aplicar ensamble tras una venta en el POS. */
+  | "venta_ensamble";
 
 /** Entrada de la bitácora cuando se corrige un cargue en el historial. */
 export interface InventarioMovimientoEdicionLogEntry {

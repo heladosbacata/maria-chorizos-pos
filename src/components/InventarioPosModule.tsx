@@ -480,7 +480,10 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                 </li>
                 <li>
                   El <code className="rounded bg-white px-0.5">projectId</code> de Firebase del POS debe ser el mismo que usa
-                  el WMS al escribir <code className="rounded bg-white px-0.5">posInventarioSaldos</code>.
+                  el WMS al escribir{" "}
+                  <code className="rounded bg-white px-0.5">pos_inventario_ensamble_saldo</code> /{" "}
+                  <code className="rounded bg-white px-0.5">pos_inventario_ensamble_movimientos</code> (y, si aplica,{" "}
+                  <code className="rounded bg-white px-0.5">posInventarioSaldos</code> para cargue manual).
                 </li>
               </ul>
             </details>
