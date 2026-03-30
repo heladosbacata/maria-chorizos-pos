@@ -45,6 +45,17 @@ export function construirTextoTicketPlano(payload: TicketVentaPayload): string {
   return rows.join("\n");
 }
 
+/**
+ * Mismo texto que verá el ticket impreso por navegador (sin bloque JSON duplicado si hay QR en imagen).
+ * Para mostrar en pantalla antes de imprimir.
+ */
+export function textoParaPrevisualizacionTicket(payload: TicketVentaPayload): string {
+  const tieneQrImg = Boolean(payload.fidelizacionQrDataUrl?.trim());
+  return construirTextoTicketPlano(
+    tieneQrImg ? { ...payload, fidelizacionPayloadTexto: undefined } : payload
+  );
+}
+
 function textoFidelizacionTicketPlano(payloadJson: string, ancho: number): string {
   const line = (s: string) => textoTicketSeguro(s).slice(0, ancho);
   const rows: string[] = [];

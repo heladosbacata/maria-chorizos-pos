@@ -13,6 +13,7 @@ import EdicionItemCuentaModal from "@/components/EdicionItemCuentaModal";
 import InventarioPosModule from "@/components/InventarioPosModule";
 import PerfilUsuarioModal from "@/components/PerfilUsuarioModal";
 import CobroImpresionCelebracionOverlay from "@/components/CobroImpresionCelebracionOverlay";
+import TicketPrevisualizacionModal from "@/components/TicketPrevisualizacionModal";
 import ModalCobroSinInternet from "@/components/ModalCobroSinInternet";
 import ModalInformeCierreCorreo from "@/components/ModalInformeCierreCorreo";
 import RegistrarPagoPanel, { type DetallePagoConfirmado } from "@/components/RegistrarPagoPanel";
@@ -55,7 +56,7 @@ import {
   listarInsumosKitPorPuntoVenta,
   registrarMovimientoInventario,
 } from "@/lib/inventario-pos-firestore";
-import { skusConsumoParaLlevar } from "@/lib/pos-para-llevar-config";
+import { skuStickerFidelizacion, skusConsumoParaLlevar } from "@/lib/pos-para-llevar-config";
 import {
   lineInputDesdeItemCuentaLike,
   montoDescuentoLinea,
@@ -352,6 +353,8 @@ export default function CajaPage() {
   const [showModalCrearCliente, setShowModalCrearCliente] = useState(false);
   const [cobrando, setCobrando] = useState(false);
   const [cobroImpresionOverlayOpen, setCobroImpresionOverlayOpen] = useState(false);
+  /** Ticket listo para imprimir: primero se muestra vista previa si imprimir automático está activo. */
+  const [previsualizacionTicketCobro, setPrevisualizacionTicketCobro] = useState<TicketVentaPayload | null>(null);
   const [registrarPagoAbierto, setRegistrarPagoAbierto] = useState(false);
   const [modalCobroSinInternetAbierto, setModalCobroSinInternetAbierto] = useState(false);
   const resolverCobroSinInternetRef = useRef<((aceptar: boolean) => void) | null>(null);
@@ -1177,6 +1180,55 @@ export default function CajaPage() {
     }
   }, [user, itemsCuentaActiva, turnoAbierto, precuentas, activePrecuentaId]);
 
+  const antesActivarClienteFrecuente = useCallback(async (): Promise<{ ok: true } | { ok: false; message: string }> => {
+    if (!user || esContadorInvitado(user.role)) {
+      return { ok: false, message: "Tu perfil no puede registrar este movimiento." };
+    }
+    const pv = user.puntoVenta?.trim();
+    if (!pv) return { ok: false, message: "No hay punto de venta asignado." };
+    if (!turnoAbierto) {
+      return { ok: false, message: "Abrí el turno para descontar el sticker de fidelización en inventario." };
+    }
+    const sku = skuStickerFidelizacion();
+    if (!sku) {
+      return {
+        ok: false,
+        message:
+          "Falta configurar NEXT_PUBLIC_POS_SKU_STICKER_FIDELIZACION (código SKU del sticker de fidelización en la hoja de insumos). Pídeselo a quien administra el despliegue del POS.",
+      };
+    }
+    try {
+      const sheetRes = await fetchCatalogoInsumosDesdeSheet(pv);
+      const catalog =
+        sheetRes.ok && sheetRes.data.length > 0
+          ? sheetRes.data
+          : await listarInsumosKitPorPuntoVenta(pv);
+      const insumo = insumoKitDesdeCatalogoPorSku(catalog, sku);
+      if (!insumo) {
+        return {
+          ok: false,
+          message: `No está en el catálogo de este punto de venta el SKU «${sku}» (sticker de fidelización). Revisá la hoja o Firestore.`,
+        };
+      }
+      const nombrePrecuenta = precuentas.find((p) => p.id === activePrecuentaId)?.nombre ?? "Cuenta";
+      const notasBase = `Cliente frecuente · ${nombrePrecuenta}`.slice(0, 420);
+      const r = await registrarMovimientoInventario({
+        puntoVenta: pv,
+        insumo,
+        tipo: "consumo_interno",
+        cantidad: 1,
+        notas: `${notasBase} · sticker fidelización`.slice(0, 500),
+        uid: user.uid,
+        email: user.email ?? null,
+        permitirNegativo: false,
+      });
+      if (!r.ok) return { ok: false, message: r.message ?? "No se pudo descontar el sticker de fidelización." };
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, message: e instanceof Error ? e.message : "No se pudo actualizar el inventario." };
+    }
+  }, [user, turnoAbierto, precuentas, activePrecuentaId]);
+
   useEffect(() => {
     if (itemsCuentaActiva.length === 0) setSidebarResumenExpandido(false);
   }, [itemsCuentaActiva.length]);
@@ -1226,6 +1278,42 @@ export default function CajaPage() {
     const r = resolverCobroSinInternetRef.current;
     resolverCobroSinInternetRef.current = null;
     r?.(aceptar);
+  }, []);
+
+  const ejecutarImpresionPostCobro = useCallback(async (ticket: TicketVentaPayload) => {
+    const prefs = loadImpresionPrefs();
+    setCobroImpresionOverlayOpen(true);
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => resolve());
+      });
+    });
+    const overlayInicio = Date.now();
+    try {
+      if (prefs.metodo === "directa") {
+        try {
+          await imprimirTicketConQz(prefs, ticket);
+        } catch (qzErr) {
+          console.warn("Ticket venta: QZ falló, intentando navegador.", qzErr);
+          imprimirTicketEnNavegador(ticket);
+        }
+      } else {
+        imprimirTicketEnNavegador(ticket);
+      }
+    } catch (printErr) {
+      console.error(printErr);
+      window.alert(
+        printErr instanceof Error
+          ? `Venta registrada. No se pudo imprimir: ${printErr.message}`
+          : "Venta registrada. Revisa la impresión."
+      );
+    } finally {
+      const restante = Math.max(0, MIN_COBRO_IMPRESION_OVERLAY_MS - (Date.now() - overlayInicio));
+      if (restante > 0) {
+        await new Promise((r) => setTimeout(r, restante));
+      }
+      setCobroImpresionOverlayOpen(false);
+    }
   }, []);
 
   type OpcionesCobroVenta = { notaPie?: string; detallePago?: DetallePagoConfirmado };
@@ -1471,38 +1559,7 @@ export default function CajaPage() {
 
         const prefs = loadImpresionPrefs();
         if (prefs.imprimirAutomaticoAlCobrar) {
-          setCobroImpresionOverlayOpen(true);
-          await new Promise<void>((resolve) => {
-            requestAnimationFrame(() => {
-              requestAnimationFrame(() => resolve());
-            });
-          });
-          const overlayInicio = Date.now();
-          try {
-            if (prefs.metodo === "directa") {
-              try {
-                await imprimirTicketConQz(prefs, ticket);
-              } catch (qzErr) {
-                console.warn("Ticket venta: QZ falló, intentando navegador.", qzErr);
-                imprimirTicketEnNavegador(ticket);
-              }
-            } else {
-              imprimirTicketEnNavegador(ticket);
-            }
-          } catch (printErr) {
-            console.error(printErr);
-            window.alert(
-              printErr instanceof Error
-                ? `Venta registrada. No se pudo imprimir: ${printErr.message}`
-                : "Venta registrada. Revisa la impresión."
-            );
-          } finally {
-            const restante = Math.max(0, MIN_COBRO_IMPRESION_OVERLAY_MS - (Date.now() - overlayInicio));
-            if (restante > 0) {
-              await new Promise((r) => setTimeout(r, restante));
-            }
-            setCobroImpresionOverlayOpen(false);
-          }
+          setPrevisualizacionTicketCobro(ticket);
         }
 
         void procesarColaVentasPendientesWms();
@@ -3382,6 +3439,7 @@ export default function CajaPage() {
           totalAPagar={totalCuentaActiva}
           cobrando={cobrando}
           onConfirmar={handleConfirmarRegistrarPago}
+          onAntesActivarClienteFrecuente={antesActivarClienteFrecuente}
         />
       )}
 
@@ -3389,6 +3447,18 @@ export default function CajaPage() {
         open={modalCobroSinInternetAbierto}
         onGuardarEnCaja={() => cerrarModalCobroSinInternet(true)}
         onVolver={() => cerrarModalCobroSinInternet(false)}
+      />
+
+      <TicketPrevisualizacionModal
+        open={previsualizacionTicketCobro != null}
+        ticket={previsualizacionTicketCobro}
+        onImprimir={() => {
+          const t = previsualizacionTicketCobro;
+          if (!t) return;
+          setPrevisualizacionTicketCobro(null);
+          void ejecutarImpresionPostCobro(t);
+        }}
+        onCerrarSinImprimir={() => setPrevisualizacionTicketCobro(null)}
       />
 
       <CobroImpresionCelebracionOverlay open={cobroImpresionOverlayOpen} />

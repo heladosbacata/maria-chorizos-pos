@@ -40,6 +40,14 @@ const config: Config = {
           "0%, 100%": { transform: "translateY(0)" },
           "50%": { transform: "translateY(-4px)" },
         },
+        "cliente-frec-modal-in": {
+          "0%": { opacity: "0", transform: "scale(0.92) translateY(16px)" },
+          "100%": { opacity: "1", transform: "scale(1) translateY(0)" },
+        },
+        "cliente-frec-backdrop-in": {
+          "0%": { opacity: "0" },
+          "100%": { opacity: "1" },
+        },
       },
       animation: {
         "metas-shimmer": "metas-shimmer 2.4s ease-in-out infinite",
@@ -50,6 +58,8 @@ const config: Config = {
         "pyg-ambient": "pyg-ambient 5s ease-in-out infinite",
         "pyg-ambient-delayed": "pyg-ambient 5.8s ease-in-out infinite",
         "pyg-float": "pyg-float 3.5s ease-in-out infinite",
+        "cliente-frec-modal-in": "cliente-frec-modal-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both",
+        "cliente-frec-backdrop-in": "cliente-frec-backdrop-in 0.3s ease-out both",
       },
       colors: {
         brand: {

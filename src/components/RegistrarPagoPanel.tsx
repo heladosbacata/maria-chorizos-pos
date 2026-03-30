@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
+import ClienteFrecuenteAvisoModal from "@/components/ClienteFrecuenteAvisoModal";
 import { formatPesosCop, parsePesosCopInput } from "@/lib/pesos-cop-input";
 
 const TIPO_PAGO_OTRO = "Otro";
@@ -39,6 +40,11 @@ export interface RegistrarPagoPanelProps {
   totalAPagar: number;
   cobrando: boolean;
   onConfirmar: (detalle: DetallePagoConfirmado) => void | Promise<void>;
+  /**
+   * Antes de activar «Soy cliente frecuente» (p. ej. descontar sticker en inventario).
+   * Si devuelve ok: false, el modo no se activa y no se abre el aviso.
+   */
+  onAntesActivarClienteFrecuente?: () => Promise<{ ok: true } | { ok: false; message: string }>;
 }
 
 type LineaOnline = { id: string; tipo: string; tipoOtro: string; montoStr: string };
@@ -59,6 +65,7 @@ export default function RegistrarPagoPanel({
   totalAPagar,
   cobrando,
   onConfirmar,
+  onAntesActivarClienteFrecuente,
 }: RegistrarPagoPanelProps) {
   const baseId = useId();
   const [tab, setTab] = useState<"contado">("contado");
@@ -68,6 +75,8 @@ export default function RegistrarPagoPanel({
   const [lineasOnline, setLineasOnline] = useState<LineaOnline[]>(() => [nuevaLineaOnline()]);
   const [observaciones, setObservaciones] = useState("");
   const [clienteFrecuenteActivo, setClienteFrecuenteActivo] = useState(false);
+  const [avisoClienteFrecuenteOpen, setAvisoClienteFrecuenteOpen] = useState(false);
+  const [aplicandoClienteFrecuente, setAplicandoClienteFrecuente] = useState(false);
 
   const resetForm = useCallback(() => {
     setTab("contado");
@@ -76,6 +85,8 @@ export default function RegistrarPagoPanel({
     setLineasOnline([nuevaLineaOnline()]);
     setObservaciones("");
     setClienteFrecuenteActivo(false);
+    setAvisoClienteFrecuenteOpen(false);
+    setAplicandoClienteFrecuente(false);
   }, []);
 
   useEffect(() => {
@@ -169,6 +180,7 @@ export default function RegistrarPagoPanel({
   if (!open) return null;
 
   return (
+    <>
     <div
       className="fixed inset-0 z-[100] flex flex-col bg-slate-100"
       role="dialog"
@@ -473,9 +485,33 @@ export default function RegistrarPagoPanel({
           </button>
           <button
             type="button"
-            disabled={cobrando}
-            onClick={() => setClienteFrecuenteActivo((v) => !v)}
+            disabled={cobrando || aplicandoClienteFrecuente}
+            onClick={() => {
+              void (async () => {
+                if (cobrando || aplicandoClienteFrecuente) return;
+                if (clienteFrecuenteActivo) {
+                  setAvisoClienteFrecuenteOpen(false);
+                  setClienteFrecuenteActivo(false);
+                  return;
+                }
+                if (onAntesActivarClienteFrecuente) {
+                  setAplicandoClienteFrecuente(true);
+                  try {
+                    const r = await onAntesActivarClienteFrecuente();
+                    if (!r.ok) {
+                      window.alert(r.message);
+                      return;
+                    }
+                  } finally {
+                    setAplicandoClienteFrecuente(false);
+                  }
+                }
+                setClienteFrecuenteActivo(true);
+                setAvisoClienteFrecuenteOpen(true);
+              })();
+            }}
             aria-pressed={clienteFrecuenteActivo}
+            aria-busy={aplicandoClienteFrecuente}
             className={`mt-3 flex w-full items-center justify-center gap-2 rounded-xl border-2 py-3 text-sm font-bold transition-all ${
               clienteFrecuenteActivo
                 ? "border-amber-400 bg-gradient-to-r from-amber-100 to-orange-100 text-amber-950 shadow-inner ring-2 ring-amber-300/60"
@@ -485,12 +521,16 @@ export default function RegistrarPagoPanel({
             <span className="text-lg" aria-hidden>
               {clienteFrecuenteActivo ? "⭐" : "☆"}
             </span>
-            SOY CLIENTE FRECUENTE
+            {aplicandoClienteFrecuente ? "Aplicando…" : "SOY CLIENTE FRECUENTE"}
           </button>
           <p className="mt-1.5 text-center text-[11px] leading-snug text-slate-500">
-            {clienteFrecuenteActivo
-              ? "El ticket llevará QR para sumar puntos en la app María Chorizos."
-              : "Activá antes de cobrar si el cliente quiere acumular puntos."}
+            {onAntesActivarClienteFrecuente
+              ? clienteFrecuenteActivo
+                ? "El ticket llevará QR para sumar puntos en la app María Chorizos. Ya se descontó 1 sticker de fidelización en inventario."
+                : "Activá antes de cobrar: se descuenta 1 sticker de fidelización y el aviso recuerda qué decirle al cliente (app, tarjeta y QR)."
+              : clienteFrecuenteActivo
+                ? "El ticket llevará QR para sumar puntos en la app María Chorizos."
+                : "Activá antes de cobrar si el cliente quiere acumular puntos."}
           </p>
           {!cubreTotal && (
             <p className="mt-2 text-center text-xs text-amber-700">Registra pagos que sumen al menos el total a pagar.</p>
@@ -498,5 +538,10 @@ export default function RegistrarPagoPanel({
         </aside>
       </div>
     </div>
+    <ClienteFrecuenteAvisoModal
+      open={avisoClienteFrecuenteOpen}
+      onCerrar={() => setAvisoClienteFrecuenteOpen(false)}
+    />
+    </>
   );
 }

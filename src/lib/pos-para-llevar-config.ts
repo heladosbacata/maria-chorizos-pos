@@ -8,3 +8,9 @@ export function skusConsumoParaLlevar(): { bolsaPapel: string; stickerDomicilio:
   if (!bolsaPapel || !stickerDomicilio) return null;
   return { bolsaPapel, stickerDomicilio };
 }
+
+/** Sticker / tarjeta de fidelización (catálogo insumos). Se descuenta al activar «Soy cliente frecuente» en registrar pago. */
+export function skuStickerFidelizacion(): string | null {
+  const s = process.env.NEXT_PUBLIC_POS_SKU_STICKER_FIDELIZACION?.trim() ?? "";
+  return s || null;
+}
