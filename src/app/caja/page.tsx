@@ -2710,7 +2710,7 @@ export default function CajaPage() {
                 soloConsultaContador
               />
             ) : moduloActivo === "metasBonificaciones" ? (
-              <MetasBonificacionesModule puntoVenta={user.puntoVenta} />
+              <MetasBonificacionesModule puntoVenta={user.puntoVenta} uid={user.uid} />
             ) : (
               <div className="space-y-4">
                 <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800">
@@ -3014,11 +3014,11 @@ export default function CajaPage() {
           ) : moduloActivo === "inventarios" ? (
             <InventarioPosModule puntoVenta={user.puntoVenta} uid={user.uid} email={user.email} />
           ) : moduloActivo === "metasBonificaciones" ? (
-            <MetasBonificacionesModule puntoVenta={user.puntoVenta} />
+            <MetasBonificacionesModule puntoVenta={user.puntoVenta} uid={user.uid} />
           ) : moduloActivo === "reportes" ? (
             <CajeroReportesDashboard uid={user.uid} puntoVenta={user.puntoVenta} />
           ) : moduloActivo === "mas" ? (
-            <ConfiguracionMasModule />
+            <ConfiguracionMasModule puntoVenta={user.puntoVenta} uid={user.uid} />
           ) : (
             <div className="rounded-xl border border-gray-200 bg-white p-8 shadow-sm">
               <p className="text-center text-gray-500">

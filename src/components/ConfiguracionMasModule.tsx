@@ -6,6 +6,7 @@ import ContratoPosGebPanel from "@/components/ContratoPosGebPanel";
 import DocumentoComercialFranquiciaPanel from "@/components/DocumentoComercialFranquiciaPanel";
 import InvitarContadorPanel from "@/components/InvitarContadorPanel";
 import PerfilOrganizacionForm from "@/components/PerfilOrganizacionForm";
+import PygFranquiciaPanel from "@/components/PygFranquiciaPanel";
 import UsuariosPosRegistradosPanel from "@/components/UsuariosPosRegistradosPanel";
 
 /** Id de la herramienta «Perfil de la organización» en CATEGORIAS */
@@ -21,6 +22,8 @@ const INVITAR_CONTADOR_ITEM_ID = "gen-user-contador";
 /** Ventas → documentos (franquiciado): cotizaciones y remisiones con PDF */
 const VEN_DOC_COT_ITEM_ID = "ven-doc-cot";
 const VEN_DOC_REM_ITEM_ID = "ven-doc-rem";
+/** PyG / estado de resultados simplificado para el franquiciado */
+const CONT_PYG_ITEM_ID = "cont-pyg";
 
 const VISTA_DETALLE_ITEM_IDS = new Set<string>([
   PERFIL_ORGANIZACION_ITEM_ID,
@@ -30,6 +33,7 @@ const VISTA_DETALLE_ITEM_IDS = new Set<string>([
   ADMIN_USUARIOS_POS_ITEM_ID,
   VEN_DOC_COT_ITEM_ID,
   VEN_DOC_REM_ITEM_ID,
+  CONT_PYG_ITEM_ID,
 ]);
 
 export type ConfigCategoriaId =
@@ -181,11 +185,8 @@ const CATEGORIAS: ConfigCategoria[] = [
     label: "Contabilidad",
     secciones: [
       {
-        titulo: "General",
-        items: [
-          { id: "cont-plan", label: "Plan de cuentas" },
-          { id: "cont-periodos", label: "Periodos contables" },
-        ],
+        titulo: "Estado de resultados",
+        items: [{ id: CONT_PYG_ITEM_ID, label: "PyG en vivo — ingresos y gastos" }],
       },
     ],
   },
@@ -218,11 +219,16 @@ function collectAllIds(categorias: ConfigCategoria[]): string[] {
 
 const ALL_IDS = collectAllIds(CATEGORIAS);
 
+export interface ConfiguracionMasModuleProps {
+  puntoVenta: string | null;
+  uid: string | null;
+}
+
 function configItemDomId(itemId: string): string {
   return `config-item-${itemId}`;
 }
 
-export default function ConfiguracionMasModule() {
+export default function ConfiguracionMasModule({ puntoVenta, uid }: ConfiguracionMasModuleProps) {
   const [categoriaActiva, setCategoriaActiva] = useState<ConfigCategoriaId>("general");
   /** Categorías expandidas en el acordeón del menú lateral */
   const [categoriasExpandidas, setCategoriasExpandidas] = useState<Set<ConfigCategoriaId>>(
@@ -234,7 +240,8 @@ export default function ConfiguracionMasModule() {
   const [vistaDetalleItemId, setVistaDetalleItemId] = useState<string | null>(null);
   /** Ids completados (desmarcados del fondo rojo = pendiente resuelto) */
   const [completados, setCompletados] = useState<Set<string>>(
-    () => new Set<string>([PERFIL_ORGANIZACION_ITEM_ID, CONTRATO_POS_GEB_ITEM_ID])
+    () =>
+      new Set<string>([PERFIL_ORGANIZACION_ITEM_ID, CONTRATO_POS_GEB_ITEM_ID, CONT_PYG_ITEM_ID])
   );
 
   const categoria = useMemo(
@@ -272,15 +279,19 @@ export default function ConfiguracionMasModule() {
       setVistaDetalleItemId(itemId);
       setPendingScrollItemId(null);
     } else {
-      setVistaDetalleItemId(null);
-      setPendingScrollItemId(itemId);
+      setVistaDetalleItemId(catId === "contabilidad" ? CONT_PYG_ITEM_ID : null);
+      setPendingScrollItemId(catId === "contabilidad" ? null : itemId);
     }
   }, []);
 
   const seleccionarSoloCategoria = useCallback((catId: ConfigCategoriaId) => {
     setCategoriaActiva(catId);
-    setVistaDetalleItemId(null);
     setCategoriasExpandidas((prev) => new Set(prev).add(catId));
+    if (catId === "contabilidad") {
+      setVistaDetalleItemId(CONT_PYG_ITEM_ID);
+    } else {
+      setVistaDetalleItemId(null);
+    }
   }, []);
 
   useEffect(() => {
@@ -420,6 +431,15 @@ export default function ConfiguracionMasModule() {
           <DocumentoComercialFranquiciaPanel tipo="cotizacion" onVolver={() => setVistaDetalleItemId(null)} />
         ) : vistaDetalleItemId === VEN_DOC_REM_ITEM_ID ? (
           <DocumentoComercialFranquiciaPanel tipo="remision" onVolver={() => setVistaDetalleItemId(null)} />
+        ) : vistaDetalleItemId === CONT_PYG_ITEM_ID ? (
+          <PygFranquiciaPanel
+            puntoVenta={puntoVenta}
+            uid={uid}
+            onVolver={() => {
+              setVistaDetalleItemId(null);
+              setCategoriaActiva("general");
+            }}
+          />
         ) : (
           <>
             <div className="mb-4 flex flex-wrap items-start justify-between gap-2">

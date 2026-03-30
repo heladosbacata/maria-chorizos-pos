@@ -32,6 +32,14 @@ const config: Config = {
           "60%": { transform: "translateX(-3px)" },
           "80%": { transform: "translateX(3px)" },
         },
+        "pyg-ambient": {
+          "0%, 100%": { opacity: "0.5", transform: "scale(1)" },
+          "50%": { opacity: "0.85", transform: "scale(1.05)" },
+        },
+        "pyg-float": {
+          "0%, 100%": { transform: "translateY(0)" },
+          "50%": { transform: "translateY(-4px)" },
+        },
       },
       animation: {
         "metas-shimmer": "metas-shimmer 2.4s ease-in-out infinite",
@@ -39,6 +47,9 @@ const config: Config = {
         "metas-glow": "metas-glow 2.2s ease-in-out infinite",
         "reinicio-danger-glow": "reinicio-danger-glow 2s ease-in-out infinite",
         "reinicio-shake-once": "reinicio-shake 0.65s ease-in-out 1",
+        "pyg-ambient": "pyg-ambient 5s ease-in-out infinite",
+        "pyg-ambient-delayed": "pyg-ambient 5.8s ease-in-out infinite",
+        "pyg-float": "pyg-float 3.5s ease-in-out infinite",
       },
       colors: {
         brand: {
