@@ -201,6 +201,12 @@ export function leerUltimoEnsambleSesion(): UltimoEnsambleSesionDiag | null {
   }
 }
 
+function recorteMensajeServidor(s: string, max = 220): string {
+  const t = s.trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max)}…`;
+}
+
 export function mensajeAplicarEnsambleParaCajero(r: WmsAplicarVentaEnsambleResult): string {
   if (r.ok) return "";
   const base = r.error || r.message || `Error ${r.status}`;
@@ -211,7 +217,17 @@ export function mensajeAplicarEnsambleParaCajero(r: WmsAplicarVentaEnsambleResul
     return `No se pudo descontar inventario en el almacén (${base}). Revisá que tu usuario POS tenga punto de venta asignado en el WMS. La venta ya quedó registrada en caja.`;
   }
   if (r.status >= 500 || esErrorRedAplicarEnsamble(base)) {
-    return "La venta quedó registrada en caja, pero no hubo conexión con el servidor de inventario (ensamble). Se reintentará automáticamente; si persiste, avisá a soporte.";
+    const extra =
+      r.status > 0
+        ? ` Detalle: HTTP ${r.status}${r.error ? ` — ${recorteMensajeServidor(r.error)}` : r.message ? ` — ${recorteMensajeServidor(r.message)}` : ""}.`
+        : base
+          ? ` Detalle: ${recorteMensajeServidor(base)}.`
+          : "";
+    return (
+      "La venta quedó registrada en caja, pero falló la llamada al servidor de inventario (ensamble): suele ser timeout, 502/503 del WMS o sin red. Se reintentará automáticamente." +
+      extra +
+      " Si persiste: Vercel → logs del proyecto WMS y del POS (ruta /api/pos_aplicar_venta_ensamble), y que NEXT_PUBLIC_WMS_URL en el POS apunte al WMS correcto."
+    );
   }
   return `La venta quedó registrada en caja, pero el descuento de inventario por ensamble respondió: ${base}. Avisá a soporte si hace falta corregir stock.`;
 }
