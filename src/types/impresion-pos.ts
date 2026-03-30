@@ -38,4 +38,8 @@ export interface TicketVentaPayload {
   total: number;
   /** Pie del ticket (pre-cuenta vs venta cobrada). */
   notaPie?: string;
+  /** PNG data URL para impresión en navegador (programa cliente frecuente). */
+  fidelizacionQrDataUrl?: string;
+  /** Mismo contenido que el QR, en JSON; va al ticket plano / térmico. */
+  fidelizacionPayloadTexto?: string;
 }

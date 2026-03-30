@@ -39,6 +39,23 @@ export function construirTextoTicketPlano(payload: TicketVentaPayload): string {
   rows.push("");
   rows.push(center(payload.notaPie ?? "Gracias por su compra"));
   rows.push("");
+  if (payload.fidelizacionPayloadTexto?.trim()) {
+    rows.push(textoFidelizacionTicketPlano(payload.fidelizacionPayloadTexto.trim(), W));
+  }
+  return rows.join("\n");
+}
+
+function textoFidelizacionTicketPlano(payloadJson: string, ancho: number): string {
+  const line = (s: string) => textoTicketSeguro(s).slice(0, ancho);
+  const rows: string[] = [];
+  rows.push(line("--- MARIA CHORIZOS ---"));
+  rows.push(line("CLIENTE FRECUENTE"));
+  rows.push(line("Escanear con app"));
+  rows.push("");
+  for (let i = 0; i < payloadJson.length; i += ancho) {
+    rows.push(line(payloadJson.slice(i, i + ancho)));
+  }
+  rows.push("");
   return rows.join("\n");
 }
 
@@ -64,8 +81,19 @@ export function reservarVentanaTicketNavegador(): Window | null {
 }
 
 export function imprimirTicketEnNavegador(payload: TicketVentaPayload, ventanaExistente?: Window | null): void {
-  const plain = construirTextoTicketPlano(payload);
+  const tieneQrImg = Boolean(payload.fidelizacionQrDataUrl?.trim());
+  const plain = construirTextoTicketPlano(
+    tieneQrImg ? { ...payload, fidelizacionPayloadTexto: undefined } : payload
+  );
   const body = escapeHtmlTextoPlano(plain).replace(/\n/g, "<br/>");
+  const qrBlock =
+    payload.fidelizacionQrDataUrl?.trim() != null && payload.fidelizacionQrDataUrl.trim() !== ""
+      ? `<div style="margin-top:14px;text-align:center;border-top:1px dashed #ccc;padding-top:12px">
+          <p style="margin:0 0 8px;font-size:11px;font-weight:700;">Cliente frecuente — María Chorizos</p>
+          <img src="${payload.fidelizacionQrDataUrl}" width="200" height="200" alt="QR fidelización" style="display:inline-block;image-rendering:pixelated" />
+          <p style="margin:8px 0 0;font-size:10px;color:#444;">Escaneá con la app para sumar tu punto</p>
+        </div>`
+      : "";
   const w =
     ventanaExistente != null && !ventanaExistente.closed
       ? ventanaExistente
@@ -78,7 +106,7 @@ export function imprimirTicketEnNavegador(payload: TicketVentaPayload, ventanaEx
     <style>
       body{font-family:ui-monospace,monospace;font-size:12px;padding:12px;max-width:360px;margin:0 auto;}
       @media print{@page{size:auto;margin:8mm}}
-    </style></head><body><pre style="white-space:pre-wrap;font:inherit;margin:0">${body}</pre>
+    </style></head><body><pre style="white-space:pre-wrap;font:inherit;margin:0">${body}</pre>${qrBlock}
     <script>window.onload=function(){window.print();setTimeout(function(){window.close()},250);}</script>
     </body></html>`);
   w.document.close();

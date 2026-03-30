@@ -59,7 +59,6 @@ export default function MetasBonificacionesModule({ puntoVenta, uid }: MetasBoni
   const [actualizadoEn, setActualizadoEn] = useState<Date | null>(null);
 
   const [ventasNube, setVentasNube] = useState<VentaGuardadaLocal[] | null>(null);
-  const [ventasNubeAviso, setVentasNubeAviso] = useState<string | null>(null);
   const [ventasTick, setVentasTick] = useState(0);
 
   const abortRef = useRef<AbortController | null>(null);
@@ -116,11 +115,9 @@ export default function MetasBonificacionesModule({ puntoVenta, uid }: MetasBoni
   useEffect(() => {
     if (!u || !pv) {
       setVentasNube(null);
-      setVentasNubeAviso(null);
       return;
     }
     let cancelled = false;
-    setVentasNubeAviso(null);
     (async () => {
       try {
         const token = await auth?.currentUser?.getIdToken();
@@ -128,16 +125,13 @@ export default function MetasBonificacionesModule({ puntoVenta, uid }: MetasBoni
         const rows = await listarVentasPosCloud(token);
         if (!cancelled) {
           setVentasNube(rows);
-          setVentasNubeAviso(null);
         }
       } catch (e) {
         if (!cancelled) {
           setVentasNube([]);
-          setVentasNubeAviso(
-            e instanceof Error
-              ? e.message
-              : "No se pudieron cargar ventas desde la nube; el avance usa solo tickets de este equipo."
-          );
+          if (process.env.NODE_ENV === "development") {
+            console.warn("[Metas] Ventas nube no disponibles; avance con tickets locales.", e);
+          }
         }
       }
     })();
@@ -201,11 +195,6 @@ export default function MetasBonificacionesModule({ puntoVenta, uid }: MetasBoni
           {actualizadoEn && !cargando ? (
             <p className="mt-0.5 text-[11px] text-gray-400">
               Última actualización metas: {actualizadoEn.toLocaleTimeString("es-CO", { timeStyle: "short" })}
-            </p>
-          ) : null}
-          {ventasNubeAviso ? (
-            <p className="mt-2 max-w-xl rounded-lg border border-amber-200 bg-amber-50/90 px-3 py-2 text-xs text-amber-950">
-              {ventasNubeAviso}
             </p>
           ) : null}
         </div>
@@ -350,10 +339,15 @@ export default function MetasBonificacionesModule({ puntoVenta, uid }: MetasBoni
                   </div>
                 </dl>
 
-                {reto.notas ? (
-                  <p className="relative mt-3 rounded-lg border border-amber-100 bg-white/70 px-3 py-2 text-xs text-gray-700">
-                    {reto.notas}
-                  </p>
+                {reto.descripcionReto.trim().length > 0 ? (
+                  <div className="relative mt-4 rounded-xl border border-amber-200/80 bg-amber-50/50 px-3 py-3">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-amber-900/80">
+                      Mensaje del reto
+                    </p>
+                    <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-gray-800">
+                      {reto.descripcionReto}
+                    </p>
+                  </div>
                 ) : null}
 
                 <p className="relative mt-3 text-[11px] leading-relaxed text-gray-500">

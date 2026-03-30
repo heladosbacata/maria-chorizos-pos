@@ -23,6 +23,8 @@ export interface DetallePagoConfirmado {
   efectivo: number;
   pagosLinea: { tipo: string; monto: number }[];
   observaciones: string;
+  /** Si true, el ticket incluye QR (y texto en térmica) para fidelización María Chorizos. */
+  incluirQrClienteFrecuente?: boolean;
 }
 
 export interface RegistrarPagoPanelProps {
@@ -65,6 +67,7 @@ export default function RegistrarPagoPanel({
   const [presetEfectivoActivo, setPresetEfectivoActivo] = useState<number | null>(null);
   const [lineasOnline, setLineasOnline] = useState<LineaOnline[]>(() => [nuevaLineaOnline()]);
   const [observaciones, setObservaciones] = useState("");
+  const [clienteFrecuenteActivo, setClienteFrecuenteActivo] = useState(false);
 
   const resetForm = useCallback(() => {
     setTab("contado");
@@ -72,6 +75,7 @@ export default function RegistrarPagoPanel({
     setPresetEfectivoActivo(null);
     setLineasOnline([nuevaLineaOnline()]);
     setObservaciones("");
+    setClienteFrecuenteActivo(false);
   }, []);
 
   useEffect(() => {
@@ -158,6 +162,7 @@ export default function RegistrarPagoPanel({
       efectivo: valorEfectivo,
       pagosLinea,
       observaciones: observaciones.slice(0, OBS_MAX).trim(),
+      incluirQrClienteFrecuente: clienteFrecuenteActivo,
     });
   };
 
@@ -466,6 +471,27 @@ export default function RegistrarPagoPanel({
           >
             {cobrando ? "Procesando…" : "Guardar y cobrar"}
           </button>
+          <button
+            type="button"
+            disabled={cobrando}
+            onClick={() => setClienteFrecuenteActivo((v) => !v)}
+            aria-pressed={clienteFrecuenteActivo}
+            className={`mt-3 flex w-full items-center justify-center gap-2 rounded-xl border-2 py-3 text-sm font-bold transition-all ${
+              clienteFrecuenteActivo
+                ? "border-amber-400 bg-gradient-to-r from-amber-100 to-orange-100 text-amber-950 shadow-inner ring-2 ring-amber-300/60"
+                : "border-slate-200 bg-white text-slate-700 hover:border-amber-300 hover:bg-amber-50/80"
+            } disabled:cursor-not-allowed disabled:opacity-45`}
+          >
+            <span className="text-lg" aria-hidden>
+              {clienteFrecuenteActivo ? "⭐" : "☆"}
+            </span>
+            SOY CLIENTE FRECUENTE
+          </button>
+          <p className="mt-1.5 text-center text-[11px] leading-snug text-slate-500">
+            {clienteFrecuenteActivo
+              ? "El ticket llevará QR para sumar puntos en la app María Chorizos."
+              : "Activá antes de cobrar si el cliente quiere acumular puntos."}
+          </p>
           {!cubreTotal && (
             <p className="mt-2 text-center text-xs text-amber-700">Registra pagos que sumen al menos el total a pagar.</p>
           )}

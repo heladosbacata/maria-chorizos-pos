@@ -14,7 +14,8 @@ export interface MetaRetoActiva {
   fechaInicio: string;
   fechaFin: string;
   alcancePuntoVenta: AlcancePuntoVentaReto;
-  notas: string;
+  /** Texto largo para el cajero (saltos de línea y emojis permitidos). Vacío si el WMS no envía. */
+  descripcionReto: string;
 }
 
 export interface MetasRetosActivasPayload {
@@ -66,7 +67,7 @@ function normalizeReto(raw: unknown): MetaRetoActiva | null {
     fechaInicio: String(r.fechaInicio ?? "").trim(),
     fechaFin: String(r.fechaFin ?? "").trim(),
     alcancePuntoVenta: r.alcancePuntoVenta === "seleccion" ? "seleccion" : "todos",
-    notas: String(r.notas ?? "").trim(),
+    descripcionReto: typeof r.descripcionReto === "string" ? r.descripcionReto : "",
   };
 }
 

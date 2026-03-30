@@ -85,6 +85,10 @@ import {
 import { appendTurnoCerrado, type TurnoCerradoV1 } from "@/lib/turno-historial-local";
 import { nombreArchivoInformeTurno, textoInformeTurno, triggerDescargaTexto } from "@/lib/turno-informe-texto";
 import {
+  construirPayloadFidelizacionV1,
+  generarDataUrlQrFidelizacion,
+} from "@/lib/fidelizacion-qr";
+import {
   enviarReporteVenta,
   esErrorRedVenta,
   mensajeErrorVentaParaUsuario,
@@ -1433,8 +1437,35 @@ export default function CajaPage() {
           }
         }
 
-        const ticket = construirPayloadTicket("TICKET DE VENTA", itemsSnap, notaPieTicket);
-        if (!ticket) return false;
+        const ticketBase = construirPayloadTicket("TICKET DE VENTA", itemsSnap, notaPieTicket);
+        if (!ticketBase) return false;
+
+        let ticket = ticketBase;
+        if (opts?.detallePago?.incluirQrClienteFrecuente) {
+          const ventaIdFid =
+            ventaLocalId ?? `pos-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
+          const payloadJson = construirPayloadFidelizacionV1({
+            ventaId: ventaIdFid,
+            puntoVenta: pv,
+            isoTimestamp: isoVenta,
+            total,
+            lineas: itemsSnap.map((it) => ({
+              sku: it.producto.sku,
+              cantidad: it.cantidad,
+            })),
+          });
+          try {
+            const dataUrl = await generarDataUrlQrFidelizacion(payloadJson);
+            ticket = {
+              ...ticketBase,
+              fidelizacionQrDataUrl: dataUrl,
+              fidelizacionPayloadTexto: payloadJson,
+            };
+          } catch (e) {
+            console.warn("[POS] QR cliente frecuente:", e);
+            ticket = { ...ticketBase, fidelizacionPayloadTexto: payloadJson };
+          }
+        }
 
         vaciarCuenta();
 
