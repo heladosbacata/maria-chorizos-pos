@@ -7,7 +7,6 @@ import { useRouter } from "next/navigation";
 import CajeroReportesDashboard from "@/components/CajeroReportesDashboard";
 import MetasBonificacionesModule from "@/components/MetasBonificacionesModule";
 import CargueInventarioManualPanel from "@/components/CargueInventarioManualPanel";
-import CargueInventarioMasivoPanel from "@/components/CargueInventarioMasivoPanel";
 import ConfiguracionMasModule from "@/components/ConfiguracionMasModule";
 import CrearClientePosModal from "@/components/CrearClientePosModal";
 import EdicionItemCuentaModal from "@/components/EdicionItemCuentaModal";
@@ -204,7 +203,6 @@ type ModuloActivo =
   | "ultimosRecibos"
   | "turnos"
   | "cargueInventario"
-  | "cargueInventarioMasivo"
   | "inventarios"
   | "metasBonificaciones"
   | "reportes"
@@ -1636,17 +1634,15 @@ export default function CajaPage() {
         ? "Últimos recibos"
         : moduloActivo === "turnos"
           ? "Turnos"
-          : moduloActivo === "cargueInventarioMasivo"
-            ? "Cargue inicial de inventario"
-            : moduloActivo === "cargueInventario"
-              ? "Cargue de inventario"
-              : moduloActivo === "inventarios"
-                ? "Inventarios"
-                : moduloActivo === "metasBonificaciones"
-                  ? "Metas y bonificaciones"
-                  : moduloActivo === "reportes"
-                    ? "Reportes"
-                    : "Más";
+          : moduloActivo === "cargueInventario"
+            ? "Cargue de inventario"
+            : moduloActivo === "inventarios"
+              ? "Inventarios"
+              : moduloActivo === "metasBonificaciones"
+                ? "Metas y bonificaciones"
+                : moduloActivo === "reportes"
+                  ? "Reportes"
+                  : "Más";
 
   return (
     <div className="flex h-dvh max-h-dvh min-h-0 overflow-hidden bg-gray-100/90">
@@ -1688,28 +1684,6 @@ export default function CajaPage() {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 Turnos
-              </button>
-              <button
-                type="button"
-                onClick={() => setModuloActivo("cargueInventarioMasivo")}
-                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
-                  moduloActivo === "cargueInventarioMasivo"
-                    ? "bg-brand-yellow/25 text-gray-900 border border-brand-yellow/50"
-                    : "text-gray-600 hover:bg-gray-50"
-                }`}
-              >
-                <svg className="h-5 w-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M4 6h16M4 10h16M4 14h10M4 18h10"
-                  />
-                </svg>
-                <span className="min-w-0 flex-1 leading-snug">
-                  <span className="block">Cargue inicial</span>
-                  <span className="block text-[10px] font-normal text-gray-500">Tabla · todos los productos</span>
-                </span>
               </button>
               <button
                 type="button"
@@ -3035,8 +3009,6 @@ export default function CajaPage() {
                   : null
               }
             />
-          ) : moduloActivo === "cargueInventarioMasivo" ? (
-            <CargueInventarioMasivoPanel puntoVenta={user.puntoVenta} uid={user.uid} email={user.email} />
           ) : moduloActivo === "cargueInventario" ? (
             <CargueInventarioManualPanel puntoVenta={user.puntoVenta} uid={user.uid} email={user.email} />
           ) : moduloActivo === "inventarios" ? (

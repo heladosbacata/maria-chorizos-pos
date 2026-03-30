@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
+import { esContadorInvitado } from "@/lib/auth-roles";
 import { auth } from "@/lib/firebase";
+import { reiniciarPosFabricaLocalStorage } from "@/lib/pos-reinicio-fabrica-local";
 import { getContratoPosDesdeWmsPorCorreoSesion } from "@/lib/usuarios-pos-wms";
 
 export interface ContratoPosGebPanelProps {
@@ -17,6 +19,8 @@ type EstadoContratoMostrado =
   | "sin_vencimiento"
   | "sin_datos";
 
+const CLAVE_REINICIO_FABRICA_POS = "MC2026";
+
 export default function ContratoPosGebPanel({ onVolver }: ContratoPosGebPanelProps) {
   const { user } = useAuth();
   const codigoPvSesion = user?.puntoVenta?.trim() ?? "";
@@ -28,6 +32,11 @@ export default function ContratoPosGebPanel({ onVolver }: ContratoPosGebPanelPro
   const [aceptaTerminos, setAceptaTerminos] = useState(false);
   const [aceptaPoliticaDatos, setAceptaPoliticaDatos] = useState(false);
   const [notasInternas, setNotasInternas] = useState("");
+
+  const [reinicioFase, setReinicioFase] = useState<null | "alerta" | "clave">(null);
+  const [reinicioClave, setReinicioClave] = useState("");
+  const [reinicioErr, setReinicioErr] = useState<string | null>(null);
+  const [reinicioEjecutando, setReinicioEjecutando] = useState(false);
 
   const [cargandoWms, setCargandoWms] = useState(true);
   const [avisoWms, setAvisoWms] = useState<string | null>(null);
@@ -102,6 +111,67 @@ export default function ContratoPosGebPanel({ onVolver }: ContratoPosGebPanelPro
     window.alert(
       "Las fechas del contrato las administra el WMS. Aquí puedes guardar en este equipo solo notas y casillas legales cuando integremos persistencia."
     );
+  }, []);
+
+  const esContador = user?.role != null && esContadorInvitado(user.role);
+  const puedeReiniciarFabrica = Boolean(user?.uid && codigoPvSesion && !esContador);
+
+  const cerrarReinicioFabrica = useCallback(() => {
+    if (reinicioEjecutando) return;
+    setReinicioFase(null);
+    setReinicioClave("");
+    setReinicioErr(null);
+  }, [reinicioEjecutando]);
+
+  const ejecutarReinicioFabrica = useCallback(async (clave: string) => {
+    setReinicioErr(null);
+    const t = clave.trim();
+    if (t !== CLAVE_REINICIO_FABRICA_POS) {
+      setReinicioErr("Clave incorrecta.");
+      return;
+    }
+    setReinicioEjecutando(true);
+    try {
+      const token = await auth?.currentUser?.getIdToken();
+      if (!token) {
+        setReinicioErr("No hay sesión. Volvé a iniciar sesión.");
+        return;
+      }
+      const res = await fetch("/api/pos_reinicio_fabrica", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ clave: t }),
+      });
+      let data: { ok?: boolean; message?: string } = {};
+      try {
+        data = (await res.json()) as { ok?: boolean; message?: string };
+      } catch {
+        /* cuerpo vacío */
+      }
+      if (res.ok && data.ok) {
+        reiniciarPosFabricaLocalStorage();
+        setReinicioFase(null);
+        window.location.reload();
+        return;
+      }
+      if (res.status === 503) {
+        reiniciarPosFabricaLocalStorage();
+        setReinicioFase(null);
+        window.alert(
+          "Este navegador quedó en cero (ventas, turnos e inventario local). No se borró el histórico en la nube porque falta FIREBASE_SERVICE_ACCOUNT_JSON en el servidor (Vercel). Configurá la cuenta de servicio y repetí el reinicio si necesitás vaciar también Firestore."
+        );
+        window.location.reload();
+        return;
+      }
+      setReinicioErr(data.message ?? "No se pudo completar el reinicio en el servidor.");
+    } catch {
+      setReinicioErr("Error de red. Reintentá o revisá la conexión.");
+    } finally {
+      setReinicioEjecutando(false);
+    }
   }, []);
 
   const inputReadonlyWms = camposContratoDesdeWms ? " cursor-not-allowed bg-gray-50 text-gray-800" : "";
@@ -304,8 +374,207 @@ export default function ContratoPosGebPanel({ onVolver }: ContratoPosGebPanelPro
             onChange={(e) => setNotasInternas(e.target.value)}
             placeholder="Contacto comercial, ticket de soporte, acuerdos especiales…"
           />
+          <div className="mt-4 border-t border-red-100 pt-4">
+            <button
+              type="button"
+              disabled={!puedeReiniciarFabrica}
+              onClick={() => {
+                setReinicioErr(null);
+                setReinicioFase("alerta");
+              }}
+              className="w-full rounded-xl border-2 border-red-600 bg-gradient-to-b from-red-700 to-red-800 px-4 py-3.5 text-center text-xs font-bold uppercase tracking-wide text-white shadow-lg shadow-red-900/40 transition hover:from-red-600 hover:to-red-700 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Reiniciar a punto de fábrica — todo en ceros
+            </button>
+            {!codigoPvSesion ? (
+              <p className="mt-2 text-xs text-amber-700">Asigná un punto de venta en el perfil para habilitar el reinicio.</p>
+            ) : esContador ? (
+              <p className="mt-2 text-xs text-gray-500">La cuenta contador invitado no puede ejecutar el reinicio.</p>
+            ) : (
+              <p className="mt-2 text-xs text-gray-500">
+                Borra ventas e inventario de este punto de venta (navegador + Firestore si el servidor está configurado). No
+                modifica los campos de arriba ni la impresora GEB.
+              </p>
+            )}
+          </div>
         </div>
       </div>
+
+      {reinicioFase === "alerta" && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reinicio-fabrica-titulo"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
+            aria-label="Cerrar"
+            onClick={cerrarReinicioFabrica}
+          />
+          <div className="relative z-[1] w-full max-w-lg animate-reinicio-shake-once rounded-2xl border-2 border-red-500 bg-gradient-to-b from-red-950 via-red-900 to-red-950 p-6 text-white shadow-2xl shadow-red-600/50 ring-4 ring-red-500/30">
+            <div className="pointer-events-none absolute -right-6 -top-6 h-28 w-28 rounded-full bg-red-500/30 blur-2xl animate-reinicio-danger-glow" />
+            <div className="relative flex items-start gap-4">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-red-500/20 ring-2 ring-red-400/50">
+                <svg className="h-8 w-8 text-red-200" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                  />
+                </svg>
+              </div>
+              <div className="min-w-0 flex-1">
+                <h3 id="reinicio-fabrica-titulo" className="text-lg font-bold leading-tight text-white">
+                  Zona crítica — reinicio de fábrica
+                </h3>
+                <ul className="mt-3 list-inside list-disc space-y-1.5 text-sm leading-relaxed text-red-100/95">
+                  <li>
+                    Se eliminarán las <strong className="text-white">ventas</strong> locales y en la nube de este punto de
+                    venta.
+                  </li>
+                  <li>
+                    El <strong className="text-white">inventario</strong> (cargue, saldos POS y movimientos de ensamble
+                    asociados a este PV) volverá a cero en Firestore.
+                  </li>
+                  <li>
+                    Turnos guardados en este navegador, historial de cierre y colas pendientes al WMS se borran en este
+                    equipo.
+                  </li>
+                  <li className="list-none pl-0 text-xs text-red-200/90">
+                    Los textos de este formulario <strong className="text-white">no</strong> se borran. Usuarios, catálogo y
+                    WMS externo siguen igual salvo lo indicado.
+                  </li>
+                </ul>
+              </div>
+            </div>
+            <div className="relative mt-6 flex flex-wrap justify-end gap-2 border-t border-red-800/80 pt-4">
+              <button
+                type="button"
+                onClick={cerrarReinicioFabrica}
+                className="rounded-lg border border-red-400/50 bg-red-950/50 px-4 py-2 text-sm font-semibold text-red-100 hover:bg-red-900/80"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setReinicioErr(null);
+                  setReinicioFase("clave");
+                }}
+                className="rounded-lg bg-white px-4 py-2 text-sm font-bold text-red-900 shadow-md hover:bg-red-50"
+              >
+                Sí, continuar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {reinicioFase === "clave" && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reinicio-clave-titulo"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
+            aria-label="Cerrar"
+            onClick={cerrarReinicioFabrica}
+          />
+          <div className="relative z-[1] w-full max-w-md rounded-2xl border border-red-400/60 bg-gradient-to-b from-gray-900 to-gray-950 p-6 text-white shadow-2xl shadow-red-900/40 ring-1 ring-red-500/40">
+            <div className="flex items-center gap-3 border-b border-gray-700 pb-4">
+              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-red-600/30 ring-1 ring-red-500/50">
+                <svg className="h-6 w-6 text-red-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"
+                  />
+                </svg>
+              </span>
+              <div>
+                <h3 id="reinicio-clave-titulo" className="text-base font-bold text-white">
+                  Confirmación final
+                </h3>
+                <p className="text-xs text-gray-400">Ingresá la clave maestra para ejecutar el reinicio.</p>
+              </div>
+            </div>
+            <div className="mt-4">
+              <label htmlFor="reinicio-clave-input" className="mb-1 block text-xs font-medium text-gray-400">
+                Clave
+              </label>
+              <input
+                id="reinicio-clave-input"
+                type="password"
+                autoComplete="off"
+                value={reinicioClave}
+                onChange={(e) => {
+                  setReinicioClave(e.target.value);
+                  setReinicioErr(null);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void ejecutarReinicioFabrica(reinicioClave);
+                }}
+                className="w-full rounded-lg border border-gray-600 bg-gray-900 px-3 py-2.5 text-sm text-white placeholder:text-gray-600 focus:border-red-500 focus:outline-none focus:ring-2 focus:ring-red-500/30"
+                placeholder="••••••"
+              />
+              {reinicioErr && <p className="mt-2 text-sm text-red-400">{reinicioErr}</p>}
+            </div>
+            <div className="mt-6 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                disabled={reinicioEjecutando}
+                onClick={() => {
+                  setReinicioFase("alerta");
+                  setReinicioClave("");
+                  setReinicioErr(null);
+                }}
+                className="rounded-lg border border-gray-600 px-4 py-2 text-sm font-medium text-gray-300 hover:bg-gray-800 disabled:opacity-50"
+              >
+                Volver
+              </button>
+              <button
+                type="button"
+                disabled={reinicioEjecutando}
+                onClick={() => void ejecutarReinicioFabrica(reinicioClave)}
+                className="inline-flex items-center gap-2 rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white shadow-lg shadow-red-900/50 hover:bg-red-500 disabled:opacity-50"
+              >
+                {reinicioEjecutando ? (
+                  <>
+                    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden>
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      />
+                    </svg>
+                    Reiniciando…
+                  </>
+                ) : (
+                  <>
+                    <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                      />
+                    </svg>
+                    Borrar todo y reiniciar
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

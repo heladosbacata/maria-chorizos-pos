@@ -21,11 +21,24 @@ const config: Config = {
           "0%, 100%": { opacity: "0.45", transform: "scale(1)" },
           "50%": { opacity: "0.9", transform: "scale(1.02)" },
         },
+        "reinicio-danger-glow": {
+          "0%, 100%": { opacity: "0.35", transform: "scale(1)" },
+          "50%": { opacity: "0.85", transform: "scale(1.06)" },
+        },
+        "reinicio-shake": {
+          "0%, 100%": { transform: "translateX(0)" },
+          "20%": { transform: "translateX(-4px)" },
+          "40%": { transform: "translateX(4px)" },
+          "60%": { transform: "translateX(-3px)" },
+          "80%": { transform: "translateX(3px)" },
+        },
       },
       animation: {
         "metas-shimmer": "metas-shimmer 2.4s ease-in-out infinite",
         "metas-float": "metas-float 3.2s ease-in-out infinite",
         "metas-glow": "metas-glow 2.2s ease-in-out infinite",
+        "reinicio-danger-glow": "reinicio-danger-glow 2s ease-in-out infinite",
+        "reinicio-shake-once": "reinicio-shake 0.65s ease-in-out 1",
       },
       colors: {
         brand: {

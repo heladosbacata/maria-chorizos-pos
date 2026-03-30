@@ -15,6 +15,7 @@ import {
   registrarMovimientoInventario,
 } from "@/lib/inventario-pos-firestore";
 import CargueCelebracionExito from "@/components/CargueCelebracionExito";
+import CargueInventarioMasivoPanel from "@/components/CargueInventarioMasivoPanel";
 import type { InsumoKitItem, InventarioMovimientoDoc } from "@/types/inventario-pos";
 
 export interface CargueInventarioManualPanelProps {
@@ -149,6 +150,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
   const [editNotas, setEditNotas] = useState("");
   const [guardandoEdicion, setGuardandoEdicion] = useState(false);
   const [errorEdicion, setErrorEdicion] = useState<string | null>(null);
+  const [subVistaCargue, setSubVistaCargue] = useState<"detallado" | "inicial">("detallado");
 
   const cargarCatalogo = useCallback(async () => {
     if (!pv) {
@@ -453,6 +455,39 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
         </p>
       </div>
 
+      <div className="flex flex-wrap justify-center gap-2" role="tablist" aria-label="Tipo de cargue de inventario">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={subVistaCargue === "detallado"}
+          onClick={() => setSubVistaCargue("detallado")}
+          className={`rounded-lg border px-4 py-2 text-sm font-semibold transition-colors ${
+            subVistaCargue === "detallado"
+              ? "border-brand-yellow/50 bg-brand-yellow/25 text-gray-900"
+              : "border-transparent text-gray-600 hover:bg-gray-50"
+          }`}
+        >
+          Cargue por producto y lote
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={subVistaCargue === "inicial"}
+          onClick={() => setSubVistaCargue("inicial")}
+          className={`rounded-lg border px-4 py-2 text-sm font-semibold transition-colors ${
+            subVistaCargue === "inicial"
+              ? "border-brand-yellow/50 bg-brand-yellow/25 text-gray-900"
+              : "border-transparent text-gray-600 hover:bg-gray-50"
+          }`}
+        >
+          Cargue inicial del punto de venta
+        </button>
+      </div>
+
+      {subVistaCargue === "inicial" ? (
+        <CargueInventarioMasivoPanel puntoVenta={puntoVenta} uid={uid} email={email} />
+      ) : (
+        <>
       <div className="rounded-2xl border-2 border-gray-200 bg-white p-6 shadow-sm md:p-8">
         {mensajeOk && (
           <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
@@ -890,6 +925,8 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
           </table>
         </div>
       </div>
+        </>
+      )}
 
       {movDetalle && (
         <div

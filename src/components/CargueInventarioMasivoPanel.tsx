@@ -147,7 +147,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
     const notasBase = notasGlobales.trim().slice(0, 400);
     const sufijoFecha = fechaCargue.trim();
     const notasComunes =
-      `Cargue masivo${notasBase ? ` · ${notasBase}` : ""}`.slice(0, 500);
+      `Cargue inicial POS${notasBase ? ` · ${notasBase}` : ""}`.slice(0, 500);
 
     setEnviando(true);
     setProgreso({ hecho: 0, total: lineas.length });
@@ -178,7 +178,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
       setResumenErrores(fallos);
       setError(`Se registraron ${lineas.length - fallos.length} de ${lineas.length} líneas. Revisá la lista abajo.`);
     } else {
-      setMensajeOk(`Cargue masivo: ${lineas.length} producto(s) registrado(s).`);
+      setMensajeOk(`Cargue inicial del punto de venta: ${lineas.length} producto(s) registrado(s).`);
       for (const { insumo } of lineas) {
         setCantidades((prev) => {
           const n = { ...prev };
@@ -195,7 +195,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
   if (!pv) {
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-950">
-        No hay punto de venta en tu perfil. No se puede usar el cargue masivo.
+        No hay punto de venta en tu perfil. No se puede usar el cargue inicial del punto de venta.
       </div>
     );
   }
@@ -203,12 +203,12 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       <div className="shrink-0 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-        <h2 className="text-lg font-semibold text-gray-900">Cargue inicial de inventario</h2>
+        <h2 className="text-lg font-semibold text-gray-900">Cargue inicial del punto de venta</h2>
         <p className="mt-1 text-sm text-gray-600">
           Una sola tabla con <strong className="font-medium text-gray-800">todos</strong> los insumos del catálogo: completá
           solo las cantidades que entraron. Las filas vacías o en cero se omiten. Para cargue con{" "}
-          <strong className="font-medium">lote</strong> por producto o lista paso a paso, usá el menú{" "}
-          <strong className="font-medium">Cargue inventario</strong>.
+          <strong className="font-medium">lote</strong> por producto o lista paso a paso, usá la pestaña{" "}
+          <strong className="font-medium">Cargue por producto y lote</strong>.
         </p>
       </div>
 
