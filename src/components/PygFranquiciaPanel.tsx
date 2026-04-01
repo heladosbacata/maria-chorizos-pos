@@ -12,6 +12,10 @@ import {
   type VentaGuardadaLocal,
 } from "@/lib/pos-ventas-local-storage";
 import {
+  suscripcionCambiosComprasGastos,
+  totalRegistradoComprasGastosEnMes,
+} from "@/lib/compras-gastos-franquicia-storage";
+import {
   guardarGastosPyg,
   leerGastosPyg,
   totalGastos,
@@ -22,6 +26,8 @@ export interface PygFranquiciaPanelProps {
   puntoVenta: string | null;
   uid: string | null;
   onVolver?: () => void;
+  /** Navega al registro de compras y gastos (Más → Compras y gastos) */
+  onIrAComprasGastos?: () => void;
 }
 
 function formatCop(n: number): string {
@@ -81,7 +87,12 @@ function ingresosDelMes(ventas: VentaGuardadaLocal[], ym: string): { bruto: numb
   return { bruto: Math.round(bruto * 100) / 100, tickets };
 }
 
-export default function PygFranquiciaPanel({ puntoVenta, uid, onVolver }: PygFranquiciaPanelProps) {
+export default function PygFranquiciaPanel({
+  puntoVenta,
+  uid,
+  onVolver,
+  onIrAComprasGastos,
+}: PygFranquiciaPanelProps) {
   const pv = (puntoVenta ?? "").replace(/\u00a0/g, " ").trim();
   const u = (uid ?? "").trim();
   const ymHoy = ymDesdeYmd(ymdColombia(new Date()));
@@ -93,6 +104,9 @@ export default function PygFranquiciaPanel({ puntoVenta, uid, onVolver }: PygFra
   const [ventasNube, setVentasNube] = useState<VentaGuardadaLocal[] | null>(null);
   const [ventasTick, setVentasTick] = useState(0);
   const [nubeAviso, setNubeAviso] = useState<string | null>(null);
+  const [cgTick, setCgTick] = useState(0);
+
+  useEffect(() => suscripcionCambiosComprasGastos(() => setCgTick((t) => t + 1)), []);
 
   useEffect(() => {
     if (!pv) return;
@@ -158,7 +172,13 @@ export default function PygFranquiciaPanel({ puntoVenta, uid, onVolver }: PygFra
   }, [pv, ventasTick, ventasNube]);
 
   const { bruto: ingresos, tickets } = useMemo(() => ingresosDelMes(ventas, ym), [ventas, ym]);
-  const gastosTot = totalGastos(gastos);
+  const gastosCategorias = useMemo(() => totalGastos(gastos), [gastos]);
+  const gastosRegistroMes = useMemo(() => {
+    void cgTick;
+    if (!pv) return 0;
+    return totalRegistradoComprasGastosEnMes(pv, ym);
+  }, [pv, ym, cgTick]);
+  const gastosTot = Math.round((gastosCategorias + gastosRegistroMes) * 100) / 100;
   const resultado = Math.round((ingresos - gastosTot) * 100) / 100;
   const margenPct = ingresos > 0 ? Math.min(100, Math.round((resultado / ingresos) * 1000) / 10) : null;
   const ratioGasto = ingresos > 0 ? Math.min(100, Math.round((gastosTot / ingresos) * 1000) / 10) : 0;
@@ -179,7 +199,7 @@ export default function PygFranquiciaPanel({ puntoVenta, uid, onVolver }: PygFra
     return (
       <div className="rounded-2xl border border-amber-200 bg-amber-50/90 p-8 text-center text-amber-950">
         <p className="text-lg font-semibold">Sin punto de venta</p>
-        <p className="mt-2 text-sm">Asigná un punto de venta en tu perfil para ver tu PyG.</p>
+        <p className="mt-2 text-sm">Asigná un punto de venta en tu perfil para ver tu PYG.</p>
         {onVolver ? (
           <button
             type="button"
@@ -219,11 +239,11 @@ export default function PygFranquiciaPanel({ puntoVenta, uid, onVolver }: PygFra
             </div>
             <div>
               <h2 className="text-2xl font-extrabold tracking-tight text-gray-900 md:text-3xl">
-                PyG en vivo
+                PYG del punto de venta
               </h2>
               <p className="mt-0.5 text-sm text-gray-600">
-                Ingresos desde tus ventas en el POS · Gastos que cargás vos ·{" "}
-                <span className="font-medium text-slate-700">Resultado operativo del mes</span>
+                Ingresos desde ventas en el POS · Gastos por categoría y registro de compras/gastos ·{" "}
+                <span className="font-medium text-slate-700">Resultado del mes</span>
               </p>
             </div>
           </div>
@@ -297,11 +317,19 @@ export default function PygFranquiciaPanel({ puntoVenta, uid, onVolver }: PygFra
           <div className="absolute -right-6 -top-6 h-24 w-24 rounded-full bg-rose-400/20 blur-2xl transition-all duration-500 group-hover:bg-rose-400/30" />
           <div className="relative flex items-start justify-between gap-2">
             <div>
-              <p className="text-xs font-bold uppercase tracking-widest text-rose-900/75">Gastos declarados</p>
+              <p className="text-xs font-bold uppercase tracking-widest text-rose-900/75">Gastos del mes</p>
               <p className="mt-1 text-3xl font-black tabular-nums tracking-tight text-rose-950">
                 ${formatCop(gastosTot)}
               </p>
-              <p className="mt-2 text-xs text-rose-800/90">Suma de categorías del formulario</p>
+              <p className="mt-2 text-xs text-rose-800/90">
+                Categorías: ${formatCop(gastosCategorias)}
+                {gastosRegistroMes > 0 ? (
+                  <>
+                    {" "}
+                    · Registro compras/gastos: ${formatCop(gastosRegistroMes)}
+                  </>
+                ) : null}
+              </p>
             </div>
             <span className="text-3xl opacity-90 transition-transform duration-300 group-hover:scale-110" aria-hidden>
               📉
@@ -377,7 +405,7 @@ export default function PygFranquiciaPanel({ puntoVenta, uid, onVolver }: PygFra
             </div>
             <div>
               <div className="mb-1 flex justify-between text-xs font-semibold text-rose-900">
-                <span>Gastos declarados</span>
+                <span>Gastos del mes</span>
                 <span className="tabular-nums">
                   ${formatCop(gastosTot)}
                   {ingresos > 0 ? (
@@ -407,8 +435,22 @@ export default function PygFranquiciaPanel({ puntoVenta, uid, onVolver }: PygFra
           Gastos del mes
         </h3>
         <p className="mb-6 text-sm text-gray-600">
-          Completá montos en pesos colombianos. Se guardan automáticamente en este equipo por punto de venta y mes.
+          Completá montos en pesos colombianos. Se guardan automáticamente en este equipo por punto de venta y mes. Las{" "}
+          <strong className="font-semibold text-gray-800">compras y gastos con fecha</strong> que registres en{" "}
+          <strong className="font-semibold text-gray-800">Compras y gastos</strong> se suman aparte al total de gastos de
+          arriba.
         </p>
+        {onIrAComprasGastos ? (
+          <div className="mb-6">
+            <button
+              type="button"
+              onClick={onIrAComprasGastos}
+              className="rounded-xl border-2 border-primary-500 bg-primary-50 px-4 py-2 text-sm font-semibold text-primary-900 hover:bg-primary-100"
+            >
+              Ir al registro de compras y gastos
+            </button>
+          </div>
+        ) : null}
         <div className="grid gap-5 sm:grid-cols-2">
           {camposGasto.map((c) => (
             <label

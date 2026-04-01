@@ -144,7 +144,7 @@ import { getPosGebTutorialSteps, type PosGebTutorialModulo } from "@/lib/pos-geb
 
 const LS_INFORME_TURNO_PARA = "pos_mc_informe_turno_para_v1";
 const LS_INFORME_TURNO_CC = "pos_mc_informe_turno_cc_v1";
-/** Clave maestra para abrir el menú «Más» (misma que contabilidad, inventario y contrato POS en el proyecto). */
+/** Clave maestra para abrir el menú «Más» (misma que PYG, inventario y contrato POS en el proyecto). */
 const CLAVE_ACCESO_MAS = "MC2026";
 /** Tiempo mínimo visible del overlay de impresión al cobrar (experiencia pulida). */
 const MIN_COBRO_IMPRESION_OVERLAY_MS = 2600;
@@ -3584,7 +3584,7 @@ export default function CajaPage() {
           ) : moduloActivo === "reportes" ? (
             <CajeroReportesDashboard uid={user.uid} puntoVenta={user.puntoVenta} />
           ) : moduloActivo === "mas" ? (
-            <ConfiguracionMasModule puntoVenta={user.puntoVenta} uid={user.uid} />
+            <ConfiguracionMasModule puntoVenta={user.puntoVenta} uid={user.uid} role={user.role} />
           ) : (
             <div className="rounded-xl border border-gray-200 bg-white p-8 shadow-sm">
               <p className="text-center text-gray-500">

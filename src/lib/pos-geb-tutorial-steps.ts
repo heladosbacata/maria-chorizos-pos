@@ -131,7 +131,7 @@ export function getPosGebTutorialSteps(esContador: boolean): PosGebTutorialStep[
       title: "Más — solo titular de la franquicia",
       body:
         "Al tocar «Más» el sistema pide una clave maestra. Solo debe ingresar el titular de la franquicia (o una persona que él autorice por escrito), porque ahí hay datos sensibles.\n\n" +
-        "Dentro encontrás cosas como: alta y edición de cajeros de turno, preferencias de impresión y ticket, contrato POS GEB, reinicios o herramientas que no debe tocar cualquier cajero.\n\n" +
+        "Dentro encontrás cosas como: alta y edición de cajeros de turno, preferencias de impresión y ticket, contrato POS GEB, registro de compras y gastos, PYG del punto de venta y herramientas que no debe tocar cualquier cajero.\n\n" +
         "Si no sos titular, no pidas la clave: coordiná con quien administra el punto. El tour no abre este módulo para no interrumpirte con el teclado de clave.",
     },
     {

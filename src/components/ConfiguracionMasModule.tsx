@@ -6,6 +6,8 @@ import ContratoPosGebPanel from "@/components/ContratoPosGebPanel";
 import DocumentoComercialFranquiciaPanel from "@/components/DocumentoComercialFranquiciaPanel";
 import InvitarContadorPanel from "@/components/InvitarContadorPanel";
 import PerfilOrganizacionForm from "@/components/PerfilOrganizacionForm";
+import ClientesProveedoresFranquiciaPanel from "@/components/ClientesProveedoresFranquiciaPanel";
+import ComprasGastosFranquiciaPanel from "@/components/ComprasGastosFranquiciaPanel";
 import PygFranquiciaPanel from "@/components/PygFranquiciaPanel";
 import UsuariosPosRegistradosPanel from "@/components/UsuariosPosRegistradosPanel";
 
@@ -24,6 +26,12 @@ const VEN_DOC_COT_ITEM_ID = "ven-doc-cot";
 const VEN_DOC_REM_ITEM_ID = "ven-doc-rem";
 /** PyG / estado de resultados simplificado para el franquiciado */
 const CONT_PYG_ITEM_ID = "cont-pyg";
+/** Registro de compras, proveedores y gastos (enlaza con PyG mensual) */
+const CG_COMPRAS_GASTOS_ITEM_ID = "cg-registro";
+/** Clientes (Firestore) y proveedores del punto */
+const CP_CENTRO_ITEM_ID = "cp-centro";
+/** Política de catálogo: solo productos de marca; altas vía PQRS en app franquiciado */
+const PS_POLITICA_ITEM_ID = "ps-politica-catalogo";
 
 const VISTA_DETALLE_ITEM_IDS = new Set<string>([
   PERFIL_ORGANIZACION_ITEM_ID,
@@ -34,6 +42,9 @@ const VISTA_DETALLE_ITEM_IDS = new Set<string>([
   VEN_DOC_COT_ITEM_ID,
   VEN_DOC_REM_ITEM_ID,
   CONT_PYG_ITEM_ID,
+  CG_COMPRAS_GASTOS_ITEM_ID,
+  CP_CENTRO_ITEM_ID,
+  PS_POLITICA_ITEM_ID,
 ]);
 
 export type ConfigCategoriaId =
@@ -43,7 +54,8 @@ export type ConfigCategoriaId =
   | "compras-gastos"
   | "clientes-proveedores"
   | "productos-servicios"
-  | "contabilidad";
+  | "pyg-punto-venta"
+  | "alianzas";
 
 export interface ConfigHerramienta {
   id: string;
@@ -125,17 +137,12 @@ const CATEGORIAS: ConfigCategoria[] = [
     label: "Compras y gastos",
     secciones: [
       {
-        titulo: "Documentos",
+        titulo: "Control del punto",
         items: [
-          { id: "cg-doc-sop", label: "Documento soporte" },
-          { id: "cg-doc-nd", label: "Nota débito / Nota de ajuste documento soporte" },
-        ],
-      },
-      {
-        titulo: "Impresión, estilo y envío de documentos",
-        items: [
-          { id: "cg-imp-sop", label: "Documento soporte" },
-          { id: "cg-imp-nd", label: "Nota débito / Nota de ajuste documento soporte" },
+          {
+            id: CG_COMPRAS_GASTOS_ITEM_ID,
+            label: "Registro de compras y gastos",
+          },
         ],
       },
     ],
@@ -145,15 +152,8 @@ const CATEGORIAS: ConfigCategoria[] = [
     label: "Clientes y proveedores",
     secciones: [
       {
-        titulo: "Generales",
-        items: [
-          { id: "cp-gen-campos", label: "Campos libres de clientes, proveedores u otros" },
-          { id: "cp-gen-mail", label: "Desbloqueo de correos para envío de emails y notificaciones" },
-        ],
-      },
-      {
-        titulo: "Importación",
-        items: [{ id: "cp-imp", label: "Clientes, proveedores u otros" }],
+        titulo: "Base del punto",
+        items: [{ id: CP_CENTRO_ITEM_ID, label: "Clientes y proveedores del punto" }],
       },
     ],
   },
@@ -162,30 +162,31 @@ const CATEGORIAS: ConfigCategoria[] = [
     label: "Productos y servicios",
     secciones: [
       {
-        titulo: "Generales",
-        items: [
-          { id: "ps-gen-cat", label: "Categorías de productos y servicios" },
-          { id: "ps-gen-precios", label: "Listas de precios de venta" },
-        ],
-      },
-      {
-        titulo: "Importación",
-        items: [
-          { id: "ps-imp-prod", label: "Productos y servicios" },
-          { id: "ps-imp-ajuste", label: "Ajuste de inventario" },
-          { id: "ps-imp-saldos", label: "Saldos iniciales de inventario" },
-          { id: "ps-imp-conteo", label: "Conteo físico" },
-        ],
+        titulo: "Información",
+        items: [{ id: PS_POLITICA_ITEM_ID, label: "Política de catálogo y nuevos productos" }],
       },
     ],
   },
   {
-    id: "contabilidad",
-    label: "Contabilidad",
+    id: "pyg-punto-venta",
+    label: "PYG del punto de venta",
     secciones: [
       {
-        titulo: "Estado de resultados",
-        items: [{ id: CONT_PYG_ITEM_ID, label: "PyG en vivo — ingresos y gastos" }],
+        titulo: "Resumen",
+        items: [{ id: CONT_PYG_ITEM_ID, label: "Ingresos, gastos y resultado del mes" }],
+      },
+    ],
+  },
+  {
+    id: "alianzas",
+    label: "Alianzas e integraciones",
+    secciones: [
+      {
+        titulo: "Integraciones",
+        items: [
+          { id: "ali-api", label: "API y conectores" },
+          { id: "ali-apps", label: "Aplicaciones asociadas" },
+        ],
       },
     ],
   },
@@ -208,13 +209,15 @@ const ALL_IDS = collectAllIds(CATEGORIAS);
 export interface ConfiguracionMasModuleProps {
   puntoVenta: string | null;
   uid: string | null;
+  /** Rol POS (ej. pos_contador no registra clientes desde reglas Firestore) */
+  role?: string | null;
 }
 
 function configItemDomId(itemId: string): string {
   return `config-item-${itemId}`;
 }
 
-export default function ConfiguracionMasModule({ puntoVenta, uid }: ConfiguracionMasModuleProps) {
+export default function ConfiguracionMasModule({ puntoVenta, uid, role }: ConfiguracionMasModuleProps) {
   const [categoriaActiva, setCategoriaActiva] = useState<ConfigCategoriaId>("general");
   /** Categorías expandidas en el acordeón del menú lateral */
   const [categoriasExpandidas, setCategoriasExpandidas] = useState<Set<ConfigCategoriaId>>(
@@ -232,6 +235,7 @@ export default function ConfiguracionMasModule({ puntoVenta, uid }: Configuracio
         CONTRATO_POS_GEB_ITEM_ID,
         CONFIG_IMPRESION_POS_GEB_ITEM_ID,
         CONT_PYG_ITEM_ID,
+        PS_POLITICA_ITEM_ID,
       ])
   );
 
@@ -270,16 +274,28 @@ export default function ConfiguracionMasModule({ puntoVenta, uid }: Configuracio
       setVistaDetalleItemId(itemId);
       setPendingScrollItemId(null);
     } else {
-      setVistaDetalleItemId(catId === "contabilidad" ? CONT_PYG_ITEM_ID : null);
-      setPendingScrollItemId(catId === "contabilidad" ? null : itemId);
+      setVistaDetalleItemId(
+        catId === "pyg-punto-venta"
+          ? CONT_PYG_ITEM_ID
+          : catId === "productos-servicios"
+            ? PS_POLITICA_ITEM_ID
+            : null
+      );
+      setPendingScrollItemId(catId === "pyg-punto-venta" || catId === "productos-servicios" ? null : itemId);
     }
   }, []);
 
   const seleccionarSoloCategoria = useCallback((catId: ConfigCategoriaId) => {
     setCategoriaActiva(catId);
     setCategoriasExpandidas((prev) => new Set(prev).add(catId));
-    if (catId === "contabilidad") {
+    if (catId === "pyg-punto-venta") {
       setVistaDetalleItemId(CONT_PYG_ITEM_ID);
+    } else if (catId === "compras-gastos") {
+      setVistaDetalleItemId(CG_COMPRAS_GASTOS_ITEM_ID);
+    } else if (catId === "clientes-proveedores") {
+      setVistaDetalleItemId(CP_CENTRO_ITEM_ID);
+    } else if (catId === "productos-servicios") {
+      setVistaDetalleItemId(PS_POLITICA_ITEM_ID);
     } else {
       setVistaDetalleItemId(null);
     }
@@ -431,7 +447,76 @@ export default function ConfiguracionMasModule({ puntoVenta, uid }: Configuracio
               setVistaDetalleItemId(null);
               setCategoriaActiva("general");
             }}
+            onIrAComprasGastos={() => {
+              setCategoriaActiva("compras-gastos");
+              setCategoriasExpandidas((prev) => new Set(prev).add("compras-gastos"));
+              setVistaDetalleItemId(CG_COMPRAS_GASTOS_ITEM_ID);
+            }}
           />
+        ) : vistaDetalleItemId === CG_COMPRAS_GASTOS_ITEM_ID ? (
+          <ComprasGastosFranquiciaPanel
+            puntoVenta={puntoVenta}
+            onVolver={() => {
+              setVistaDetalleItemId(null);
+              setCategoriaActiva("general");
+            }}
+            onIrAPyg={() => {
+              setCategoriaActiva("pyg-punto-venta");
+              setCategoriasExpandidas((prev) => new Set(prev).add("pyg-punto-venta"));
+              setVistaDetalleItemId(CONT_PYG_ITEM_ID);
+            }}
+          />
+        ) : vistaDetalleItemId === CP_CENTRO_ITEM_ID ? (
+          <ClientesProveedoresFranquiciaPanel
+            puntoVenta={puntoVenta}
+            uid={uid}
+            role={role}
+            onVolver={() => {
+              setVistaDetalleItemId(null);
+              setCategoriaActiva("general");
+            }}
+          />
+        ) : vistaDetalleItemId === PS_POLITICA_ITEM_ID ? (
+          <div className="mx-auto max-w-2xl space-y-6">
+            <button
+              type="button"
+              onClick={() => {
+                setVistaDetalleItemId(null);
+                setCategoriaActiva("general");
+              }}
+              className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
+            >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              </svg>
+              Configuración
+            </button>
+            <div
+              role="alert"
+              className="rounded-2xl border-2 border-amber-300 bg-gradient-to-b from-amber-50 to-orange-50/90 p-6 shadow-sm ring-1 ring-amber-200/60"
+            >
+              <div className="flex gap-4">
+                <span className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-amber-500 text-2xl text-white shadow-md" aria-hidden>
+                  ⚠️
+                </span>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-lg font-bold text-amber-950">Productos y servicios</h3>
+                  <ul className="mt-4 list-disc space-y-3 pl-5 text-sm leading-relaxed text-amber-950/95">
+                    <li>
+                      La <strong className="font-semibold text-amber-950">creación de nuevos productos</strong> no se realiza
+                      desde este POS. Debe solicitarse mediante la <strong className="font-semibold text-amber-950">app del
+                      franquiciado</strong>, presentando un <strong className="font-semibold text-amber-950">PQRS</strong>.
+                    </li>
+                    <li>
+                      Recordá que <strong className="font-semibold text-amber-950">solo está permitida la venta de productos
+                      autorizados por la marca</strong>. El catálogo que ves en caja proviene de los sistemas centrales (WMS /
+                      hoja autorizada); no agregues ítems por fuera de ese proceso.
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
         ) : (
           <>
             <div className="mb-4 flex flex-wrap items-start justify-between gap-2">
