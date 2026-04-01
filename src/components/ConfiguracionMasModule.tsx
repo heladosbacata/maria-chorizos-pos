@@ -54,8 +54,7 @@ export type ConfigCategoriaId =
   | "compras-gastos"
   | "clientes-proveedores"
   | "productos-servicios"
-  | "pyg-punto-venta"
-  | "alianzas";
+  | "pyg-punto-venta";
 
 export interface ConfigHerramienta {
   id: string;
@@ -174,19 +173,6 @@ const CATEGORIAS: ConfigCategoria[] = [
       {
         titulo: "Resumen",
         items: [{ id: CONT_PYG_ITEM_ID, label: "Ingresos, gastos y resultado del mes" }],
-      },
-    ],
-  },
-  {
-    id: "alianzas",
-    label: "Alianzas e integraciones",
-    secciones: [
-      {
-        titulo: "Integraciones",
-        items: [
-          { id: "ali-api", label: "API y conectores" },
-          { id: "ali-apps", label: "Aplicaciones asociadas" },
-        ],
       },
     ],
   },
