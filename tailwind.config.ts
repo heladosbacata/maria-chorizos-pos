@@ -48,6 +48,38 @@ const config: Config = {
           "0%": { opacity: "0" },
           "100%": { opacity: "1" },
         },
+        "posgeb-backdrop-in": {
+          "0%": { opacity: "0" },
+          "100%": { opacity: "1" },
+        },
+        "posgeb-card-3d": {
+          "0%": { opacity: "0", transform: "perspective(1200px) rotateX(8deg) translateY(24px) scale(0.96)" },
+          "100%": { opacity: "1", transform: "perspective(1200px) rotateX(0deg) translateY(0) scale(1)" },
+        },
+        "posgeb-card-inner": {
+          "0%": { opacity: "0", transform: "translateY(12px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
+        "posgeb-icon-ring": {
+          "0%, 100%": { transform: "scale(1)", opacity: "0.9" },
+          "50%": { transform: "scale(1.08)", opacity: "1" },
+        },
+        "posgeb-icon-glow": {
+          "0%, 100%": { opacity: "0.35", transform: "scale(1)" },
+          "50%": { opacity: "0.65", transform: "scale(1.12)" },
+        },
+        "posgeb-orb-a": {
+          "0%, 100%": { transform: "translate(0,0) scale(1)" },
+          "50%": { transform: "translate(12px,-10px) scale(1.05)" },
+        },
+        "posgeb-orb-b": {
+          "0%, 100%": { transform: "translate(0,0) scale(1)" },
+          "50%": { transform: "translate(-16px,8px) scale(1.08)" },
+        },
+        "posgeb-orb-c": {
+          "0%, 100%": { opacity: "0.5" },
+          "50%": { opacity: "0.85" },
+        },
       },
       animation: {
         "metas-shimmer": "metas-shimmer 2.4s ease-in-out infinite",
@@ -60,6 +92,14 @@ const config: Config = {
         "pyg-float": "pyg-float 3.5s ease-in-out infinite",
         "cliente-frec-modal-in": "cliente-frec-modal-in 0.45s cubic-bezier(0.16, 1, 0.3, 1) both",
         "cliente-frec-backdrop-in": "cliente-frec-backdrop-in 0.3s ease-out both",
+        "posgeb-backdrop-in": "posgeb-backdrop-in 0.5s ease-out both",
+        "posgeb-card-3d": "posgeb-card-3d 0.75s cubic-bezier(0.16, 1, 0.3, 1) both",
+        "posgeb-card-inner": "posgeb-card-inner 0.55s ease-out 0.12s both",
+        "posgeb-icon-ring": "posgeb-icon-ring 2.4s ease-in-out infinite",
+        "posgeb-icon-glow": "posgeb-icon-glow 2.4s ease-in-out infinite",
+        "posgeb-orb-a": "posgeb-orb-a 8s ease-in-out infinite",
+        "posgeb-orb-b": "posgeb-orb-b 9s ease-in-out infinite",
+        "posgeb-orb-c": "posgeb-orb-c 5s ease-in-out infinite",
       },
       colors: {
         brand: {

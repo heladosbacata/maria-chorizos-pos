@@ -12,6 +12,9 @@ import CrearClientePosModal from "@/components/CrearClientePosModal";
 import EdicionItemCuentaModal from "@/components/EdicionItemCuentaModal";
 import InventarioPosModule from "@/components/InventarioPosModule";
 import PerfilUsuarioModal from "@/components/PerfilUsuarioModal";
+import PosGebAyudaMotorModal from "@/components/PosGebAyudaMotorModal";
+import PosGebBienvenidaModal from "@/components/PosGebBienvenidaModal";
+import PosGebTutorialOverlay from "@/components/PosGebTutorialOverlay";
 import CobroImpresionCelebracionOverlay from "@/components/CobroImpresionCelebracionOverlay";
 import TicketPrevisualizacionModal from "@/components/TicketPrevisualizacionModal";
 import ModalCobroSinInternet from "@/components/ModalCobroSinInternet";
@@ -118,6 +121,12 @@ import {
 import { fechaColombia, fechaHoraColombia, ymdColombia } from "@/lib/fecha-colombia";
 import { formatPesosCop, parsePesosCopInput } from "@/lib/pesos-cop-input";
 import { emailDesdeFichaFranquiciado, getFranquiciadoPorPuntoVenta } from "@/lib/franquiciado-pos";
+import {
+  markPosGebTutorialCompleted,
+  readPosGebOnboarding,
+  writePosGebOnboarding,
+} from "@/lib/pos-onboarding-storage";
+import { getPosGebTutorialSteps, type PosGebTutorialModulo } from "@/lib/pos-geb-tutorial-steps";
 
 const LS_INFORME_TURNO_PARA = "pos_mc_informe_turno_para_v1";
 const LS_INFORME_TURNO_CC = "pos_mc_informe_turno_cc_v1";
@@ -265,6 +274,10 @@ export default function CajaPage() {
   }, [user]);
 
   const [moduloActivo, setModuloActivo] = useState<ModuloActivo>("ventas");
+  const [posGebBienvenidaAbierta, setPosGebBienvenidaAbierta] = useState(false);
+  const [posGebTutorialAbierto, setPosGebTutorialAbierto] = useState(false);
+  const [posGebTutorialPaso, setPosGebTutorialPaso] = useState(0);
+  const [posGebAyudaAbierta, setPosGebAyudaAbierta] = useState(false);
   const [precuentas, setPrecuentas] = useState<PrecuentaTab[]>([
     { id: "1", nombre: "Nueva pre-cuenta" },
   ]);
@@ -312,6 +325,48 @@ export default function CajaPage() {
     if (!user) return;
     setFotoPerfil(readCajeroFotoDataUrl(user.uid, cajeroFirestoreIdPerfil));
   }, [user?.uid, cajeroFirestoreIdPerfil]);
+
+  const esUsuarioContadorGeb = Boolean(user && esContadorInvitado(user.role));
+  const pasosTutorialPosGeb = useMemo(
+    () => getPosGebTutorialSteps(esUsuarioContadorGeb),
+    [esUsuarioContadorGeb]
+  );
+
+  useEffect(() => {
+    if (!user?.uid) return;
+    const st = readPosGebOnboarding(user.uid);
+    if (!st) {
+      setPosGebBienvenidaAbierta(true);
+      return;
+    }
+    if (st.isNewUser && !st.tutorialCompleted) {
+      setPosGebTutorialAbierto(true);
+      setPosGebTutorialPaso(0);
+    }
+  }, [user?.uid]);
+
+  const finalizarTutorialPosGeb = useCallback(() => {
+    if (user?.uid) markPosGebTutorialCompleted(user.uid);
+    setPosGebTutorialAbierto(false);
+    setPosGebTutorialPaso(0);
+  }, [user?.uid]);
+
+  const handleTutorialNavigatePosGeb = useCallback((m: PosGebTutorialModulo) => {
+    setModuloActivo(m as ModuloActivo);
+  }, []);
+
+  const handleAyudaIrAPosGeb = useCallback((m: PosGebTutorialModulo, target?: string) => {
+    setModuloActivo(m as ModuloActivo);
+    if (target) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          document
+            .querySelector(`[data-pos-tutorial="${target}"]`)
+            ?.scrollIntoView({ block: "center", behavior: "smooth" });
+        });
+      });
+    }
+  }, []);
 
   const handleFotoPerfilChange = useCallback(
     (dataUrl: string | null) => {
@@ -1819,22 +1874,59 @@ export default function CajaPage() {
   return (
     <div className="flex h-dvh max-h-dvh min-h-0 overflow-hidden bg-gray-100/90">
       {/* Sidebar izquierdo */}
-      <aside className="fixed left-0 top-0 z-10 flex min-h-screen w-52 flex-col border-r border-gray-200 bg-white shadow-sm">
-        <div className="flex flex-col items-center gap-1 border-b border-gray-100 bg-white px-3 py-4">
-          <Image
-            src={LOGO_ORG_URL}
-            alt="Maria Chorizos"
-            width={140}
-            height={50}
-            className="h-10 w-auto object-contain"
-          />
-          <span className="text-xs font-medium text-primary-600">POS</span>
+      <aside
+        data-pos-tutorial="sidebar"
+        className="fixed left-0 top-0 z-10 flex min-h-screen w-52 flex-col border-r border-gray-200 bg-white shadow-sm"
+      >
+        <div className="flex items-start justify-between gap-2 border-b border-gray-100 bg-white px-2 py-3">
+          <div className="flex min-w-0 flex-1 flex-col items-center gap-1">
+            <Image
+              src={LOGO_ORG_URL}
+              alt="Maria Chorizos"
+              width={140}
+              height={50}
+              className="h-9 w-auto object-contain"
+            />
+            <span className="text-xs font-medium text-primary-600">POS</span>
+          </div>
+          <button
+            type="button"
+            data-pos-tutorial="ayuda-icon"
+            onClick={() => setPosGebAyudaAbierta(true)}
+            className="group relative flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl border border-amber-200/80 bg-gradient-to-br from-amber-50 via-white to-amber-100/90 shadow-[0_6px_20px_-6px_rgba(180,130,40,0.45)] transition-transform hover:scale-[1.03] active:scale-[0.97]"
+            title="Ayuda GEB — buscá cómo hacer cualquier cosa"
+            aria-label="Abrir ayuda GEB"
+          >
+            <span className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-br from-brand-yellow/25 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
+            <svg
+              className="relative h-6 w-6 text-amber-900 drop-shadow-sm"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              aria-hidden
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={1.8}
+                d="M9.09 9a3 3 0 115.83 1c0 2-3 3-3 3M12 17h.01"
+              />
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={1.2}
+                d="M4.5 4.5l2 2M19.5 4.5l-2 2M12 3v1"
+                className="text-brand-red opacity-60"
+              />
+            </svg>
+          </button>
         </div>
         <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2">
           {!esContador && (
             <>
               <button
                 type="button"
+                data-pos-tutorial="nav-ventas"
                 onClick={() => setModuloActivo("ventas")}
                 className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
                   moduloActivo === "ventas" ? "bg-brand-yellow/25 text-gray-900 border border-brand-yellow/50" : "text-gray-600 hover:bg-gray-50"
@@ -1847,6 +1939,7 @@ export default function CajaPage() {
               </button>
               <button
                 type="button"
+                data-pos-tutorial="nav-turnos"
                 onClick={() => setModuloActivo("turnos")}
                 className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
                   moduloActivo === "turnos" ? "bg-brand-yellow/25 text-gray-900 border border-brand-yellow/50" : "text-gray-600 hover:bg-gray-50"
@@ -1902,6 +1995,7 @@ export default function CajaPage() {
           )}
           <button
             type="button"
+            data-pos-tutorial="nav-ultimos"
             onClick={() => setModuloActivo("ultimosRecibos")}
             className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
               moduloActivo === "ultimosRecibos"
@@ -1921,6 +2015,7 @@ export default function CajaPage() {
           </button>
           <button
             type="button"
+            data-pos-tutorial="nav-metas"
             onClick={() => setModuloActivo("metasBonificaciones")}
             className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
               moduloActivo === "metasBonificaciones"
@@ -1940,6 +2035,7 @@ export default function CajaPage() {
           </button>
           <button
             type="button"
+            data-pos-tutorial="nav-reportes"
             onClick={() => setModuloActivo("reportes")}
             className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
               moduloActivo === "reportes" ? "bg-brand-yellow/25 text-gray-900 border border-brand-yellow/50" : "text-gray-600 hover:bg-gray-50"
@@ -1953,6 +2049,7 @@ export default function CajaPage() {
           {!esContador && (
             <button
               type="button"
+              data-pos-tutorial="nav-mas"
               onClick={() => {
                 if (moduloActivo === "mas") return;
                 abrirModuloMasConClave();
@@ -1972,6 +2069,7 @@ export default function CajaPage() {
           {!esContador && (
             <button
               type="button"
+              data-pos-tutorial="turno"
               onClick={() => {
                 if (turnoAbierto) setShowModalCierreTurno(true);
                 else {
@@ -2981,7 +3079,10 @@ export default function CajaPage() {
                 </div>
               )}
               {/* Pestañas de pre-cuenta */}
-              <div className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
+              <div
+                data-pos-tutorial="precuentas"
+                className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm"
+              >
                 <span className="mr-2 text-sm font-medium text-gray-500">Pre-cuenta activa:</span>
                 {precuentas.map((p) => (
                   <span
@@ -3070,7 +3171,10 @@ export default function CajaPage() {
               </div>
 
               {/* Catálogo de productos */}
-              <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+              <div
+                data-pos-tutorial="catalogo"
+                className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm"
+              >
                 <h2 className="mb-3 text-lg font-semibold text-gray-800">Catálogo de productos</h2>
                 <p className="mb-4 text-sm text-gray-500">
                   Productos disponibles para venta (origen: WMS — Productos POS)
@@ -3178,7 +3282,10 @@ export default function CajaPage() {
               </div>
 
               {/* Valor de venta del día — debajo del catálogo */}
-              <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+              <div
+                data-pos-tutorial="valor-dia"
+                className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm"
+              >
                 <h2 className="mb-4 text-lg font-semibold text-gray-800">
                   Valor de venta del día — {precuentas.find((p) => p.id === activePrecuentaId)?.nombre}
                 </h2>
@@ -3275,6 +3382,7 @@ export default function CajaPage() {
 
       {/* Sidebar derecho — Cuenta a cobrar (solo en Ventas; visible también en móvil debajo del catálogo) */}
       <aside
+        data-pos-tutorial="cuenta-cobrar"
         className={`flex min-h-0 w-full flex-shrink-0 flex-col border-t border-gray-200 bg-white lg:w-72 lg:border-l lg:border-t-0 xl:w-80 ${
           moduloActivo === "ventas" ? "" : "hidden"
         }`}
@@ -3621,6 +3729,46 @@ export default function CajaPage() {
 
       <CobroImpresionCelebracionOverlay open={cobroImpresionOverlayOpen} />
 
+      <PosGebBienvenidaModal
+        open={posGebBienvenidaAbierta}
+        onExperienced={() => {
+          if (!user?.uid) return;
+          writePosGebOnboarding(user.uid, {
+            version: 1,
+            answeredAt: new Date().toISOString(),
+            isNewUser: false,
+          });
+          setPosGebBienvenidaAbierta(false);
+        }}
+        onNewUser={() => {
+          if (!user?.uid) return;
+          writePosGebOnboarding(user.uid, {
+            version: 1,
+            answeredAt: new Date().toISOString(),
+            isNewUser: true,
+            tutorialCompleted: false,
+          });
+          setPosGebBienvenidaAbierta(false);
+          setPosGebTutorialAbierto(true);
+          setPosGebTutorialPaso(0);
+        }}
+      />
+
+      <PosGebTutorialOverlay
+        open={posGebTutorialAbierto}
+        steps={pasosTutorialPosGeb}
+        stepIndex={posGebTutorialPaso}
+        onStepIndexChange={setPosGebTutorialPaso}
+        onComplete={finalizarTutorialPosGeb}
+        onNavigateModule={handleTutorialNavigatePosGeb}
+      />
+
+      <PosGebAyudaMotorModal
+        open={posGebAyudaAbierta}
+        onClose={() => setPosGebAyudaAbierta(false)}
+        onIrAModulo={handleAyudaIrAPosGeb}
+        esContador={esContador}
+      />
     </div>
   );
 }
