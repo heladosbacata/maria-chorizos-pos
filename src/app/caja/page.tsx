@@ -137,6 +137,10 @@ import {
 } from "@/constants/perfil-pos";
 import { fechaColombia, fechaHoraColombia, ymdColombia } from "@/lib/fecha-colombia";
 import { formatPesosCop, parsePesosCopInput } from "@/lib/pesos-cop-input";
+import {
+  combinarCcInformeCierreTurno,
+  mensajeExitoMotivacionalInformeCierreTurno,
+} from "@/lib/cierre-turno-informe-correo-ui";
 import { emailDesdeFichaFranquiciado, getFranquiciadoPorPuntoVenta } from "@/lib/franquiciado-pos";
 import {
   clearPosGebOnboarding,
@@ -924,6 +928,8 @@ export default function CajaPage() {
           } else {
             window.alert(msg || "No se pudo enviar el correo con el informe.");
           }
+        } else if (correoInforme?.para?.trim()) {
+          window.alert(mensajeExitoMotivacionalInformeCierreTurno());
         }
       } else if (correoInforme?.para?.trim()) {
         window.alert("No hay sesión válida para enviar el correo. Vuelve a iniciar sesión e intenta de nuevo.");
@@ -991,11 +997,10 @@ export default function CajaPage() {
     setErrorInformeCierreCorreo(null);
     setCargandoDefaultsInformeCorreo(true);
     let para = "";
-    let cc = "";
+    let ccExtraGuardado = "";
     try {
       if (typeof window !== "undefined") {
-        para = localStorage.getItem(LS_INFORME_TURNO_PARA)?.trim() ?? "";
-        cc = localStorage.getItem(LS_INFORME_TURNO_CC)?.trim() ?? "";
+        ccExtraGuardado = localStorage.getItem(LS_INFORME_TURNO_CC)?.trim() ?? "";
       }
       const token = await auth?.currentUser?.getIdToken();
       const pv = user?.puntoVenta?.trim();
@@ -1003,13 +1008,16 @@ export default function CajaPage() {
         const r = await getFranquiciadoPorPuntoVenta(pv, token);
         if (r.ok) {
           const fromFicha = emailDesdeFichaFranquiciado(r.franquiciado ?? null);
-          if (!para && fromFicha) para = fromFicha;
+          if (fromFicha) para = fromFicha;
         }
+      }
+      if (!para && typeof window !== "undefined") {
+        para = localStorage.getItem(LS_INFORME_TURNO_PARA)?.trim() ?? "";
       }
       if (!para && user?.email?.trim()) para = user.email.trim();
     } finally {
       setEmailInformeCierrePara(para);
-      setEmailInformeCierreCc(cc);
+      setEmailInformeCierreCc(combinarCcInformeCierreTurno(ccExtraGuardado));
       setCargandoDefaultsInformeCorreo(false);
     }
   }, [user?.puntoVenta, user?.email]);
@@ -1020,16 +1028,14 @@ export default function CajaPage() {
       setErrorInformeCierreCorreo("Ingresa un correo válido para el franquiciado.");
       return;
     }
-    const ccTrim = emailInformeCierreCc.trim();
-    if (ccTrim) {
-      const partes = ccTrim.split(/[,;]/).map((x) => x.trim()).filter(Boolean);
-      if (!partes.every((p) => emailValidoSimple(p))) {
-        setErrorInformeCierreCorreo("Revisa los correos en «Con copia».");
-        return;
-      }
+    const ccFinal = combinarCcInformeCierreTurno(emailInformeCierreCc.trim());
+    const partesCc = ccFinal.split(/[,;]/).map((x) => x.trim()).filter(Boolean);
+    if (!partesCc.every((p) => emailValidoSimple(p))) {
+      setErrorInformeCierreCorreo("Revisa los correos en «Con copia».");
+      return;
     }
     setErrorInformeCierreCorreo(null);
-    await ejecutarCierreTurnoDefinitivo({ para, cc: ccTrim });
+    await ejecutarCierreTurnoDefinitivo({ para, cc: ccFinal });
     setModalInformeCierreCorreoAbierto(false);
   }, [emailInformeCierrePara, emailInformeCierreCc, ejecutarCierreTurnoDefinitivo]);
 

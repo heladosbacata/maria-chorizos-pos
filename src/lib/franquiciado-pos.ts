@@ -67,23 +67,31 @@ export async function getFranquiciadoPorPuntoVenta(
 const EMAIL_KEYS = [
   "email",
   "correo",
+  "CORREO",
+  "Correo",
   "correoElectronico",
   "emailFranquiciado",
   "correoFranquiciado",
+  "EMAIL_APP",
+  "Email_App",
   "eMail",
   "mail",
 ] as const;
 
-/** Primer correo reconocido en la ficha WMS del franquiciado (campos habituales o `usuario`). */
+function pareceEmailValido(s: string): boolean {
+  const t = s.trim();
+  return t.length > 3 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t);
+}
+
+/** Primer correo reconocido en la ficha (ID_Franquiciados / WMS): claves camelCase o encabezados de hoja. */
 export function emailDesdeFichaFranquiciado(
   ficha: FranquiciadoFicha | null | undefined
 ): string | null {
   if (!ficha || typeof ficha !== "object") return null;
   for (const k of EMAIL_KEYS) {
     const v = ficha[k];
-    if (typeof v === "string" && v.includes("@")) {
-      const t = v.trim();
-      if (t) return t;
+    if (typeof v === "string" && pareceEmailValido(v)) {
+      return v.trim();
     }
   }
   const u = ficha.usuario;
@@ -91,10 +99,17 @@ export function emailDesdeFichaFranquiciado(
     const o = u as Record<string, unknown>;
     for (const k of EMAIL_KEYS) {
       const v = o[k];
-      if (typeof v === "string" && v.includes("@")) {
-        const t = v.trim();
-        if (t) return t;
+      if (typeof v === "string" && pareceEmailValido(v)) {
+        return v.trim();
       }
+    }
+  }
+  for (const [key, val] of Object.entries(ficha)) {
+    if (typeof val !== "string" || !pareceEmailValido(val)) continue;
+    const kn = String(key).replace(/\s+/g, "_").toUpperCase();
+    if (/CONTRASE|PASSWORD|PASS_|SECRET|TOKEN|API_KEY/i.test(kn)) continue;
+    if (/(CORREO|EMAIL|MAIL)/.test(kn)) {
+      return val.trim();
     }
   }
   return null;

@@ -57,8 +57,11 @@ export default function ModalInformeCierreCorreo({
         </div>
         <div className="px-5 py-4">
           <p className="text-sm text-gray-600">
-            Se adjunta el informe de cierre de turno. Puedes cambiar el destinatario y añadir copia (varios correos
-            separados por coma).
+            Se adjunta el informe de cierre de turno. El destinatario principal es el correo registrado en{" "}
+            <span className="font-medium text-gray-800">ID_Franquiciados</span> para tu punto de venta (podés ajustarlo
+            si hace falta). En copia siempre se incluye{" "}
+            <span className="font-medium text-gray-800">servicioalcliente@grupobacata.com</span>; podés sumar otros
+            correos separados por coma.
           </p>
           {defaultsLoading ? (
             <p className="mt-4 text-sm text-gray-500">Cargando correo sugerido…</p>
@@ -66,7 +69,7 @@ export default function ModalInformeCierreCorreo({
             <div className="mt-4 space-y-3">
               <div>
                 <label htmlFor="informe-correo-para" className="mb-1 block text-xs font-medium text-gray-700">
-                  Correo del franquiciado (destinatario)
+                  Correo del franquiciado — ID_Franquiciados (destinatario)
                 </label>
                 <input
                   id="informe-correo-para"
@@ -81,7 +84,7 @@ export default function ModalInformeCierreCorreo({
               </div>
               <div>
                 <label htmlFor="informe-correo-cc" className="mb-1 block text-xs font-medium text-gray-700">
-                  Con copia (opcional)
+                  Con copia (Grupo Bacatá + adicionales)
                 </label>
                 <input
                   id="informe-correo-cc"
@@ -89,7 +92,7 @@ export default function ModalInformeCierreCorreo({
                   value={cc}
                   onChange={(e) => onCcChange(e.target.value)}
                   disabled={submitting}
-                  placeholder="otro@ejemplo.com, contador@ejemplo.com"
+                  placeholder="servicioalcliente@grupobacata.com, otro@ejemplo.com"
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50"
                 />
               </div>
