@@ -185,3 +185,47 @@ body {
   animation: cobro-print-sparkle 3s ease-in-out infinite;
   animation-delay: 1s;
 }
+
+/* Cabecera premium caja — lluvia de chorizos 3D */
+@keyframes posgeb-chorizo-rain {
+  0% {
+    transform: translate3d(0, -120%, var(--chorizo-z0, 0px)) rotateX(var(--chorizo-rx0, -20deg))
+      rotateY(var(--chorizo-ry0, 10deg)) rotateZ(var(--chorizo-rz0, -8deg)) scale(var(--chorizo-sc, 1));
+    opacity: 0;
+  }
+  7% {
+    opacity: var(--chorizo-op, 0.9);
+  }
+  93% {
+    opacity: var(--chorizo-op, 0.9);
+  }
+  100% {
+    transform: translate3d(var(--chorizo-drift, 0px), 140%, var(--chorizo-z1, -20px))
+      rotateX(var(--chorizo-rx1, 240deg)) rotateY(var(--chorizo-ry1, -280deg)) rotateZ(var(--chorizo-rz1, 18deg))
+      scale(var(--chorizo-sc2, 1.06));
+    opacity: 0;
+  }
+}
+
+.posgeb-chorizo-stage {
+  perspective: 880px;
+  perspective-origin: 50% 30%;
+  transform-style: preserve-3d;
+}
+
+.posgeb-chorizo-particle {
+  animation-name: posgeb-chorizo-rain;
+  animation-timing-function: cubic-bezier(0.33, 0.65, 0.28, 0.95);
+  animation-iteration-count: infinite;
+  will-change: transform, opacity;
+  transform-style: preserve-3d;
+  backface-visibility: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .posgeb-chorizo-particle {
+    animation: none !important;
+    opacity: 0.12 !important;
+    transform: none !important;
+  }
+}
