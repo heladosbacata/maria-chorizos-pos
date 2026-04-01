@@ -123,6 +123,7 @@ import {
   lineasWmsEnsambleDesdeItemsCuenta,
   mensajeAplicarEnsambleParaCajero,
   mensajeEnsambleOkSinDescuentoInventario,
+  type WmsAplicarVentaEnsambleBody,
   type WmsAplicarVentaEnsambleResult,
 } from "@/lib/wms-aplicar-venta-ensamble";
 import type { TicketVentaLinea, TicketVentaPayload } from "@/types/impresion-pos";
@@ -165,6 +166,10 @@ type VistaPreviaCobroPendiente = {
   ventaLocalId: string | null;
   itemsRestaurar: ItemCuenta[];
   total: number;
+  /** Si existe, el ensamble WMS aún no se aplicó y debe ejecutarse al pulsar «Imprimir». */
+  ensamblePendiente: WmsAplicarVentaEnsambleBody | null;
+  /** Sticker descontado al activar «Cliente frecuente» antes del cobro; al cancelar vista previa se devuelve. */
+  incluirQrClienteFrecuente?: boolean;
 };
 
 function clonarItemsCuenta(items: ItemCuenta[]): ItemCuenta[] {
@@ -1333,6 +1338,43 @@ export default function CajaPage() {
     }
   }, [user, turnoAbierto, precuentas, activePrecuentaId]);
 
+  /** Devuelve 1 sticker de fidelización si se descontó al marcar cliente frecuente y luego se cancela desde la vista previa. */
+  const revertirStickerFidelizacionTrasCancelarVistaPrevia = useCallback(async () => {
+    if (!user || esContadorInvitado(user.role)) return;
+    const pv = user.puntoVenta?.trim();
+    if (!pv) return;
+    const sku = skuStickerFidelizacion();
+    if (!sku) return;
+    try {
+      const sheetRes = await fetchCatalogoInsumosDesdeSheet(pv);
+      const catalog =
+        sheetRes.ok && sheetRes.data.length > 0
+          ? sheetRes.data
+          : await listarInsumosKitPorPuntoVenta(pv);
+      const insumo = insumoKitDesdeCatalogoPorSku(catalog, sku);
+      if (!insumo) {
+        console.warn("[POS] Cancelar vista previa: no se pudo devolver sticker fidelización (SKU no en catálogo).");
+        return;
+      }
+      const notas = "Reversión sticker fidelización · cancelación vista previa comprobante".slice(0, 500);
+      const r = await registrarMovimientoInventario({
+        puntoVenta: pv,
+        insumo,
+        tipo: "ajuste_positivo",
+        cantidad: 1,
+        notas,
+        uid: user.uid,
+        email: user.email ?? null,
+        permitirNegativo: false,
+      });
+      if (!r.ok) {
+        console.warn("[POS] Cancelar vista previa: no se pudo devolver sticker fidelización:", r.message);
+      }
+    } catch (e) {
+      console.warn("[POS] Cancelar vista previa: error al devolver sticker fidelización.", e);
+    }
+  }, [user]);
+
   useEffect(() => {
     if (itemsCuentaActiva.length === 0) setSidebarResumenExpandido(false);
   }, [itemsCuentaActiva.length]);
@@ -1430,8 +1472,10 @@ export default function CajaPage() {
     }
     const okConfirm = window.confirm(
       "¿Anular por completo esta venta?\n\n" +
-        "Se devolverán los productos a la cuenta actual, se marcará el recibo como anulado y se intentará devolver stock en inventario POS (como en «Últimos recibos»).\n\n" +
-        "El envío de la venta a red / WMS ya realizado no se revierte automáticamente; coordiná con soporte si hace falta corregir reportes o ensamble."
+        "Se devolverán los productos a la cuenta actual y se marcará el recibo como anulado. " +
+        "El inventario por ensamble aún no se había descontado (se aplica al pulsar «Imprimir»), así que no hay reversión de stock de productos.\n\n" +
+        "Si activaste «Cliente frecuente», se devolverá el sticker en inventario. " +
+        "El reporte de venta ya enviado a red / WMS no se revierte solo; coordiná con soporte si hace falta."
     );
     if (!okConfirm) return;
 
@@ -1444,6 +1488,7 @@ export default function CajaPage() {
           puntoVenta: pv,
           ventaId: pack.ventaLocalId,
           motivo: "Cancelación desde vista previa del comprobante (error del cajero).",
+          omitirDevolucionInventarioPos: true,
         });
         if (!r.ok) {
           window.alert(r.message);
@@ -1457,11 +1502,6 @@ export default function CajaPage() {
             if (t) await wmsTurnosSincronizarSilent(t, nextTot);
           })();
         }
-        if (r.fallosSku.length > 0) {
-          window.alert(
-            `La venta quedó anulada, pero no se pudo devolver inventario en algunas líneas:\n${r.fallosSku.slice(0, 8).join("\n")}${r.fallosSku.length > 8 ? "\n…" : ""}`
-          );
-        }
       } else {
         window.alert(
           "No hay id de venta local para registrar la anulación en el historial. Se restauró la cuenta y se ajustó el total del turno en pantalla; revisá «Últimos recibos», inventario y reportes con soporte si los números no cuadran."
@@ -1472,6 +1512,10 @@ export default function CajaPage() {
           const t = await auth?.currentUser?.getIdToken();
           if (t) await wmsTurnosSincronizarSilent(t, nextTot);
         })();
+      }
+
+      if (pack.incluirQrClienteFrecuente) {
+        await revertirStickerFidelizacionTrasCancelarVistaPrevia();
       }
 
       setItemsPorPrecuenta((prev) => ({
@@ -1488,7 +1532,67 @@ export default function CajaPage() {
     turnoAbierto,
     turnoSesionId,
     activePrecuentaId,
+    revertirStickerFidelizacionTrasCancelarVistaPrevia,
   ]);
+
+  const ejecutarAplicarVentaEnsambleWmsDesdeBody = useCallback(async (bodyEnsamble: WmsAplicarVentaEnsambleBody) => {
+    const idEnsamble = bodyEnsamble.idVenta ?? "ens-sin-id";
+    const pv = bodyEnsamble.puntoVenta ?? "";
+    let ultimoEnsamble: WmsAplicarVentaEnsambleResult = {
+      ok: false,
+      status: 0,
+      error: "Ensamble no ejecutado",
+    };
+    try {
+      const tokenEns = await auth?.currentUser?.getIdToken();
+      if (!tokenEns) {
+        ultimoEnsamble = { ok: false, status: 401, error: "Sin token de sesión para ensamble." };
+      } else {
+        let rEns = await aplicarVentaEnsambleWms(tokenEns, bodyEnsamble);
+        if (!rEns.ok && (rEns.status === 0 || rEns.status >= 500)) {
+          await new Promise((r) => setTimeout(r, 1500));
+          const t2 = await auth?.currentUser?.getIdToken();
+          if (t2) rEns = await aplicarVentaEnsambleWms(t2, bodyEnsamble);
+        }
+        ultimoEnsamble = rEns;
+        if (!rEns.ok) {
+          if (rEns.status === 0 || rEns.status >= 500) {
+            encolarAplicarEnsamblePendiente(bodyEnsamble);
+          }
+          window.alert(mensajeAplicarEnsambleParaCajero(rEns));
+        } else {
+          const aplicados = contarAplicadosEnsambleReportados(rEns);
+          if (aplicados === 0) {
+            window.alert(mensajeEnsambleOkSinDescuentoInventario(rEns));
+          } else if (aplicados === null) {
+            console.warn(
+              "[POS] Ensamble WMS: respuesta OK pero sin campo «aplicados». Revisá Inventarios → Diagnóstico último cobro, Firebase projectId y que DB_POS_Composición use el mismo SKU/variante que el POS.",
+              rEns
+            );
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("aplicar-venta-ensamble", e);
+      ultimoEnsamble = {
+        ok: false,
+        status: 0,
+        error: e instanceof Error ? e.message : String(e),
+      };
+      encolarAplicarEnsamblePendiente(bodyEnsamble);
+      window.alert(
+        "La venta quedó registrada en caja, pero hubo un error al sincronizar el inventario por ensamble. Se reintentará automáticamente cuando haya conexión."
+      );
+    } finally {
+      guardarUltimoEnsambleEnSesion(bodyEnsamble, ultimoEnsamble);
+      console.info("[POS] aplicar-venta-ensamble", {
+        idVenta: idEnsamble,
+        puntoVenta: pv,
+        skus: bodyEnsamble.lineas.map((l) => l.skuProducto),
+        ...ultimoEnsamble,
+      });
+    }
+  }, []);
 
   type OpcionesCobroVenta = { notaPie?: string; detallePago?: DetallePagoConfirmado };
 
@@ -1609,68 +1713,23 @@ export default function CajaPage() {
           ...(mediosPago ? { mediosPago } : {}),
         });
 
+        let ensamblePendienteParaVista: WmsAplicarVentaEnsambleBody | null = null;
         const lineasEnsamble = lineasWmsEnsambleDesdeItemsCuenta(itemsSnap);
         const idEnsamble =
           ventaLocalId ?? `ens-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+        const prefsImpresionCobro = loadImpresionPrefs();
+        const aplazarEnsambleHastaImprimir =
+          prefsImpresionCobro.imprimirAutomaticoAlCobrar && lineasEnsamble.length > 0;
         if (lineasEnsamble.length > 0) {
-          const bodyEnsamble = {
+          const bodyEnsamble: WmsAplicarVentaEnsambleBody = {
             lineas: lineasEnsamble,
             idVenta: idEnsamble,
             puntoVenta: pv,
           };
-          let ultimoEnsamble: WmsAplicarVentaEnsambleResult = {
-            ok: false,
-            status: 0,
-            error: "Ensamble no ejecutado",
-          };
-          try {
-            const tokenEns = await auth?.currentUser?.getIdToken();
-            if (!tokenEns) {
-              ultimoEnsamble = { ok: false, status: 401, error: "Sin token de sesión para ensamble." };
-            } else {
-              let rEns = await aplicarVentaEnsambleWms(tokenEns, bodyEnsamble);
-              if (!rEns.ok && (rEns.status === 0 || rEns.status >= 500)) {
-                await new Promise((r) => setTimeout(r, 1500));
-                const t2 = await auth?.currentUser?.getIdToken();
-                if (t2) rEns = await aplicarVentaEnsambleWms(t2, bodyEnsamble);
-              }
-              ultimoEnsamble = rEns;
-              if (!rEns.ok) {
-                if (rEns.status === 0 || rEns.status >= 500) {
-                  encolarAplicarEnsamblePendiente(bodyEnsamble);
-                }
-                window.alert(mensajeAplicarEnsambleParaCajero(rEns));
-              } else {
-                const aplicados = contarAplicadosEnsambleReportados(rEns);
-                if (aplicados === 0) {
-                  window.alert(mensajeEnsambleOkSinDescuentoInventario(rEns));
-                } else if (aplicados === null) {
-                  console.warn(
-                    "[POS] Ensamble WMS: respuesta OK pero sin campo «aplicados». Revisá Inventarios → Diagnóstico último cobro, Firebase projectId y que DB_POS_Composición use el mismo SKU/variante que el POS.",
-                    rEns
-                  );
-                }
-              }
-            }
-          } catch (e) {
-            console.warn("aplicar-venta-ensamble", e);
-            ultimoEnsamble = {
-              ok: false,
-              status: 0,
-              error: e instanceof Error ? e.message : String(e),
-            };
-            encolarAplicarEnsamblePendiente(bodyEnsamble);
-            window.alert(
-              "La venta quedó registrada en caja, pero hubo un error al sincronizar el inventario por ensamble. Se reintentará automáticamente cuando haya conexión."
-            );
-          } finally {
-            guardarUltimoEnsambleEnSesion(bodyEnsamble, ultimoEnsamble);
-            console.info("[POS] aplicar-venta-ensamble", {
-              idVenta: idEnsamble,
-              puntoVenta: pv,
-              skus: bodyEnsamble.lineas.map((l) => l.skuProducto),
-              ...ultimoEnsamble,
-            });
+          if (aplazarEnsambleHastaImprimir) {
+            ensamblePendienteParaVista = bodyEnsamble;
+          } else {
+            await ejecutarAplicarVentaEnsambleWmsDesdeBody(bodyEnsamble);
           }
         }
 
@@ -1800,6 +1859,8 @@ export default function CajaPage() {
             ventaLocalId: ventaLocalId ?? null,
             itemsRestaurar: clonarItemsCuenta(itemsSnap),
             total,
+            ensamblePendiente: ensamblePendienteParaVista,
+            incluirQrClienteFrecuente: Boolean(opts?.detallePago?.incluirQrClienteFrecuente),
           });
         }
 
@@ -1822,6 +1883,7 @@ export default function CajaPage() {
       construirPayloadTicket,
       vaciarCuenta,
       pedirConfirmacionCobroSinInternet,
+      ejecutarAplicarVentaEnsambleWmsDesdeBody,
     ]
   );
 
@@ -3899,7 +3961,12 @@ export default function CajaPage() {
           const pack = previsualizacionCobro;
           if (!pack) return;
           setPrevisualizacionCobro(null);
-          void ejecutarImpresionPostCobro(pack.ticket);
+          void (async () => {
+            if (pack.ensamblePendiente && pack.ensamblePendiente.lineas.length > 0) {
+              await ejecutarAplicarVentaEnsambleWmsDesdeBody(pack.ensamblePendiente);
+            }
+            await ejecutarImpresionPostCobro(pack.ticket);
+          })();
         }}
         onCancelarTransaccion={() => void handleCancelarTransaccionVistaPrevia()}
       />

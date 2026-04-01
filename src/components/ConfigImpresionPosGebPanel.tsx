@@ -7,6 +7,7 @@ import type { ImpresionPosPrefs, MetodoImpresionPos } from "@/types/impresion-po
 
 const QZ_DESCARGA_URL = "https://qz.io/download/";
 const QZ_GUIA_URL = "https://qz.io/wiki/getting-started";
+const QZ_SIGNING_URL = "https://qz.io/docs/signing";
 
 export interface ConfigImpresionPosGebPanelProps {
   onVolver: () => void;
@@ -187,6 +188,26 @@ export default function ConfigImpresionPosGebPanel({ onVolver }: ConfigImpresion
                   >
                     Guía para la descarga e instalación de POS GEB Print (QZ Tray)
                   </a>
+                  <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50/90 p-3 text-xs text-slate-800">
+                    <p className="font-semibold text-slate-900">Ventana «Action Required» / permiso de impresoras</p>
+                    <ul className="mt-2 list-disc space-y-1.5 pl-4 text-slate-700">
+                      <li>
+                        Tenés que pulsar <strong className="text-slate-900">Allow (Permitir)</strong> para avanzar. La casilla
+                        «Remember this decision» <strong className="text-slate-900">no reemplaza</strong> a Permitir: primero
+                        permití, y si querés que QZ recuerde, marcá recordar y volvé a Permitir.
+                      </li>
+                      <li>
+                        Si aparece <strong className="text-slate-900">Anonymous</strong> o <strong className="text-slate-900">Untrusted website</strong>,
+                        es normal sin certificado firmado. Podés añadir la URL del POS en QZ Tray (ícono en la bandeja del sistema →
+                        Advanced / opciones avanzadas → gestión de sitios permitidos) o pedir a administración la firma digital del
+                        POS (variables <code className="rounded bg-white px-1">NEXT_PUBLIC_POS_QZ_SIGNING</code> y PEM en servidor;{" "}
+                        <a href={QZ_SIGNING_URL} target="_blank" rel="noopener noreferrer" className="font-medium text-primary-600 hover:underline">
+                          documentación QZ — signing
+                        </a>
+                        ).
+                      </li>
+                    </ul>
+                  </div>
                 </div>
               </div>
             </div>

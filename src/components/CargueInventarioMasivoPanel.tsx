@@ -44,6 +44,8 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
   const [notasGlobales, setNotasGlobales] = useState("");
   /** cantidades a ingresar por id de ítem del catálogo */
   const [cantidades, setCantidades] = useState<Record<string, string>>({});
+  /** precio de compra unitario (COP) por id cuando hay cantidad */
+  const [preciosCompra, setPreciosCompra] = useState<Record<string, string>>({});
 
   const [enviando, setEnviando] = useState(false);
   const [progreso, setProgreso] = useState<{ hecho: number; total: number } | null>(null);
@@ -118,8 +120,13 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
     setCantidades((prev) => ({ ...prev, [id]: raw }));
   }, []);
 
+  const setPrecioCompra = useCallback((id: string, raw: string) => {
+    setPreciosCompra((prev) => ({ ...prev, [id]: raw }));
+  }, []);
+
   const limpiarCantidades = useCallback(() => {
     setCantidades({});
+    setPreciosCompra({});
     setMensajeOk(null);
     setResumenErrores([]);
   }, []);
@@ -130,13 +137,31 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
     setError(null);
     setResumenErrores([]);
 
-    const lineas: { insumo: InsumoKitItem; cantidad: number }[] = [];
+    const lineas: { insumo: InsumoKitItem; cantidad: number; precioCompraUnitario: number }[] = [];
+    const faltanPrecio: string[] = [];
     for (const it of insumos) {
       const raw = (cantidades[it.id] ?? "").trim().replace(/,/g, ".");
       if (raw === "") continue;
       const n = parseFloat(raw);
       if (!Number.isFinite(n) || n <= 0) continue;
-      lineas.push({ insumo: it, cantidad: Math.round(n * 1000) / 1000 });
+      const rawP = (preciosCompra[it.id] ?? "").trim().replace(/,/g, ".");
+      const p = parseFloat(rawP);
+      if (!Number.isFinite(p) || p <= 0) {
+        faltanPrecio.push(it.sku);
+        continue;
+      }
+      lineas.push({
+        insumo: it,
+        cantidad: Math.round(n * 1000) / 1000,
+        precioCompraUnitario: Math.round(p * 100) / 100,
+      });
+    }
+
+    if (faltanPrecio.length > 0) {
+      setError(
+        `Cada producto con cantidad debe tener precio de compra unitario (COP > 0). Revisá: ${faltanPrecio.slice(0, 8).join(", ")}${faltanPrecio.length > 8 ? "…" : ""}.`
+      );
+      return;
     }
 
     if (lineas.length === 0) {
@@ -154,7 +179,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
     const fallos: string[] = [];
 
     for (let i = 0; i < lineas.length; i++) {
-      const { insumo, cantidad } = lineas[i]!;
+      const { insumo, cantidad, precioCompraUnitario } = lineas[i]!;
       setProgreso({ hecho: i, total: lineas.length });
       const r = await registrarMovimientoInventario({
         puntoVenta: pv,
@@ -165,6 +190,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
         uid,
         email,
         fechaCargue: sufijoFecha || undefined,
+        precioCompraUnitario,
       });
       if (!r.ok) {
         fallos.push(`${insumo.sku}: ${r.message ?? "Error"}`);
@@ -185,12 +211,17 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
           delete n[insumo.id];
           return n;
         });
+        setPreciosCompra((prev) => {
+          const n = { ...prev };
+          delete n[insumo.id];
+          return n;
+        });
       }
     }
 
     const saldosR = await listarSaldosInventarioPorPuntoVenta(pv);
     setSaldoRows(saldosR);
-  }, [pv, uid, email, insumos, cantidades, notasGlobales, fechaCargue]);
+  }, [pv, uid, email, insumos, cantidades, preciosCompra, notasGlobales, fechaCargue]);
 
   if (!pv) {
     return (
@@ -206,7 +237,8 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
         <h2 className="text-lg font-semibold text-gray-900">Cargue inicial del punto de venta</h2>
         <p className="mt-1 text-sm text-gray-600">
           Una sola tabla con <strong className="font-medium text-gray-800">todos</strong> los insumos del catálogo: completá
-          solo las cantidades que entraron. Las filas vacías o en cero se omiten. Para cargue con{" "}
+          cantidad y precio de compra unitario (COP) en cada fila que entra. Las filas vacías o en cero se omiten. Para
+          cargue con{" "}
           <strong className="font-medium">lote</strong> por producto o lista paso a paso, usá la pestaña{" "}
           <strong className="font-medium">Cargue por producto y lote</strong>.
         </p>
@@ -269,7 +301,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
             disabled={enviando}
             className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
-            Limpiar cantidades
+            Limpiar cantidades y precios
           </button>
           <button
             type="button"
@@ -309,7 +341,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
           ) : insumos.length === 0 ? (
             <p className="p-8 text-center text-gray-500">No hay ítems para mostrar.</p>
           ) : (
-            <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[880px] border-collapse text-left text-sm">
               <thead className="sticky top-0 z-[1] bg-gray-100 shadow-sm">
                 <tr>
                   <th className="border-b border-gray-200 px-3 py-2 font-semibold text-gray-800">Código</th>
@@ -317,6 +349,9 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
                   <th className="border-b border-gray-200 px-3 py-2 font-semibold text-gray-800">Unidad</th>
                   <th className="w-28 border-b border-gray-200 px-3 py-2 text-right font-semibold text-gray-800">Saldo actual</th>
                   <th className="w-36 border-b border-gray-200 px-3 py-2 font-semibold text-gray-800">Cantidad a cargar</th>
+                  <th className="w-40 border-b border-gray-200 px-3 py-2 font-semibold text-gray-800">
+                    Precio compra COP/u. <span className="text-red-600">*</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -338,6 +373,18 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
                         placeholder="0"
                         className="w-full rounded border border-gray-300 px-2 py-1.5 text-right font-mono text-sm tabular-nums focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 disabled:bg-gray-100"
                         aria-label={`Cantidad cargue ${it.sku}`}
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={preciosCompra[it.id] ?? ""}
+                        onChange={(e) => setPrecioCompra(it.id, e.target.value)}
+                        disabled={enviando}
+                        placeholder="COP"
+                        className="w-full rounded border border-gray-300 px-2 py-1.5 text-right font-mono text-sm tabular-nums focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 disabled:bg-gray-100"
+                        aria-label={`Precio compra ${it.sku}`}
                       />
                     </td>
                   </tr>

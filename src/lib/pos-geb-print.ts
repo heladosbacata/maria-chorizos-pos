@@ -26,7 +26,18 @@ export function textoTicketSeguro(s: string): string {
     .replace(/[^\x20-\x7E\n\r]/g, "");
 }
 
-export function construirTextoTicketPlano(payload: TicketVentaPayload, columnas: number = 42): string {
+export type OpcionesTextoTicketPlano = {
+  /**
+   * En impresión térmica directa (QZ) el QR va por comandos ESC/POS; no hace falta volcar el JSON en líneas de texto.
+   */
+  omitirBloqueFidelizacionTexto?: boolean;
+};
+
+export function construirTextoTicketPlano(
+  payload: TicketVentaPayload,
+  columnas: number = 42,
+  opciones?: OpcionesTextoTicketPlano
+): string {
   const W = columnas;
   const line = (s: string) => textoTicketSeguro(s).slice(0, W).padEnd(W);
   const center = (s: string) => {
@@ -73,10 +84,60 @@ export function construirTextoTicketPlano(payload: TicketVentaPayload, columnas:
   rows.push(center("Seguinos en Instagram"));
   rows.push(center("Maria Chorizos POS GEB"));
   rows.push("");
-  if (payload.fidelizacionPayloadTexto?.trim()) {
+  if (payload.fidelizacionPayloadTexto?.trim() && !opciones?.omitirBloqueFidelizacionTexto) {
     rows.push(textoFidelizacionTicketPlano(payload.fidelizacionPayloadTexto.trim(), W));
   }
   return rows.join("\n");
+}
+
+/**
+ * QR Code en ESC/POS (GS ( k), compatible con la mayoría de térmicas Xprinter / clón Epson.
+ * El contenido es UTF-8 (mismo JSON que el QR de la app).
+ */
+function escPosQrCodigo(payloadUtf8: string): string {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(payloadUtf8);
+  const maxBytes = 2048;
+  const slice = data.length > maxBytes ? data.slice(0, maxBytes) : data;
+  const storeLen = slice.length + 3;
+  const pL = storeLen & 0xff;
+  const pH = (storeLen >> 8) & 0xff;
+  let s = "";
+  s += "\x1D\x28\x6B\x04\x00\x31\x41\x32\x00";
+  s += "\x1D\x28\x6B\x03\x00\x31\x43\x06";
+  s += "\x1D\x28\x6B\x03\x00\x31\x45\x31";
+  s += "\x1D\x28\x6B" + String.fromCharCode(pL, pH) + "\x31\x50\x30";
+  for (let i = 0; i < slice.length; i++) {
+    s += String.fromCharCode(slice[i]!);
+  }
+  s += "\x1D\x28\x6B\x03\x00\x31\x51\x30";
+  return s;
+}
+
+function escPosAlinearCentro(): string {
+  return "\x1B\x61\x01";
+}
+
+function escPosAlinearIzq(): string {
+  return "\x1B\x61\x00";
+}
+
+function escPosBloqueQrFidelizacion(payloadJson: string, columnas: number): string {
+  const W = columnas;
+  const center = (t: string) => {
+    const x = textoTicketSeguro(t).slice(0, W);
+    const pad = Math.max(0, Math.floor((W - x.length) / 2));
+    return " ".repeat(pad) + x;
+  };
+  let out = "\n";
+  out += escPosAlinearCentro();
+  out += center("--- MARIA CHORIZOS ---") + "\n";
+  out += center("CLIENTE FRECUENTE") + "\n";
+  out += center("Escanear con app") + "\n\n";
+  out += escPosQrCodigo(payloadJson);
+  out += "\n\n";
+  out += escPosAlinearIzq();
+  return out;
 }
 
 /**
@@ -390,9 +451,62 @@ async function importQz(): Promise<QzModule> {
   return mod.default;
 }
 
+/**
+ * Si el despliegue tiene certificado/clave QZ y NEXT_PUBLIC_POS_QZ_SIGNING=1, configura certificado + firma
+ * para que QZ muestre un sitio de confianza (no «Anonymous») y suela funcionar mejor «Recordar decisión».
+ */
+async function qzApplySigningIfConfigured(qz: QzModule): Promise<void> {
+  if (typeof window === "undefined") return;
+  if (process.env.NEXT_PUBLIC_POS_QZ_SIGNING !== "1") return;
+
+  const { auth } = await import("@/lib/firebase");
+  const token = await auth?.currentUser?.getIdToken();
+  if (!token) return;
+
+  const origin = window.location.origin;
+  try {
+    const rCert = await fetch(`${origin}/api/pos_qz_certificate`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (!rCert.ok) return;
+    const cert = await rCert.text();
+    if (!cert.includes("BEGIN CERTIFICATE")) return;
+
+    const alg = (process.env.NEXT_PUBLIC_POS_QZ_SIGN_ALGORITHM || "SHA512").toUpperCase();
+    if (typeof qz.security?.setSignatureAlgorithm === "function") {
+      qz.security.setSignatureAlgorithm(alg);
+    }
+
+    qz.security.setCertificatePromise(() => Promise.resolve(cert));
+
+    qz.security.setSignaturePromise(async (toSign: string) => {
+      const fresh = await auth?.currentUser?.getIdToken();
+      if (!fresh) throw new Error("Sesión caducada. Volvé a iniciar sesión para imprimir con QZ.");
+      const r = await fetch(`${origin}/api/pos_qz_sign`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${fresh}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ toSign }),
+        cache: "no-store",
+      });
+      if (!r.ok) {
+        const errText = await r.text();
+        throw new Error(errText.slice(0, 200) || "Firma QZ rechazada por el servidor.");
+      }
+      return await r.text();
+    });
+  } catch (e) {
+    console.warn("[POS] QZ: no se aplicó firma digital; seguirá el aviso de sitio sin firmar.", e);
+  }
+}
+
 /** Conecta a QZ Tray; si ya hay sesión abierta, continúa. */
 export async function qzEnsureConnected(): Promise<QzModule> {
   const qz = await importQz();
+  await qzApplySigningIfConfigured(qz);
   try {
     await qz.websocket.connect();
   } catch (e: unknown) {
@@ -438,9 +552,11 @@ export async function imprimirTicketConQz(prefs: ImpresionPosPrefs, payload: Tic
     },
   });
   const cols = columnasTicketPorTamanoPapel(prefs.tamanoPapel);
-  const plain = construirTextoTicketPlano(payload, cols);
+  const fid = payload.fidelizacionPayloadTexto?.trim();
+  const plain = construirTextoTicketPlano(payload, cols, fid ? { omitirBloqueFidelizacionTexto: true } : undefined);
+  const bloqueQr = fid ? escPosBloqueQrFidelizacion(fid, cols) : "";
   const init = "\x1B\x40";
-  const data = `${init}${plain}\n\n\n\x1D\x56\x00`;
+  const data = `${init}${plain}${bloqueQr}\n\n\n\x1D\x56\x00`;
   await qz.print(config, [data]);
 }
 

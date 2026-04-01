@@ -446,7 +446,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
   const filasStock = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
     const base = insumos.map((i) => {
-      const { saldo, editable: saldoEditableClic } = saldoMostradoYFuenteParaInsumoKit(
+      const { saldo, editable: saldoEditableClic, costoUnitarioReferencia } = saldoMostradoYFuenteParaInsumoKit(
         i,
         saldosPorClaveMap,
         saldoRows
@@ -456,10 +456,16 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       const minSheet = i.minimoSugeridoSheet;
       const minimoEfectivo = minUsuario ?? minSheet ?? null;
       const bajoMinimo = minimoEfectivo != null && saldo < minimoEfectivo;
+      const valorStockAprox =
+        costoUnitarioReferencia != null && Number.isFinite(saldo)
+          ? Math.round(saldo * costoUnitarioReferencia * 100) / 100
+          : null;
       return {
         ...i,
         saldo,
         saldoEditableClic,
+        costoUnitarioReferencia,
+        valorStockAprox,
         minimoEfectivo,
         minimoUsuario: minUsuario,
         minimoSheet: minSheet,
@@ -476,6 +482,16 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
   }, [insumos, saldoRows, saldosPorClaveMap, minimosUsuario, busqueda]);
 
   const cantidadBajoMinimo = useMemo(() => filasStock.filter((r) => r.bajoMinimo).length, [filasStock]);
+
+  const totalInventarioValorizado = useMemo(() => {
+    let t = 0;
+    for (const r of filasStock) {
+      if (r.costoUnitarioReferencia != null && Number.isFinite(r.saldo)) {
+        t += r.saldo * r.costoUnitarioReferencia;
+      }
+    }
+    return Math.round(t);
+  }, [filasStock]);
 
   const insumoSeleccionable = useMemo(() => {
     return insumos.find((i) => i.id === movInsumoId) ?? null;
@@ -766,6 +782,22 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
               <span className="font-medium">Registrar movimiento</span> o el backoffice del WMS. El ícono de{" "}
               <span className="font-medium">ojo</span> al lado muestra los últimos movimientos de ese producto (POS + WMS).
             </p>
+            {!cargando && filasStock.length > 0 && (
+              <p className="mt-3 text-sm text-gray-800">
+                <span className="font-semibold text-gray-900">Inventario valorizado (costo aprox.):</span>{" "}
+                <span className="tabular-nums font-medium text-primary-800">
+                  {totalInventarioValorizado.toLocaleString("es-CO", {
+                    style: "currency",
+                    currency: "COP",
+                    maximumFractionDigits: 0,
+                  })}
+                </span>
+                <span className="mt-1 block text-xs font-normal text-gray-500">
+                  Suma saldo × costo medio por ítem (desde cargues con precio). Si un producto muestra «—» en costo, no
+                  entra en el total hasta que registres un cargue con precio.
+                </span>
+              </p>
+            )}
             {!cargando && cantidadBajoMinimo > 0 && (
               <div
                 className="mt-4 flex items-start gap-3 rounded-xl border border-amber-400/70 bg-gradient-to-r from-amber-50 to-orange-50/90 px-4 py-3 text-sm text-amber-950 shadow-sm"
@@ -798,6 +830,15 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                   <th className="px-4 py-3">Descripción</th>
                   <th className="px-4 py-3">Unidad</th>
                   <th className="px-4 py-3 text-right">Saldo actual</th>
+                  <th
+                    className="min-w-[7rem] px-4 py-3 text-right"
+                    title="Costo medio ponderado (COP/unidad) según cargues POS."
+                  >
+                    Costo unit. (COP)
+                  </th>
+                  <th className="min-w-[7rem] px-4 py-3 text-right" title="Saldo actual × costo unitario aproximado.">
+                    Valor stock
+                  </th>
                   <th className="min-w-[9rem] px-4 py-3 text-right">Mín. sugerido</th>
                   <th className="w-px whitespace-nowrap px-3 py-3 text-center" title="Icono si conviene pedir">
                     Alerta
@@ -807,13 +848,13 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
               <tbody className="divide-y divide-gray-100">
                 {cargando ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center text-gray-500">
+                    <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
                       Cargando catálogo…
                     </td>
                   </tr>
                 ) : filasStock.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center text-gray-500">
+                    <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
                       Sin ítems para mostrar.
                     </td>
                   </tr>
@@ -893,6 +934,24 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                               </svg>
                             </button>
                           </div>
+                        </td>
+                        <td className="px-4 py-2.5 text-right align-middle tabular-nums text-gray-700">
+                          {row.costoUnitarioReferencia != null
+                            ? row.costoUnitarioReferencia.toLocaleString("es-CO", {
+                                style: "currency",
+                                currency: "COP",
+                                maximumFractionDigits: 0,
+                              })
+                            : "—"}
+                        </td>
+                        <td className="px-4 py-2.5 text-right align-middle tabular-nums text-gray-800">
+                          {row.valorStockAprox != null
+                            ? row.valorStockAprox.toLocaleString("es-CO", {
+                                style: "currency",
+                                currency: "COP",
+                                maximumFractionDigits: 0,
+                              })
+                            : "—"}
                         </td>
                         <td className="px-4 py-2 text-right align-middle">
                           <div className="flex flex-col items-end gap-0.5">

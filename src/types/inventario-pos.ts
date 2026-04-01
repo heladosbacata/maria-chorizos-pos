@@ -56,4 +56,6 @@ export interface InventarioMovimientoDoc {
   createdAt?: unknown;
   /** Correcciones guardadas desde el historial de cargues (si existen). */
   edicionesLog?: InventarioMovimientoEdicionLogEntry[];
+  /** Precio de compra unitario (COP) informado en el cargue; solo aplica a tipo «cargue». */
+  precioCompraUnitario?: number;
 }

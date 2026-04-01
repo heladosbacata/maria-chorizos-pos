@@ -284,6 +284,8 @@ export interface InventarioSaldoRow {
   insumoId: string;
   insumoSku: string;
   cantidad: number;
+  /** Costo promedio ponderado (COP / unidad) según cargues POS; no lo escribe el WMS ensamble. */
+  costoUnitarioPromedio?: number;
 }
 
 /** Clave estable para cruzar SKU entre hoja, Firestore y mínimos guardados. */
@@ -414,10 +416,13 @@ export function saldoRowDesdeFirestoreSaldoDoc(data: Record<string, unknown>): I
     idish;
   const rawCant = data.cantidad ?? data.stock ?? data.saldo ?? data.qty ?? data.quantity ?? data.cantidadActual;
   const c = Number(rawCant);
+  const costoRaw = data.costoUnitarioPromedio ?? data.costo_unitario_promedio;
+  const costo = Number(costoRaw);
   return {
     insumoId: idish,
     insumoSku: sku,
     cantidad: Number.isFinite(c) ? c : 0,
+    ...(Number.isFinite(costo) && costo >= 0 ? { costoUnitarioPromedio: Math.round(costo * 100) / 100 } : {}),
   };
 }
 
@@ -446,7 +451,12 @@ export function mergeSaldosInventarioLegacyYEnsamble(
 }
 
 /** Origen del saldo mostrado: POS legacy vs WMS ensamble (este último no se puede corregir desde esta pantalla). */
-export type InventarioSaldoConFuente = { row: InventarioSaldoRow; fuente: "legacy" | "ensamble" };
+export type InventarioSaldoConFuente = {
+  row: InventarioSaldoRow;
+  fuente: "legacy" | "ensamble";
+  /** Si el saldo visible viene del WMS, conservamos el costo medio del doc POS (cargue) para valorización. */
+  costoUnitarioDesdeLegacy?: number;
+};
 
 /**
  * Igual que `mergeSaldosInventarioLegacyYEnsamble` pero indica si el valor consolidado proviene del WMS
@@ -458,10 +468,29 @@ export function mapSaldosLegacyYEnsambleConFuente(
 ): Map<string, InventarioSaldoConFuente> {
   const map = new Map<string, InventarioSaldoConFuente>();
   for (const r of legacy) {
-    map.set(claveParaConsolidarSaldoKit(r), { row: r, fuente: "legacy" });
+    const ck = claveParaConsolidarSaldoKit(r);
+    const c = r.costoUnitarioPromedio;
+    map.set(ck, {
+      row: r,
+      fuente: "legacy",
+      ...(typeof c === "number" && Number.isFinite(c) && c >= 0 ? { costoUnitarioDesdeLegacy: c } : {}),
+    });
   }
   for (const r of ensamble) {
-    map.set(claveParaConsolidarSaldoKit(r), { row: r, fuente: "ensamble" });
+    const ck = claveParaConsolidarSaldoKit(r);
+    const prev = map.get(ck);
+    const carried =
+      prev?.costoUnitarioDesdeLegacy ??
+      (typeof prev?.row.costoUnitarioPromedio === "number" && Number.isFinite(prev.row.costoUnitarioPromedio)
+        ? prev.row.costoUnitarioPromedio
+        : undefined);
+    map.set(ck, {
+      row: r,
+      fuente: "ensamble",
+      ...(typeof carried === "number" && Number.isFinite(carried) && carried >= 0
+        ? { costoUnitarioDesdeLegacy: carried }
+        : {}),
+    });
   }
   return map;
 }
@@ -477,29 +506,58 @@ export function saldoMostradoYFuenteParaInsumoKit(
   item: InsumoKitItem,
   porClave: Map<string, InventarioSaldoConFuente>,
   saldoRowsMerged: InventarioSaldoRow[]
-): { saldo: number; fuente: "legacy" | "ensamble" | "ninguno"; editable: boolean } {
+): {
+  saldo: number;
+  fuente: "legacy" | "ensamble" | "ninguno";
+  editable: boolean;
+  /** COP/unidad desde cargues POS (costo medio); null si aún no hay costo registrado. */
+  costoUnitarioReferencia: number | null;
+} {
   const saldo = cantidadSaldoParaInsumoKit(item, saldoRowsMerged);
   const synthetic: InventarioSaldoRow = { insumoId: item.id, insumoSku: item.sku, cantidad: 0 };
   const ck = claveParaConsolidarSaldoKit(synthetic);
   const ent = porClave.get(ck);
   if (ent) {
-    return { saldo, fuente: ent.fuente, editable: ent.fuente !== "ensamble" };
+    const costoRef =
+      ent.fuente === "legacy"
+        ? ent.row.costoUnitarioPromedio
+        : ent.costoUnitarioDesdeLegacy ?? ent.row.costoUnitarioPromedio;
+    const costoOk =
+      typeof costoRef === "number" && Number.isFinite(costoRef) && costoRef > 0 ? costoRef : null;
+    return {
+      saldo,
+      fuente: ent.fuente,
+      editable: ent.fuente !== "ensamble",
+      costoUnitarioReferencia: costoOk,
+    };
   }
   const k = normSkuInventario(item.sku);
   if (k) {
     for (const e of Array.from(porClave.values())) {
       const r = e.row;
       if (normSkuInventario(r.insumoSku) === k || normSkuInventario(r.insumoId) === k) {
-        return { saldo, fuente: e.fuente, editable: e.fuente !== "ensamble" };
+        const costoRef =
+          e.fuente === "legacy"
+            ? r.costoUnitarioPromedio
+            : e.costoUnitarioDesdeLegacy ?? r.costoUnitarioPromedio;
+        const costoOk =
+          typeof costoRef === "number" && Number.isFinite(costoRef) && costoRef > 0 ? costoRef : null;
+        return { saldo, fuente: e.fuente, editable: e.fuente !== "ensamble", costoUnitarioReferencia: costoOk };
       }
     }
   }
   for (const e of Array.from(porClave.values())) {
     if (e.row.insumoId === item.id) {
-      return { saldo, fuente: e.fuente, editable: e.fuente !== "ensamble" };
+      const costoRef =
+        e.fuente === "legacy"
+          ? e.row.costoUnitarioPromedio
+          : e.costoUnitarioDesdeLegacy ?? e.row.costoUnitarioPromedio;
+      const costoOk =
+        typeof costoRef === "number" && Number.isFinite(costoRef) && costoRef > 0 ? costoRef : null;
+      return { saldo, fuente: e.fuente, editable: e.fuente !== "ensamble", costoUnitarioReferencia: costoOk };
     }
   }
-  return { saldo, fuente: "ninguno", editable: true };
+  return { saldo, fuente: "ninguno", editable: true, costoUnitarioReferencia: null };
 }
 
 /**
@@ -687,6 +745,10 @@ function movimientoDocDesdeFirestore(
     email: x.email != null ? str(x.email) : null,
     createdAt: x.createdAt,
     edicionesLog: parseEdicionesLogMovimiento(x.edicionesLog),
+    precioCompraUnitario:
+      typeof x.precioCompraUnitario === "number" && Number.isFinite(x.precioCompraUnitario)
+        ? x.precioCompraUnitario
+        : undefined,
   };
 }
 
@@ -833,6 +895,25 @@ function fechaCargueValida(iso: string | undefined): string | undefined {
   return s;
 }
 
+/** Costo medio ponderado (COP/unidad) tras sumar `deltaEntrada` a `cantidadAnterior` al precio `precioCompraUnitario`. */
+export function nuevoCostoUnitarioPromedioCargue(
+  cantidadAnterior: number,
+  costoUnitarioActual: number,
+  deltaEntrada: number,
+  precioCompraUnitario: number
+): number {
+  const q0 = Math.max(0, cantidadAnterior);
+  const d = Math.max(0, deltaEntrada);
+  const p = Number(precioCompraUnitario);
+  const c0 = Number.isFinite(costoUnitarioActual) && costoUnitarioActual >= 0 ? costoUnitarioActual : 0;
+  if (d <= 0 || !Number.isFinite(p) || p <= 0) return Math.round(c0 * 100) / 100;
+  const q1 = q0 + d;
+  if (q1 <= 0) return Math.round(c0 * 100) / 100;
+  if (q0 <= 1e-9) return Math.round(p * 100) / 100;
+  const merged = (q0 * c0 + d * p) / q1;
+  return Math.round(merged * 100) / 100;
+}
+
 /** Resumen legible de diferencias entre el movimiento actual y la corrección pedida. */
 function partesResumenCorreccionCargue(
   m: Record<string, unknown>,
@@ -871,11 +952,22 @@ export async function registrarMovimientoInventario(params: {
   permitirNegativo?: boolean;
   /** Fecha del cargue (solo informativa; YYYY-MM-DD). */
   fechaCargue?: string;
+  /** Precio de compra unitario en COP; obligatorio para tipo «cargue». */
+  precioCompraUnitario?: number;
 }): Promise<{ ok: boolean; message?: string }> {
   const pv = params.puntoVenta.trim();
   if (!pv) return { ok: false, message: "Falta punto de venta." };
   const delta = deltaPorTipo(params.tipo, params.cantidad);
   if (delta === 0) return { ok: false, message: "La cantidad debe ser mayor que cero." };
+  if (params.tipo === "cargue") {
+    const pc = Number(params.precioCompraUnitario);
+    if (!Number.isFinite(pc) || pc <= 0) {
+      return {
+        ok: false,
+        message: "Indicá el precio de compra unitario (mayor que cero) para registrar el cargue.",
+      };
+    }
+  }
 
   if (typeof window !== "undefined" && auth?.currentUser) {
     try {
@@ -894,6 +986,9 @@ export async function registrarMovimientoInventario(params: {
           notas: params.notas,
           fechaCargue: params.fechaCargue,
           permitirNegativo: params.permitirNegativo === true,
+          ...(params.tipo === "cargue" && params.precioCompraUnitario != null
+            ? { precioCompraUnitario: params.precioCompraUnitario }
+            : {}),
         }),
       });
       let data: { ok?: boolean; message?: string } = {};
@@ -934,10 +1029,20 @@ export async function registrarMovimientoInventario(params: {
   try {
     await runTransaction(db, async (transaction) => {
       const saldoSnap = await transaction.get(saldoRef);
-      const anterior = saldoSnap.exists() ? Number(saldoSnap.data()?.cantidad) || 0 : 0;
+      const prevData = saldoSnap.exists() ? saldoSnap.data() : {};
+      const anterior = Number(prevData?.cantidad) || 0;
+      const costoPrevRaw = Number(prevData?.costoUnitarioPromedio);
+      const costoBase = Number.isFinite(costoPrevRaw) && costoPrevRaw >= 0 ? costoPrevRaw : 0;
       const nueva = anterior + delta;
       if (!params.permitirNegativo && nueva < 0) {
         throw new Error("STOCK_NEGATIVO");
+      }
+      let costoNuevo = costoBase;
+      if (params.tipo === "cargue" && delta > 0) {
+        const p = Number(params.precioCompraUnitario);
+        if (Number.isFinite(p) && p > 0) {
+          costoNuevo = nuevoCostoUnitarioPromedioCargue(anterior, costoBase, delta, p);
+        }
       }
       const movRef = doc(movsCol);
       const fechaCargueNorm = fechaCargueValida(params.fechaCargue);
@@ -948,10 +1053,15 @@ export async function registrarMovimientoInventario(params: {
           insumoId: params.insumo.id,
           insumoSku: params.insumo.sku,
           cantidad: nueva,
+          costoUnitarioPromedio: costoNuevo,
           updatedAt: serverTimestamp(),
         },
         { merge: true }
       );
+      const precioDoc =
+        params.tipo === "cargue" && params.precioCompraUnitario != null
+          ? Math.round(Number(params.precioCompraUnitario) * 100) / 100
+          : undefined;
       transaction.set(movRef, {
         puntoVenta: pv,
         insumoId: params.insumo.id,
@@ -963,6 +1073,9 @@ export async function registrarMovimientoInventario(params: {
         cantidadNueva: nueva,
         notas: params.notas.trim().slice(0, 500),
         ...(fechaCargueNorm ? { fechaCargue: fechaCargueNorm } : {}),
+        ...(precioDoc != null && Number.isFinite(precioDoc) && precioDoc > 0
+          ? { precioCompraUnitario: precioDoc }
+          : {}),
         uid: params.uid,
         email: params.email,
         createdAt: serverTimestamp(),

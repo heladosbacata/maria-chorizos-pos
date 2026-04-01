@@ -106,6 +106,8 @@ type LineaCargueBorrador = {
   cantidad: number;
   /** Lote del paquete recibido (también se guarda en las notas del movimiento). */
   lote: string;
+  /** Precio de compra unitario en COP (obligatorio al registrar). */
+  precioCompraUnitario: number;
 };
 
 /** Une anotaciones globales del cargue con el lote por línea (tope Firestore 500). */
@@ -132,6 +134,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
   const [fechaCargue, setFechaCargue] = useState(fechaHoyIsoColombia);
   const [cantidad, setCantidad] = useState("");
   const [loteLinea, setLoteLinea] = useState("");
+  const [precioLinea, setPrecioLinea] = useState("");
   const [lineasCargue, setLineasCargue] = useState<LineaCargueBorrador[]>([]);
   const [anotaciones, setAnotaciones] = useState("");
   const [enviando, setEnviando] = useState(false);
@@ -328,20 +331,43 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
       setError("Indicá el lote del paquete que llegó.");
       return;
     }
+    const precio = parseFloat(precioLinea.replace(/,/g, "."));
+    if (!Number.isFinite(precio) || precio <= 0) {
+      setError("Indicá el precio de compra unitario (COP, mayor que cero).");
+      return;
+    }
     const ins = insumoSel;
     setLineasCargue((prev) => {
       const idx = prev.findIndex((l) => l.insumo.id === ins.id && l.lote.trim() === loteNorm);
       if (idx >= 0) {
         const next = [...prev];
         const row = next[idx]!;
-        next[idx] = { ...row, cantidad: row.cantidad + cant };
+        const q0 = row.cantidad;
+        const p0 = row.precioCompraUnitario;
+        const newQ = q0 + cant;
+        const prom = newQ > 0 ? (q0 * p0 + cant * precio) / newQ : precio;
+        next[idx] = {
+          ...row,
+          cantidad: newQ,
+          precioCompraUnitario: Math.round(prom * 100) / 100,
+        };
         return next;
       }
-      return [...prev, { key: nuevaKeyLineaCargue(), insumo: ins, cantidad: cant, lote: loteNorm }];
+      return [
+        ...prev,
+        {
+          key: nuevaKeyLineaCargue(),
+          insumo: ins,
+          cantidad: cant,
+          lote: loteNorm,
+          precioCompraUnitario: Math.round(precio * 100) / 100,
+        },
+      ];
     });
     setInsumoId("");
     setCantidad("");
     setLoteLinea("");
+    setPrecioLinea("");
     setBusqueda("");
     setPanelSugerenciasAbierto(false);
   };
@@ -364,6 +390,14 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
     setLineasCargue((prev) => prev.map((l) => (l.key === key ? { ...l, lote } : l)));
   };
 
+  const actualizarPrecioCompraLinea = (key: string, raw: string) => {
+    const p = parseFloat(raw.replace(/,/g, "."));
+    if (!Number.isFinite(p) || p <= 0) return;
+    setLineasCargue((prev) =>
+      prev.map((l) => (l.key === key ? { ...l, precioCompraUnitario: Math.round(p * 100) / 100 } : l))
+    );
+  };
+
   const registrar = async () => {
     setMensajeOk(null);
     setError(null);
@@ -381,6 +415,11 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
       setError("Cada producto debe tener lote. Completá la columna Lote en la tabla.");
       return;
     }
+    const sinPrecio = lineasCargue.filter((l) => !Number.isFinite(l.precioCompraUnitario) || l.precioCompraUnitario <= 0);
+    if (sinPrecio.length > 0) {
+      setError("Cada línea debe tener precio de compra unitario mayor que cero.");
+      return;
+    }
     setEnviando(true);
     const fecha = fechaCargue.trim();
     const notasBase = anotaciones;
@@ -396,6 +435,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
         uid,
         email,
         fechaCargue: fecha,
+        precioCompraUnitario: line.precioCompraUnitario,
       });
       if (r.ok) keysOk.push(line.key);
       else fallos.push(`${line.insumo.sku}: ${r.message ?? "error"}`);
@@ -563,8 +603,8 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
               Producto
             </h3>
             <p className="mt-1 text-xs text-gray-600">
-              Buscá y tocá un ítem del catálogo. A la derecha cargá cantidad y lote del paquete, y pulsá «Agregar a la
-              lista».
+              Buscá y tocá un ítem del catálogo. A la derecha cargá cantidad, lote y precio de compra por unidad, y pulsá
+              «Agregar a la lista».
             </p>
             {insumoSel && (
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-sm">
@@ -678,8 +718,9 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
               Cantidad y lote
             </h3>
             <p className="mt-1 text-xs text-gray-600">
-              Misma fecha para todo el cargue. El lote es el del paquete que llegó. Podés sumar varios productos y al
-              final registrás de una vez.
+              Misma fecha para todo el cargue. El lote es el del paquete que llegó. El precio de compra es por unidad
+              (COP) y es obligatorio para valorizar el inventario. Podés sumar varios productos y al final registrás de
+              una vez.
             </p>
             {/* Siempre 2 columnas: en móvil el lote quedaba abajo y parecía “faltar”. */}
             <div className="mt-4 grid grid-cols-2 gap-3 sm:gap-4">
@@ -708,13 +749,28 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                 />
               </div>
             </div>
+            <div className="mt-3">
+              <label className="block text-sm font-semibold text-gray-800">
+                Precio de compra (COP / unidad) <span className="text-red-600">*</span>
+              </label>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={precioLinea}
+                onChange={(e) => setPrecioLinea(e.target.value)}
+                placeholder={insumoSel ? "Ej. 8500" : "—"}
+                disabled={!insumoSel}
+                autoComplete="off"
+                className="mt-2 w-full rounded-xl border-2 border-gray-200 bg-white px-3 py-3 text-base tabular-nums focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:bg-gray-100 disabled:text-gray-400 sm:px-4"
+              />
+            </div>
             {insumoSel ? (
               <p className="mt-3 text-sm text-gray-700">
                 Unidad: <span className="font-semibold text-gray-900">{insumoSel.unidad}</span>
               </p>
             ) : (
               <p className="mt-3 text-xs text-gray-500">
-                Seleccioná un producto en la columna «Producto» para cargar cantidad y lote.
+                Seleccioná un producto en la columna «Producto» para cargar cantidad, lote y precio de compra.
               </p>
             )}
             <button
@@ -748,6 +804,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                     <th className="px-3 py-2">Descripción</th>
                     <th className="min-w-[6rem] px-3 py-2 text-right">Cantidad</th>
                     <th className="min-w-[7rem] px-3 py-2">Lote</th>
+                    <th className="min-w-[7rem] px-3 py-2 text-right">Precio compra COP/u.</th>
                     <th className="w-20 px-3 py-2" />
                   </tr>
                 </thead>
@@ -792,6 +849,24 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                           }}
                           className="w-full min-w-[5rem] rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-200"
                           aria-label={`Lote ${line.insumo.sku}`}
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-right align-middle">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          defaultValue={String(line.precioCompraUnitario)}
+                          key={`${line.key}-p-${line.precioCompraUnitario}`}
+                          onBlur={(e) => {
+                            const n = parseFloat(e.target.value.replace(/,/g, "."));
+                            if (Number.isFinite(n) && n > 0) {
+                              actualizarPrecioCompraLinea(line.key, e.target.value);
+                            } else {
+                              e.currentTarget.value = String(line.precioCompraUnitario);
+                            }
+                          }}
+                          className="w-full min-w-[5rem] rounded-lg border border-gray-300 px-2 py-1.5 text-right text-sm tabular-nums focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-200"
+                          aria-label={`Precio compra ${line.insumo.sku}`}
                         />
                       </td>
                       <td className="px-3 py-2 align-middle">
@@ -864,6 +939,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                 <th className="px-3 py-2">Fecha cargue</th>
                 <th className="px-3 py-2">Producto</th>
                 <th className="px-3 py-2 text-right">Cant.</th>
+                <th className="px-3 py-2 text-right">P. compra COP/u.</th>
                 <th className="px-3 py-2">Anotaciones</th>
                 <th className="w-14 px-2 py-2 text-center">Detalle</th>
               </tr>
@@ -871,13 +947,13 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
             <tbody className="divide-y divide-gray-100">
               {cargandoHist ? (
                 <tr>
-                  <td colSpan={6} className="px-3 py-8 text-center text-gray-500">
+                  <td colSpan={7} className="px-3 py-8 text-center text-gray-500">
                     Cargando…
                   </td>
                 </tr>
               ) : historialCargue.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-3 py-8 text-center text-gray-500">
+                  <td colSpan={7} className="px-3 py-8 text-center text-gray-500">
                     Aún no hay cargues registrados.
                   </td>
                 </tr>
@@ -893,6 +969,15 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                     </td>
                     <td className="px-3 py-2 text-right font-semibold tabular-nums text-emerald-700">
                       +{m.delta.toLocaleString("es-CO", { maximumFractionDigits: 3 })}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-gray-800">
+                      {m.precioCompraUnitario != null && Number.isFinite(m.precioCompraUnitario)
+                        ? m.precioCompraUnitario.toLocaleString("es-CO", {
+                            style: "currency",
+                            currency: "COP",
+                            maximumFractionDigits: 0,
+                          })
+                        : "—"}
                     </td>
                     <td className="max-w-[180px] truncate px-3 py-2 text-xs text-gray-600" title={m.notas}>
                       {m.notas || "—"}
@@ -972,6 +1057,18 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                 <div>
                   <dt className="text-xs font-semibold uppercase text-gray-500">Registrado en sistema</dt>
                   <dd className="text-gray-700">{formatMovFecha(movDetalle.createdAt)}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-semibold uppercase text-gray-500">Precio de compra unitario</dt>
+                  <dd className="tabular-nums text-gray-800">
+                    {movDetalle.precioCompraUnitario != null && Number.isFinite(movDetalle.precioCompraUnitario)
+                      ? movDetalle.precioCompraUnitario.toLocaleString("es-CO", {
+                          style: "currency",
+                          currency: "COP",
+                          maximumFractionDigits: 0,
+                        })
+                      : "— (cargues antiguos pueden no tenerlo)"}
+                  </dd>
                 </div>
               </dl>
 
