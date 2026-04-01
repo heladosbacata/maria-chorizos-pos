@@ -43,8 +43,7 @@ export type ConfigCategoriaId =
   | "compras-gastos"
   | "clientes-proveedores"
   | "productos-servicios"
-  | "contabilidad"
-  | "alianzas";
+  | "contabilidad";
 
 export interface ConfigHerramienta {
   id: string;
@@ -187,19 +186,6 @@ const CATEGORIAS: ConfigCategoria[] = [
       {
         titulo: "Estado de resultados",
         items: [{ id: CONT_PYG_ITEM_ID, label: "PyG en vivo — ingresos y gastos" }],
-      },
-    ],
-  },
-  {
-    id: "alianzas",
-    label: "Alianzas e integraciones",
-    secciones: [
-      {
-        titulo: "Integraciones",
-        items: [
-          { id: "ali-api", label: "API y conectores" },
-          { id: "ali-apps", label: "Aplicaciones asociadas" },
-        ],
       },
     ],
   },
