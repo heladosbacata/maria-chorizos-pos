@@ -1978,6 +1978,12 @@ export default function CajaPage() {
     setMostrarClaveMasEnClaro(false);
   }, []);
 
+  /** Debe declararse antes de cualquier return condicional (loading / sin usuario) para no violar reglas de hooks. */
+  const getIdTokenCajaMensajes = useCallback(async () => {
+    if (!auth?.currentUser) return null;
+    return auth.currentUser.getIdToken();
+  }, []);
+
   const inicialesCajero = user?.email
     ? user.email
         .split("@")[0]
@@ -2031,11 +2037,6 @@ export default function CajaPage() {
   }
 
   const esContador = esContadorInvitado(user.role);
-
-  const getIdTokenCajaMensajes = useCallback(async () => {
-    if (!auth?.currentUser) return null;
-    return auth.currentUser.getIdToken();
-  }, [auth]);
 
   const fechaHoy = ymdColombia();
   const fechaFormateada = fechaColombia(new Date(), {
