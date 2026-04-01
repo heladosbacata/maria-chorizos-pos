@@ -1,6 +1,11 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getAuth } from "firebase-admin/auth";
 import { getFirebaseAdminApp } from "@/lib/firebase-admin-server";
+import {
+  enviarInformeTurnoPorSmtp,
+  remitenteSmtpInformeTurno,
+  smtpInformeTurnoConfigured,
+} from "@/lib/email-informe-turno-smtp";
 
 type Body = { subject?: string; text?: string; to?: string; cc?: string };
 
@@ -19,24 +24,29 @@ function listaCcDesdeTexto(cc: string): string[] {
 }
 
 /**
- * Envía por correo el texto del informe de cierre de turno (Resend HTTP API).
+ * Envía por correo el texto del informe de cierre de turno.
  *
- * Requiere en el servidor:
- * - `RESEND_API_KEY`
- * - `RESEND_FROM` (ej. `Maria Chorizos <onboarding@resend.dev>`) o dominio verificado en Resend
- * - `FIREBASE_SERVICE_ACCOUNT_JSON` para validar el Bearer (mismo proyecto que el POS)
+ * Prioridad:
+ * 1) SMTP si existen `SMTP_HOST`, `SMTP_USER` y `SMTP_PASS` (recomendado con tu proveedor de correo).
+ * 2) Resend si existe `RESEND_API_KEY`.
+ *
+ * SMTP opcional: `SMTP_PORT` (587), `SMTP_FROM`, `SMTP_SECURE=1` (puerto 465), `SMTP_TLS_REJECT_UNAUTHORIZED=0`.
+ * Resend: `RESEND_FROM` (dominio verificado).
+ *
+ * Siempre: `FIREBASE_SERVICE_ACCOUNT_JSON` para validar el Bearer (mismo proyecto que el POS).
  */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
     return res.status(405).json({ ok: false, message: "Method not allowed" });
   }
 
-  const apiKey = process.env.RESEND_API_KEY?.trim();
-  if (!apiKey) {
+  const apiKeyResend = process.env.RESEND_API_KEY?.trim();
+  const usarSmtp = smtpInformeTurnoConfigured();
+  if (!usarSmtp && !apiKeyResend) {
     return res.status(503).json({
       ok: false,
       message:
-        "Envío por correo no configurado. Agrega RESEND_API_KEY (y RESEND_FROM) en el servidor del POS.",
+        "Envío por correo no configurado. Agrega SMTP_HOST, SMTP_USER y SMTP_PASS (SMTP), o RESEND_API_KEY (Resend), en el servidor del POS.",
     });
   }
 
@@ -101,11 +111,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ ok: false, message: "Revisa los correos en «Con copia»: hay uno inválido." });
   }
 
-  const from =
+  if (usarSmtp) {
+    const from = remitenteSmtpInformeTurno();
+    const smtp = await enviarInformeTurnoPorSmtp({
+      from,
+      to: destinatario,
+      cc: ccList,
+      subject,
+      text,
+    });
+    if (!smtp.ok) {
+      return res.status(502).json({ ok: false, message: smtp.message });
+    }
+    return res.status(200).json({ ok: true, via: "smtp" });
+  }
+
+  if (!apiKeyResend) {
+    return res.status(503).json({
+      ok: false,
+      message: "Envío por correo no configurado (ni SMTP ni Resend).",
+    });
+  }
+
+  const fromResend =
     process.env.RESEND_FROM?.trim() || "Maria Chorizos POS <onboarding@resend.dev>";
 
   const payload: Record<string, unknown> = {
-    from,
+    from: fromResend,
     to: [destinatario],
     subject,
     text,
@@ -118,7 +150,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const r = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKeyResend}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify(payload),
@@ -133,7 +165,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
-    return res.status(200).json({ ok: true, id: data?.id });
+    return res.status(200).json({ ok: true, id: data?.id, via: "resend" });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Error al contactar Resend";
     return res.status(502).json({ ok: false, message });
