@@ -72,7 +72,7 @@ export function getPosGebTutorialSteps(esContador: boolean): PosGebTutorialStep[
       body:
         "Es la pantalla donde pasás la mayor parte del tiempo en caja.\n\n" +
         "Ahí cargás productos desde el catálogo, manejás varias pre-cuentas a la vez (mesas o pedidos), ves el total en «Cuenta a cobrar» y registrás el cobro.\n\n" +
-        "También podés enviar el «valor de venta del día» si tu franquicia usa ese reporte manual además de las ventas por ítem.",
+        "Debajo del catálogo ves la venta acumulada del turno (total cobrado en esta caja desde que abriste el turno).",
     },
     {
       target: "nav-turnos",
@@ -182,11 +182,11 @@ export function getPosGebTutorialSteps(esContador: boolean): PosGebTutorialStep[
     {
       target: "valor-dia",
       modulo: "ventas",
-      title: "Valor de venta del día",
+      title: "Venta acumulada del turno",
       body:
-        "Algunas franquicias piden además un único monto de «venta del día» para reporte operativo o matriz: lo cargás en este campo grande y tocás «Enviar reporte».\n\n" +
-        "No sustituye al cobro línea por línea en «Cuenta a cobrar»: son dos flujos distintos; usá este solo si tu procedimiento lo indica.\n\n" +
-        "Si el envío falla por red, el mensaje en pantalla suele permitir reintentar cuando vuelva la conexión.",
+        "Debajo del catálogo ves el total cobrado en esta caja desde que abriste el turno: suma todas las ventas confirmadas (todas las pre-cuentas).\n\n" +
+        "Se actualiza automáticamente con cada cobro; no hace falta cargar un monto a mano.\n\n" +
+        "Con el turno cerrado el acumulado se reinicia al abrir uno nuevo.",
     },
   ];
 }

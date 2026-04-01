@@ -125,7 +125,6 @@ import {
   mensajeEnsambleOkSinDescuentoInventario,
   type WmsAplicarVentaEnsambleResult,
 } from "@/lib/wms-aplicar-venta-ensamble";
-import type { EnvioEstado } from "@/lib/enviar-venta";
 import type { TicketVentaLinea, TicketVentaPayload } from "@/types/impresion-pos";
 import type { ClientePosFirestoreDoc } from "@/types/clientes-pos";
 import { CONSUMIDOR_FINAL_ID, type ClienteVentaRef } from "@/types/clientes-pos";
@@ -205,10 +204,6 @@ export interface PrecuentaTab {
   id: string;
   nombre: string;
 }
-
-const initialPrecuentaDatos = (): Record<string, { valorVenta: string; estado: EnvioEstado; mensaje: string }> => ({
-  "1": { valorVenta: "", estado: "idle", mensaje: "" },
-});
 
 export type { ItemCuenta } from "@/types/pos-caja-item";
 
@@ -304,7 +299,6 @@ export default function CajaPage() {
     { id: "1", nombre: "Nueva pre-cuenta" },
   ]);
   const [activePrecuentaId, setActivePrecuentaId] = useState("1");
-  const [precuentaDatos, setPrecuentaDatos] = useState(initialPrecuentaDatos);
   /** Ítems de la cuenta a cobrar por pre-cuenta (panel derecho) */
   const [itemsPorPrecuenta, setItemsPorPrecuenta] = useState<Record<string, ItemCuenta[]>>({ "1": [] });
   /** El turno inicia cerrado: al abrirlo se elige el cajero operativo. */
@@ -742,12 +736,6 @@ export default function CajaPage() {
     );
   }, [catalogoProductos, busquedaCatalogo]);
 
-  const activeDatos = precuentaDatos[activePrecuentaId] ?? {
-    valorVenta: "",
-    estado: "idle" as EnvioEstado,
-    mensaje: "",
-  };
-
   const clienteActivoPrecuenta: ClienteVentaRef = clientePorPrecuenta[activePrecuentaId] ?? {
     id: CONSUMIDOR_FINAL_ID,
     nombreDisplay: "Consumidor final",
@@ -1045,91 +1033,10 @@ export default function CajaPage() {
     setModalInformeCierreCorreoAbierto(false);
   }, [emailInformeCierrePara, emailInformeCierreCc, ejecutarCierreTurnoDefinitivo]);
 
-  const handleEnviar = async () => {
-    if (user && esContadorInvitado(user.role)) return;
-    const valorVentaStr = activeDatos.valorVenta;
-    const valor = parseFloat(valorVentaStr.replace(/,/g, "."));
-    if (isNaN(valor) || valor < 0) {
-      setPrecuentaDatos((prev) => ({
-        ...prev,
-        [activePrecuentaId]: { ...prev[activePrecuentaId], estado: "error", mensaje: "Ingresa un valor numérico válido" },
-      }));
-      return;
-    }
-
-    if (!user?.puntoVenta) {
-      setPrecuentaDatos((prev) => ({
-        ...prev,
-        [activePrecuentaId]: { ...prev[activePrecuentaId], estado: "error", mensaje: "No hay punto de venta seleccionado" },
-      }));
-      return;
-    }
-
-    setPrecuentaDatos((prev) => ({
-      ...prev,
-      [activePrecuentaId]: { ...prev[activePrecuentaId], estado: "enviando", mensaje: "" },
-    }));
-
-    const ct = cajeroTurnoActivo;
-    const cr = clienteActivoPrecuenta;
-    const filaVenta: VentaReporte = {
-      puntoVenta: user.puntoVenta,
-      valorVenta: valor,
-      tipoComprobante,
-      ...(ct
-        ? {
-            cajeroTurnoId: ct.id,
-            cajeroNombre: ct.nombreDisplay,
-            ...(ct.documento ? { cajeroDocumento: ct.documento } : {}),
-          }
-        : {}),
-    };
-    if (cr.id === CONSUMIDOR_FINAL_ID) {
-      filaVenta.clienteNombre = "Consumidor final";
-    } else {
-      filaVenta.clienteId = cr.id;
-      filaVenta.clienteNombre = cr.nombreDisplay;
-      if (cr.tipoIdentificacion?.trim()) filaVenta.clienteTipoIdentificacion = cr.tipoIdentificacion.trim();
-      if (cr.numeroIdentificacion?.trim()) filaVenta.clienteNumeroIdentificacion = cr.numeroIdentificacion.trim();
-    }
-    const resultado = await enviarReporteVenta({
-      fecha: ymdColombia(),
-      uen: "Maria Chorizos",
-      ventas: [filaVenta],
-    });
-
-    setPrecuentaDatos((prev) => ({
-      ...prev,
-      [activePrecuentaId]: {
-        ...prev[activePrecuentaId],
-        estado: resultado.estado,
-        mensaje:
-          resultado.estado === "exito"
-            ? (resultado.mensaje ?? "")
-            : mensajeErrorVentaParaUsuario(resultado.mensaje),
-      },
-    }));
-    if (resultado.estado === "exito") {
-      setTotalVentasEnTurno((prev) => {
-        const next = prev + valor;
-        totalVentasEnTurnoRef.current = next;
-        return next;
-      });
-      if (turnoAbierto) {
-        const tSync = await auth?.currentUser?.getIdToken();
-        if (tSync) void wmsTurnosSincronizarSilent(tSync, totalVentasEnTurnoRef.current);
-      }
-    }
-  };
-
   const agregarPrecuenta = () => {
     const nextNum = precuentas.length + 1;
     const id = String(Date.now());
     setPrecuentas((prev) => [...prev, { id, nombre: `Pre-cuenta ${nextNum}` }]);
-    setPrecuentaDatos((prev) => ({
-      ...prev,
-      [id]: { valorVenta: "", estado: "idle", mensaje: "" },
-    }));
     setItemsPorPrecuenta((prev) => ({ ...prev, [id]: [] }));
     setClientePorPrecuenta((prev) => ({
       ...prev,
@@ -1151,11 +1058,6 @@ export default function CajaPage() {
     if (idx < 0) return;
     const next = precuentas.filter((p) => p.id !== id);
     setPrecuentas(next);
-    setPrecuentaDatos((prev) => {
-      const nextData = { ...prev };
-      delete nextData[id];
-      return nextData;
-    });
     setClientePorPrecuenta((prev) => {
       const nextC = { ...prev };
       delete nextC[id];
@@ -3469,7 +3371,7 @@ export default function CajaPage() {
                 {catalogoError && (
                   <div className="rounded-lg border border-brand-yellow/40 bg-brand-yellow/10 p-4 text-sm text-gray-700">
                     <p className="font-medium">{catalogoError}</p>
-                    <p className="mt-1 text-gray-600">Puedes usar el reporte de venta del día más abajo.</p>
+                    <p className="mt-1 text-gray-600">Más abajo podés ver la venta acumulada del turno si ya hay cobros.</p>
                     <button
                       type="button"
                       onClick={cargarCatalogo}
@@ -3556,54 +3458,34 @@ export default function CajaPage() {
                 )}
               </div>
 
-              {/* Valor de venta del día — debajo del catálogo */}
+              {/* Venta acumulada del turno — debajo del catálogo */}
               <div
                 data-pos-tutorial="valor-dia"
                 className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm"
               >
-                <h2 className="mb-4 text-lg font-semibold text-gray-800">
-                  Valor de venta del día — {precuentas.find((p) => p.id === activePrecuentaId)?.nombre}
-                </h2>
-                <input
-                  id="valorVenta"
-                  type="text"
-                  inputMode="decimal"
-                  value={activeDatos.valorVenta}
-                  onChange={(e) =>
-                    setPrecuentaDatos((prev) => ({
-                      ...prev,
-                      [activePrecuentaId]: {
-                        ...(prev[activePrecuentaId] ?? { valorVenta: "", estado: "idle" as EnvioEstado, mensaje: "" }),
-                        valorVenta: e.target.value,
-                      },
-                    }))
-                  }
-                  placeholder="0"
-                  className="mb-4 w-full rounded-xl border-2 border-gray-200 px-4 py-4 text-3xl font-bold text-gray-900 placeholder:text-gray-400 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100 md:text-4xl"
-                  disabled={activeDatos.estado === "enviando"}
-                />
-                <button
-                  onClick={handleEnviar}
-                  disabled={activeDatos.estado === "enviando"}
-                  className="w-full rounded-xl bg-brand-yellow px-6 py-4 text-lg font-semibold text-gray-900 shadow-md transition-all hover:opacity-90 disabled:opacity-50"
+                <h2 className="text-lg font-semibold text-gray-800">Venta acumulada del turno</h2>
+                <p className="mt-1 text-sm text-gray-600">
+                  Total cobrado en esta caja desde que abriste el turno (suma de todas las pre-cuentas). Se actualiza con cada
+                  venta confirmada.
+                </p>
+                <div
+                  className={`mt-4 rounded-xl border-2 px-4 py-5 text-center ${
+                    turnoAbierto ? "border-gray-200 bg-gray-50" : "border-amber-200 bg-amber-50/60"
+                  }`}
                 >
-                  {activeDatos.estado === "enviando" ? "Enviando..." : "Enviar reporte"}
-                </button>
-                {activeDatos.estado !== "idle" && (
-                  <div
-                    className={`mt-4 rounded-lg p-3 text-sm ${
-                      activeDatos.estado === "exito"
-                        ? "bg-green-50 text-green-800"
-                        : activeDatos.estado === "error"
-                          ? "bg-red-50 text-red-800"
-                          : "bg-gray-50 text-gray-700"
-                    }`}
-                  >
-                    {activeDatos.estado === "exito" && <span className="mr-2">✓</span>}
-                    {activeDatos.estado === "error" && <span className="mr-2">✕</span>}
-                    {activeDatos.mensaje}
-                  </div>
-                )}
+                  <p className="text-3xl font-bold tabular-nums text-gray-900 md:text-4xl">
+                    ${" "}
+                    {totalVentasEnTurno.toLocaleString("es-CO", {
+                      minimumFractionDigits: 0,
+                      maximumFractionDigits: 0,
+                    })}
+                  </p>
+                  {!turnoAbierto ? (
+                    <p className="mt-3 text-xs font-medium text-amber-900">
+                      Turno cerrado: abrí turno para acumular ventas y ver el total aquí.
+                    </p>
+                  ) : null}
+                </div>
               </div>
             </div>
           ) : moduloActivo === "ultimosRecibos" ? (

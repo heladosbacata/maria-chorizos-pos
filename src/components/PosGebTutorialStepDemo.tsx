@@ -175,11 +175,13 @@ function MiniCuentaDemo() {
 function MiniValorDiaDemo() {
   return (
     <div className="relative mx-auto w-full max-w-[280px] overflow-hidden rounded-xl border border-white/15 bg-slate-900 p-3">
-      <p className="mb-2 text-center text-[10px] text-slate-400">Ejemplo: reporte del día</p>
-      <div className="relative space-y-2 rounded-lg border border-white/10 bg-white/5 p-2">
-        <div className="h-10 rounded-lg bg-slate-700/60" />
-        <div className="relative h-9 rounded-lg bg-brand-yellow">
-          <DemoTapPointer topPct={50} leftPct={72} />
+      <p className="mb-2 text-center text-[10px] text-slate-400">Ejemplo: total del turno</p>
+      <div className="relative rounded-lg border border-white/10 bg-white/5 p-2">
+        <div className="h-2 w-2/3 rounded bg-slate-600/50" />
+        <div className="mt-2 h-2 w-full rounded bg-slate-600/35" />
+        <div className="relative mt-3 flex items-center justify-center rounded-lg border border-white/10 bg-slate-800/80 py-3">
+          <span className="text-lg font-bold tabular-nums text-amber-200/90">$ 128.500</span>
+          <DemoTapPointer topPct={50} leftPct={88} />
         </div>
       </div>
     </div>
