@@ -1,26 +1,42 @@
 "use client";
 
-import { useMemo } from "react";
+import { useId, useMemo } from "react";
 import { useMetasRetosCaja } from "@/components/MetasRetosCajaProvider";
 import { avanceUnidadesReto } from "@/lib/metas-retos-avance-ventas";
 
-function IconTrophy({ className }: { className?: string }) {
+/** Silueta de mesero con bandeja — estilo hotelería fina, mismo lenguaje dorado del banner. */
+function IconMeseroElegante({ className }: { className?: string }) {
+  const uid = useId().replace(/:/g, "");
+  const gid = `mc-mesero-gold-${uid}`;
   return (
     <svg className={className} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden>
       <defs>
-        <linearGradient id="mc-trophy-gold" x1="4" y1="2" x2="20" y2="22" gradientUnits="userSpaceOnUse">
+        <linearGradient id={gid} x1="3" y1="2" x2="21" y2="22" gradientUnits="userSpaceOnUse">
           <stop stopColor="#FFF8DC" />
-          <stop offset="0.35" stopColor="#FFE566" />
-          <stop offset="0.7" stopColor="#FFC81C" />
-          <stop offset="1" stopColor="#C4924E" />
+          <stop offset="0.28" stopColor="#FFE566" />
+          <stop offset="0.58" stopColor="#FFC81C" />
+          <stop offset="1" stopColor="#8B6230" />
         </linearGradient>
       </defs>
-      <path
-        fill="url(#mc-trophy-gold)"
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M5.166 2.621v.858c-1.035.148-2.059.33-3.071.543a.75.75 0 0 0-.584.859 6.753 6.753 0 0 0 6.138 5.6 6.73 6.73 0 0 0 2.743 1.346A6.745 6.745 0 0 1 12 23.25a6.745 6.745 0 0 1 6.648-6.483 6.734 6.734 0 0 0 2.743-1.347 6.754 6.754 0 0 0 6.138-5.6.75.75 0 0 0-.585-.858 47.077 47.077 0 0 0-3.07-.543V2.62a.75.75 0 0 0-.658-.744 49.22 49.22 0 0 0-6.696-.143.75.75 0 0 0-.658.743v.166c-2.25.182-4.471.443-6.66.84a.75.75 0 0 0-.658.744Zm8.46 14.49h3.568c.885 0 1.698.507 2.087 1.304a3.765 3.765 0 0 1-1.085 4.92 3.766 3.766 0 0 1-1.085-4.92c.389-.797 1.202-1.304 2.087-1.304Zm-6.924-4.5h3.192a3.766 3.765 0 0 1-1.085 4.92 3.765 3.765 0 0 1-1.085-4.92Z"
-      />
+      <g fill={`url(#${gid})`}>
+        {/* Chaqueta (atrás) */}
+        <path d="M12 8.95c-1.58 0-2.88.5-3.35 1.42l-.75 7.05c-.1.85.4 1.48 1.28 1.55h5.64c.88-.07 1.38-.7 1.28-1.55l-.75-7.05c-.47-.92-1.77-1.42-3.35-1.42z" />
+        {/* Brazo alzado */}
+        <path
+          d="M13.15 10.35c.55-.08 1.08.12 1.48.52l1.05 1.02a.72.72 0 001.02-.06l.14-.14a.72.72 0 00-.08-1.02l-1.12-.95a2.35 2.35 0 00-1.55-.42c-.38.06-.72.22-.98.48-.22.22-.36.5-.4.8z"
+          opacity="0.92"
+        />
+        {/* Bandeja */}
+        <ellipse cx="17.45" cy="8.28" rx="3.95" ry="1.12" />
+        <ellipse cx="17.45" cy="7.95" rx="3.35" ry="0.62" fill="rgba(255,255,255,0.28)" />
+        {/* Cabeza */}
+        <circle cx="12" cy="6.15" r="2.22" />
+        {/* Solapas / moño sugerido */}
+        <path
+          d="M12 8.55l-.95.48-.22-.42.95-.48.95.48-.22.42-.95-.48z"
+          fill="rgba(0,0,0,0.14)"
+        />
+      </g>
     </svg>
   );
 }
@@ -122,7 +138,7 @@ export default function PosCajaMetasMotivationPanel() {
 
       <div className="relative flex items-start gap-2.5">
         <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[#FFE08A]/35 bg-gradient-to-br from-[#FFC81C]/25 to-[#5c4a2a]/40 shadow-inner">
-          <IconTrophy className="h-6 w-6 drop-shadow-[0_2px_6px_rgba(0,0,0,0.45)]" />
+          <IconMeseroElegante className="h-6 w-6 drop-shadow-[0_2px_6px_rgba(0,0,0,0.45)]" />
           <IconStar className="absolute -right-0.5 -top-0.5 h-3.5 w-3.5 text-[#FFF8DC] drop-shadow-sm motion-safe:animate-pulse" />
         </div>
         <div className="min-w-0 flex-1 pt-0.5">
