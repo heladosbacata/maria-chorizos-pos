@@ -1,11 +1,29 @@
+import { fetchCatalogoInsumosDesdeSheet } from "@/lib/catalogo-insumos-sheet-client";
 import { auth } from "@/lib/firebase";
 import {
   insumoKitDesdeCatalogoPorSku,
   listarInsumosKitPorPuntoVenta,
+  normSkuInventario,
   registrarMovimientoInventario,
 } from "@/lib/inventario-pos-firestore";
 import { anularVentaPosCloud } from "@/lib/pos-ventas-cloud-client";
 import { marcarVentaAnuladaLocal, type VentaGuardadaLocal } from "@/lib/pos-ventas-local-storage";
+import type { InsumoKitItem } from "@/types/inventario-pos";
+
+/** Hoja Google primero; se unen filas de Firestore que no estén ya por SKU/id (misma lógica que cargue de inventario). */
+function catalogoInsumosKitParaAnulacion(sheet: InsumoKitItem[], firestore: InsumoKitItem[]): InsumoKitItem[] {
+  const map = new Map<string, InsumoKitItem>();
+  const clave = (it: InsumoKitItem) => normSkuInventario(it.sku) || normSkuInventario(it.id);
+  for (const it of sheet) {
+    const k = clave(it);
+    if (k) map.set(k, it);
+  }
+  for (const it of firestore) {
+    const k = clave(it);
+    if (k && !map.has(k)) map.set(k, it);
+  }
+  return Array.from(map.values());
+}
 
 /**
  * Anula una venta guardada en este equipo: marca local, devuelve stock POS por línea (ajuste positivo)
@@ -38,7 +56,10 @@ export async function anularVentaEnEquipoInventarioYNube(params: {
   const fallosSku: string[] = [];
 
   if (!omitirDevolucionInventarioPos) {
-    const catalog = await listarInsumosKitPorPuntoVenta(pv);
+    const sheetRes = await fetchCatalogoInsumosDesdeSheet(pv);
+    const desdeSheet = sheetRes.ok && sheetRes.data.length > 0 ? sheetRes.data : [];
+    const desdeFs = await listarInsumosKitPorPuntoVenta(pv);
+    const catalog = catalogoInsumosKitParaAnulacion(desdeSheet, desdeFs);
     const notasBase = `Anulación recibo ${ventaId}. ${motivoTrim}`;
 
     for (const linea of actualizada.lineas) {
