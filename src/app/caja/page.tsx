@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import CajeroReportesDashboard from "@/components/CajeroReportesDashboard";
 import MetasBonificacionesModule from "@/components/MetasBonificacionesModule";
+import { MetasRetosCajaProvider } from "@/components/MetasRetosCajaProvider";
 import CargueInventarioManualPanel from "@/components/CargueInventarioManualPanel";
 import ConfiguracionMasModule from "@/components/ConfiguracionMasModule";
 import CrearClientePosModal from "@/components/CrearClientePosModal";
@@ -3247,8 +3248,9 @@ export default function CajaPage() {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pl-52 lg:flex-row">
       <main className="min-h-0 min-w-0 flex-1 overflow-y-auto pt-0">
         <div className="p-4 sm:p-5 lg:p-4">
-          <PosCajaPremiumHeader puntoVenta={user.puntoVenta} etiquetaModulo={tituloModulo} />
-          {esContador ? (
+          <MetasRetosCajaProvider puntoVenta={user.puntoVenta} uid={user.uid}>
+            <PosCajaPremiumHeader puntoVenta={user.puntoVenta} etiquetaModulo={tituloModulo} />
+            {esContador ? (
             moduloActivo === "ultimosRecibos" ? (
               <UltimosRecibosModule
                 uid={user.uid}
@@ -3597,6 +3599,7 @@ export default function CajaPage() {
               </p>
             </div>
           )}
+          </MetasRetosCajaProvider>
         </div>
       </main>
 

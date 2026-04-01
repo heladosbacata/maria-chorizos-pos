@@ -229,3 +229,28 @@ body {
     transform: none !important;
   }
 }
+
+/* Banner caja — brillo en barra de metas (PosCajaMetasMotivationPanel) */
+@keyframes pos-metas-bar-shine {
+  0% {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+  22% {
+    opacity: 0.85;
+  }
+  100% {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+}
+
+.pos-metas-bar-shine {
+  animation: pos-metas-bar-shine 2.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pos-metas-bar-shine {
+    animation: none;
+  }
+}
