@@ -113,6 +113,7 @@ import {
   wmsTurnosCerrar,
   wmsTurnosSincronizarSilent,
 } from "@/lib/wms-turnos-client";
+import { wmsPosAlegraEmitirCobro } from "@/lib/wms-pos-dian-client";
 import {
   aplicarVentaEnsambleWms,
   contarAplicadosEnsambleReportados,
@@ -1795,6 +1796,49 @@ export default function CajaPage() {
 
         const ticketBase = construirPayloadTicket("TICKET DE VENTA", itemsSnap, notaPieTicket);
         if (!ticketBase) return false;
+
+        if (tipoComprobante === "factura_electronica") {
+          const tokenFe = await auth?.currentUser?.getIdToken();
+          if (tokenFe) {
+            const lineasFe = itemsSnap.map((it) => {
+              const varTxt = detalleVarianteTicketLinea(it);
+              const desc = [it.producto.descripcion.trim(), varTxt].filter(Boolean).join(" · ");
+              return {
+                descripcion: (desc.slice(0, 500) || "Ítem").trim(),
+                sku: it.producto.sku,
+                cantidad: it.cantidad,
+                montoConIva: totalLineaItem(it),
+              };
+            });
+            let clienteNombreFe = "Consumidor final";
+            let clienteNitFe = "222222222";
+            let clienteTipoFe: string | undefined;
+            if (cr.id !== CONSUMIDOR_FINAL_ID) {
+              clienteNombreFe = cr.nombreDisplay.trim() || clienteNombreFe;
+              clienteNitFe = (cr.numeroIdentificacion ?? "").trim() || clienteNitFe;
+              clienteTipoFe = cr.tipoIdentificacion?.trim();
+            }
+            const rFe = await wmsPosAlegraEmitirCobro(tokenFe, {
+              fecha: ymdColombia(),
+              lineas: lineasFe,
+              clienteNombre: clienteNombreFe,
+              clienteNit: clienteNitFe,
+              ...(clienteTipoFe ? { clienteTipoIdentificacion: clienteTipoFe } : {}),
+              observaciones: notaPieTicket?.slice(0, 400),
+              formaPago: opts?.detallePago ? construirNotaPiePago(opts.detallePago) : undefined,
+              ventaLocalId: ventaLocalId ?? undefined,
+            });
+            if (!rFe.ok) {
+              window.alert(
+                `La venta se registró en caja, pero la factura electrónica no se pudo enviar a la DIAN:\n\n${rFe.error}\n\nRevisá Más → Habilitaciones DIAN → Facturación electrónica o contactá a administración.`
+              );
+            } else {
+              window.alert(
+                `Factura electrónica enviada (Alegra / DIAN).\n\nNúmero: ${rFe.numeroFactura ?? "—"}\nCUFE: ${rFe.alegraCufe ?? "—"}`
+              );
+            }
+          }
+        }
 
         let ticket = ticketBase;
         if (opts?.detallePago?.incluirQrClienteFrecuente) {
@@ -3628,7 +3672,11 @@ export default function CajaPage() {
               <option value="documento_interno">Doc. interno</option>
               <option value="factura_electronica">Factura electrónica de venta</option>
             </select>
-            <p className="mt-1 text-[11px] leading-snug text-gray-500">Este documento no reemplaza una factura.</p>
+            <p className="mt-1 text-[11px] leading-snug text-gray-500">
+              {tipoComprobante === "factura_electronica"
+                ? "Al cobrar se envía a la DIAN vía Alegra si habilitaste el punto en Más → Habilitaciones DIAN → Facturación electrónica."
+                : "Doc. interno no reemplaza una factura electrónica."}
+            </p>
           </div>
           <div className="mt-3">
             <label htmlFor="vendedor-sidebar" className="mb-1 flex items-center gap-1 text-xs font-medium text-gray-700">

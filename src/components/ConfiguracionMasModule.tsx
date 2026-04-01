@@ -10,6 +10,7 @@ import ClientesProveedoresFranquiciaPanel from "@/components/ClientesProveedores
 import ComprasGastosFranquiciaPanel from "@/components/ComprasGastosFranquiciaPanel";
 import PygFranquiciaPanel from "@/components/PygFranquiciaPanel";
 import UsuariosPosRegistradosPanel from "@/components/UsuariosPosRegistradosPanel";
+import PosDianFacturacionPanel from "@/components/PosDianFacturacionPanel";
 
 /** Id de la herramienta «Perfil de la organización» en CATEGORIAS */
 const PERFIL_ORGANIZACION_ITEM_ID = "gen-org-perfil";
@@ -32,6 +33,8 @@ const CG_COMPRAS_GASTOS_ITEM_ID = "cg-registro";
 const CP_CENTRO_ITEM_ID = "cp-centro";
 /** Política de catálogo: solo productos de marca; altas vía PQRS en app franquiciado */
 const PS_POLITICA_ITEM_ID = "ps-politica-catalogo";
+/** Facturación electrónica POS → Alegra / DIAN */
+const DIAN_VEN_FACT_ITEM_ID = "dian-ven-fact";
 
 const VISTA_DETALLE_ITEM_IDS = new Set<string>([
   PERFIL_ORGANIZACION_ITEM_ID,
@@ -45,6 +48,7 @@ const VISTA_DETALLE_ITEM_IDS = new Set<string>([
   CG_COMPRAS_GASTOS_ITEM_ID,
   CP_CENTRO_ITEM_ID,
   PS_POLITICA_ITEM_ID,
+  DIAN_VEN_FACT_ITEM_ID,
 ]);
 
 export type ConfigCategoriaId =
@@ -284,6 +288,8 @@ export default function ConfiguracionMasModule({ puntoVenta, uid, role }: Config
       setVistaDetalleItemId(CP_CENTRO_ITEM_ID);
     } else if (catId === "productos-servicios") {
       setVistaDetalleItemId(PS_POLITICA_ITEM_ID);
+    } else if (catId === "habilitaciones-dian") {
+      setVistaDetalleItemId(DIAN_VEN_FACT_ITEM_ID);
     } else {
       setVistaDetalleItemId(null);
     }
@@ -413,7 +419,9 @@ export default function ConfiguracionMasModule({ puntoVenta, uid, role }: Config
 
       {/* Panel principal */}
       <div className="min-w-0 flex-1 overflow-y-auto p-6">
-        {vistaDetalleItemId === PERFIL_ORGANIZACION_ITEM_ID ? (
+        {vistaDetalleItemId === DIAN_VEN_FACT_ITEM_ID ? (
+          <PosDianFacturacionPanel puntoVenta={puntoVenta} onVolver={() => setVistaDetalleItemId(null)} />
+        ) : vistaDetalleItemId === PERFIL_ORGANIZACION_ITEM_ID ? (
           <PerfilOrganizacionForm onVolver={() => setVistaDetalleItemId(null)} />
         ) : vistaDetalleItemId === CONTRATO_POS_GEB_ITEM_ID ? (
           <ContratoPosGebPanel onVolver={() => setVistaDetalleItemId(null)} />
