@@ -11,6 +11,7 @@ import { doc, getDoc, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { POS_CONTADOR_ROLE } from "@/lib/auth-roles";
 import { persistPuntoVentaUsuario } from "@/lib/pos-user-firestore";
+import { clearPosGebOnboarding } from "@/lib/pos-onboarding-storage";
 
 export interface AuthUser {
   uid: string;
@@ -128,6 +129,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
+    const uid = auth?.currentUser?.uid;
+    if (uid) clearPosGebOnboarding(uid);
     if (auth) await firebaseSignOut(auth);
     setPuntoVentaManual(null);
   };

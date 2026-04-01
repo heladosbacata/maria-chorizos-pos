@@ -80,6 +80,15 @@ const config: Config = {
           "0%, 100%": { opacity: "0.5" },
           "50%": { opacity: "0.85" },
         },
+        "posgeb-demo-tap": {
+          "0%, 100%": { transform: "scale(1)" },
+          "35%": { transform: "scale(0.92)" },
+          "55%": { transform: "scale(1)" },
+        },
+        "posgeb-demo-ripple": {
+          "0%": { transform: "scale(0.35)", opacity: "0.85" },
+          "100%": { transform: "scale(1.75)", opacity: "0" },
+        },
       },
       animation: {
         "metas-shimmer": "metas-shimmer 2.4s ease-in-out infinite",
@@ -100,6 +109,8 @@ const config: Config = {
         "posgeb-orb-a": "posgeb-orb-a 8s ease-in-out infinite",
         "posgeb-orb-b": "posgeb-orb-b 9s ease-in-out infinite",
         "posgeb-orb-c": "posgeb-orb-c 5s ease-in-out infinite",
+        "posgeb-demo-tap": "posgeb-demo-tap 1.35s ease-in-out infinite",
+        "posgeb-demo-ripple": "posgeb-demo-ripple 1.35s ease-out infinite",
       },
       colors: {
         brand: {

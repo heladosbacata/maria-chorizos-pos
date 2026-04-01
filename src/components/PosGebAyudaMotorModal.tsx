@@ -12,9 +12,17 @@ type Props = {
   onClose: () => void;
   onIrAModulo: (modulo: PosGebTutorialModulo, dataTutorialTarget?: string) => void;
   esContador: boolean;
+  /** Si viene definido, se muestra acción para borrar la preferencia y volver a ver la bienvenida (solo este navegador). */
+  onReiniciarBienvenida?: () => void;
 };
 
-export default function PosGebAyudaMotorModal({ open, onClose, onIrAModulo, esContador }: Props) {
+export default function PosGebAyudaMotorModal({
+  open,
+  onClose,
+  onIrAModulo,
+  esContador,
+  onReiniciarBienvenida,
+}: Props) {
   const [q, setQ] = useState("");
   const [selected, setSelected] = useState<PosGebHelpArticle | null>(null);
 
@@ -152,6 +160,21 @@ export default function PosGebAyudaMotorModal({ open, onClose, onIrAModulo, esCo
             ))}
           </ul>
         </div>
+
+        {onReiniciarBienvenida ? (
+          <div className="border-t border-white/10 px-5 py-3">
+            <p className="text-[11px] text-slate-500">
+              Al cerrar sesión se borra esa preferencia: la próxima vez que entrés volverá la pregunta. Este botón hace lo mismo sin cerrar sesión (útil para practicar el tour).
+            </p>
+            <button
+              type="button"
+              onClick={() => onReiniciarBienvenida()}
+              className="mt-2 w-full rounded-lg border border-white/15 bg-white/5 py-2 text-xs font-semibold text-slate-200 hover:bg-white/10"
+            >
+              Volver a mostrar bienvenida y tour
+            </button>
+          </div>
+        ) : null}
       </div>
     </div>
   );

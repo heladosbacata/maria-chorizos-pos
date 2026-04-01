@@ -16,6 +16,7 @@ import {
   marcarInvitacionAceptada,
 } from "@/lib/contador-invite-firestore";
 import { persistContadorDesdeInvitacion } from "@/lib/pos-user-firestore";
+import { clearPosGebOnboarding } from "@/lib/pos-onboarding-storage";
 
 type Paso = "cargando" | "pedir_correo" | "clave" | "listo" | "error";
 
@@ -52,6 +53,8 @@ function InvitacionContadorInner() {
         setMensaje(
           "No hay invitación pendiente para este correo. Verifica que sea el mismo email al que enviaron la invitación."
         );
+        const uidOut = auth.currentUser?.uid;
+        if (uidOut) clearPosGebOnboarding(uidOut);
         await firebaseSignOut(auth);
         setPaso("error");
         return;
@@ -118,6 +121,8 @@ function InvitacionContadorInner() {
       }
       await marcarInvitacionAceptada(inv.firestoreId);
       invRef.current = null;
+      const uidOut = auth.currentUser?.uid;
+      if (uidOut) clearPosGebOnboarding(uidOut);
       await firebaseSignOut(auth);
       setPaso("listo");
     } catch (e) {

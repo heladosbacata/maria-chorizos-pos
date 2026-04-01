@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import type { PosGebTutorialModulo, PosGebTutorialStep } from "@/lib/pos-geb-tutorial-steps";
+import PosGebTutorialStepDemo from "@/components/PosGebTutorialStepDemo";
 
 type Rect = { top: number; left: number; width: number; height: number };
 
@@ -21,16 +23,33 @@ type Props = {
   onStepIndexChange: (next: number) => void;
   onComplete: () => void;
   onNavigateModule: (m: PosGebTutorialModulo) => void;
+  esContador: boolean;
 };
 
 const PAD = 10;
 const MARGIN = 16;
-const CARD_MAX_W = 420;
-const ESTIMATED_CARD_H = 300;
+/** Panel más ancho: menos renglones de texto y menos scroll dentro del tour */
+const CARD_MAX_W = 680;
+const ESTIMATED_CARD_H = 480;
+
+/**
+ * Resaltados tipo «toda la barra lateral»: si intentamos colocar el panel debajo del hueco,
+ * `belowTop` queda fuera del viewport y el cuadro desaparece. En ese caso usamos panel centrado.
+ */
+function esResaltadoLateralAlto(hole: Rect, vw: number, vh: number): boolean {
+  if (vh < 320) return false;
+  const fraccionAlto = hole.height / vh;
+  const fraccionAncho = hole.width / vw;
+  return fraccionAlto > 0.48 && fraccionAncho < 0.42;
+}
 
 function layoutCardInViewport(hole: Rect, step: PosGebTutorialStep): CardLayout {
   const vw = typeof window !== "undefined" ? window.innerWidth : 800;
   const vh = typeof window !== "undefined" ? window.innerHeight : 600;
+
+  if (esResaltadoLateralAlto(hole, vw, vh)) {
+    return centeredCardLayout();
+  }
 
   const cardW = Math.min(CARD_MAX_W, vw - MARGIN * 2);
   const halfW = cardW / 2;
@@ -38,13 +57,14 @@ function layoutCardInViewport(hole: Rect, step: PosGebTutorialStep): CardLayout 
   /** Ancla horizontal: el centro del tooltip nunca sale del área segura (evita que translateX(-50%) lo empuje fuera). */
   const anchorX = Math.max(MARGIN + halfW, Math.min(cx, vw - MARGIN - halfW));
 
-  const maxH = Math.min(380, vh - MARGIN * 2);
+  const maxH = vh - MARGIN * 2;
   const placement = step.placement ?? "bottom";
   const gap = 12;
 
   const belowTop = hole.top + hole.height + gap;
   const spaceBelow = vh - belowTop - MARGIN;
   const spaceAbove = hole.top - MARGIN;
+  /** Solo «debajo» si realmente hay espacio bajo el hueco dentro del viewport */
   const preferBelow = placement === "bottom" && spaceBelow >= 100;
 
   if (preferBelow && spaceBelow >= spaceAbove * 0.35) {
@@ -63,13 +83,17 @@ function layoutCardInViewport(hole: Rect, step: PosGebTutorialStep): CardLayout 
     };
   }
 
-  /** Encima del hueco: borde inferior del tooltip cerca de hole.top */
+  /** Encima del hueco */
   const tooltipBottomY = hole.top - gap;
   let cardTop = tooltipBottomY - ESTIMATED_CARD_H;
   if (cardTop < MARGIN) {
     cardTop = MARGIN;
   }
   const useMaxH = Math.min(maxH, vh - MARGIN - cardTop);
+  /** Si el hueco ocupa casi todo el alto, «encima» tampoco tiene sentido: centrar */
+  if (hole.height > vh * 0.72) {
+    return centeredCardLayout();
+  }
   return {
     left: `${anchorX}px`,
     top: `${cardTop}px`,
@@ -88,7 +112,7 @@ function centeredCardLayout(): CardLayout {
     top: "50%",
     transform: "translate(-50%, -50%)",
     widthPx: cardW,
-    maxHeightPx: Math.min(380, vh - MARGIN * 2),
+    maxHeightPx: vh - MARGIN * 2,
   };
 }
 
@@ -99,10 +123,16 @@ export default function PosGebTutorialOverlay({
   onStepIndexChange,
   onComplete,
   onNavigateModule,
+  esContador,
 }: Props) {
+  const [portalEl, setPortalEl] = useState<HTMLElement | null>(null);
   const [hole, setHole] = useState<Rect | null>(null);
   const [cardLayout, setCardLayout] = useState<CardLayout>(() => centeredCardLayout());
   const step = steps[stepIndex];
+
+  useLayoutEffect(() => {
+    setPortalEl(document.body);
+  }, []);
 
   const measureAndLayout = useCallback(() => {
     if (!open || !step) {
@@ -159,8 +189,8 @@ export default function PosGebTutorialOverlay({
 
   const isLast = stepIndex >= steps.length - 1;
 
-  return (
-    <div className="fixed inset-0 z-[101]" role="dialog" aria-modal="true" aria-labelledby="pos-geb-tour-titulo">
+  const overlay = (
+    <div className="fixed inset-0 z-[200]" role="dialog" aria-modal="true" aria-labelledby="pos-geb-tour-titulo">
       <div className="absolute inset-0 z-[1] bg-transparent" aria-hidden />
       {hole ? (
         <div
@@ -204,7 +234,17 @@ export default function PosGebTutorialOverlay({
         <h2 id="pos-geb-tour-titulo" className="text-lg font-bold leading-snug text-white">
           {step.title}
         </h2>
-        <p className="mt-2 text-sm leading-relaxed text-slate-300">{step.body}</p>
+        <div className="mt-2 space-y-2.5 text-sm leading-relaxed text-slate-300">
+          {step.body.split(/\n\n+/).map((para, i) => (
+            <p key={i}>{para.trim()}</p>
+          ))}
+        </div>
+        <div className="mt-4 border-t border-white/10 pt-4">
+          <p className="mb-2 text-center text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+            Mini demo · flecha = tu dedo en la pantalla
+          </p>
+          <PosGebTutorialStepDemo tutorialTarget={step.target} esContador={esContador} />
+        </div>
         {!hole && (
           <p className="mt-2 text-xs text-amber-200/90">
             No encontramos el elemento en pantalla; podés seguir con «Siguiente» o cambiar de módulo en el menú.
@@ -234,4 +274,10 @@ export default function PosGebTutorialOverlay({
       </div>
     </div>
   );
+
+  if (portalEl) {
+    return createPortal(overlay, portalEl);
+  }
+
+  return overlay;
 }

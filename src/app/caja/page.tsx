@@ -122,6 +122,7 @@ import { fechaColombia, fechaHoraColombia, ymdColombia } from "@/lib/fecha-colom
 import { formatPesosCop, parsePesosCopInput } from "@/lib/pesos-cop-input";
 import { emailDesdeFichaFranquiciado, getFranquiciadoPorPuntoVenta } from "@/lib/franquiciado-pos";
 import {
+  clearPosGebOnboarding,
   markPosGebTutorialCompleted,
   readPosGebOnboarding,
   writePosGebOnboarding,
@@ -1952,6 +1953,7 @@ export default function CajaPage() {
               </button>
               <button
                 type="button"
+                data-pos-tutorial="nav-cargue"
                 onClick={() => setModuloActivo("cargueInventario")}
                 className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
                   moduloActivo === "cargueInventario"
@@ -1974,6 +1976,7 @@ export default function CajaPage() {
               </button>
               <button
                 type="button"
+                data-pos-tutorial="nav-inventarios"
                 onClick={() => setModuloActivo("inventarios")}
                 className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
                   moduloActivo === "inventarios"
@@ -3761,6 +3764,7 @@ export default function CajaPage() {
         onStepIndexChange={setPosGebTutorialPaso}
         onComplete={finalizarTutorialPosGeb}
         onNavigateModule={handleTutorialNavigatePosGeb}
+        esContador={esContador}
       />
 
       <PosGebAyudaMotorModal
@@ -3768,6 +3772,11 @@ export default function CajaPage() {
         onClose={() => setPosGebAyudaAbierta(false)}
         onIrAModulo={handleAyudaIrAPosGeb}
         esContador={esContador}
+        onReiniciarBienvenida={() => {
+          if (user?.uid) clearPosGebOnboarding(user.uid);
+          setPosGebAyudaAbierta(false);
+          window.location.reload();
+        }}
       />
     </div>
   );

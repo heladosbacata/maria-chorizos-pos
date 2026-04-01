@@ -186,6 +186,25 @@ const ARTICULOS: PosGebHelpArticle[] = [
     moduloSugerido: "ventas",
     dataTutorialTarget: "valor-dia",
   },
+  {
+    id: "reiniciar-bienvenida-tour",
+    title: "Volver a ver la bienvenida o el tour",
+    summary: "Cada vez que cerrás sesión se vuelve a preguntar; también podés forzarlo desde Ayuda.",
+    pasos: [
+      "Lo normal: «Cerrar sesión» y volver a entrar — se muestra otra vez «¿Sos nuevo?» y el tour si elegís que sí.",
+      "Sin cerrar sesión: Ayuda GEB (ícono «?») → «Volver a mostrar bienvenida y tour» → se recarga la página.",
+    ],
+    keywords: [
+      "bienvenida",
+      "soy nuevo",
+      "tour",
+      "tutorial",
+      "visita guiada",
+      "primera vez",
+      "reiniciar",
+      "volver a preguntar",
+    ],
+  },
 ];
 
 function normalizar(s: string): string {

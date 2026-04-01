@@ -49,3 +49,13 @@ export function markPosGebTutorialCompleted(uid: string): void {
   if (!prev) return;
   writePosGebOnboarding(uid, { ...prev, tutorialCompleted: true });
 }
+
+/** Borra la preferencia en este navegador: la próxima vez en Caja volverá la pregunta «¿Sos nuevo?» y el tour si elegís nuevo. */
+export function clearPosGebOnboarding(uid: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(key(uid));
+  } catch {
+    /* */
+  }
+}
