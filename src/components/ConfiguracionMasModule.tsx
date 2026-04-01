@@ -236,6 +236,8 @@ export default function ConfiguracionMasModule({ puntoVenta, uid, role }: Config
         CONFIG_IMPRESION_POS_GEB_ITEM_ID,
         CONT_PYG_ITEM_ID,
         PS_POLITICA_ITEM_ID,
+        VEN_DOC_COT_ITEM_ID,
+        VEN_DOC_REM_ITEM_ID,
       ])
   );
 
