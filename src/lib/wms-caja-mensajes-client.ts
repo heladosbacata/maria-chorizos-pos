@@ -1,12 +1,7 @@
 /**
- * Mensajes en vivo con administración (WMS) — mismas rutas CORS que turnos POS.
+ * Mensajes en vivo con administración: el navegador llama a rutas **del propio POS** (proxy server-side
+ * al WMS) para evitar CORS y "Failed to fetch" al llamar directo a otro dominio.
  */
-import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
-
-function baseRoot(): string {
-  return getWmsPublicBaseUrl().replace(/\/$/, "");
-}
-
 export type PosCajaMensajeCliente = {
   id: string;
   createdAtMs: number;
@@ -16,15 +11,19 @@ export type PosCajaMensajeCliente = {
   senderUid: string;
 };
 
+const PATH_LISTAR = "/api/pos_caja_mensajes_listar";
+const PATH_UNREAD = "/api/pos_caja_mensajes_unread";
+const PATH_RESPONDER = "/api/pos_caja_mensajes_responder";
+const PATH_MARCAR = "/api/pos_caja_mensajes_marcar_leido";
+
 export async function wmsCajaMensajesListar(idToken: string): Promise<
   { ok: true; mensajes: PosCajaMensajeCliente[] } | { ok: false; error: string }
 > {
   const t = idToken?.trim();
   if (!t) return { ok: false, error: "Sin sesión." };
   try {
-    const res = await fetch(`${baseRoot()}/api/pos/caja-mensajes/listar`, {
+    const res = await fetch(PATH_LISTAR, {
       method: "GET",
-      mode: "cors",
       cache: "no-store",
       headers: { Authorization: `Bearer ${t}`, Accept: "application/json" },
     });
@@ -51,9 +50,8 @@ export async function wmsCajaMensajesUnread(idToken: string): Promise<
   const t = idToken?.trim();
   if (!t) return { ok: false, error: "Sin sesión." };
   try {
-    const res = await fetch(`${baseRoot()}/api/pos/caja-mensajes/unread`, {
+    const res = await fetch(PATH_UNREAD, {
       method: "GET",
-      mode: "cors",
       cache: "no-store",
       headers: { Authorization: `Bearer ${t}`, Accept: "application/json" },
     });
@@ -74,9 +72,8 @@ export async function wmsCajaMensajesResponder(
   const t = idToken?.trim();
   if (!t) return { ok: false, error: "Sin sesión." };
   try {
-    const res = await fetch(`${baseRoot()}/api/pos/caja-mensajes/responder`, {
+    const res = await fetch(PATH_RESPONDER, {
       method: "POST",
-      mode: "cors",
       headers: {
         Authorization: `Bearer ${t}`,
         "Content-Type": "application/json",
@@ -98,9 +95,8 @@ export async function wmsCajaMensajesMarcarLeido(idToken: string): Promise<void>
   const t = idToken?.trim();
   if (!t) return;
   try {
-    await fetch(`${baseRoot()}/api/pos/caja-mensajes/marcar-leido`, {
+    await fetch(PATH_MARCAR, {
       method: "POST",
-      mode: "cors",
       headers: {
         Authorization: `Bearer ${t}`,
         "Content-Type": "application/json",

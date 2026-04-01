@@ -237,9 +237,9 @@ export default function PosCajaMensajesBell({ getIdToken, puntoVentaLabel, visib
                 </div>
               ) : mensajes.length === 0 ? (
                 <p className="py-6 px-2 text-center text-sm text-amber-200/45">
-                  No hay mensajes en este hilo. Si el monitor ya envió uno y no aparece: debe ser la misma cuenta POS
-                  que en el monitor (mismo usuario) y <span className="text-amber-100/80">NEXT_PUBLIC_WMS_URL</span> en
-                  Vercel debe apuntar al WMS donde está Firestore.
+                  No hay mensajes en este hilo. Si el monitor ya envió uno: usá la misma cuenta POS que en el monitor.
+                  El POS habla con el WMS por servidor (proxy); en Vercel definí{" "}
+                  <span className="text-amber-100/80">NEXT_PUBLIC_WMS_URL</span> en el proyecto del POS.
                 </p>
               ) : (
                 mensajes.map((m) => {
