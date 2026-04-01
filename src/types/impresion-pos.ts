@@ -42,4 +42,10 @@ export interface TicketVentaPayload {
   fidelizacionQrDataUrl?: string;
   /** Mismo contenido que el QR, en JSON; va al ticket plano / térmico. */
   fidelizacionPayloadTexto?: string;
+  /** Si se emitió factura electrónica (DIAN) en este cobro. */
+  facturaElectronica?: {
+    numero?: string;
+    cufe?: string;
+    enviadoAt?: string;
+  };
 }

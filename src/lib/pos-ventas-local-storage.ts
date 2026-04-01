@@ -52,6 +52,10 @@ export interface VentaGuardadaLocal {
   anuladaMotivo?: string;
   anuladaEnIso?: string;
   anuladaPorUid?: string;
+  /** Factura electrónica emitida con este cobro (reimpresión en Últimos recibos). */
+  facturaElectronicaNumero?: string;
+  facturaElectronicaCufe?: string;
+  facturaElectronicaEnviadoAt?: string;
 }
 
 /** Ventas que siguen contando como ingreso y stock vendido. */
@@ -127,6 +131,28 @@ export function appendVentaLocal(
   const trimmed = next.length > MAX_VENTAS ? next.slice(next.length - MAX_VENTAS) : next;
   escribir(uid, trimmed);
   return id;
+}
+
+/** Tras emitir FE con éxito (o reintento en cola), guarda CUFE/número en la venta local para reimpresión. */
+export function actualizarVentaLocalFacturaElectronica(
+  uid: string,
+  ventaId: string,
+  fe: { numero?: string; cufe?: string; enviadoAt?: string }
+): void {
+  if (typeof window === "undefined" || !uid.trim() || !ventaId.trim()) return;
+  const prev = leerRaw(uid);
+  const idx = prev.findIndex((v) => v.id === ventaId);
+  if (idx < 0) return;
+  const row: VentaGuardadaLocal = { ...prev[idx] };
+  const n = fe.numero?.trim();
+  const c = fe.cufe?.trim();
+  const e = fe.enviadoAt?.trim();
+  if (n) row.facturaElectronicaNumero = n;
+  if (c) row.facturaElectronicaCufe = c;
+  if (e) row.facturaElectronicaEnviadoAt = e;
+  const next = [...prev];
+  next[idx] = row;
+  escribir(uid, next);
 }
 
 /** Resumen de informes: combina local + nube; si en local está anulada, se conserva el estado de anulación. */

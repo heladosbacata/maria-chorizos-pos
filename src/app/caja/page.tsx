@@ -82,10 +82,12 @@ import {
 } from "@/lib/medios-pago-venta";
 import { anularVentaEnEquipoInventarioYNube } from "@/lib/pos-anular-venta-inventario-nube";
 import { encolarAplicarEnsamblePendiente, procesarColaAplicarEnsamblePendiente } from "@/lib/pos-wms-ensamble-pendiente";
+import { encolarFeEmitirPendiente, procesarColaFeEmitir } from "@/lib/pos-fe-retry-queue";
 import { encolarVentaPendienteWms, procesarColaVentasPendientesWms } from "@/lib/pos-ventas-pendientes-wms";
 import { registrarVentaPosCloud } from "@/lib/pos-ventas-cloud-client";
 import {
   agregarProductosEnVentas,
+  actualizarVentaLocalFacturaElectronica,
   appendVentaLocal,
   filtrarVentasVigentes,
   listarVentasPuntoVenta,
@@ -279,6 +281,7 @@ export default function CajaPage() {
     const run = () => {
       void procesarColaVentasPendientesWms();
       void procesarColaAplicarEnsamblePendiente(async () => (await auth?.currentUser?.getIdToken()) ?? null);
+      void procesarColaFeEmitir(async () => (await auth?.currentUser?.getIdToken()) ?? null);
     };
     run();
     const onVis = () => {
@@ -1797,6 +1800,8 @@ export default function CajaPage() {
         const ticketBase = construirPayloadTicket("TICKET DE VENTA", itemsSnap, notaPieTicket);
         if (!ticketBase) return false;
 
+        let ticket = ticketBase;
+
         if (tipoComprobante === "factura_electronica") {
           const tokenFe = await auth?.currentUser?.getIdToken();
           if (tokenFe) {
@@ -1818,7 +1823,7 @@ export default function CajaPage() {
               clienteNitFe = (cr.numeroIdentificacion ?? "").trim() || clienteNitFe;
               clienteTipoFe = cr.tipoIdentificacion?.trim();
             }
-            const rFe = await wmsPosAlegraEmitirCobro(tokenFe, {
+            const payloadFe = {
               fecha: ymdColombia(),
               lineas: lineasFe,
               clienteNombre: clienteNombreFe,
@@ -1827,20 +1832,31 @@ export default function CajaPage() {
               observaciones: notaPieTicket?.slice(0, 400),
               formaPago: opts?.detallePago ? construirNotaPiePago(opts.detallePago) : undefined,
               ventaLocalId: ventaLocalId ?? undefined,
-            });
+            };
+            const rFe = await wmsPosAlegraEmitirCobro(tokenFe, payloadFe);
             if (!rFe.ok) {
+              encolarFeEmitirPendiente(user.uid, ventaLocalId, payloadFe);
               window.alert(
-                `La venta se registró en caja, pero la factura electrónica no se pudo enviar a la DIAN:\n\n${rFe.error}\n\nRevisá Más → Habilitaciones DIAN → Facturación electrónica o contactá a administración.`
+                `La venta se registró en caja, pero la factura electrónica no se pudo enviar a la DIAN:\n\n${rFe.error}\n\nSe reintentará automáticamente al recuperar conexión. Revisá también Más → Habilitaciones DIAN → Facturación electrónica o contactá a administración.`
               );
             } else {
-              window.alert(
-                `Factura electrónica enviada (Alegra / DIAN).\n\nNúmero: ${rFe.numeroFactura ?? "—"}\nCUFE: ${rFe.alegraCufe ?? "—"}`
-              );
+              const feBlock = {
+                numero: rFe.numeroFactura,
+                cufe: rFe.alegraCufe,
+                enviadoAt: rFe.enviadoAt,
+              };
+              if (ventaLocalId) {
+                actualizarVentaLocalFacturaElectronica(user.uid, ventaLocalId, {
+                  numero: feBlock.numero,
+                  cufe: feBlock.cufe,
+                  enviadoAt: feBlock.enviadoAt,
+                });
+              }
+              ticket = { ...ticket, facturaElectronica: feBlock };
             }
           }
         }
 
-        let ticket = ticketBase;
         if (opts?.detallePago?.incluirQrClienteFrecuente) {
           const ventaIdFid =
             ventaLocalId ?? `pos-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
@@ -1857,13 +1873,13 @@ export default function CajaPage() {
           try {
             const dataUrl = await generarDataUrlQrFidelizacion(payloadJson);
             ticket = {
-              ...ticketBase,
+              ...ticket,
               fidelizacionQrDataUrl: dataUrl,
               fidelizacionPayloadTexto: payloadJson,
             };
           } catch (e) {
             console.warn("[POS] QR cliente frecuente:", e);
-            ticket = { ...ticketBase, fidelizacionPayloadTexto: payloadJson };
+            ticket = { ...ticket, fidelizacionPayloadTexto: payloadJson };
           }
         }
 
@@ -1881,6 +1897,7 @@ export default function CajaPage() {
 
         void procesarColaVentasPendientesWms();
         void procesarColaAplicarEnsamblePendiente(async () => (await auth?.currentUser?.getIdToken()) ?? null);
+        void procesarColaFeEmitir(async () => (await auth?.currentUser?.getIdToken()) ?? null);
 
         return true;
       } finally {

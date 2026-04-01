@@ -205,13 +205,14 @@ function PanelDetalleRecibo({ v }: { v: VentaGuardadaLocal }) {
 function payloadTicketDesdeVenta(v: VentaGuardadaLocal): TicketVentaPayload {
   const t = new Date(v.isoTimestamp);
   const fechaHora = Number.isNaN(t.getTime()) ? v.isoTimestamp : fechaHoraColombia(t);
+  const tieneFe = Boolean(v.facturaElectronicaCufe?.trim() || v.facturaElectronicaNumero?.trim());
   return {
     titulo: "TICKET DE VENTA (copia)",
     puntoVenta: v.puntoVenta,
     precuentaNombre: "Recibo",
     fechaHora,
     clienteNombre: "—",
-    tipoComprobanteLabel: "Recibo POS",
+    tipoComprobanteLabel: tieneFe ? "Factura electrónica (DIAN)" : "Recibo POS",
     vendedorLabel: v.cajeroNombre?.trim() || "—",
     lineas: v.lineas.map((l) => ({
       descripcion: l.descripcion,
@@ -221,6 +222,15 @@ function payloadTicketDesdeVenta(v: VentaGuardadaLocal): TicketVentaPayload {
       ...(l.detalleVariante?.trim() ? { detalleVariante: l.detalleVariante.trim() } : {}),
     })),
     total: v.total,
+    ...(tieneFe
+      ? {
+          facturaElectronica: {
+            ...(v.facturaElectronicaNumero?.trim() ? { numero: v.facturaElectronicaNumero.trim() } : {}),
+            ...(v.facturaElectronicaCufe?.trim() ? { cufe: v.facturaElectronicaCufe.trim() } : {}),
+            ...(v.facturaElectronicaEnviadoAt?.trim() ? { enviadoAt: v.facturaElectronicaEnviadoAt.trim() } : {}),
+          },
+        }
+      : {}),
     notaPie:
       (v.pagoResumen?.trim() ? `${v.pagoResumen.trim()}\n` : "") +
       `Copia · ID ${v.id.slice(0, 24)}…`,

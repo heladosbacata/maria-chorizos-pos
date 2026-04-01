@@ -53,6 +53,18 @@ export function construirTextoTicketPlano(payload: TicketVentaPayload, columnas:
   }
   rows.push("-".repeat(W));
   rows.push(line(`TOTAL: $ ${payload.total.toLocaleString("es-CO")}`));
+  const fe = payload.facturaElectronica;
+  if (fe && (fe.cufe?.trim() || fe.numero?.trim())) {
+    rows.push("-".repeat(W));
+    rows.push(center("FACTURA ELECTRONICA (DIAN)"));
+    if (fe.numero?.trim()) rows.push(line(`No: ${fe.numero.trim()}`));
+    if (fe.cufe?.trim()) {
+      rows.push(line("CUFE:"));
+      const c = textoTicketSeguro(fe.cufe.trim());
+      for (let i = 0; i < c.length; i += W) rows.push(line(c.slice(i, i + W)));
+    }
+    if (fe.enviadoAt?.trim()) rows.push(line(`Emitido: ${fe.enviadoAt.trim()}`));
+  }
   rows.push("");
   rows.push(center(payload.notaPie ?? "Gracias por tu compra"));
   rows.push("");
@@ -258,6 +270,27 @@ function construirHtmlTirillaTicket(
   .qr-t { margin: 0 0 6px; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: #475569; }
   .qr-s { margin: 6px 0 0; font-size: 7px; color: #64748b; }
   .qr img { image-rendering: pixelated; display: inline-block; }
+  .fe-dian {
+    margin-top: 10px;
+    padding: 8px 6px;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    font-size: 7.5px;
+    line-height: 1.35;
+    word-break: break-all;
+  }
+  .fe-dian-t {
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: #0f172a;
+    margin: 0 0 6px;
+    text-align: center;
+    font-size: 7px;
+  }
+  .fe-dian-row { margin: 4px 0; color: #334155; }
+  .fe-dian-k { font-weight: 700; color: #64748b; display: block; margin-bottom: 2px; }
 </style></head><body>
 <div class="tirilla">
   ${logoHtml}
@@ -274,6 +307,29 @@ function construirHtmlTirillaTicket(
   <div class="rule"></div>
   ${lineasHtml}
   <div class="total"><span>TOTAL</span><span>$ ${escapeHtml(formatCopTicket(p.total))}</span></div>
+  ${
+    p.facturaElectronica &&
+    (p.facturaElectronica.cufe?.trim() || p.facturaElectronica.numero?.trim())
+      ? `<div class="fe-dian">
+    <p class="fe-dian-t">Factura electrónica (DIAN)</p>
+    ${
+      p.facturaElectronica.numero?.trim()
+        ? `<div class="fe-dian-row"><span class="fe-dian-k">Número</span>${escapeHtml(p.facturaElectronica.numero.trim())}</div>`
+        : ""
+    }
+    ${
+      p.facturaElectronica.cufe?.trim()
+        ? `<div class="fe-dian-row"><span class="fe-dian-k">CUFE</span>${escapeHtml(p.facturaElectronica.cufe.trim())}</div>`
+        : ""
+    }
+    ${
+      p.facturaElectronica.enviadoAt?.trim()
+        ? `<div class="fe-dian-row"><span class="fe-dian-k">Emitido</span>${escapeHtml(p.facturaElectronica.enviadoAt.trim())}</div>`
+        : ""
+    }
+  </div>`
+      : ""
+  }
   ${p.notaPie?.trim() ? `<p class="nota">${escapeHtml(p.notaPie.trim())}</p>` : `<p class="nota">Gracias por elegirnos — calidad y sabor en cada visita.</p>`}
   <div class="social">
     <p class="social-hint">Seguinos en redes</p>
