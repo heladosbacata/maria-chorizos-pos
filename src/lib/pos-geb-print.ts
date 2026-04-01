@@ -150,7 +150,7 @@ function construirHtmlTirillaTicket(
       : "";
 
   const logoHtml = showLogo
-    ? `<div class="logo"><img src="${escapeHtml(logoSrc)}" alt="María Chorizos" /></div>`
+    ? `<div class="logo-wrap"><div class="logo"><img src="${escapeHtml(logoSrc)}" alt="María Chorizos" /></div><div class="brand-name">MARÍA CHORIZOS</div></div>`
     : `<div class="brand-only">MARÍA CHORIZOS</div>`;
 
   return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"/><title>Ticket POS GEB</title>
@@ -170,8 +170,17 @@ function construirHtmlTirillaTicket(
     max-width: ${mm <= 80 ? mm + "mm" : "72mm"};
     margin: 0 auto;
   }
-  .logo { text-align: center; margin-bottom: 6px; }
+  .logo-wrap { text-align: center; margin-bottom: 6px; }
+  .logo { margin-bottom: 4px; }
   .logo img { max-height: 44px; width: auto; object-fit: contain; display: inline-block; }
+  .brand-name {
+    text-align: center;
+    font-weight: 800;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    color: #b91c1c;
+    margin: 0 0 4px;
+  }
   .brand-only {
     text-align: center;
     font-weight: 800;
@@ -334,7 +343,7 @@ function construirHtmlTirillaTicket(
   <div class="social">
     <p class="social-hint">Seguinos en redes</p>
     <p class="social-ig">@${escapeHtml(MARIA_CHORIZOS_IG_HANDLE)}</p>
-    <p class="social-brand">María Chorizos · Grupo Bacatá</p>
+    <p class="social-brand">María Chorizos · POS GEB</p>
   </div>
   ${qrBlock}
 </div>

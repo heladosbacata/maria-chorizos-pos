@@ -25,7 +25,7 @@ export interface TicketPrevisualizacionModalProps {
 }
 
 /**
- * Vista previa del comprobante tras cobrar; tirilla 58 mm, estilo premium y pie con redes @grupobacata.
+ * Vista previa del comprobante tras cobrar; tirilla 58 mm, logo + marca y pie con redes @mariachorizos.
  */
 export default function TicketPrevisualizacionModal({
   open,
@@ -95,15 +95,18 @@ export default function TicketPrevisualizacionModal({
             style={{ width: "min(58mm, 100%)", maxWidth: "100%" }}
           >
             {!ocultarLogo ? (
-              <div className="mb-3 flex justify-center border-b border-slate-100 pb-3">
-                <Image
-                  src={LOGO_ORG_URL}
-                  alt="María Chorizos"
-                  width={128}
-                  height={44}
-                  className="h-10 w-auto object-contain"
-                  priority
-                />
+              <div className="mb-3 border-b border-slate-100 pb-3 text-center">
+                <div className="flex justify-center">
+                  <Image
+                    src={LOGO_ORG_URL}
+                    alt="María Chorizos"
+                    width={128}
+                    height={44}
+                    className="h-10 w-auto object-contain"
+                    priority
+                  />
+                </div>
+                <p className="mt-2 text-[10px] font-extrabold tracking-[0.22em] text-red-700">MARÍA CHORIZOS</p>
               </div>
             ) : (
               <p className="mb-2 text-center text-[10px] font-extrabold tracking-[0.22em] text-red-700">
@@ -175,7 +178,7 @@ export default function TicketPrevisualizacionModal({
             <div className="mt-4 border-t-2 border-slate-200 pt-3 text-center">
               <p className="text-[7px] font-semibold uppercase tracking-[0.2em] text-slate-500">Seguinos en redes</p>
               <p className="mt-1 text-[12px] font-extrabold tracking-wide text-pink-700">@{MARIA_CHORIZOS_IG_HANDLE}</p>
-              <p className="mt-1 text-[7px] tracking-[0.12em] text-slate-400">María Chorizos · Grupo Bacatá</p>
+              <p className="mt-1 text-[7px] tracking-[0.12em] text-slate-400">María Chorizos · POS GEB</p>
             </div>
 
             {qr ? (

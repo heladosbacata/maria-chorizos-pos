@@ -6,4 +6,4 @@
 export const LOGO_ORG_URL = "/images/logo-red-bg.png" as const;
 
 /** Red social principal en tickets y pie de marca (sin @ en algunos textos se antepone manualmente). */
-export const MARIA_CHORIZOS_IG_HANDLE = "grupobacata" as const;
+export const MARIA_CHORIZOS_IG_HANDLE = "mariachorizos" as const;
