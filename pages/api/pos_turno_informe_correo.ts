@@ -6,6 +6,7 @@ import {
   remitenteSmtpInformeTurno,
   smtpInformeTurnoConfigured,
 } from "@/lib/email-informe-turno-smtp";
+import { detectCierreEmailBackend, sendPosCierreInformeEmail } from "@/lib/posCierreInformeEmail";
 
 type Body = { subject?: string; text?: string; to?: string; cc?: string };
 
@@ -27,27 +28,14 @@ function listaCcDesdeTexto(cc: string): string[] {
  * Envía por correo el texto del informe de cierre de turno.
  *
  * Prioridad:
- * 1) SMTP si existen `SMTP_HOST`, `SMTP_USER` y `SMTP_PASS` (recomendado con tu proveedor de correo).
- * 2) Resend si existe `RESEND_API_KEY`.
+ * 1) SMTP genérico (`SMTP_HOST`, `SMTP_USER`, `SMTP_PASS`, …) vía `email-informe-turno-smtp`.
+ * 2) Zoho como en el WMS (`ZOHO_SMTP_USER` + `ZOHO_SMTP_PASSWORD`, …) o Resend (`RESEND_API_KEY`).
  *
- * SMTP opcional: `SMTP_PORT` (587), `SMTP_FROM`, `SMTP_SECURE=1` (puerto 465), `SMTP_TLS_REJECT_UNAUTHORIZED=0`.
- * Resend: `RESEND_FROM` (dominio verificado).
- *
- * Siempre: `FIREBASE_SERVICE_ACCOUNT_JSON` para validar el Bearer (mismo proyecto que el POS).
+ * Requiere `FIREBASE_SERVICE_ACCOUNT_JSON` para validar el Bearer.
  */
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "POST") {
     return res.status(405).json({ ok: false, message: "Method not allowed" });
-  }
-
-  const apiKeyResend = process.env.RESEND_API_KEY?.trim();
-  const usarSmtp = smtpInformeTurnoConfigured();
-  if (!usarSmtp && !apiKeyResend) {
-    return res.status(503).json({
-      ok: false,
-      message:
-        "Envío por correo no configurado. Agrega SMTP_HOST, SMTP_USER y SMTP_PASS (SMTP), o RESEND_API_KEY (Resend), en el servidor del POS.",
-    });
   }
 
   const app = getFirebaseAdminApp();
@@ -71,6 +59,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     destinatarioSesion = decoded.email?.trim() || null;
   } catch {
     return res.status(401).json({ ok: false, message: "Sesión inválida o token expirado." });
+  }
+
+  const usarSmtpGenerico = smtpInformeTurnoConfigured();
+  const usarZohoOResend = detectCierreEmailBackend() !== null;
+  if (!usarSmtpGenerico && !usarZohoOResend) {
+    return res.status(503).json({
+      ok: false,
+      message:
+        "Envío por correo no configurado. Agrega SMTP_HOST, SMTP_USER y SMTP_PASS; o ZOHO_SMTP_USER y ZOHO_SMTP_PASSWORD (mismo WMS); o RESEND_API_KEY.",
+    });
   }
 
   const body = req.body as Body;
@@ -111,7 +109,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ ok: false, message: "Revisa los correos en «Con copia»: hay uno inválido." });
   }
 
-  if (usarSmtp) {
+  if (usarSmtpGenerico) {
     const from = remitenteSmtpInformeTurno();
     const smtp = await enviarInformeTurnoPorSmtp({
       from,
@@ -126,48 +124,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ ok: true, via: "smtp" });
   }
 
-  if (!apiKeyResend) {
-    return res.status(503).json({
-      ok: false,
-      message: "Envío por correo no configurado (ni SMTP ni Resend).",
-    });
-  }
-
-  const fromResend =
-    process.env.RESEND_FROM?.trim() || "Maria Chorizos POS <onboarding@resend.dev>";
-
-  const payload: Record<string, unknown> = {
-    from: fromResend,
-    to: [destinatario],
+  const resultado = await sendPosCierreInformeEmail({
+    to: destinatario,
     subject,
     text,
-  };
-  if (ccList.length > 0) {
-    payload.cc = ccList;
+    ...(ccList.length > 0 ? { cc: ccList } : {}),
+  });
+
+  if (!resultado.ok) {
+    return res.status(502).json({ ok: false, message: resultado.error });
   }
 
-  try {
-    const r = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKeyResend}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
-
-    const data = (await r.json().catch(() => ({}))) as { message?: string; id?: string };
-
-    if (!r.ok) {
-      return res.status(502).json({
-        ok: false,
-        message: data?.message || `Resend respondió ${r.status}`,
-      });
-    }
-
-    return res.status(200).json({ ok: true, id: data?.id, via: "resend" });
-  } catch (e) {
-    const message = e instanceof Error ? e.message : "Error al contactar Resend";
-    return res.status(502).json({ ok: false, message });
-  }
+  return res.status(200).json({
+    ok: true,
+    via: resultado.via,
+    ...(resultado.id ? { id: resultado.id } : {}),
+  });
 }

@@ -1,109 +1,151 @@
 /**
- * Turnos de caja en el WMS (monitor administrativo + INFORME_VENTAS_MC).
- * Base: NEXT_PUBLIC_WMS_URL o NEXT_PUBLIC_WMS_API_URL (ver `getWmsPublicBaseUrl`).
+ * Turnos de caja en el WMS (monitor administrativo + INFORME_VENTAS_MC al cerrar).
+ * Base: `getWmsPublicBaseUrl()` → NEXT_PUBLIC_WMS_URL o NEXT_PUBLIC_WMS_API_URL.
  */
 import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
 
-const PATH_ABRIR = "/api/pos/turnos/abrir";
-const PATH_SINCRONIZAR = "/api/pos/turnos/sincronizar";
-const PATH_CERRAR = "/api/pos/turnos/cerrar";
+const UEN_DEFAULT = "Maria Chorizos";
 
-function delay(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
+function baseRoot(): string {
+  return getWmsPublicBaseUrl().replace(/\/$/, "");
 }
 
-async function postJson(
-  path: string,
-  idToken: string,
-  body: Record<string, unknown> | undefined
-): Promise<{ res: Response; data: unknown }> {
-  const base = getWmsPublicBaseUrl();
-  const url = `${base}${path}`;
-  const r = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${idToken}`,
-    },
-    body: JSON.stringify(body ?? {}),
-  });
-  let data: unknown = null;
-  try {
-    data = await r.json();
-  } catch {
-    data = null;
-  }
-  return { res: r, data };
-}
+const BACKOFF_MS = [250, 700, 1600];
 
-export type WmsTurnosAbrirResult = {
-  ok: boolean;
-  yaAbierto?: boolean;
-  message?: string;
-  networkError?: boolean;
-};
+export type WmsTurnosAbrirResult =
+  | { ok: true; yaAbierto?: boolean; turnoId?: string; message?: string }
+  | { ok: false; error: string };
 
+/**
+ * POST /api/pos/turnos/abrir — `uen` es unidad de negocio (ej. Maria Chorizos), no el punto de venta.
+ */
 export async function wmsTurnosAbrir(
   idToken: string,
-  opts?: { uen?: string }
+  opts: { uen?: string }
 ): Promise<WmsTurnosAbrirResult> {
+  const t = idToken?.trim();
+  if (!t) return { ok: false, error: "Sin sesión (token vacío)." };
+  const uen = (opts.uen ?? UEN_DEFAULT).trim() || UEN_DEFAULT;
   try {
-    const body: Record<string, string> = {};
-    if (opts?.uen?.trim()) body.uen = opts.uen.trim();
-    const { res, data } = await postJson(PATH_ABRIR, idToken, Object.keys(body).length ? body : undefined);
-    const d = data as { ok?: boolean; yaAbierto?: boolean; message?: string };
-    if (res.ok && d?.ok) return { ok: true, yaAbierto: Boolean(d.yaAbierto) };
-    return {
-      ok: false,
-      message: typeof d?.message === "string" && d.message.trim() ? d.message.trim() : `Error ${res.status}`,
+    const res = await fetch(`${baseRoot()}/api/pos/turnos/abrir`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${t}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ uen }),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      yaAbierto?: boolean;
+      turnoId?: string;
+      message?: string;
+      error?: string;
     };
-  } catch {
-    return { ok: false, message: "Sin conexión con el servidor.", networkError: true };
+    if (!res.ok || data.ok !== true) {
+      const err =
+        typeof data.error === "string" && data.error.trim()
+          ? data.error.trim()
+          : typeof data.message === "string" && data.message.trim()
+            ? data.message.trim()
+            : `Error del servidor (${res.status})`;
+      return { ok: false, error: err };
+    }
+    return {
+      ok: true,
+      yaAbierto: data.yaAbierto === true,
+      turnoId: typeof data.turnoId === "string" ? data.turnoId : undefined,
+      message: typeof data.message === "string" ? data.message : undefined,
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Error de red al abrir turno en el WMS." };
   }
 }
 
 /**
- * Reintentos silenciosos; no bloquea cobro. Ignora fallos finales (solo consola).
+ * POST /api/pos/turnos/sincronizar — reintentos con backoff; fallos finales solo consola (no bloquea cobro).
  */
 export async function wmsTurnosSincronizarSilent(idToken: string, totalVenta: number): Promise<void> {
-  const n = Number(totalVenta);
-  const payload = { totalVenta: Number.isFinite(n) ? n : 0 };
-  const attempts = 3;
-  for (let i = 0; i < attempts; i++) {
-    try {
-      const { res, data } = await postJson(PATH_SINCRONIZAR, idToken, payload);
-      const d = data as { ok?: boolean };
-      if (res.ok && d?.ok) return;
-    } catch {
-      /* reintentar */
-    }
-    await delay(350 * (i + 1));
+  const t = idToken?.trim();
+  if (!t) {
+    console.warn("[wms-turnos] sincronizar: sin token");
+    return;
   }
-  console.warn("[WMS turnos] sincronizar falló tras reintentos, totalVenta=", payload.totalVenta);
+  const body = JSON.stringify({
+    totalVenta: Math.round(Math.max(0, Number(totalVenta) || 0) * 100) / 100,
+  });
+  const url = `${baseRoot()}/api/pos/turnos/sincronizar`;
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${t}`,
+          "Content-Type": "application/json",
+        },
+        body,
+      });
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (res.ok && data.ok === true) return;
+      if (attempt < 2) {
+        console.warn("[wms-turnos] sincronizar intento", attempt + 1, res.status, data.error ?? "");
+      }
+    } catch (e) {
+      console.warn("[wms-turnos] sincronizar intento", attempt + 1, e);
+    }
+    if (attempt < BACKOFF_MS.length) {
+      await new Promise((r) => setTimeout(r, BACKOFF_MS[attempt]!));
+    }
+  }
+  console.warn("[wms-turnos] sincronizar: agotados reintentos (totalVenta en cuerpo fue)", totalVenta);
 }
 
-export type WmsTurnosCerrarResult = { ok: boolean; message?: string };
+export type WmsTurnosCerrarResult =
+  | { ok: true; message?: string; totalVenta?: number }
+  | { ok: false; error: string };
 
+/**
+ * POST /api/pos/turnos/cerrar — `uen` es unidad de negocio (ej. Maria Chorizos).
+ */
 export async function wmsTurnosCerrar(
   idToken: string,
   opts?: { uen?: string; plataformaMovil?: string }
 ): Promise<WmsTurnosCerrarResult> {
+  const t = idToken?.trim();
+  if (!t) return { ok: false, error: "Sin sesión (token vacío)." };
+  const uen = (opts?.uen ?? UEN_DEFAULT).trim() || UEN_DEFAULT;
+  const plataformaMovil = (opts?.plataformaMovil ?? "POS GEB").trim() || "POS GEB";
   try {
-    const body: Record<string, string> = {};
-    if (opts?.uen?.trim()) body.uen = opts.uen.trim();
-    if (opts?.plataformaMovil?.trim()) body.plataformaMovil = opts.plataformaMovil.trim();
-    const { res, data } = await postJson(PATH_CERRAR, idToken, Object.keys(body).length ? body : undefined);
-    const d = data as { ok?: boolean; message?: string };
-    if (res.ok && d?.ok) return { ok: true };
-    const msg =
-      typeof d?.message === "string" && d.message.trim()
-        ? d.message.trim()
-        : `No se pudo cerrar el turno en el servidor (${res.status}).`;
-    return { ok: false, message: msg };
-  } catch {
-    return {
-      ok: false,
-      message: "Sin conexión. El turno puede seguir abierto en el servidor hasta que se confirme el cierre.",
+    const res = await fetch(`${baseRoot()}/api/pos/turnos/cerrar`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${t}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ uen, plataformaMovil }),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      error?: string;
+      message?: string;
+      totalVenta?: number;
     };
+    if (!res.ok || data.ok !== true) {
+      const err =
+        typeof data.error === "string" && data.error.trim()
+          ? data.error.trim()
+          : typeof data.message === "string" && data.message.trim()
+            ? data.message.trim()
+            : `Error del servidor (${res.status})`;
+      return { ok: false, error: err };
+    }
+    return {
+      ok: true,
+      message: typeof data.message === "string" ? data.message : undefined,
+      totalVenta: typeof data.totalVenta === "number" ? data.totalVenta : undefined,
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Error de red al cerrar turno en el WMS." };
   }
 }

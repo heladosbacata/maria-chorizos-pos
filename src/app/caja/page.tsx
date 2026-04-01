@@ -99,6 +99,11 @@ import {
   mensajeErrorVentaParaUsuario,
 } from "@/lib/enviar-venta";
 import {
+  wmsTurnosAbrir,
+  wmsTurnosCerrar,
+  wmsTurnosSincronizarSilent,
+} from "@/lib/wms-turnos-client";
+import {
   aplicarVentaEnsambleWms,
   contarAplicadosEnsambleReportados,
   guardarUltimoEnsambleEnSesion,
@@ -128,7 +133,6 @@ import {
   writePosGebOnboarding,
 } from "@/lib/pos-onboarding-storage";
 import { getPosGebTutorialSteps, type PosGebTutorialModulo } from "@/lib/pos-geb-tutorial-steps";
-import { wmsTurnosAbrir, wmsTurnosCerrar, wmsTurnosSincronizarSilent } from "@/lib/wms-turnos-client";
 
 const LS_INFORME_TURNO_PARA = "pos_mc_informe_turno_para_v1";
 const LS_INFORME_TURNO_CC = "pos_mc_informe_turno_cc_v1";
@@ -412,8 +416,13 @@ export default function CajaPage() {
   const [turnoSesionId, setTurnoSesionId] = useState("");
   const [abriendoTurnoWms, setAbriendoTurnoWms] = useState(false);
   const totalVentasEnTurnoRef = useRef(0);
-  const wmsTurnoHydrateSyncRef = useRef(false);
   totalVentasEnTurnoRef.current = totalVentasEnTurno;
+  /** Evita sobrescribir el cierre si el usuario editó con el modal abierto. */
+  const cierreTurnoYaPrecargadoRef = useRef(false);
+  /** Hubo snapshot de turno en localStorage al hidratar (alinear WMS una vez). */
+  const restauradoDesdeLocalStorageRef = useRef(false);
+  /** Ya se ejecutó abrir+sincronizar tras restaurar desde LS. */
+  const wmsAlineadoTrasRestauracionRef = useRef(false);
   const [showModalPerfilUsuario, setShowModalPerfilUsuario] = useState(false);
   /** Foto en el modal de perfil (cajero en turno o sesión, según turno abierto). */
   const [fotoPerfilModal, setFotoPerfilModal] = useState<string | null>(null);
@@ -495,15 +504,18 @@ export default function CajaPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!user?.uid || !user?.puntoVenta?.trim()) {
+      restauradoDesdeLocalStorageRef.current = false;
       setTurnoHidratadoDesdeStorage(false);
       return;
     }
     if (esContadorInvitado(user.role)) {
+      restauradoDesdeLocalStorageRef.current = false;
       setTurnoHidratadoDesdeStorage(true);
       return;
     }
     const snap = leerTurnoPersistido(user.uid, user.puntoVenta);
     if (snap) {
+      restauradoDesdeLocalStorageRef.current = true;
       const inicio = new Date(snap.turnoInicioIso);
       setTurnoAbierto(true);
       setTurnoInicio(Number.isNaN(inicio.getTime()) ? new Date() : inicio);
@@ -518,6 +530,7 @@ export default function CajaPage() {
       setValorProductosEliminados(snap.valorProductosEliminados);
       setTurnoSesionId(snap.turnoSesionId.trim() ? snap.turnoSesionId.trim() : nuevoTurnoSesionId());
     } else {
+      restauradoDesdeLocalStorageRef.current = false;
       setTurnoAbierto(false);
       setCajeroTurnoActivo(null);
       setTotalVentasEnTurno(0);
@@ -577,40 +590,61 @@ export default function CajaPage() {
     setTurnoSesionId(nuevoTurnoSesionId());
   }, [turnoHidratadoDesdeStorage, turnoAbierto, cajeroTurnoActivo, turnoSesionId]);
 
+  /** Turno recuperado de localStorage: una vez alinear abrir + total en el WMS. */
   useEffect(() => {
-    if (!turnoAbierto) wmsTurnoHydrateSyncRef.current = false;
-  }, [turnoAbierto]);
+    if (!turnoHidratadoDesdeStorage) return;
+    if (!restauradoDesdeLocalStorageRef.current) return;
+    if (wmsAlineadoTrasRestauracionRef.current) return;
+    if (!turnoAbierto || !user?.puntoVenta?.trim() || esContadorInvitado(user.role)) return;
 
-  /** Turno restaurado desde localStorage: alinear turno abierto en el WMS (idempotente). */
-  useEffect(() => {
-    if (!turnoHidratadoDesdeStorage || !turnoAbierto) return;
-    if (!user?.puntoVenta?.trim() || esContadorInvitado(user.role)) return;
-    if (wmsTurnoHydrateSyncRef.current) return;
-    wmsTurnoHydrateSyncRef.current = true;
-    const pv = user.puntoVenta.trim();
+    let cancelled = false;
+    let settled = false;
     void (async () => {
       try {
         const token = await auth?.currentUser?.getIdToken();
-        if (!token) return;
-        const r = await wmsTurnosAbrir(token, { uen: pv });
-        if (!r.ok) console.warn("[WMS turnos] abrir al hidratar turno:", r.message);
-        else await wmsTurnosSincronizarSilent(token, totalVentasEnTurnoRef.current);
+        if (cancelled) return;
+        if (!token) {
+          settled = true;
+          wmsAlineadoTrasRestauracionRef.current = true;
+          return;
+        }
+        const r = await wmsTurnosAbrir(token, { uen: "Maria Chorizos" });
+        if (cancelled) return;
+        if (!r.ok) {
+          console.warn("[POS] Turno restaurado desde este equipo: WMS abrir no disponible —", r.error);
+          settled = true;
+          wmsAlineadoTrasRestauracionRef.current = true;
+          return;
+        }
+        await wmsTurnosSincronizarSilent(token, totalVentasEnTurnoRef.current);
+        if (cancelled) return;
+        settled = true;
+        wmsAlineadoTrasRestauracionRef.current = true;
       } catch (e) {
-        console.warn("[WMS turnos] abrir al hidratar:", e);
+        if (!cancelled) {
+          console.warn("[POS] Turno restaurado: error al alinear con WMS", e);
+          settled = true;
+          wmsAlineadoTrasRestauracionRef.current = true;
+        }
       }
     })();
+
+    return () => {
+      cancelled = true;
+      if (!settled) wmsAlineadoTrasRestauracionRef.current = false;
+    };
   }, [turnoHidratadoDesdeStorage, turnoAbierto, user?.puntoVenta, user?.role]);
 
+  /** Heartbeat de total de ventas del turno hacia el WMS (monitor en vivo). */
   useEffect(() => {
     if (!turnoAbierto || !user?.puntoVenta?.trim() || esContadorInvitado(user.role)) return;
     const id = window.setInterval(() => {
       void (async () => {
-        const token = await auth?.currentUser?.getIdToken();
-        if (!token) return;
-        await wmsTurnosSincronizarSilent(token, totalVentasEnTurnoRef.current);
+        const t = await auth?.currentUser?.getIdToken();
+        if (t) await wmsTurnosSincronizarSilent(t, totalVentasEnTurnoRef.current);
       })();
     }, WMS_TURNO_SYNC_INTERVAL_MS);
-    return () => clearInterval(id);
+    return () => window.clearInterval(id);
   }, [turnoAbierto, user?.puntoVenta, user?.role]);
 
   const cargarCatalogo = () => {
@@ -782,19 +816,19 @@ export default function CajaPage() {
         return;
       }
       const cerrarWms = await wmsTurnosCerrar(tokenCierre, {
-        uen: pv,
+        uen: "Maria Chorizos",
         plataformaMovil: "POS GEB",
       });
       if (!cerrarWms.ok) {
         window.alert(
-          cerrarWms.message ??
-            "No se pudo cerrar el turno en el administrativo (ingreso diario). El turno sigue abierto en el servidor hasta que esto responda bien.\n\nReintentá cuando se estabilice la conexión o la hoja."
+          cerrarWms.error ||
+            "No se pudo cerrar el turno en el administrativo (ingreso diario). El turno sigue abierto en el servidor hasta que esto responda bien."
         );
         return;
       }
 
-    const { efectivoEnCaja: efectivoReal, tarjeta, pagosLinea, otros: otrosMedios, totalIngresado } =
-      valoresCierreCajaSegunVentas;
+      const { efectivoEnCaja: efectivoReal, tarjeta, pagosLinea, otros: otrosMedios, totalIngresado } =
+        valoresCierreCajaSegunVentas;
     const totalEsperado = baseInicialCaja + totalVentasEnTurno;
     const diferencia = totalIngresado - totalEsperado;
 
@@ -860,13 +894,13 @@ export default function CajaPage() {
     triggerDescargaTexto(nombreArchivoInformeTurno(registro), txt);
 
     try {
-      const token = await auth?.currentUser?.getIdToken();
-      if (token) {
+      const tokenMail = await auth?.currentUser?.getIdToken();
+      if (tokenMail) {
         const r = await fetch("/api/pos_turno_informe_correo", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
+            Authorization: `Bearer ${tokenMail}`,
           },
           body: JSON.stringify({
             subject: `Informe cierre turno ${pv} · ${fechaHoraColombia(fin)}`,
@@ -906,6 +940,7 @@ export default function CajaPage() {
     }
 
     limpiarTurnoPersistido(uid, pv);
+    wmsAlineadoTrasRestauracionRef.current = false;
     setTurnoAbierto(false);
     setCajeroTurnoActivo(null);
     setTotalVentasEnTurno(0);
@@ -935,6 +970,7 @@ export default function CajaPage() {
     productosEliminadosCount,
     valorProductosEliminados,
     cajeroTurnoActivo,
+    auth,
   ]);
 
   const abrirModalInformeCierreCorreo = useCallback(async () => {
@@ -1049,11 +1085,14 @@ export default function CajaPage() {
       },
     }));
     if (resultado.estado === "exito") {
-      const acum = totalVentasEnTurnoRef.current + valor;
-      setTotalVentasEnTurno((prev) => prev + valor);
+      setTotalVentasEnTurno((prev) => {
+        const next = prev + valor;
+        totalVentasEnTurnoRef.current = next;
+        return next;
+      });
       if (turnoAbierto) {
-        const t = await auth?.currentUser?.getIdToken();
-        if (t) void wmsTurnosSincronizarSilent(t, acum);
+        const tSync = await auth?.currentUser?.getIdToken();
+        if (tSync) void wmsTurnosSincronizarSilent(tSync, totalVentasEnTurnoRef.current);
       }
     }
   };
@@ -1579,10 +1618,13 @@ export default function CajaPage() {
           }
         }
 
-        const acumuladoTrasVenta = totalVentasEnTurnoRef.current + total;
-        setTotalVentasEnTurno((prev) => prev + total);
-        const tTurno = await auth?.currentUser?.getIdToken();
-        if (tTurno) void wmsTurnosSincronizarSilent(tTurno, acumuladoTrasVenta);
+        setTotalVentasEnTurno((prev) => {
+          const next = prev + total;
+          totalVentasEnTurnoRef.current = next;
+          return next;
+        });
+        const tokenTurnoSync = await auth?.currentUser?.getIdToken();
+        if (tokenTurnoSync) void wmsTurnosSincronizarSilent(tokenTurnoSync, totalVentasEnTurnoRef.current);
 
         const notaPieTicket =
           ventaSoloEnPos && notaPie
@@ -1803,14 +1845,6 @@ export default function CajaPage() {
 
   const confirmarAbrirTurno = useCallback(async () => {
     setErrorModalAbrirTurno(null);
-    if (cajeroIdSeleccionAbrirTurno !== CAJERO_TURNO_ID_SESION) {
-      const row = cajerosModalTurno.find((c) => c.id === cajeroIdSeleccionAbrirTurno);
-      if (!row) {
-        setErrorModalAbrirTurno("Selecciona quién inicia el turno en caja.");
-        return;
-      }
-    }
-
     const pv = user?.puntoVenta?.trim();
     if (!pv) {
       setErrorModalAbrirTurno(
@@ -1818,67 +1852,71 @@ export default function CajaPage() {
       );
       return;
     }
-    const token = await auth?.currentUser?.getIdToken();
-    if (!token) {
-      setErrorModalAbrirTurno("Sesión inválida. Volvé a iniciar sesión.");
-      return;
-    }
 
-    setAbriendoTurnoWms(true);
-    try {
-      const r = await wmsTurnosAbrir(token, { uen: pv });
-      if (!r.ok) {
-        setErrorModalAbrirTurno(
-          r.message ??
-            "No se pudo abrir el turno en el administrativo. Revisá conexión y que tu usuario tenga punto de venta."
-        );
-        return;
-      }
-      wmsTurnoHydrateSyncRef.current = true;
-    } finally {
-      setAbriendoTurnoWms(false);
-    }
-
+    type CajeroTurnoState = NonNullable<typeof cajeroTurnoActivo>;
+    let cajeroNext: CajeroTurnoState;
     if (cajeroIdSeleccionAbrirTurno === CAJERO_TURNO_ID_SESION) {
-      setCajeroTurnoActivo({
+      cajeroNext = {
         id: CAJERO_TURNO_ID_SESION,
         nombreDisplay: user?.email?.trim()
           ? `Franquiciado · ${user.email.trim()}`
           : "Franquiciado (cuenta del punto)",
         documento: "",
-      });
+      };
     } else {
       const row = cajerosModalTurno.find((c) => c.id === cajeroIdSeleccionAbrirTurno);
       if (!row) {
         setErrorModalAbrirTurno("Selecciona quién inicia el turno en caja.");
         return;
       }
-      setCajeroTurnoActivo({
+      cajeroNext = {
         id: row.id,
         nombreDisplay: nombreDisplayCajeroTurno(row.ficha),
         documento: row.ficha.numeroDocumento?.trim() ?? "",
-      });
+      };
     }
 
-    const valor = parseFloat(String(baseInicialCajaInput).replace(/,/g, "."));
-    const base = Number.isFinite(valor) && valor >= 0 ? valor : 0;
-    setBaseInicialCaja(base);
-    setTurnoAbierto(true);
-    setTurnoInicio(new Date());
-    setTotalVentasEnTurno(0);
-    setPrecuentasEliminadasCount(0);
-    setProductosEliminadosCount(0);
-    setValorProductosEliminados(0);
-    setTurnoSesionId(nuevoTurnoSesionId());
-    setShowModalAbrirTurno(false);
-    setBaseInicialCajaInput("");
-    void wmsTurnosSincronizarSilent(token, 0);
+    setAbriendoTurnoWms(true);
+    try {
+      const token = await auth?.currentUser?.getIdToken();
+      if (!token) {
+        setErrorModalAbrirTurno("Sesión inválida. Volvé a iniciar sesión.");
+        return;
+      }
+      const rWms = await wmsTurnosAbrir(token, { uen: "Maria Chorizos" });
+      if (!rWms.ok) {
+        setErrorModalAbrirTurno(
+          rWms.error ||
+            "No se pudo abrir el turno en el administrativo. Revisá conexión y que tu usuario tenga punto de venta."
+        );
+        return;
+      }
+
+      const valor = parseFloat(String(baseInicialCajaInput).replace(/,/g, "."));
+      const base = Number.isFinite(valor) && valor >= 0 ? valor : 0;
+      setCajeroTurnoActivo(cajeroNext);
+      setBaseInicialCaja(base);
+      setTurnoAbierto(true);
+      setTurnoInicio(new Date());
+      setTotalVentasEnTurno(0);
+      totalVentasEnTurnoRef.current = 0;
+      setPrecuentasEliminadasCount(0);
+      setProductosEliminadosCount(0);
+      setValorProductosEliminados(0);
+      setTurnoSesionId(nuevoTurnoSesionId());
+      setShowModalAbrirTurno(false);
+      setBaseInicialCajaInput("");
+      await wmsTurnosSincronizarSilent(token, 0);
+    } finally {
+      setAbriendoTurnoWms(false);
+    }
   }, [
     user?.puntoVenta,
     user?.email,
     cajeroIdSeleccionAbrirTurno,
     cajerosModalTurno,
     baseInicialCajaInput,
+    auth,
   ]);
 
   const handleCerrarSesion = async () => {
@@ -2687,7 +2725,7 @@ export default function CajaPage() {
                 type="button"
                 disabled={abriendoTurnoWms || cargandoCajerosTurnoModal}
                 onClick={() => void confirmarAbrirTurno()}
-                className="flex-1 rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                className="flex-1 rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {abriendoTurnoWms ? "Abriendo en servidor…" : "Abrir turno"}
               </button>
@@ -3466,11 +3504,14 @@ export default function CajaPage() {
               turnoInicio={turnoAbierto ? turnoInicio : null}
               onAnulacionExitosa={(v) => {
                 if (turnoAbierto && v.turnoSesionId?.trim() === turnoSesionId.trim()) {
-                  const nextTot = Math.max(0, totalVentasEnTurnoRef.current - v.total);
-                  setTotalVentasEnTurno(nextTot);
+                  setTotalVentasEnTurno((prev) => {
+                    const next = Math.max(0, prev - v.total);
+                    totalVentasEnTurnoRef.current = next;
+                    return next;
+                  });
                   void (async () => {
                     const t = await auth?.currentUser?.getIdToken();
-                    if (t) await wmsTurnosSincronizarSilent(t, nextTot);
+                    if (t) await wmsTurnosSincronizarSilent(t, totalVentasEnTurnoRef.current);
                   })();
                 }
               }}
