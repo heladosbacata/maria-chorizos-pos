@@ -20,6 +20,7 @@ import CobroImpresionCelebracionOverlay from "@/components/CobroImpresionCelebra
 import TicketPrevisualizacionModal from "@/components/TicketPrevisualizacionModal";
 import ModalCobroSinInternet from "@/components/ModalCobroSinInternet";
 import ModalInformeCierreCorreo from "@/components/ModalInformeCierreCorreo";
+import PosCajaMensajesBell from "@/components/PosCajaMensajesBell";
 import RegistrarPagoPanel, { type DetallePagoConfirmado } from "@/components/RegistrarPagoPanel";
 import TurnosHistorialModule from "@/components/TurnosHistorialModule";
 import UltimosRecibosModule from "@/components/UltimosRecibosModule";
@@ -920,7 +921,13 @@ export default function CajaPage() {
         const data = (await r.json().catch(() => ({}))) as { ok?: boolean; message?: string };
         if (!r.ok || !data.ok) {
           const msg = data.message ?? "";
-          if (r.status !== 503 && !/no configurado|Firebase Admin no está/i.test(msg)) {
+          const faltaConfigServidor =
+            r.status === 503 && /no configurado|Firebase Admin no está/i.test(msg);
+          if (faltaConfigServidor) {
+            window.alert(
+              "El informe ya se descargó en tu equipo. No se envió por correo: en el servidor falta configuración (correo SMTP/Zoho/Resend y/o Firebase Admin). Quien administre Vercel debe revisar las variables de entorno del POS."
+            );
+          } else {
             window.alert(msg || "No se pudo enviar el correo con el informe.");
           }
         }
@@ -929,6 +936,11 @@ export default function CajaPage() {
       }
     } catch (e) {
       console.warn("Informe turno: correo no enviado (red o servidor).", e);
+      if (correoInforme?.para?.trim()) {
+        window.alert(
+          "El informe se descargó, pero no se pudo enviar el correo (red o error del servidor). Revisa conexión o inténtalo más tarde."
+        );
+      }
     }
 
     if (correoInforme?.para?.trim()) {
@@ -2019,6 +2031,11 @@ export default function CajaPage() {
 
   const esContador = esContadorInvitado(user.role);
 
+  const getIdTokenCajaMensajes = useCallback(async () => {
+    if (!auth?.currentUser) return null;
+    return auth.currentUser.getIdToken();
+  }, [auth]);
+
   const fechaHoy = ymdColombia();
   const fechaFormateada = fechaColombia(new Date(), {
     weekday: "long",
@@ -2067,14 +2084,21 @@ export default function CajaPage() {
             />
             <span className="text-xs font-medium text-primary-600">POS</span>
           </div>
-          <button
-            type="button"
-            data-pos-tutorial="ayuda-icon"
-            onClick={() => setPosGebAyudaAbierta(true)}
-            className="group relative flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl border border-amber-200/80 bg-gradient-to-br from-amber-50 via-white to-amber-100/90 shadow-[0_6px_20px_-6px_rgba(180,130,40,0.45)] transition-transform hover:scale-[1.03] active:scale-[0.97]"
-            title="Ayuda GEB — buscá cómo hacer cualquier cosa"
-            aria-label="Abrir ayuda GEB"
-          >
+          <div className="flex flex-col items-end gap-1.5 shrink-0" data-pos-tutorial="nav-admin-msgs">
+            {!esContador && (
+              <PosCajaMensajesBell
+                getIdToken={getIdTokenCajaMensajes}
+                puntoVentaLabel={user.puntoVenta?.trim() || undefined}
+              />
+            )}
+            <button
+              type="button"
+              data-pos-tutorial="ayuda-icon"
+              onClick={() => setPosGebAyudaAbierta(true)}
+              className="group relative flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-2xl border border-amber-200/80 bg-gradient-to-br from-amber-50 via-white to-amber-100/90 shadow-[0_6px_20px_-6px_rgba(180,130,40,0.45)] transition-transform hover:scale-[1.03] active:scale-[0.97]"
+              title="Ayuda GEB — buscá cómo hacer cualquier cosa"
+              aria-label="Abrir ayuda GEB"
+            >
             <span className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-br from-brand-yellow/25 to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
             <svg
               className="relative h-6 w-6 text-amber-900 drop-shadow-sm"
@@ -2098,6 +2122,7 @@ export default function CajaPage() {
               />
             </svg>
           </button>
+          </div>
         </div>
         <nav className="min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2">
           {!esContador && (
