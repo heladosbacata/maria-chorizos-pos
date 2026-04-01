@@ -4,47 +4,64 @@ import { useId, useMemo } from "react";
 import { useMetasRetosCaja } from "@/components/MetasRetosCajaProvider";
 import { avanceUnidadesReto } from "@/lib/metas-retos-avance-ventas";
 
-/** Silueta de mesero con bandeja — estilo hotelería fina, mismo lenguaje dorado del banner. */
-function IconMeseroElegante({ className }: { className?: string }) {
-  const uid = useId().replace(/:/g, "");
-  const gid = `mc-mesero-gold-${uid}`;
-  return (
-    <svg className={className} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden>
-      <defs>
-        <linearGradient id={gid} x1="3" y1="2" x2="21" y2="22" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#FFF8DC" />
-          <stop offset="0.28" stopColor="#FFE566" />
-          <stop offset="0.58" stopColor="#FFC81C" />
-          <stop offset="1" stopColor="#8B6230" />
-        </linearGradient>
-      </defs>
-      <g fill={`url(#${gid})`}>
-        {/* Chaqueta (atrás) */}
-        <path d="M12 8.95c-1.58 0-2.88.5-3.35 1.42l-.75 7.05c-.1.85.4 1.48 1.28 1.55h5.64c.88-.07 1.38-.7 1.28-1.55l-.75-7.05c-.47-.92-1.77-1.42-3.35-1.42z" />
-        {/* Brazo alzado */}
-        <path
-          d="M13.15 10.35c.55-.08 1.08.12 1.48.52l1.05 1.02a.72.72 0 001.02-.06l.14-.14a.72.72 0 00-.08-1.02l-1.12-.95a2.35 2.35 0 00-1.55-.42c-.38.06-.72.22-.98.48-.22.22-.36.5-.4.8z"
-          opacity="0.92"
-        />
-        {/* Bandeja */}
-        <ellipse cx="17.45" cy="8.28" rx="3.95" ry="1.12" />
-        <ellipse cx="17.45" cy="7.95" rx="3.35" ry="0.62" fill="rgba(255,255,255,0.28)" />
-        {/* Cabeza */}
-        <circle cx="12" cy="6.15" r="2.22" />
-        {/* Solapas / moño sugerido */}
-        <path
-          d="M12 8.55l-.95.48-.22-.42.95-.48.95.48-.22.42-.95-.48z"
-          fill="rgba(0,0,0,0.14)"
-        />
-      </g>
-    </svg>
-  );
-}
+/** Estrella de cinco puntas centrada en viewBox 24×24 (forma reconocible al instante). */
+const STAR_PATH_24 =
+  "M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z";
 
-function IconStar({ className }: { className?: string }) {
+/**
+ * Estrella que se va llenando de abajo hacia arriba según el porcentaje (0–100).
+ */
+function IconEstrellaProgreso({
+  porcentaje,
+  className,
+}: {
+  porcentaje: number;
+  className?: string;
+}) {
+  const uid = useId().replace(/:/g, "");
+  const gid = `mc-estrella-gold-${uid}`;
+  const clipId = `mc-estrella-clip-${uid}`;
+  const p = Math.max(0, Math.min(100, porcentaje));
+  const fillH = (24 * p) / 100;
+  const fillY = 24 - fillH;
+
   return (
-    <svg className={className} viewBox="0 0 20 20" fill="currentColor" xmlns="http://www.w3.org/2000/svg" aria-hidden>
-      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+    <svg
+      className={className}
+      viewBox="0 0 24 24"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden
+      focusable="false"
+    >
+      <defs>
+        <linearGradient id={gid} x1="4" y1="3" x2="20" y2="21" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#FFF8DC" />
+          <stop offset="0.35" stopColor="#FFE566" />
+          <stop offset="0.65" stopColor="#FFC81C" />
+          <stop offset="1" stopColor="#9A703A" />
+        </linearGradient>
+        <clipPath id={clipId}>
+          <rect
+            x="0"
+            y={fillY}
+            width="24"
+            height={fillH}
+            style={{
+              transition: "y 0.75s ease-out, height 0.75s ease-out",
+            }}
+          />
+        </clipPath>
+      </defs>
+      {/* Contorno vacío (lo que falta por lograr) */}
+      <path
+        d={STAR_PATH_24}
+        fill="rgba(255,236,200,0.08)"
+        stroke="rgba(255,224,160,0.45)"
+        strokeWidth="0.9"
+        strokeLinejoin="round"
+      />
+      {/* Relleno dorado recortado por el avance */}
+      <path d={STAR_PATH_24} fill={`url(#${gid})`} clipPath={`url(#${clipId})`} />
     </svg>
   );
 }
@@ -120,6 +137,8 @@ export default function PosCajaMetasMotivationPanel() {
   const tieneError = Boolean(error);
   const msg = mensajeMotivacional(stats.promedioPct, stats.completados, stats.total, cargando && !tieneError, tieneError);
   const barPct = tieneError ? 0 : stats.promedioPct;
+  const pctEstrella =
+    tieneError || (cargando && retos.length === 0) ? 0 : stats.total === 0 ? 0 : stats.promedioPct;
 
   return (
     <div
@@ -138,8 +157,10 @@ export default function PosCajaMetasMotivationPanel() {
 
       <div className="relative flex items-start gap-2.5">
         <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[#FFE08A]/35 bg-gradient-to-br from-[#FFC81C]/25 to-[#5c4a2a]/40 shadow-inner">
-          <IconMeseroElegante className="h-6 w-6 drop-shadow-[0_2px_6px_rgba(0,0,0,0.45)]" />
-          <IconStar className="absolute -right-0.5 -top-0.5 h-3.5 w-3.5 text-[#FFF8DC] drop-shadow-sm motion-safe:animate-pulse" />
+          <IconEstrellaProgreso
+            porcentaje={pctEstrella}
+            className="h-7 w-7 drop-shadow-[0_2px_6px_rgba(0,0,0,0.45)]"
+          />
         </div>
         <div className="min-w-0 flex-1 pt-0.5">
           <div className="flex items-center gap-1.5">
