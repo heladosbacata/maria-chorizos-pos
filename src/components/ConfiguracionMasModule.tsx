@@ -241,7 +241,12 @@ export default function ConfiguracionMasModule({ puntoVenta, uid }: Configuracio
   /** Ids completados (desmarcados del fondo rojo = pendiente resuelto) */
   const [completados, setCompletados] = useState<Set<string>>(
     () =>
-      new Set<string>([PERFIL_ORGANIZACION_ITEM_ID, CONTRATO_POS_GEB_ITEM_ID, CONT_PYG_ITEM_ID])
+      new Set<string>([
+        PERFIL_ORGANIZACION_ITEM_ID,
+        CONTRATO_POS_GEB_ITEM_ID,
+        CONFIG_IMPRESION_POS_GEB_ITEM_ID,
+        CONT_PYG_ITEM_ID,
+      ])
   );
 
   const categoria = useMemo(

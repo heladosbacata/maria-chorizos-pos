@@ -56,11 +56,17 @@ import {
 import { fetchCatalogoInsumosDesdeSheet } from "@/lib/catalogo-insumos-sheet-client";
 import { getCatalogoPOS } from "@/lib/catalogo-pos";
 import {
+  insumoBolsaPapelParaLlevarResolver,
   insumoKitDesdeCatalogoPorSku,
+  insumoStickerDomicilioParaLlevarResolver,
   listarInsumosKitPorPuntoVenta,
   registrarMovimientoInventario,
 } from "@/lib/inventario-pos-firestore";
-import { skuStickerFidelizacion, skusConsumoParaLlevar } from "@/lib/pos-para-llevar-config";
+import {
+  skuBolsaPapelParaLlevarEnv,
+  skuStickerDomicilioParaLlevarEnv,
+  skuStickerFidelizacion,
+} from "@/lib/pos-para-llevar-config";
 import {
   lineInputDesdeItemCuentaLike,
   montoDescuentoLinea,
@@ -1275,14 +1281,6 @@ export default function CajaPage() {
       window.alert("Abre el turno para registrar el consumo de empaques.");
       return;
     }
-    const skus = skusConsumoParaLlevar();
-    if (!skus) {
-      window.alert(
-        "Falta configurar NEXT_PUBLIC_POS_SKU_BOLSA_PAPEL y NEXT_PUBLIC_POS_SKU_STICKER_DOMICILIO " +
-          "(códigos SKU en la hoja de inventario). Pídeselo a quien administra el despliegue del POS."
-      );
-      return;
-    }
     setAplicandoParaLlevar(true);
     try {
       const sheetRes = await fetchCatalogoInsumosDesdeSheet(pv);
@@ -1290,53 +1288,72 @@ export default function CajaPage() {
         sheetRes.ok && sheetRes.data.length > 0
           ? sheetRes.data
           : await listarInsumosKitPorPuntoVenta(pv);
-      const bolsa = insumoKitDesdeCatalogoPorSku(catalog, skus.bolsaPapel);
-      const sticker = insumoKitDesdeCatalogoPorSku(catalog, skus.stickerDomicilio);
-      if (!bolsa) {
+      const bolsa = insumoBolsaPapelParaLlevarResolver(catalog, skuBolsaPapelParaLlevarEnv());
+      const sticker = insumoStickerDomicilioParaLlevarResolver(catalog, skuStickerDomicilioParaLlevarEnv());
+      if (!bolsa && !sticker) {
         window.alert(
-          `No está en el catálogo de este punto de venta el SKU «${skus.bolsaPapel}» (bolsa de papel). Revisa la hoja o Firestore.`
+          "No se encontró en el catálogo de este punto ni la bolsa de papel ni el sticker de domicilio. " +
+            "Revisá que existan en la hoja de insumos o Firestore (p. ej. descripción con «bolsa» y «papel», y «sticker» y «domicilio»). " +
+            "Opcional: definí NEXT_PUBLIC_POS_SKU_BOLSA_PAPEL y NEXT_PUBLIC_POS_SKU_STICKER_DOMICILIO en el despliegue con el SKU exacto."
         );
         return;
       }
-      if (!sticker) {
+      if (bolsa && sticker && bolsa.id === sticker.id) {
         window.alert(
-          `No está en el catálogo el SKU «${skus.stickerDomicilio}» (sticker de domicilio). Revisa la hoja o Firestore.`
+          "El catálogo resolvió el mismo ítem para bolsa y sticker. Revisá los SKU en variables de entorno o los nombres en la hoja de insumos."
         );
         return;
       }
       const nombrePrecuenta = precuentas.find((p) => p.id === activePrecuentaId)?.nombre ?? "Cuenta";
       const notasBase = `Para llevar · ${nombrePrecuenta}`.slice(0, 420);
-      const r1 = await registrarMovimientoInventario({
-        puntoVenta: pv,
-        insumo: bolsa,
-        tipo: "consumo_interno",
-        cantidad: 1,
-        notas: `${notasBase} · bolsa papel`.slice(0, 500),
-        uid: user.uid,
-        email: user.email ?? null,
-        permitirNegativo: false,
-      });
-      if (!r1.ok) {
-        window.alert(r1.message ?? "No se pudo descontar la bolsa de papel.");
-        return;
+      const partesOk: string[] = [];
+      if (bolsa) {
+        const r1 = await registrarMovimientoInventario({
+          puntoVenta: pv,
+          insumo: bolsa,
+          tipo: "consumo_interno",
+          cantidad: 1,
+          notas: `${notasBase} · bolsa papel`.slice(0, 500),
+          uid: user.uid,
+          email: user.email ?? null,
+          permitirNegativo: false,
+        });
+        if (!r1.ok) {
+          window.alert(r1.message ?? "No se pudo descontar la bolsa de papel.");
+          return;
+        }
+        partesOk.push("−1 bolsa de papel");
       }
-      const r2 = await registrarMovimientoInventario({
-        puntoVenta: pv,
-        insumo: sticker,
-        tipo: "consumo_interno",
-        cantidad: 1,
-        notas: `${notasBase} · sticker domicilio`.slice(0, 500),
-        uid: user.uid,
-        email: user.email ?? null,
-        permitirNegativo: false,
-      });
-      if (!r2.ok) {
-        window.alert(
-          `${r2.message ?? "No se pudo descontar el sticker."} La bolsa de papel ya se descontó; revisa inventario si hace falta un ajuste.`
-        );
-        return;
+      if (sticker) {
+        const r2 = await registrarMovimientoInventario({
+          puntoVenta: pv,
+          insumo: sticker,
+          tipo: "consumo_interno",
+          cantidad: 1,
+          notas: `${notasBase} · sticker domicilio`.slice(0, 500),
+          uid: user.uid,
+          email: user.email ?? null,
+          permitirNegativo: false,
+        });
+        if (!r2.ok) {
+          window.alert(
+            `${r2.message ?? "No se pudo descontar el sticker."}${
+              partesOk.length ? ` Ya se aplicó: ${partesOk.join(" y ")}. Revisá inventario si hace falta un ajuste.` : ""
+            }`
+          );
+          return;
+        }
+        partesOk.push("−1 sticker de domicilio");
       }
-      window.alert("Se registró para llevar: −1 bolsa de papel y −1 sticker de domicilio en inventario.");
+      const faltantes: string[] = [];
+      if (!bolsa) faltantes.push("bolsa de papel (no hallada en catálogo)");
+      if (!sticker) faltantes.push("sticker de domicilio (no hallado en catálogo)");
+      const msgBase = `Para llevar registrado en inventario: ${partesOk.join(" y ")}.`;
+      window.alert(
+        faltantes.length
+          ? `${msgBase}\n\nNo se descontó: ${faltantes.join("; ")}. Podés definir los SKU en Vercel o ajustar nombres en la hoja.`
+          : msgBase
+      );
     } catch (e) {
       window.alert(e instanceof Error ? e.message : "No se pudo actualizar el inventario.");
     } finally {
@@ -3797,8 +3814,9 @@ export default function CajaPage() {
             </button>
             </div>
             <p className="text-[11px] leading-snug text-gray-500">
-              Descuenta en inventario 1 bolsa de papel y 1 sticker de domicilio. Si aparece un aviso de configuración,
-              los SKU deben definirse en el despliegue del POS para este local.
+              Descuenta en inventario 1 bolsa de papel y 1 sticker de domicilio. Si no hay variables{" "}
+              <code className="rounded bg-gray-100 px-0.5">NEXT_PUBLIC_POS_SKU_*</code>, el POS busca ítems en el catálogo
+              por nombre; para mayor precisión configurá los SKU en el despliegue.
             </p>
           </div>
 

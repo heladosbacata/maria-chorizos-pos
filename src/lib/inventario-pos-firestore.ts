@@ -316,6 +316,61 @@ export function insumoKitDesdeCatalogoPorSku(catalog: InsumoKitItem[], skuOCodig
   return null;
 }
 
+function textoBusquedaInsumoKit(it: InsumoKitItem): string {
+  return `${it.descripcion} ${it.sku} ${it.categoria ?? ""}`.toLowerCase();
+}
+
+/**
+ * Bolsa de papel para «para llevar»: primero `skuEnv` (NEXT_PUBLIC_POS_SKU_BOLSA_PAPEL), si no coincide o falta,
+ * heurística por descripción/SKU en el catálogo del punto.
+ */
+export function insumoBolsaPapelParaLlevarResolver(
+  catalog: InsumoKitItem[],
+  skuEnv: string | null | undefined
+): InsumoKitItem | null {
+  const e = skuEnv?.trim();
+  if (e) {
+    const hit = insumoKitDesdeCatalogoPorSku(catalog, e);
+    if (hit) return hit;
+  }
+  for (const it of catalog) {
+    const t = textoBusquedaInsumoKit(it);
+    if (/(bolsa).{0,24}(papel)|(papel).{0,24}(bolsa)/i.test(t)) return it;
+  }
+  for (const it of catalog) {
+    const t = textoBusquedaInsumoKit(it);
+    if (!/\bbolsa\b|\bbolsas\b/i.test(t)) continue;
+    if (/papel|domicilio|empaque|para\s*llevar|delivery/i.test(t)) return it;
+  }
+  return null;
+}
+
+/**
+ * Sticker de domicilio para «para llevar»: env (NEXT_PUBLIC_POS_SKU_STICKER_DOMICILIO) o heurística en catálogo.
+ */
+export function insumoStickerDomicilioParaLlevarResolver(
+  catalog: InsumoKitItem[],
+  skuEnv: string | null | undefined
+): InsumoKitItem | null {
+  const e = skuEnv?.trim();
+  if (e) {
+    const hit = insumoKitDesdeCatalogoPorSku(catalog, e);
+    if (hit) return hit;
+  }
+  for (const it of catalog) {
+    const t = textoBusquedaInsumoKit(it);
+    if (/(sticker|etiqueta).{0,28}(domicilio|llevar|delivery)|(domicilio|llevar|delivery).{0,28}(sticker|etiqueta)/i.test(t)) {
+      return it;
+    }
+  }
+  for (const it of catalog) {
+    const t = textoBusquedaInsumoKit(it);
+    if (!/sticker|etiqueta|tarjeta/i.test(t)) continue;
+    if (/domicilio|entrega|llevar|delivery|para\s*llevar/i.test(t)) return it;
+  }
+  return null;
+}
+
 /**
  * Saldo mostrado para un ítem del catálogo: prioriza coincidencia por **SKU kit** (mismo string que el WMS
  * en `insumoId` / DB_POS_Composición); luego por `insumoId` hoja (`sheet-…`); por último suma por `insumoSku`.
