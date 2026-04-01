@@ -21,6 +21,7 @@ import TicketPrevisualizacionModal from "@/components/TicketPrevisualizacionModa
 import ModalCobroSinInternet from "@/components/ModalCobroSinInternet";
 import ModalInformeCierreCorreo from "@/components/ModalInformeCierreCorreo";
 import PosCajaMensajesBell from "@/components/PosCajaMensajesBell";
+import PosBroadcastBell from "@/components/PosBroadcastBell";
 import RegistrarPagoPanel, { type DetallePagoConfirmado } from "@/components/RegistrarPagoPanel";
 import TurnosHistorialModule from "@/components/TurnosHistorialModule";
 import UltimosRecibosModule from "@/components/UltimosRecibosModule";
@@ -2086,10 +2087,13 @@ export default function CajaPage() {
           </div>
           <div className="flex flex-col items-end gap-1.5 shrink-0" data-pos-tutorial="nav-admin-msgs">
             {!esContador && (
-              <PosCajaMensajesBell
-                getIdToken={getIdTokenCajaMensajes}
-                puntoVentaLabel={user.puntoVenta?.trim() || undefined}
-              />
+              <div className="flex flex-row items-center gap-1.5">
+                <PosCajaMensajesBell
+                  getIdToken={getIdTokenCajaMensajes}
+                  puntoVentaLabel={user.puntoVenta?.trim() || undefined}
+                />
+                <PosBroadcastBell getIdToken={getIdTokenCajaMensajes} />
+              </div>
             )}
             <button
               type="button"
