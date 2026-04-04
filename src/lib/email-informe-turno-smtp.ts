@@ -1,5 +1,11 @@
 import nodemailer from "nodemailer";
 
+export type InformeAdjuntoCorreo = {
+  filename: string;
+  contentBase64: string;
+  contentType?: string;
+};
+
 export function smtpInformeTurnoConfigured(): boolean {
   const host = process.env.SMTP_HOST?.trim();
   const user = process.env.SMTP_USER?.trim();
@@ -18,6 +24,7 @@ export async function enviarInformeTurnoPorSmtp(opts: {
   cc: string[];
   subject: string;
   text: string;
+  attachments?: InformeAdjuntoCorreo[];
 }): Promise<{ ok: true } | { ok: false; message: string }> {
   const host = process.env.SMTP_HOST?.trim();
   const user = process.env.SMTP_USER?.trim();
@@ -53,6 +60,11 @@ export async function enviarInformeTurnoPorSmtp(opts: {
       ...(opts.cc.length > 0 ? { cc: opts.cc.join(", ") } : {}),
       subject: opts.subject,
       text: opts.text,
+      attachments: opts.attachments?.map((attachment) => ({
+        filename: attachment.filename,
+        content: Buffer.from(attachment.contentBase64, "base64"),
+        contentType: attachment.contentType,
+      })),
     });
     return { ok: true };
   } catch (e) {

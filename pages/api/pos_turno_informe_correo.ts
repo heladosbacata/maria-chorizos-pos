@@ -3,12 +3,19 @@ import { getAuth } from "firebase-admin/auth";
 import { getFirebaseAdminApp } from "@/lib/firebase-admin-server";
 import {
   enviarInformeTurnoPorSmtp,
+  type InformeAdjuntoCorreo,
   remitenteSmtpInformeTurno,
   smtpInformeTurnoConfigured,
 } from "@/lib/email-informe-turno-smtp";
 import { detectCierreEmailBackend, sendPosCierreInformeEmail } from "@/lib/posCierreInformeEmail";
 
-type Body = { subject?: string; text?: string; to?: string; cc?: string };
+type Body = {
+  subject?: string;
+  text?: string;
+  to?: string;
+  cc?: string;
+  attachments?: InformeAdjuntoCorreo[];
+};
 
 function emailValido(s: string): boolean {
   const t = s.trim();
@@ -99,6 +106,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ? body.subject.trim()
       : "Informe de cierre de turno — Maria Chorizos POS";
 
+  const attachments = Array.isArray(body?.attachments)
+    ? body.attachments.filter(
+        (attachment): attachment is InformeAdjuntoCorreo =>
+          Boolean(
+            attachment &&
+              typeof attachment.filename === "string" &&
+              attachment.filename.trim() &&
+              typeof attachment.contentBase64 === "string" &&
+              attachment.contentBase64.trim()
+          )
+      )
+    : [];
+
   const ccRaw = typeof body?.cc === "string" ? body.cc : "";
   const ccList = listaCcDesdeTexto(ccRaw);
   const ccPartes = ccRaw
@@ -117,6 +137,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       cc: ccList,
       subject,
       text,
+      attachments,
     });
     if (!smtp.ok) {
       return res.status(502).json({ ok: false, message: smtp.message });
@@ -128,6 +149,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     to: destinatario,
     subject,
     text,
+    attachments,
     ...(ccList.length > 0 ? { cc: ccList } : {}),
   });
 

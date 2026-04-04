@@ -3,12 +3,14 @@
  * Prioridad: Zoho SMTP (mismas variables que el WMS) → Resend API.
  */
 import nodemailer from "nodemailer";
+import type { InformeAdjuntoCorreo } from "@/lib/email-informe-turno-smtp";
 
 export type CierreInformeEmailPayload = {
   to: string;
   cc?: string[];
   subject: string;
   text: string;
+  attachments?: InformeAdjuntoCorreo[];
 };
 
 export type CierreInformeEmailResult =
@@ -50,7 +52,7 @@ export function detectCierreEmailBackend(): "zoho" | "resend" | null {
 export async function sendPosCierreInformeEmail(
   payload: CierreInformeEmailPayload
 ): Promise<CierreInformeEmailResult> {
-  const { to, cc, subject, text } = payload;
+  const { to, cc, subject, text, attachments } = payload;
   const backend = detectCierreEmailBackend();
 
   if (backend === "zoho") {
@@ -72,6 +74,11 @@ export async function sendPosCierreInformeEmail(
         subject: subject.trim(),
         text: text.trim(),
         cc: cc?.length ? cc : undefined,
+        attachments: attachments?.map((attachment) => ({
+          filename: attachment.filename,
+          content: Buffer.from(attachment.contentBase64, "base64"),
+          contentType: attachment.contentType,
+        })),
       });
       return { ok: true, via: "zoho" };
     } catch (e) {
@@ -92,6 +99,13 @@ export async function sendPosCierreInformeEmail(
       text: text.trim(),
     };
     if (cc?.length) body.cc = cc;
+    if (attachments?.length) {
+      body.attachments = attachments.map((attachment) => ({
+        filename: attachment.filename,
+        content: attachment.contentBase64,
+        content_type: attachment.contentType,
+      }));
+    }
     try {
       const r = await fetch("https://api.resend.com/emails", {
         method: "POST",

@@ -102,6 +102,11 @@ import {
 import { appendTurnoCerrado, type TurnoCerradoV1 } from "@/lib/turno-historial-local";
 import { nombreArchivoInformeTurno, textoInformeTurno, triggerDescargaTexto } from "@/lib/turno-informe-texto";
 import {
+  crearPdfDetalleTurno,
+  nombreArchivoDetalleTurnoPdf,
+} from "@/lib/turno-informe-pdf";
+import { textoResumenCorreoCierreTurno } from "@/lib/turno-informe-correo-resumen";
+import {
   construirPayloadFidelizacionV1,
   generarDataUrlQrFidelizacion,
 } from "@/lib/fidelizacion-qr";
@@ -138,6 +143,7 @@ import {
 } from "@/constants/perfil-pos";
 import { fechaColombia, fechaHoraColombia, ymdColombia } from "@/lib/fecha-colombia";
 import { formatPesosCop, parsePesosCopInput } from "@/lib/pesos-cop-input";
+import { calcularResumenCierreTurno } from "@/lib/turno-cierre-resumen";
 import {
   combinarCcInformeCierreTurno,
   mensajeExitoMotivacionalInformeCierreTurno,
@@ -803,13 +809,25 @@ export default function CajaPage() {
   /** Efectivo en caja = base inicial + ventas en efectivo; el resto son ventas por medio. No editable. */
   const valoresCierreCajaSegunVentas = useMemo(() => {
     const m = cierreCamposDesdeVentas;
-    const efectivoEnCaja = Math.round((baseInicialCaja + m.efectivo) * 100) / 100;
-    const tarjeta = Math.round(m.tarjeta * 100) / 100;
-    const pagosLinea = Math.round(m.pagosLinea * 100) / 100;
-    const otros = Math.round(m.otros * 100) / 100;
-    const totalIngresado = Math.round((efectivoEnCaja + tarjeta + pagosLinea + otros) * 100) / 100;
-    return { efectivoEnCaja, tarjeta, pagosLinea, otros, totalIngresado };
-  }, [cierreCamposDesdeVentas, baseInicialCaja]);
+    const totalVentasLocales = Math.round(
+      ventasTurnoActivales.reduce((s, v) => s + v.total, 0) * 100
+    ) / 100;
+    return calcularResumenCierreTurno({
+      baseInicialCaja,
+      totalVentasLocales,
+      totalVentasSistema: totalVentasEnTurno,
+      mediosVentas: m,
+      totalIngresoEfectivo,
+      totalRetiroEfectivo,
+    });
+  }, [
+    cierreCamposDesdeVentas,
+    baseInicialCaja,
+    ventasTurnoActivales,
+    totalVentasEnTurno,
+    totalIngresoEfectivo,
+    totalRetiroEfectivo,
+  ]);
 
   const ejecutarCierreTurnoDefinitivo = useCallback(
     async (correoInforme?: { para: string; cc?: string }) => {
@@ -838,10 +856,15 @@ export default function CajaPage() {
         return;
       }
 
-      const { efectivoEnCaja: efectivoReal, tarjeta, pagosLinea, otros: otrosMedios, totalIngresado } =
-        valoresCierreCajaSegunVentas;
-    const totalEsperado = baseInicialCaja + totalVentasEnTurno;
-    const diferencia = totalIngresado - totalEsperado;
+      const {
+        efectivoEsperadoCaja: efectivoReal,
+        tarjeta,
+        pagosLinea,
+        otros: otrosMedios,
+        totalCierreLocal,
+      } = valoresCierreCajaSegunVentas;
+    const totalEsperado = valoresCierreCajaSegunVentas.totalCierreSistema;
+    const diferencia = totalCierreLocal - totalEsperado;
 
     const fin = new Date();
     const ventasPv = listarVentasPuntoVenta(uid, pv);
@@ -887,7 +910,7 @@ export default function CajaPage() {
         tarjeta,
         pagosLinea,
         otrosMedios,
-        totalIngresado,
+        totalIngresado: totalCierreLocal,
         totalEsperado,
         diferencia,
       },
@@ -903,6 +926,9 @@ export default function CajaPage() {
     appendTurnoCerrado(uid, pv, registro);
     const txt = textoInformeTurno(registro);
     triggerDescargaTexto(nombreArchivoInformeTurno(registro), txt);
+    const pdfDoc = crearPdfDetalleTurno(registro);
+    const pdfBase64 = pdfDoc.output("datauristring").split(",", 2)[1] || "";
+    const textoCorreo = textoResumenCorreoCierreTurno(registro);
 
     try {
       const tokenMail = await auth?.currentUser?.getIdToken();
@@ -915,7 +941,16 @@ export default function CajaPage() {
           },
           body: JSON.stringify({
             subject: `Informe cierre turno ${pv} · ${fechaHoraColombia(fin)}`,
-            text: txt,
+            text: textoCorreo,
+            attachments: pdfBase64
+              ? [
+                  {
+                    filename: nombreArchivoDetalleTurnoPdf(registro),
+                    contentBase64: pdfBase64,
+                    contentType: "application/pdf",
+                  },
+                ]
+              : [],
             ...(correoInforme?.para?.trim()
               ? { to: correoInforme.para.trim(), ...(correoInforme.cc?.trim() ? { cc: correoInforme.cc.trim() } : {}) }
               : {}),
@@ -3014,62 +3049,14 @@ export default function CajaPage() {
                 <p className="mt-1 text-gray-600">Total retiro de efectivo: $ {totalRetiroEfectivo.toLocaleString("es-CO", { minimumFractionDigits: 2 })}</p>
               </div>
 
-              {/* Totales del cierre desde tickets (solo lectura) */}
-              <p className="mb-1 text-sm font-medium text-gray-900">
-                Totales según ventas registradas en el turno
-              </p>
-              <p className="mb-3 text-xs text-gray-500">
-                Calculados automáticamente desde los tickets de esta caja; el cajero no puede modificarlos.
-              </p>
-              <div className="space-y-3">
-                <div>
-                  <label className="mb-1 block text-xs text-gray-600">
-                    Efectivo en caja (base inicial + ventas en efectivo)
-                  </label>
-                  <div className="flex rounded-lg border border-gray-200 bg-gray-50">
-                    <span className="flex items-center px-3 text-gray-500">$</span>
-                    <span className="w-full py-2 pr-3 text-gray-900 tabular-nums">
-                      {formatPesosCop(valoresCierreCajaSegunVentas.efectivoEnCaja)}
-                    </span>
-                  </div>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs text-gray-600">Ventas con tarjeta / datáfono</label>
-                  <div className="flex rounded-lg border border-gray-200 bg-gray-50">
-                    <span className="flex items-center px-3 text-gray-500">$</span>
-                    <span className="w-full py-2 pr-3 text-gray-900 tabular-nums">
-                      {formatPesosCop(valoresCierreCajaSegunVentas.tarjeta)}
-                    </span>
-                  </div>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs text-gray-600">Ventas con pagos en línea</label>
-                  <div className="flex rounded-lg border border-gray-200 bg-gray-50">
-                    <span className="flex items-center px-3 text-gray-500">$</span>
-                    <span className="w-full py-2 pr-3 text-gray-900 tabular-nums">
-                      {formatPesosCop(valoresCierreCajaSegunVentas.pagosLinea)}
-                    </span>
-                  </div>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs text-gray-600">Ventas otros medios de pago</label>
-                  <div className="flex rounded-lg border border-gray-200 bg-gray-50">
-                    <span className="flex items-center px-3 text-gray-500">$</span>
-                    <span className="w-full py-2 pr-3 text-gray-900 tabular-nums">
-                      {formatPesosCop(valoresCierreCajaSegunVentas.otros)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
               {/* Resumen cierre */}
               {(() => {
-                const decEfe = valoresCierreCajaSegunVentas.efectivoEnCaja;
+                const decEfe = valoresCierreCajaSegunVentas.efectivoEsperadoCaja;
                 const decTar = valoresCierreCajaSegunVentas.tarjeta;
                 const decLin = valoresCierreCajaSegunVentas.pagosLinea;
                 const decOtr = valoresCierreCajaSegunVentas.otros;
-                const totalIngresado = valoresCierreCajaSegunVentas.totalIngresado;
-                const totalEsperado = baseInicialCaja + totalVentasEnTurno;
+                const totalIngresado = valoresCierreCajaSegunVentas.totalCierreLocal;
+                const totalEsperado = valoresCierreCajaSegunVentas.totalCierreSistema;
                 const diferencia = totalIngresado - totalEsperado;
                 const cuadreExacto = Math.abs(diferencia) < 0.005;
                 const haySobrante = diferencia > 0.005;
@@ -3080,119 +3067,95 @@ export default function CajaPage() {
                     : "text-red-600 font-medium";
                 const fmtCop = (n: number) => n.toLocaleString("es-CO", { minimumFractionDigits: 2 });
                 const espVentasEfectivo = mediosTurnoModal.efectivo;
-                const espTar = mediosTurnoModal.tarjeta;
-                const espLin = mediosTurnoModal.pagosLinea;
-                const espOtr = mediosTurnoModal.otros;
-                /** Efectivo físico que debería haber en caja: base con la que abriste + ventas cobradas en efectivo (tickets). */
-                const esperadoEfectivoEnCaja = baseInicialCaja + espVentasEfectivo;
-                const sumaTicketsTurno = ventasTurnoActivales.reduce((s, v) => s + v.total, 0);
-                const sumaEsperadaPorTickets = baseInicialCaja + sumaTicketsTurno;
-                const wmsDiffiereDeTickets = Math.abs(totalEsperado - sumaEsperadaPorTickets) >= 0.02;
+                const netoMovimientosEfectivo = valoresCierreCajaSegunVentas.netoMovimientosEfectivo;
+                const esperadoEfectivoEnCaja = valoresCierreCajaSegunVentas.efectivoEsperadoCaja;
+                const ventasLocales = valoresCierreCajaSegunVentas.totalVentasLocales;
+                const ventasSistema = valoresCierreCajaSegunVentas.totalVentasSistema;
+                const desfaseVentasSistema = valoresCierreCajaSegunVentas.desfaseVentasSistema;
+                const hayDesfaseSistema = valoresCierreCajaSegunVentas.hayDesfaseSistema;
                 return (
                   <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
-                    <p className="flex justify-between">
-                      <span className="text-gray-600">Total ingresado en cierre de caja</span>
-                      <span className="font-medium">$ {fmtCop(totalIngresado)}</span>
-                    </p>
-                    <p className="mt-1 text-xs text-gray-500">
-                      Suma automática: base + ventas en efectivo, más tarjeta, pagos en línea y otros medios según tickets.
-                    </p>
-                    <p className="mt-2 flex justify-between">
-                      <span className="text-gray-600">Total esperado en cierre de caja</span>
-                      <span className="font-medium">$ {fmtCop(totalEsperado)}</span>
-                    </p>
-                    <p className="mt-1 text-xs text-gray-500">
-                      Base inicial del turno más el <strong>total de ventas acumulado del turno</strong> (sistema / WMS). Es el
-                      monto global contra el que se calcula la diferencia de abajo.
-                    </p>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-lg border border-gray-200 bg-white p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Resumen del cierre</p>
+                        <p className="mt-2 flex justify-between">
+                          <span className="text-gray-600">Total cierre calculado</span>
+                          <span className="font-medium">$ {fmtCop(totalIngresado)}</span>
+                        </p>
+                        <p className="mt-1 flex justify-between">
+                          <span className="text-gray-600">Referencia sistema / WMS</span>
+                          <span className="font-medium">$ {fmtCop(totalEsperado)}</span>
+                        </p>
+                        <p className={`mt-2 flex justify-between border-t border-gray-200 pt-2 ${claseDiferencia}`}>
+                          <span>Diferencia</span>
+                          <span className="tabular-nums">$ {fmtCop(diferencia)}</span>
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-gray-200 bg-white p-3">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Ventas del turno</p>
+                        <p className="mt-2 flex justify-between">
+                          <span className="text-gray-600">Tickets locales</span>
+                          <span className="font-medium">$ {fmtCop(ventasLocales)}</span>
+                        </p>
+                        <p className="mt-1 flex justify-between">
+                          <span className="text-gray-600">Acumulado sistema / WMS</span>
+                          <span className="font-medium">$ {fmtCop(ventasSistema)}</span>
+                        </p>
+                        <p className={`mt-2 flex justify-between border-t border-gray-200 pt-2 ${hayDesfaseSistema ? "text-amber-800 font-medium" : "text-emerald-800 font-medium"}`}>
+                          <span>Desfase tickets vs sistema</span>
+                          <span className="tabular-nums">$ {fmtCop(desfaseVentasSistema)}</span>
+                        </p>
+                      </div>
+                    </div>
 
                     <div className="mt-3 rounded-md border border-emerald-200/80 bg-emerald-50/40 p-3 text-xs leading-relaxed text-gray-800">
-                      <p className="font-semibold text-emerald-900">Desglose esperado por medio (según tickets en este equipo)</p>
+                      <p className="font-semibold text-emerald-900">Efectivo esperado en caja</p>
                       <p className="mt-1 text-gray-600">
-                        El <strong>efectivo en gaveta</strong> debería ser la <strong>caja con la que iniciaste</strong> más las{" "}
-                        <strong>ventas registradas en efectivo</strong> en los tickets del turno. Lo demás no va a la gaveta: es
-                        lo que deberías tener liquidado por tarjeta, Nequi/Daviplata/transferencia u otros medios.
+                        Se calcula con base inicial + ventas en efectivo + ingresos de efectivo - retiros de efectivo.
                       </p>
                       <ul className="mt-2 space-y-1.5 border-t border-emerald-200/60 pt-2">
                         <li className="flex flex-wrap justify-between gap-x-2 gap-y-0.5">
-                          <span className="text-gray-700">Base inicial en caja</span>
+                          <span className="text-gray-700">Base inicial</span>
                           <span className="font-medium tabular-nums text-gray-900">$ {fmtCop(baseInicialCaja)}</span>
                         </li>
                         <li className="flex flex-wrap justify-between gap-x-2 gap-y-0.5">
-                          <span className="text-gray-700">+ Ventas en efectivo (tickets)</span>
+                          <span className="text-gray-700">+ Ventas en efectivo</span>
                           <span className="font-medium tabular-nums text-gray-900">$ {fmtCop(espVentasEfectivo)}</span>
                         </li>
+                        <li className="flex flex-wrap justify-between gap-x-2 gap-y-0.5">
+                          <span className="text-gray-700">
+                            {netoMovimientosEfectivo >= 0 ? "+ Neto ingresos / retiros" : "- Neto ingresos / retiros"}
+                          </span>
+                          <span className="font-medium tabular-nums text-gray-900">$ {fmtCop(Math.abs(netoMovimientosEfectivo))}</span>
+                        </li>
                         <li className="flex flex-wrap justify-between gap-x-2 gap-y-0.5 border-t border-emerald-200/50 pt-1.5 font-semibold text-emerald-950">
-                          <span>= Efectivo físico esperado en caja</span>
+                          <span>= Efectivo esperado en gaveta</span>
                           <span className="tabular-nums">$ {fmtCop(esperadoEfectivoEnCaja)}</span>
                         </li>
-                        <li className="flex flex-wrap justify-between gap-x-2 gap-y-0.5 pt-1">
-                          <span className="text-gray-700">Tarjeta / datáfono esperado</span>
-                          <span className="font-medium tabular-nums text-gray-900">$ {fmtCop(espTar)}</span>
-                        </li>
-                        <li className="flex flex-wrap justify-between gap-x-2 gap-y-0.5">
-                          <span className="text-gray-700">Pagos en línea esperado</span>
-                          <span className="font-medium tabular-nums text-gray-900">$ {fmtCop(espLin)}</span>
-                        </li>
-                        <li className="flex flex-wrap justify-between gap-x-2 gap-y-0.5">
-                          <span className="text-gray-700">Otros medios esperado</span>
-                          <span className="font-medium tabular-nums text-gray-900">$ {fmtCop(espOtr)}</span>
-                        </li>
-                        <li className="flex flex-wrap justify-between gap-x-2 gap-y-0.5 border-t border-emerald-200/50 pt-1.5 text-gray-700">
-                          <span>Suma base + ventas por medio (tickets)</span>
-                          <span className="font-medium tabular-nums text-gray-900">$ {fmtCop(sumaEsperadaPorTickets)}</span>
-                        </li>
                       </ul>
-                      {wmsDiffiereDeTickets ? (
-                        <p className="mt-2 rounded bg-amber-100/80 px-2 py-1.5 text-[11px] text-amber-950">
-                          El total esperado del sistema ($ {fmtCop(totalEsperado)}) no coincide con base + suma de tickets en este
-                          equipo ($ {fmtCop(sumaEsperadaPorTickets)}). Revisá sincronización o ventas registradas fuera de esta
-                          caja; la diferencia global usa el acumulado del sistema.
-                        </p>
-                      ) : null}
                     </div>
 
                     <div className="mt-3 rounded-md border border-gray-200 bg-white p-3 text-xs">
-                      <p className="font-semibold text-gray-900">Desglose usado en el cierre (tickets + base)</p>
-                      <p className="mt-1 text-gray-600">
-                        Mismos importes que el recuadro verde de arriba; un solo origen de datos (ventas del turno en este
-                        equipo).
+                      <p className="font-semibold text-gray-900">Otros medios esperados</p>
+                      <p className="mt-2 flex justify-between">
+                        <span className="text-gray-600">Tarjeta / datáfono</span>
+                        <span className="font-medium">$ {fmtCop(decTar)}</span>
                       </p>
-                      <div className="mt-2 overflow-x-auto">
-                        <table className="w-full min-w-[220px] border-collapse text-left text-[11px]">
-                          <thead>
-                            <tr className="border-b border-gray-200 text-gray-600">
-                              <th className="py-1 pr-2 font-medium">Medio</th>
-                              <th className="py-1 text-right font-medium">Importe</th>
-                            </tr>
-                          </thead>
-                          <tbody className="text-gray-900">
-                            <tr className="border-b border-gray-100">
-                              <td className="py-1.5 pr-2">Efectivo en caja (base + ventas efectivo)</td>
-                              <td className="py-1.5 text-right tabular-nums">$ {fmtCop(decEfe)}</td>
-                            </tr>
-                            <tr className="border-b border-gray-100">
-                              <td className="py-1.5 pr-2">Tarjeta / datáfono</td>
-                              <td className="py-1.5 text-right tabular-nums">$ {fmtCop(decTar)}</td>
-                            </tr>
-                            <tr className="border-b border-gray-100">
-                              <td className="py-1.5 pr-2">Pagos en línea</td>
-                              <td className="py-1.5 text-right tabular-nums">$ {fmtCop(decLin)}</td>
-                            </tr>
-                            <tr>
-                              <td className="py-1.5 pr-2">Otros medios</td>
-                              <td className="py-1.5 text-right tabular-nums">$ {fmtCop(decOtr)}</td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
+                      <p className="mt-1 flex justify-between">
+                        <span className="text-gray-600">Pagos en línea</span>
+                        <span className="font-medium">$ {fmtCop(decLin)}</span>
+                      </p>
+                      <p className="mt-1 flex justify-between">
+                        <span className="text-gray-600">Otros medios</span>
+                        <span className="font-medium">$ {fmtCop(decOtr)}</span>
+                      </p>
                     </div>
 
                     <p className={`mt-3 flex justify-between gap-3 border-t border-gray-200 pt-3 ${claseDiferencia}`}>
                       <span className="min-w-0">
-                        <span className="block">Diferencia (global)</span>
+                        <span className="block">Diferencia frente al sistema</span>
                         <span className="mt-0.5 block text-[11px] font-normal normal-case text-gray-600">
-                          Total según tickets (este equipo) − (base + acumulado ventas sistema)
+                          Total cierre calculado localmente − total de referencia del sistema / WMS
                         </span>
                       </span>
                       <span className="shrink-0 tabular-nums">
@@ -3202,33 +3165,30 @@ export default function CajaPage() {
                     <div className="mt-2 rounded-md border border-gray-200 bg-white p-3 text-xs leading-relaxed text-gray-700">
                       <p className="font-semibold text-gray-900">¿Qué significa este valor?</p>
                       <p className="mt-1.5">
-                        Es la diferencia entre el <strong>total calculado desde los tickets</strong> de este equipo (base + ventas
-                        por medio) y el <strong>total que el sistema acumuló</strong> para el turno (base + ventas WMS). El cuadro
-                        verde descompone el efectivo esperado en gaveta y el resto de medios según esos mismos tickets.
+                        Compara el cierre calculado con los tickets de este equipo y los movimientos de efectivo contra la
+                        referencia acumulada del sistema para el mismo turno.
                       </p>
                       {cuadreExacto ? (
                         <p className="mt-1.5 text-emerald-800">
-                          <strong>Cuadre:</strong> ambos totales coinciden; no hay diferencia entre tickets locales y acumulado del
-                          sistema.
+                          <strong>Cuadre:</strong> el cierre local coincide con la referencia del sistema.
                         </p>
                       ) : haySobrante ? (
                         <p className="mt-1.5 text-amber-900">
-                          <strong>Sobrante (valor positivo):</strong> la suma de tickets en este equipo supera el acumulado del
-                          sistema. Revisá sincronización con el WMS o ventas registradas fuera de esta caja.
+                          <strong>Valor positivo:</strong> el cierre local está por encima de la referencia del sistema. Revisá
+                          sincronización, ventas cargadas fuera de esta caja o movimientos manuales mal registrados.
                         </p>
                       ) : (
                         <p className="mt-1.5 text-red-800">
-                          <strong>Faltante (valor negativo):</strong> los tickets de este equipo suman menos que el acumulado del
-                          sistema. Revisá que todas las ventas del turno estén en este navegador o que no falte registrar algún
-                          cobro.
+                          <strong>Valor negativo:</strong> el cierre local está por debajo de la referencia del sistema. Revisá
+                          ventas faltantes, sincronización o movimientos de efectivo no registrados.
                         </p>
                       )}
                     </div>
                     <p className="mt-2 flex justify-between text-gray-600">
-                      <span>Total ventas a crédito</span>
+                      <span>Ventas a crédito (referencia)</span>
                       <span>$ {ventasCredito.toLocaleString("es-CO", { minimumFractionDigits: 2 })}</span>
                     </p>
-                    <p className="mt-1 text-xs text-gray-500">Valor no incluido en el total de las ventas</p>
+                    <p className="mt-1 text-xs text-gray-500">Se muestra como referencia y no se suma al cierre de caja.</p>
                   </div>
                 );
               })()}

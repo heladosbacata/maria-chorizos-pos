@@ -45,13 +45,13 @@ export function textoInformeTurno(t: TurnoCerradoV1): string {
   lines.push("");
   lines.push("--- Cierre (valores según tickets + base en esta caja) ---");
   const c = t.cierre;
-  lines.push(`Efectivo en caja (base + ventas efectivo): $ ${fmtCop(c.efectivoReal)}`);
+  lines.push(`Efectivo esperado en caja: $ ${fmtCop(c.efectivoReal)}`);
   lines.push(`Tarjeta / datáfono: $ ${fmtCop(c.tarjeta)}`);
   lines.push(`Pagos en línea: $ ${fmtCop(c.pagosLinea)}`);
   lines.push(`Otros medios: $ ${fmtCop(c.otrosMedios)}`);
-  lines.push(`Total ingresado (cierre): $ ${fmtCop(c.totalIngresado)}`);
-  lines.push(`Total esperado: $ ${fmtCop(c.totalEsperado)}`);
-  lines.push(`Diferencia: $ ${fmtCop(c.diferencia)}`);
+  lines.push(`Total cierre calculado: $ ${fmtCop(c.totalIngresado)}`);
+  lines.push(`Total referencia sistema / WMS: $ ${fmtCop(c.totalEsperado)}`);
+  lines.push(`Diferencia frente al sistema: $ ${fmtCop(c.diferencia)}`);
   lines.push("");
   lines.push("--- Ingresos / retiros efectivo (turno) ---");
   lines.push(`Ingreso efectivo: $ ${fmtCop(t.totalIngresoEfectivo)}`);
