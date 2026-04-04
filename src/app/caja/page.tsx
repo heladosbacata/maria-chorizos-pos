@@ -3027,12 +3027,6 @@ export default function CajaPage() {
                       {totalVentasEnTurno.toLocaleString("es-CO", { minimumFractionDigits: 2 })}
                     </p>
                     <p className="mt-1">Tickets locales en turno: {ventasTurnoActivales.length}</p>
-                    <p className="mt-1">
-                      Suma tickets (detalle local):{" "}
-                      {ventasTurnoActivales
-                        .reduce((s, v) => s + v.total, 0)
-                        .toLocaleString("es-CO", { minimumFractionDigits: 2 })}
-                    </p>
                     <p className="mt-2 font-medium text-gray-800">Medios de pago (suma por ticket)</p>
                     <p className="mt-1">Efectivo: {mediosTurnoModal.efectivo.toLocaleString("es-CO", { minimumFractionDigits: 2 })}</p>
                     <p className="mt-1">Tarjeta / datáfono: {mediosTurnoModal.tarjeta.toLocaleString("es-CO", { minimumFractionDigits: 2 })}</p>
@@ -3051,7 +3045,6 @@ export default function CajaPage() {
 
               {/* Resumen cierre */}
               {(() => {
-                const decEfe = valoresCierreCajaSegunVentas.efectivoEsperadoCaja;
                 const decTar = valoresCierreCajaSegunVentas.tarjeta;
                 const decLin = valoresCierreCajaSegunVentas.pagosLinea;
                 const decOtr = valoresCierreCajaSegunVentas.otros;
@@ -3069,46 +3062,9 @@ export default function CajaPage() {
                 const espVentasEfectivo = mediosTurnoModal.efectivo;
                 const netoMovimientosEfectivo = valoresCierreCajaSegunVentas.netoMovimientosEfectivo;
                 const esperadoEfectivoEnCaja = valoresCierreCajaSegunVentas.efectivoEsperadoCaja;
-                const ventasLocales = valoresCierreCajaSegunVentas.totalVentasLocales;
-                const ventasSistema = valoresCierreCajaSegunVentas.totalVentasSistema;
-                const desfaseVentasSistema = valoresCierreCajaSegunVentas.desfaseVentasSistema;
-                const hayDesfaseSistema = valoresCierreCajaSegunVentas.hayDesfaseSistema;
                 return (
                   <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-lg border border-gray-200 bg-white p-3">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Resumen del cierre</p>
-                        <p className="mt-2 flex justify-between">
-                          <span className="text-gray-600">Total cierre calculado</span>
-                          <span className="font-medium">$ {fmtCop(totalIngresado)}</span>
-                        </p>
-                        <p className="mt-1 flex justify-between">
-                          <span className="text-gray-600">Referencia sistema / WMS</span>
-                          <span className="font-medium">$ {fmtCop(totalEsperado)}</span>
-                        </p>
-                        <p className={`mt-2 flex justify-between border-t border-gray-200 pt-2 ${claseDiferencia}`}>
-                          <span>Diferencia</span>
-                          <span className="tabular-nums">$ {fmtCop(diferencia)}</span>
-                        </p>
-                      </div>
-                      <div className="rounded-lg border border-gray-200 bg-white p-3">
-                        <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Ventas del turno</p>
-                        <p className="mt-2 flex justify-between">
-                          <span className="text-gray-600">Tickets locales</span>
-                          <span className="font-medium">$ {fmtCop(ventasLocales)}</span>
-                        </p>
-                        <p className="mt-1 flex justify-between">
-                          <span className="text-gray-600">Acumulado sistema / WMS</span>
-                          <span className="font-medium">$ {fmtCop(ventasSistema)}</span>
-                        </p>
-                        <p className={`mt-2 flex justify-between border-t border-gray-200 pt-2 ${hayDesfaseSistema ? "text-amber-800 font-medium" : "text-emerald-800 font-medium"}`}>
-                          <span>Desfase tickets vs sistema</span>
-                          <span className="tabular-nums">$ {fmtCop(desfaseVentasSistema)}</span>
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="mt-3 rounded-md border border-emerald-200/80 bg-emerald-50/40 p-3 text-xs leading-relaxed text-gray-800">
+                    <div className="rounded-md border border-emerald-200/80 bg-emerald-50/40 p-3 text-xs leading-relaxed text-gray-800">
                       <p className="font-semibold text-emerald-900">Efectivo esperado en caja</p>
                       <p className="mt-1 text-gray-600">
                         Se calcula con base inicial + ventas en efectivo + ingresos de efectivo - retiros de efectivo.
@@ -3151,39 +3107,6 @@ export default function CajaPage() {
                       </p>
                     </div>
 
-                    <p className={`mt-3 flex justify-between gap-3 border-t border-gray-200 pt-3 ${claseDiferencia}`}>
-                      <span className="min-w-0">
-                        <span className="block">Diferencia frente al sistema</span>
-                        <span className="mt-0.5 block text-[11px] font-normal normal-case text-gray-600">
-                          Total cierre calculado localmente − total de referencia del sistema / WMS
-                        </span>
-                      </span>
-                      <span className="shrink-0 tabular-nums">
-                        $ {fmtCop(diferencia)}
-                      </span>
-                    </p>
-                    <div className="mt-2 rounded-md border border-gray-200 bg-white p-3 text-xs leading-relaxed text-gray-700">
-                      <p className="font-semibold text-gray-900">¿Qué significa este valor?</p>
-                      <p className="mt-1.5">
-                        Compara el cierre calculado con los tickets de este equipo y los movimientos de efectivo contra la
-                        referencia acumulada del sistema para el mismo turno.
-                      </p>
-                      {cuadreExacto ? (
-                        <p className="mt-1.5 text-emerald-800">
-                          <strong>Cuadre:</strong> el cierre local coincide con la referencia del sistema.
-                        </p>
-                      ) : haySobrante ? (
-                        <p className="mt-1.5 text-amber-900">
-                          <strong>Valor positivo:</strong> el cierre local está por encima de la referencia del sistema. Revisá
-                          sincronización, ventas cargadas fuera de esta caja o movimientos manuales mal registrados.
-                        </p>
-                      ) : (
-                        <p className="mt-1.5 text-red-800">
-                          <strong>Valor negativo:</strong> el cierre local está por debajo de la referencia del sistema. Revisá
-                          ventas faltantes, sincronización o movimientos de efectivo no registrados.
-                        </p>
-                      )}
-                    </div>
                     <p className="mt-2 flex justify-between text-gray-600">
                       <span>Ventas a crédito (referencia)</span>
                       <span>$ {ventasCredito.toLocaleString("es-CO", { minimumFractionDigits: 2 })}</span>

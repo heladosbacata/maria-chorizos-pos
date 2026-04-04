@@ -122,6 +122,14 @@ function escPosAlinearIzq(): string {
   return "\x1B\x61\x00";
 }
 
+/**
+ * Pulso de apertura de cajón (ESC p) para impresoras térmicas ESC/POS.
+ * m=0 suele corresponder a pin 2 (conector RJ11).
+ */
+function escPosAbrirCajon(): string {
+  return "\x1B\x70\x00\x19\xFA";
+}
+
 function escPosBloqueQrFidelizacion(payloadJson: string, columnas: number): string {
   const W = columnas;
   const center = (t: string) => {
@@ -556,7 +564,8 @@ export async function imprimirTicketConQz(prefs: ImpresionPosPrefs, payload: Tic
   const plain = construirTextoTicketPlano(payload, cols, fid ? { omitirBloqueFidelizacionTexto: true } : undefined);
   const bloqueQr = fid ? escPosBloqueQrFidelizacion(fid, cols) : "";
   const init = "\x1B\x40";
-  const data = `${init}${plain}${bloqueQr}\n\n\n\x1D\x56\x00`;
+  const abrirCajon = escPosAbrirCajon();
+  const data = `${init}${plain}${bloqueQr}\n\n${abrirCajon}\n\x1D\x56\x00`;
   await qz.print(config, [data]);
 }
 
