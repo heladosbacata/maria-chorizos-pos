@@ -11,6 +11,7 @@ import {
   cantidadSaldoParaInsumoKit,
   listarInsumosKitPorPuntoVenta,
   listarSaldosInventarioPorPuntoVenta,
+  normSkuInventario,
   registrarMovimientoInventario,
 } from "@/lib/inventario-pos-firestore";
 import type { InsumoKitItem } from "@/types/inventario-pos";
@@ -27,6 +28,27 @@ function textoBusquedaFold(s: string): string {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
+}
+
+function costoUnitarioReferenciaParaInsumoKit(
+  item: InsumoKitItem,
+  rows: Awaited<ReturnType<typeof listarSaldosInventarioPorPuntoVenta>>
+): number | null {
+  const k = normSkuInventario(item.sku);
+  if (k) {
+    for (const r of rows) {
+      if (normSkuInventario(r.insumoSku) === k || normSkuInventario(r.insumoId) === k) {
+        const c = Number(r.costoUnitarioPromedio);
+        return Number.isFinite(c) && c > 0 ? c : null;
+      }
+    }
+  }
+  const direct = rows.find((r) => r.insumoId === item.id);
+  if (direct) {
+    const c = Number(direct.costoUnitarioPromedio);
+    return Number.isFinite(c) && c > 0 ? c : null;
+  }
+  return null;
 }
 
 export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: CargueInventarioMasivoPanelProps) {
@@ -115,6 +137,24 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
       return q.split(/\s+/).every((t) => t && blob.includes(t));
     });
   }, [insumos, busqueda]);
+
+  const totalSaldoActualPv = useMemo(() => {
+    let total = 0;
+    for (const it of insumos) {
+      total += cantidadSaldoParaInsumoKit(it, saldoRows);
+    }
+    return Math.round(total * 1000) / 1000;
+  }, [insumos, saldoRows]);
+
+  const totalInventarioValorizadoPv = useMemo(() => {
+    let total = 0;
+    for (const it of insumos) {
+      const saldo = cantidadSaldoParaInsumoKit(it, saldoRows);
+      const costo = costoUnitarioReferenciaParaInsumoKit(it, saldoRows);
+      if (costo != null && Number.isFinite(saldo)) total += saldo * costo;
+    }
+    return Math.round(total);
+  }, [insumos, saldoRows]);
 
   const setCantidad = useCallback((id: string, raw: string) => {
     setCantidades((prev) => ({ ...prev, [id]: raw }));
@@ -395,11 +435,26 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
         </div>
 
         {fuenteCat && insumos.length > 0 && (
-          <p className="shrink-0 border-t border-gray-100 bg-gray-50 px-4 py-2 text-xs text-gray-500">
-            Catálogo: {fuenteCat === "sheet" ? "hoja Google" : "Firestore"} · {insumosFiltrados.length} de {insumos.length}{" "}
-            filas mostradas
-            {busqueda.trim() ? " (filtro activo)" : ""}.
-          </p>
+          <div className="shrink-0 border-t border-gray-100 bg-gray-50 px-4 py-2">
+            <p className="text-xs text-gray-500">
+              Catálogo: {fuenteCat === "sheet" ? "hoja Google" : "Firestore"} · {insumosFiltrados.length} de {insumos.length}{" "}
+              filas mostradas
+              {busqueda.trim() ? " (filtro activo)" : ""}.
+            </p>
+            <p className="mt-1 text-sm font-medium text-gray-800">
+              Total inventario actual (punto de venta):{" "}
+              <span className="tabular-nums">{totalSaldoActualPv.toLocaleString("es-CO", { maximumFractionDigits: 3 })}</span>
+              {" · "}
+              Valor aprox.:{" "}
+              <span className="tabular-nums">
+                {totalInventarioValorizadoPv.toLocaleString("es-CO", {
+                  style: "currency",
+                  currency: "COP",
+                  maximumFractionDigits: 0,
+                })}
+              </span>
+            </p>
+          </div>
         )}
       </div>
     </div>

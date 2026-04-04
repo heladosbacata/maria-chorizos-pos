@@ -77,6 +77,7 @@ import {
 } from "@/lib/item-cuenta-linea";
 import {
   mediosPagoDesdeDetalle,
+  normalizarMediosPagoVenta,
   sumarMediosPagoVentas,
   type MediosPagoVentaGuardados,
 } from "@/lib/medios-pago-venta";
@@ -775,7 +776,7 @@ export default function CajaPage() {
 
   const mediosTurnoModal = useMemo(() => {
     const rows = ventasTurnoActivales
-      .map((v) => v.mediosPago)
+      .map((v) => (v.mediosPago ? normalizarMediosPagoVenta(v.mediosPago, v.total) : undefined))
       .filter((m): m is MediosPagoVentaGuardados => Boolean(m));
     const base = rows.length
       ? sumarMediosPagoVentas(rows)
@@ -1644,12 +1645,14 @@ export default function CajaPage() {
       const notaPie =
         opts?.notaPie ??
         (opts?.detallePago ? construirNotaPiePago(opts.detallePago) : undefined);
-      const mediosPago =
+      const mediosPagoRaw =
         opts?.detallePago != null ? mediosPagoDesdeDetalle(opts.detallePago) : undefined;
       const sid = turnoSesionId.trim();
 
       const total = itemsSnap.reduce((s, i) => s + totalLineaItem(i), 0);
       if (!(total > 0)) return false;
+      const mediosPago =
+        mediosPagoRaw != null ? normalizarMediosPagoVenta(mediosPagoRaw, total) : undefined;
 
       setCobrando(true);
       try {
@@ -3022,10 +3025,6 @@ export default function CajaPage() {
                 {detalleVentasExpandido && (
                   <div className="border-t border-gray-100 px-4 py-3 text-sm text-gray-600">
                     <p>Total base inicial de caja: {baseInicialCaja.toLocaleString("es-CO", { minimumFractionDigits: 2 })}</p>
-                    <p className="mt-1">
-                      Total ventas (WMS / acumulado turno):{" "}
-                      {totalVentasEnTurno.toLocaleString("es-CO", { minimumFractionDigits: 2 })}
-                    </p>
                     <p className="mt-1">Tickets locales en turno: {ventasTurnoActivales.length}</p>
                     <p className="mt-2 font-medium text-gray-800">Medios de pago (suma por ticket)</p>
                     <p className="mt-1">Efectivo: {mediosTurnoModal.efectivo.toLocaleString("es-CO", { minimumFractionDigits: 2 })}</p>
