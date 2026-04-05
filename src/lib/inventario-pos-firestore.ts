@@ -438,16 +438,40 @@ export function querySnapshotToSaldoRows(snap: QuerySnapshot): InventarioSaldoRo
 
 /**
  * Une saldos POS (`posInventarioSaldos`) con ensamble WMS (`pos_inventario_ensamble_saldo`).
- * Misma clave lógica que `listarSaldosInventarioPorPuntoVenta` (`claveParaConsolidarSaldoKit`); gana ensamble.
+ * Misma clave lógica que `listarSaldosInventarioPorPuntoVenta` (`claveParaConsolidarSaldoKit`).
+ * Si existe en ambas fuentes, consolida como: saldo POS + neto ensamble WMS.
  */
 export function mergeSaldosInventarioLegacyYEnsamble(
   legacy: InventarioSaldoRow[],
   ensamble: InventarioSaldoRow[]
 ): InventarioSaldoRow[] {
-  const map = new Map<string, InventarioSaldoRow>();
-  for (const r of legacy) map.set(claveParaConsolidarSaldoKit(r), r);
-  for (const r of ensamble) map.set(claveParaConsolidarSaldoKit(r), r);
-  return Array.from(map.values());
+  const legacyByKey = new Map<string, InventarioSaldoRow>();
+  for (const r of legacy) legacyByKey.set(claveParaConsolidarSaldoKit(r), r);
+  const ensambleByKey = new Map<string, InventarioSaldoRow>();
+  for (const r of ensamble) ensambleByKey.set(claveParaConsolidarSaldoKit(r), r);
+
+  const keys = new Set<string>([...legacyByKey.keys(), ...ensambleByKey.keys()]);
+  const out: InventarioSaldoRow[] = [];
+  for (const k of keys) {
+    const l = legacyByKey.get(k);
+    const e = ensambleByKey.get(k);
+    if (l && e) {
+      out.push({
+        insumoId: l.insumoId || e.insumoId,
+        insumoSku: l.insumoSku || e.insumoSku,
+        cantidad: Math.round((Number(l.cantidad || 0) + Number(e.cantidad || 0)) * 1000) / 1000,
+        ...(typeof l.costoUnitarioPromedio === "number" && Number.isFinite(l.costoUnitarioPromedio)
+          ? { costoUnitarioPromedio: l.costoUnitarioPromedio }
+          : typeof e.costoUnitarioPromedio === "number" && Number.isFinite(e.costoUnitarioPromedio)
+            ? { costoUnitarioPromedio: e.costoUnitarioPromedio }
+            : {}),
+      });
+      continue;
+    }
+    if (l) out.push(l);
+    else if (e) out.push(e);
+  }
+  return out;
 }
 
 /** Origen del saldo mostrado: POS legacy vs WMS ensamble (este último no se puede corregir desde esta pantalla). */
@@ -460,37 +484,61 @@ export type InventarioSaldoConFuente = {
 
 /**
  * Igual que `mergeSaldosInventarioLegacyYEnsamble` pero indica si el valor consolidado proviene del WMS
- * (sobrescribe al legacy cuando comparten clave de kit).
+ * o del POS. Si existe en ambas fuentes, usa saldo POS + neto ensamble WMS.
  */
 export function mapSaldosLegacyYEnsambleConFuente(
   legacy: InventarioSaldoRow[],
   ensamble: InventarioSaldoRow[]
 ): Map<string, InventarioSaldoConFuente> {
+  const legacyByKey = new Map<string, InventarioSaldoRow>();
+  for (const r of legacy) legacyByKey.set(claveParaConsolidarSaldoKit(r), r);
+  const ensambleByKey = new Map<string, InventarioSaldoRow>();
+  for (const r of ensamble) ensambleByKey.set(claveParaConsolidarSaldoKit(r), r);
+
+  const keys = new Set<string>([...legacyByKey.keys(), ...ensambleByKey.keys()]);
   const map = new Map<string, InventarioSaldoConFuente>();
-  for (const r of legacy) {
-    const ck = claveParaConsolidarSaldoKit(r);
-    const c = r.costoUnitarioPromedio;
-    map.set(ck, {
-      row: r,
-      fuente: "legacy",
-      ...(typeof c === "number" && Number.isFinite(c) && c >= 0 ? { costoUnitarioDesdeLegacy: c } : {}),
-    });
-  }
-  for (const r of ensamble) {
-    const ck = claveParaConsolidarSaldoKit(r);
-    const prev = map.get(ck);
-    const carried =
-      prev?.costoUnitarioDesdeLegacy ??
-      (typeof prev?.row.costoUnitarioPromedio === "number" && Number.isFinite(prev.row.costoUnitarioPromedio)
-        ? prev.row.costoUnitarioPromedio
-        : undefined);
-    map.set(ck, {
-      row: r,
-      fuente: "ensamble",
-      ...(typeof carried === "number" && Number.isFinite(carried) && carried >= 0
-        ? { costoUnitarioDesdeLegacy: carried }
-        : {}),
-    });
+  for (const ck of keys) {
+    const l = legacyByKey.get(ck);
+    const e = ensambleByKey.get(ck);
+    if (l && e) {
+      const costoLegacy =
+        typeof l.costoUnitarioPromedio === "number" && Number.isFinite(l.costoUnitarioPromedio) && l.costoUnitarioPromedio >= 0
+          ? l.costoUnitarioPromedio
+          : undefined;
+      map.set(ck, {
+        row: {
+          insumoId: l.insumoId || e.insumoId,
+          insumoSku: l.insumoSku || e.insumoSku,
+          cantidad: Math.round((Number(l.cantidad || 0) + Number(e.cantidad || 0)) * 1000) / 1000,
+          ...(typeof costoLegacy === "number"
+            ? { costoUnitarioPromedio: costoLegacy }
+            : typeof e.costoUnitarioPromedio === "number" &&
+                Number.isFinite(e.costoUnitarioPromedio) &&
+                e.costoUnitarioPromedio >= 0
+              ? { costoUnitarioPromedio: e.costoUnitarioPromedio }
+              : {}),
+        },
+        // Cuando existe saldo POS, permitimos ajuste desde la pantalla (impacta la parte legacy).
+        fuente: "legacy",
+        ...(typeof costoLegacy === "number" ? { costoUnitarioDesdeLegacy: costoLegacy } : {}),
+      });
+      continue;
+    }
+    if (l) {
+      const c = l.costoUnitarioPromedio;
+      map.set(ck, {
+        row: l,
+        fuente: "legacy",
+        ...(typeof c === "number" && Number.isFinite(c) && c >= 0 ? { costoUnitarioDesdeLegacy: c } : {}),
+      });
+      continue;
+    }
+    if (e) {
+      map.set(ck, {
+        row: e,
+        fuente: "ensamble",
+      });
+    }
   }
   return map;
 }
@@ -627,8 +675,8 @@ export async function listarSaldosInventarioConFuentePorPuntoVenta(puntoVenta: s
 /**
  * Saldos mostrados en Inventarios: lee `posInventarioSaldos` (cargue/ajustes POS) y
  * `pos_inventario_ensamble_saldo` (WMS tras ventas). Fusiona por **clave de kit** (`insumoSku` o
- * sufijo tras `sheet-`/`gs-` en `insumoId`) para que el ensamble reemplace al legacy aunque el WMS use
- * `FRAN-KIT-*` y la hoja genere `id` `sheet-fran-kit-*`.
+ * sufijo tras `sheet-`/`gs-` en `insumoId`) y, cuando existe en ambas fuentes, calcula
+ * `saldo final = saldo POS + neto ensamble WMS`.
  */
 export async function listarSaldosInventarioPorPuntoVenta(puntoVenta: string): Promise<InventarioSaldoRow[]> {
   const x = await listarSaldosInventarioConFuentePorPuntoVenta(puntoVenta);

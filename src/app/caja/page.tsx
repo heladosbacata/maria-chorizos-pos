@@ -24,6 +24,7 @@ import ModalInformeCierreCorreo from "@/components/ModalInformeCierreCorreo";
 import PosCajaMensajesBell from "@/components/PosCajaMensajesBell";
 import PosBroadcastBell from "@/components/PosBroadcastBell";
 import RegistrarPagoPanel, { type DetallePagoConfirmado } from "@/components/RegistrarPagoPanel";
+import TurnoCierreExitoPremiumModal from "@/components/TurnoCierreExitoPremiumModal";
 import TurnosHistorialModule from "@/components/TurnosHistorialModule";
 import UltimosRecibosModule from "@/components/UltimosRecibosModule";
 import SeleccionClienteVenta from "@/components/SeleccionClienteVenta";
@@ -327,6 +328,10 @@ export default function CajaPage() {
   const [cargandoDefaultsInformeCorreo, setCargandoDefaultsInformeCorreo] = useState(false);
   const [procesandoCierreTurno, setProcesandoCierreTurno] = useState(false);
   const [errorInformeCierreCorreo, setErrorInformeCierreCorreo] = useState<string | null>(null);
+  const [modalExitoCierreTurno, setModalExitoCierreTurno] = useState<{
+    titulo: string;
+    lineas: string[];
+  } | null>(null);
   const [detalleVentasExpandido, setDetalleVentasExpandido] = useState(true);
   const [baseInicialCaja, setBaseInicialCaja] = useState(0);
   const [showModalAbrirTurno, setShowModalAbrirTurno] = useState(false);
@@ -970,7 +975,16 @@ export default function CajaPage() {
             window.alert(msg || "No se pudo enviar el correo con el informe.");
           }
         } else if (correoInforme?.para?.trim()) {
-          window.alert(mensajeExitoMotivacionalInformeCierreTurno());
+          const msg = mensajeExitoMotivacionalInformeCierreTurno();
+          const parts = msg
+            .split("\n")
+            .map((x) => x.trim())
+            .filter(Boolean);
+          const [titulo, ...lineas] = parts;
+          setModalExitoCierreTurno({
+            titulo: titulo || "Turno cerrado con éxito",
+            lineas,
+          });
         }
       } else if (correoInforme?.para?.trim()) {
         window.alert("No hay sesión válida para enviar el correo. Vuelve a iniciar sesión e intenta de nuevo.");
@@ -3155,6 +3169,12 @@ export default function CajaPage() {
         submitting={procesandoCierreTurno}
         onConfirm={() => void confirmarInformeCierreYcerrarTurno()}
         errorMsg={errorInformeCierreCorreo}
+      />
+      <TurnoCierreExitoPremiumModal
+        open={modalExitoCierreTurno != null}
+        titulo={modalExitoCierreTurno?.titulo ?? "Turno cerrado con éxito"}
+        lineas={modalExitoCierreTurno?.lineas ?? []}
+        onClose={() => setModalExitoCierreTurno(null)}
       />
 
       {/* Área central + cuenta a cobrar (en columna en móvil, fila en escritorio) */}
