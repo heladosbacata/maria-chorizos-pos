@@ -450,7 +450,11 @@ export function mergeSaldosInventarioLegacyYEnsamble(
   const ensambleByKey = new Map<string, InventarioSaldoRow>();
   for (const r of ensamble) ensambleByKey.set(claveParaConsolidarSaldoKit(r), r);
 
-  const keys = new Set<string>([...legacyByKey.keys(), ...ensambleByKey.keys()]);
+  const keysMark = new Map<string, true>();
+  legacyByKey.forEach((_, k) => keysMark.set(k, true));
+  ensambleByKey.forEach((_, k) => keysMark.set(k, true));
+  const keys: string[] = [];
+  keysMark.forEach((_, k) => keys.push(k));
   const out: InventarioSaldoRow[] = [];
   for (const k of keys) {
     const l = legacyByKey.get(k);
@@ -495,7 +499,11 @@ export function mapSaldosLegacyYEnsambleConFuente(
   const ensambleByKey = new Map<string, InventarioSaldoRow>();
   for (const r of ensamble) ensambleByKey.set(claveParaConsolidarSaldoKit(r), r);
 
-  const keys = new Set<string>([...legacyByKey.keys(), ...ensambleByKey.keys()]);
+  const keysMark = new Map<string, true>();
+  legacyByKey.forEach((_, k) => keysMark.set(k, true));
+  ensambleByKey.forEach((_, k) => keysMark.set(k, true));
+  const keys: string[] = [];
+  keysMark.forEach((_, k) => keys.push(k));
   const map = new Map<string, InventarioSaldoConFuente>();
   for (const ck of keys) {
     const l = legacyByKey.get(ck);
