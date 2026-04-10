@@ -2,6 +2,7 @@
  * Persistencia del turno de caja en localStorage por usuario y punto de venta.
  * Sobrevive recarga de página y cierre de sesión; solo se borra al «Cerrar turno».
  */
+import { normalizarMovimientosCaja, type MovimientoCajaTurno } from "@/lib/turno-movimientos-caja";
 
 const STORAGE_PREFIX = "pos_mc_turno_abierto_v1";
 
@@ -21,6 +22,7 @@ export interface TurnoPersistidoV1 {
   totalVentasEnTurno: number;
   totalIngresoEfectivo: number;
   totalRetiroEfectivo: number;
+  movimientosCaja: MovimientoCajaTurno[];
   ventasCredito: number;
   precuentasEliminadasCount: number;
   productosEliminadosCount: number;
@@ -65,6 +67,7 @@ export function leerTurnoPersistido(uid: string, puntoVenta: string): TurnoPersi
       totalVentasEnTurno: num("totalVentasEnTurno"),
       totalIngresoEfectivo: num("totalIngresoEfectivo"),
       totalRetiroEfectivo: num("totalRetiroEfectivo"),
+      movimientosCaja: normalizarMovimientosCaja(o.movimientosCaja),
       ventasCredito: num("ventasCredito"),
       precuentasEliminadasCount: num("precuentasEliminadasCount"),
       productosEliminadosCount: num("productosEliminadosCount"),

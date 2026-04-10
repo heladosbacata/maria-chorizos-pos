@@ -56,6 +56,14 @@ export function textoInformeTurno(t: TurnoCerradoV1): string {
   lines.push("--- Ingresos / retiros efectivo (turno) ---");
   lines.push(`Ingreso efectivo: $ ${fmtCop(t.totalIngresoEfectivo)}`);
   lines.push(`Retiro efectivo: $ ${fmtCop(t.totalRetiroEfectivo)}`);
+  if (t.movimientosCaja.length > 0) {
+    lines.push("Detalle movimientos de caja:");
+    for (const mov of t.movimientosCaja) {
+      lines.push(
+        `  · ${fmtFecha(mov.creadoEnIso)} | ${mov.tipo === "ingreso" ? "Ingreso" : "Retiro"} | $ ${fmtCop(mov.monto)} | ${mov.motivo} | ${mov.creadoPor.nombreDisplay}`
+      );
+    }
+  }
   lines.push("");
   lines.push("--- Pre-cuentas anuladas ---");
   lines.push(`Pre-cuentas eliminadas: ${t.metricsPrecuentas.precuentasEliminadas}`);

@@ -109,6 +109,12 @@ import {
 } from "@/lib/turno-informe-pdf";
 import { textoResumenCorreoCierreTurno } from "@/lib/turno-informe-correo-resumen";
 import {
+  acumularMovimientosCaja,
+  crearMovimientoCajaTurno,
+  type MovimientoCajaTurno,
+  type TipoMovimientoCaja,
+} from "@/lib/turno-movimientos-caja";
+import {
   construirPayloadFidelizacionV1,
   generarDataUrlQrFidelizacion,
 } from "@/lib/fidelizacion-qr";
@@ -434,8 +440,7 @@ export default function CajaPage() {
   );
 
   const [totalVentasEnTurno, setTotalVentasEnTurno] = useState(0);
-  const [totalIngresoEfectivo, setTotalIngresoEfectivo] = useState(0);
-  const [totalRetiroEfectivo, setTotalRetiroEfectivo] = useState(0);
+  const [movimientosCaja, setMovimientosCaja] = useState<MovimientoCajaTurno[]>([]);
   const [ventasCredito, setVentasCredito] = useState(0);
   /** Historial de precuentas anuladas en este turno */
   const [precuentasEliminadasCount, setPrecuentasEliminadasCount] = useState(0);
@@ -488,6 +493,12 @@ export default function CajaPage() {
   const [varianteModalArepa, setVarianteModalArepa] = useState<VarianteArepaCombo>("arepa_queso");
   /** Evita escribir localStorage antes de restaurar el turno guardado (misma sesión / otro usuario). */
   const [turnoHidratadoDesdeStorage, setTurnoHidratadoDesdeStorage] = useState(false);
+  const resumenMovimientosCaja = useMemo(
+    () => acumularMovimientosCaja(movimientosCaja),
+    [movimientosCaja]
+  );
+  const totalIngresoEfectivo = resumenMovimientosCaja.totalIngresoEfectivo;
+  const totalRetiroEfectivo = resumenMovimientosCaja.totalRetiroEfectivo;
 
   useEffect(() => {
     if (!showModalPerfilUsuario || !user?.uid?.trim()) return;
@@ -551,8 +562,7 @@ export default function CajaPage() {
       setBaseInicialCaja(snap.baseInicialCaja);
       setCajeroTurnoActivo(snap.cajeroTurnoActivo);
       setTotalVentasEnTurno(snap.totalVentasEnTurno);
-      setTotalIngresoEfectivo(snap.totalIngresoEfectivo);
-      setTotalRetiroEfectivo(snap.totalRetiroEfectivo);
+      setMovimientosCaja(snap.movimientosCaja ?? []);
       setVentasCredito(snap.ventasCredito);
       setPrecuentasEliminadasCount(snap.precuentasEliminadasCount);
       setProductosEliminadosCount(snap.productosEliminadosCount);
@@ -563,8 +573,7 @@ export default function CajaPage() {
       setTurnoAbierto(false);
       setCajeroTurnoActivo(null);
       setTotalVentasEnTurno(0);
-      setTotalIngresoEfectivo(0);
-      setTotalRetiroEfectivo(0);
+      setMovimientosCaja([]);
       setVentasCredito(0);
       setPrecuentasEliminadasCount(0);
       setProductosEliminadosCount(0);
@@ -588,6 +597,7 @@ export default function CajaPage() {
       totalVentasEnTurno,
       totalIngresoEfectivo,
       totalRetiroEfectivo,
+      movimientosCaja,
       ventasCredito,
       precuentasEliminadasCount,
       productosEliminadosCount,
@@ -606,6 +616,7 @@ export default function CajaPage() {
     totalVentasEnTurno,
     totalIngresoEfectivo,
     totalRetiroEfectivo,
+    movimientosCaja,
     ventasCredito,
     precuentasEliminadasCount,
     productosEliminadosCount,
@@ -835,6 +846,30 @@ export default function CajaPage() {
     totalRetiroEfectivo,
   ]);
 
+  const registrarMovimientoCaja = useCallback(
+    (input: { tipo: TipoMovimientoCaja; monto: number; motivo: string }) => {
+      const monto = Math.round(input.monto * 100) / 100;
+      const motivo = input.motivo.trim();
+      if (!(monto > 0) || !motivo) {
+        return { ok: false as const, message: "Indica un monto mayor a cero y un motivo para el movimiento." };
+      }
+      const nombreDisplay =
+        cajeroTurnoActivo?.nombreDisplay?.trim() ||
+        (user?.email?.trim() ? `Franquiciado · ${user.email.trim()}` : "Usuario POS");
+      const mov = crearMovimientoCajaTurno({
+        tipo: input.tipo,
+        monto,
+        motivo,
+        uid: user?.uid,
+        nombreDisplay,
+        email: user?.email,
+      });
+      setMovimientosCaja((prev) => [mov, ...prev]);
+      return { ok: true as const };
+    },
+    [cajeroTurnoActivo?.nombreDisplay, user?.uid, user?.email]
+  );
+
   const ejecutarCierreTurnoDefinitivo = useCallback(
     async (correoInforme?: { para: string; cc?: string }) => {
     const pv = user?.puntoVenta?.trim();
@@ -910,6 +945,7 @@ export default function CajaPage() {
       ventasCredito,
       totalIngresoEfectivo,
       totalRetiroEfectivo,
+      movimientosCaja: [...movimientosCaja],
       totalesMediosVentas,
       cierre: {
         efectivoReal,
@@ -1018,8 +1054,7 @@ export default function CajaPage() {
     setTurnoAbierto(false);
     setCajeroTurnoActivo(null);
     setTotalVentasEnTurno(0);
-    setTotalIngresoEfectivo(0);
-    setTotalRetiroEfectivo(0);
+    setMovimientosCaja([]);
     setVentasCredito(0);
     setPrecuentasEliminadasCount(0);
     setProductosEliminadosCount(0);
@@ -1040,6 +1075,7 @@ export default function CajaPage() {
     ventasCredito,
     totalIngresoEfectivo,
     totalRetiroEfectivo,
+    movimientosCaja,
     precuentasEliminadasCount,
     productosEliminadosCount,
     valorProductosEliminados,
@@ -2015,6 +2051,7 @@ export default function CajaPage() {
       setTurnoInicio(new Date());
       setTotalVentasEnTurno(0);
       totalVentasEnTurnoRef.current = 0;
+      setMovimientosCaja([]);
       setPrecuentasEliminadasCount(0);
       setProductosEliminadosCount(0);
       setValorProductosEliminados(0);
@@ -3210,6 +3247,7 @@ export default function CajaPage() {
                   uid={user.uid}
                   puntoVenta={user.puntoVenta}
                   mostrarDetalleErrorNube
+                  turnoActivo={null}
                 />
               </div>
             )
@@ -3502,7 +3540,17 @@ export default function CajaPage() {
           ) : moduloActivo === "metasBonificaciones" ? (
             <MetasBonificacionesModule puntoVenta={user.puntoVenta} uid={user.uid} />
           ) : moduloActivo === "reportes" ? (
-            <CajeroReportesDashboard uid={user.uid} puntoVenta={user.puntoVenta} />
+            <CajeroReportesDashboard
+              uid={user.uid}
+              puntoVenta={user.puntoVenta}
+              turnoActivo={{
+                abierto: turnoAbierto,
+                totalIngresoEfectivo,
+                totalRetiroEfectivo,
+                movimientosCaja,
+                onRegistrarMovimiento: registrarMovimientoCaja,
+              }}
+            />
           ) : moduloActivo === "mas" ? (
             <ConfiguracionMasModule puntoVenta={user.puntoVenta} uid={user.uid} role={user.role} />
           ) : (
@@ -3710,9 +3758,15 @@ export default function CajaPage() {
                   <tbody>
                     {itemsCuentaActiva.map((it) => {
                       const sub = totalLineaItem(it);
+                      const detalleVariante = detalleVarianteTicketLinea(it);
                       return (
                         <tr key={it.lineId} className="border-b border-gray-50 last:border-0">
-                          <td className="py-2 pl-2 font-medium text-gray-800">{it.producto.descripcion}</td>
+                          <td className="py-2 pl-2 font-medium text-gray-800">
+                            {it.producto.descripcion}
+                            {detalleVariante ? (
+                              <span className="block text-[11px] font-normal text-gray-500">({detalleVariante})</span>
+                            ) : null}
+                          </td>
                           <td className="py-2 text-center tabular-nums text-gray-700">{it.cantidad}</td>
                           <td className="py-2 pr-2 text-right tabular-nums font-medium text-gray-900">
                             $ {sub.toLocaleString("es-CO")}

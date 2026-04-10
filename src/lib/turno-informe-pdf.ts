@@ -179,6 +179,30 @@ export function crearPdfInformeTurno(t: TurnoCerradoV1): jsPDF {
   });
   y = (docAt.lastAutoTable?.finalY ?? y) + 6;
 
+  if (t.movimientosCaja.length > 0) {
+    autoTable(doc, {
+      startY: y,
+      head: [["Movimientos de caja", "Tipo", "Monto", "Registró"]],
+      body: t.movimientosCaja.slice(0, 12).map((mov) => [
+        `${fmtFecha(mov.creadoEnIso)} · ${mov.motivo}`,
+        mov.tipo === "ingreso" ? "Ingreso" : "Retiro",
+        `$ ${fmtCop(mov.monto)}`,
+        mov.creadoPor.nombreDisplay,
+      ]),
+      theme: "striped",
+      headStyles: { fillColor: [41, 98, 180], fontSize: 8 },
+      styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" },
+      columnStyles: {
+        0: { cellWidth: 82 },
+        1: { cellWidth: 22 },
+        2: { cellWidth: 24, halign: "right" },
+        3: { cellWidth: 42 },
+      },
+      margin: { left: margin, right: margin },
+    });
+    y = (docAt.lastAutoTable?.finalY ?? y) + 6;
+  }
+
   autoTable(doc, {
     startY: y,
     head: [["Pre-cuentas anuladas", ""]],
@@ -281,6 +305,30 @@ export function crearPdfDetalleTurno(t: TurnoCerradoV1): jsPDF {
     margin: { left: margin, right: margin },
   });
   y = (docAt.lastAutoTable?.finalY ?? y) + 8;
+
+  if (t.movimientosCaja.length > 0) {
+    autoTable(doc, {
+      startY: y,
+      head: [["Movimientos de caja", "Tipo", "Monto", "Registró"]],
+      body: t.movimientosCaja.map((mov) => [
+        `${fmtFecha(mov.creadoEnIso)} · ${mov.motivo}`,
+        mov.tipo === "ingreso" ? "Ingreso" : "Retiro",
+        `$ ${fmtCop(mov.monto)}`,
+        mov.creadoPor.nombreDisplay,
+      ]),
+      theme: "striped",
+      headStyles: { fillColor: [41, 98, 180], fontSize: 8 },
+      styles: { fontSize: 7, cellPadding: 1.5, overflow: "linebreak" },
+      columnStyles: {
+        0: { cellWidth: 82 },
+        1: { cellWidth: 22 },
+        2: { cellWidth: 24, halign: "right" },
+        3: { cellWidth: 42 },
+      },
+      margin: { left: margin, right: margin },
+    });
+    y = (docAt.lastAutoTable?.finalY ?? y) + 8;
+  }
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);

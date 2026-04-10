@@ -4,6 +4,7 @@
 
 import type { MediosPagoVentaGuardados } from "@/lib/medios-pago-venta";
 import type { AgregadoProductoDia, VentaGuardadaLocal } from "@/lib/pos-ventas-local-storage";
+import type { MovimientoCajaTurno } from "@/lib/turno-movimientos-caja";
 
 const STORAGE_PREFIX = "pos_mc_turnos_hist_v1";
 const MAX_REGISTROS = 120;
@@ -24,6 +25,7 @@ export interface TurnoCerradoV1 {
   ventasCredito: number;
   totalIngresoEfectivo: number;
   totalRetiroEfectivo: number;
+  movimientosCaja: MovimientoCajaTurno[];
   totalesMediosVentas: MediosPagoVentaGuardados;
   cierre: {
     efectivoReal: number;
