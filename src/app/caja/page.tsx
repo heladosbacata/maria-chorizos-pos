@@ -3495,6 +3495,7 @@ export default function CajaPage() {
                       const chorizoConArepa = productoRequiereChorizoYArepa(p);
                       const soloChorizoPan = productoRequiereSoloChorizoPan(p);
                       const soloArepaPetoTipo = productoRequiereSoloTipoArepaPeto(p);
+                      const bebidaConTamano = productoRequiereTamanoBebida(p);
                       const qty = itemsCuentaActiva
                         .filter((i) => i.producto.sku === p.sku)
                         .reduce((s, i) => s + i.cantidad, 0);
@@ -3538,6 +3539,13 @@ export default function CajaPage() {
                               ${Number(p.precioUnitario).toLocaleString("es-CO")}
                               {p.unidad ? ` / ${p.unidad}` : ""}
                             </p>
+                            {bebidaConTamano && (
+                              <p className="mt-1 text-[10px] font-medium leading-tight text-sky-800 sm:text-[11px]">
+                                {p.variantes?.length === 1
+                                  ? "1 tamano disponible"
+                                  : `${p.variantes?.length ?? 0} tamanos disponibles`}
+                              </p>
+                            )}
                             {chorizoConArepa && (
                               <p className="mt-1 text-[10px] font-medium leading-tight text-amber-800 sm:text-[11px]">
                                 Chorizo + tipo de arepa
