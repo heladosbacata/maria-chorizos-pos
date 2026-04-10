@@ -30,6 +30,7 @@ export default function PosBroadcastBell({ getIdToken, visible = true }: Props) 
   const [abierto, setAbierto] = useState(false);
   const [minimizado, setMinimizado] = useState(false);
   const [posicionFlotante, setPosicionFlotante] = useState<{ x: number; y: number } | null>(null);
+  const [autoAbrirPendiente, setAutoAbrirPendiente] = useState(false);
   const [unread, setUnread] = useState(0);
   const [mensajes, setMensajes] = useState<PosBroadcastMensajeCliente[]>([]);
   const [cargando, setCargando] = useState(false);
@@ -154,18 +155,15 @@ export default function PosBroadcastBell({ getIdToken, visible = true }: Props) 
     if (!token) return;
     const r = await wmsBroadcastUnread(token);
     if (r.ok) {
-      setUnread(() => {
-        const next = r.count;
-        const huboNuevoMensaje = next > prevUnreadRef.current;
-        const debeAutoAbrir = next > 0 && (!autoAbiertoInicialRef.current || huboNuevoMensaje);
-        prevUnreadRef.current = next;
-        if (debeAutoAbrir) {
-          autoAbiertoInicialRef.current = true;
-          setAbierto(true);
-          setMinimizado(false);
-        }
-        return next;
-      });
+      const next = r.count;
+      const huboNuevoMensaje = next > prevUnreadRef.current;
+      const debeAutoAbrir = next > 0 && (!autoAbiertoInicialRef.current || huboNuevoMensaje);
+      prevUnreadRef.current = next;
+      setUnread(next);
+      if (debeAutoAbrir) {
+        autoAbiertoInicialRef.current = true;
+        setAutoAbrirPendiente(true);
+      }
     }
   }, [getIdToken, sesion]);
 
@@ -220,6 +218,13 @@ export default function PosBroadcastBell({ getIdToken, visible = true }: Props) 
     const id = setInterval(() => void cargarHilo(), 6000);
     return () => clearInterval(id);
   }, [abierto, sesion, cargarHilo, getIdToken]);
+
+  useEffect(() => {
+    if (!autoAbrirPendiente || !visible || !sesion) return;
+    setAbierto(true);
+    setMinimizado(false);
+    setAutoAbrirPendiente(false);
+  }, [autoAbrirPendiente, visible, sesion]);
 
   useEffect(() => {
     if (!abierto || !listaRef.current) return;

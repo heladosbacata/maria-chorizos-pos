@@ -81,6 +81,7 @@ export default function PosCajaMensajesBell({ getIdToken, puntoVentaLabel, visib
   const [abierto, setAbierto] = useState(false);
   const [minimizado, setMinimizado] = useState(false);
   const [posicionFlotante, setPosicionFlotante] = useState<{ x: number; y: number } | null>(null);
+  const [autoAbrirPendiente, setAutoAbrirPendiente] = useState(false);
   const [unread, setUnread] = useState(0);
   const [mensajes, setMensajes] = useState<PosCajaMensajeCliente[]>([]);
   const [cargando, setCargando] = useState(false);
@@ -184,18 +185,15 @@ export default function PosCajaMensajesBell({ getIdToken, puntoVentaLabel, visib
     if (!token) return;
     const r = await wmsCajaMensajesUnread(token);
     if (r.ok) {
-      setUnread((prev) => {
-        const next = r.count;
-        const huboNuevoMensaje = next > prevUnreadRef.current;
-        const debeAutoAbrir = next > 0 && (!autoAbiertoInicialRef.current || huboNuevoMensaje);
-        prevUnreadRef.current = next;
-        if (debeAutoAbrir) {
-          autoAbiertoInicialRef.current = true;
-          setAbierto(true);
-          setMinimizado(false);
-        }
-        return next;
-      });
+      const next = r.count;
+      const huboNuevoMensaje = next > prevUnreadRef.current;
+      const debeAutoAbrir = next > 0 && (!autoAbiertoInicialRef.current || huboNuevoMensaje);
+      prevUnreadRef.current = next;
+      setUnread(next);
+      if (debeAutoAbrir) {
+        autoAbiertoInicialRef.current = true;
+        setAutoAbrirPendiente(true);
+      }
     }
     else if (process.env.NODE_ENV === "development") {
       console.warn("[PosCajaMensajes] no se pudo consultar no leídos:", r.error);
@@ -244,6 +242,13 @@ export default function PosCajaMensajesBell({ getIdToken, puntoVentaLabel, visib
     const id = setInterval(() => void cargarHilo(), 6000);
     return () => clearInterval(id);
   }, [abierto, cargarHilo, getIdToken]);
+
+  useEffect(() => {
+    if (!autoAbrirPendiente || !visible) return;
+    setAbierto(true);
+    setMinimizado(false);
+    setAutoAbrirPendiente(false);
+  }, [autoAbrirPendiente, visible]);
 
   useEffect(() => {
     if (!abierto || !listaRef.current) return;
