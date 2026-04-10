@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   wmsCajaMensajesListar,
   wmsCajaMensajesMarcarLeido,
@@ -79,6 +79,8 @@ type Props = {
 
 export default function PosCajaMensajesBell({ getIdToken, puntoVentaLabel, visible = true }: Props) {
   const [abierto, setAbierto] = useState(false);
+  const [minimizado, setMinimizado] = useState(false);
+  const [posicionFlotante, setPosicionFlotante] = useState<{ x: number; y: number } | null>(null);
   const [unread, setUnread] = useState(0);
   const [mensajes, setMensajes] = useState<PosCajaMensajeCliente[]>([]);
   const [cargando, setCargando] = useState(false);
@@ -86,12 +88,115 @@ export default function PosCajaMensajesBell({ getIdToken, puntoVentaLabel, visib
   const [texto, setTexto] = useState("");
   const [error, setError] = useState<string | null>(null);
   const listaRef = useRef<HTMLDivElement>(null);
+  const prevUnreadRef = useRef(0);
+  const autoAbiertoInicialRef = useRef(false);
+  const dragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+    moved: boolean;
+  } | null>(null);
+
+  const abrirChat = useCallback(() => {
+    setAbierto(true);
+    setMinimizado(false);
+  }, []);
+
+  const minimizarChat = useCallback(() => {
+    setAbierto(false);
+    setMinimizado(true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const margin = 16;
+    const y = Math.max(margin, window.innerHeight - 88);
+    const x = Math.max(margin, window.innerWidth - 320);
+    setPosicionFlotante((prev) => prev ?? { x, y });
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onResize = () => {
+      setPosicionFlotante((prev) => {
+        if (!prev) return prev;
+        const maxX = Math.max(16, window.innerWidth - 320);
+        const maxY = Math.max(16, window.innerHeight - 88);
+        return {
+          x: Math.min(Math.max(16, prev.x), maxX),
+          y: Math.min(Math.max(16, prev.y), maxY),
+        };
+      });
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  const onPointerDownFlotante = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!posicionFlotante) return;
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: posicionFlotante.x,
+      originY: posicionFlotante.y,
+      moved: false,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }, [posicionFlotante]);
+
+  const onPointerMoveFlotante = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId || typeof window === "undefined") return;
+    const deltaX = event.clientX - drag.startX;
+    const deltaY = event.clientY - drag.startY;
+    if (!drag.moved && Math.abs(deltaX) + Math.abs(deltaY) > 6) {
+      drag.moved = true;
+    }
+    const maxX = Math.max(16, window.innerWidth - 320);
+    const maxY = Math.max(16, window.innerHeight - 88);
+    setPosicionFlotante({
+      x: Math.min(Math.max(16, drag.originX + deltaX), maxX),
+      y: Math.min(Math.max(16, drag.originY + deltaY), maxY),
+    });
+  }, []);
+
+  const onPointerUpFlotante = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+    dragRef.current = null;
+    if (!drag.moved) {
+      abrirChat();
+    }
+  }, [abrirChat]);
+
+  const onPointerCancelFlotante = useCallback((event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (dragRef.current?.pointerId === event.pointerId) {
+      dragRef.current = null;
+    }
+  }, []);
 
   const fetchUnread = useCallback(async () => {
     const token = await getIdToken();
     if (!token) return;
     const r = await wmsCajaMensajesUnread(token);
-    if (r.ok) setUnread(r.count);
+    if (r.ok) {
+      setUnread((prev) => {
+        const next = r.count;
+        const huboNuevoMensaje = next > prevUnreadRef.current;
+        const debeAutoAbrir = next > 0 && (!autoAbiertoInicialRef.current || huboNuevoMensaje);
+        prevUnreadRef.current = next;
+        if (debeAutoAbrir) {
+          autoAbiertoInicialRef.current = true;
+          setAbierto(true);
+          setMinimizado(false);
+        }
+        return next;
+      });
+    }
     else if (process.env.NODE_ENV === "development") {
       console.warn("[PosCajaMensajes] no se pudo consultar no leídos:", r.error);
     }
@@ -133,6 +238,7 @@ export default function PosCajaMensajesBell({ getIdToken, puntoVentaLabel, visib
       const token = await getIdToken();
       if (token) await wmsCajaMensajesMarcarLeido(token);
       setUnread(0);
+      prevUnreadRef.current = 0;
     })();
     void cargarHilo();
     const id = setInterval(() => void cargarHilo(), 6000);
@@ -173,7 +279,7 @@ export default function PosCajaMensajesBell({ getIdToken, puntoVentaLabel, visib
     <>
       <button
         type="button"
-        onClick={() => setAbierto(true)}
+        onClick={abrirChat}
         className="group relative flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl border border-amber-200/70 bg-gradient-to-br from-amber-50 via-white to-yellow-50 text-amber-900/80 shadow-[0_6px_20px_-8px_rgba(180,130,40,0.45),inset_0_1px_0_rgba(255,255,255,0.9)] transition-all hover:border-brand-yellow hover:text-amber-950 hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-brand-yellow/50"
         title="Mensajes del administrativo (monitor de ventas). Tocá para leer y responder."
         aria-label="Mensajes del administrativo"
@@ -186,20 +292,48 @@ export default function PosCajaMensajesBell({ getIdToken, puntoVentaLabel, visib
         ) : null}
       </button>
 
-      {abierto ? (
-        <div
-          className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="pos-caja-msg-title"
+      {minimizado ? (
+        <button
+          type="button"
+          onPointerDown={onPointerDownFlotante}
+          onPointerMove={onPointerMoveFlotante}
+          onPointerUp={onPointerUpFlotante}
+          onPointerCancel={onPointerCancelFlotante}
+          className="fixed z-[190] flex cursor-grab items-center gap-2 rounded-full border border-amber-300/80 bg-gradient-to-br from-amber-50 via-white to-yellow-50 px-4 py-3 text-sm font-semibold text-amber-950 shadow-[0_18px_40px_-16px_rgba(180,130,40,0.65)] transition hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-brand-yellow/50 active:cursor-grabbing"
+          style={
+            posicionFlotante
+              ? {
+                  left: `${posicionFlotante.x}px`,
+                  top: `${posicionFlotante.y}px`,
+                }
+              : undefined
+          }
+          aria-label="Abrir chat con administración"
         >
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/50 backdrop-blur-[2px]"
-            aria-label="Cerrar"
-            onClick={() => setAbierto(false)}
-          />
-          <div className="relative flex max-h-[min(90vh,680px)] w-full max-w-md flex-col overflow-hidden rounded-3xl border border-amber-200/40 bg-gradient-to-b from-[#1c1410] via-[#231a14] to-[#181210] text-amber-50 shadow-[0_28px_90px_-20px_rgba(0,0,0,0.65),inset_0_1px_0_rgba(255,255,255,0.05)] ring-2 ring-amber-500/25">
+          <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-amber-900">
+            <IconBell className="h-5 w-5" />
+            {unread > 0 ? (
+              <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-gradient-to-br from-red-500 to-amber-600 px-1 text-[10px] font-bold text-white shadow-md ring-2 ring-white">
+                {unread > 9 ? "9+" : unread}
+              </span>
+            ) : null}
+          </span>
+          <span className="text-left leading-tight">
+            <span className="block">Chat administración</span>
+            <span className="block text-[11px] font-medium text-amber-800/80">Pendiente por responder</span>
+          </span>
+        </button>
+      ) : null}
+
+      {abierto ? (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6">
+          <div className="absolute inset-0 bg-black/45 backdrop-blur-[2px]" />
+          <div
+            className="relative flex w-full max-w-md flex-col overflow-hidden rounded-3xl border border-amber-200/40 bg-gradient-to-b from-[#1c1410] via-[#231a14] to-[#181210] text-amber-50 shadow-[0_28px_90px_-20px_rgba(0,0,0,0.65),inset_0_1px_0_rgba(255,255,255,0.05)] ring-2 ring-amber-500/25"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="pos-caja-msg-title"
+          >
             <div className="pointer-events-none absolute -left-16 -top-20 h-48 w-48 rounded-full bg-amber-500/20 blur-3xl" />
             <div className="pointer-events-none absolute -bottom-12 -right-10 h-40 w-40 rounded-full bg-yellow-400/10 blur-3xl" />
 
@@ -216,20 +350,30 @@ export default function PosCajaMensajesBell({ getIdToken, puntoVentaLabel, visib
                   <p className="mt-0.5 truncate text-xs text-amber-200/50">{puntoVentaLabel}</p>
                 ) : null}
               </div>
-              <button
-                type="button"
-                onClick={() => setAbierto(false)}
-                className="rounded-xl border border-white/10 bg-white/5 p-2 text-amber-200/80 transition hover:bg-white/10 hover:text-white"
-                aria-label="Cerrar"
-              >
-                <IconX className="h-5 w-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={minimizarChat}
+                  className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-amber-200/80 transition hover:bg-white/10 hover:text-white"
+                  aria-label="Minimizar"
+                >
+                  Minimizar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setAbierto(false)}
+                  className="rounded-xl border border-white/10 bg-white/5 p-2 text-amber-200/80 transition hover:bg-white/10 hover:text-white"
+                  aria-label="Cerrar"
+                >
+                  <IconX className="h-5 w-5" />
+                </button>
+              </div>
             </header>
 
             <div
               ref={listaRef}
               className="relative flex-1 space-y-2.5 overflow-y-auto px-3 py-3"
-              style={{ maxHeight: "min(50vh, 380px)" }}
+              style={{ maxHeight: "min(52vh, 420px)" }}
             >
               {cargando && mensajes.length === 0 ? (
                 <div className="flex justify-center py-12 text-amber-200/50">
