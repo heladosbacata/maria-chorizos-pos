@@ -8,6 +8,19 @@ export type VarianteArepaCombo = "arepa_queso" | "queso_bocadillo" | "peto_queso
 export interface OpcionesVariantesLineaPos {
   varianteChorizo?: VarianteChorizo;
   varianteArepaCombo?: VarianteArepaCombo;
+  variantes?: string[];
+}
+
+function normalizarVarianteLibre(raw: string): string {
+  return String(raw ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "_")
+    .replace(/[^A-Z0-9_]/g, "")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
 }
 
 /** Combo con arepa: descripción incluye "combo" y "arepa" */
@@ -71,11 +84,19 @@ export function productoRequiereVarianteChorizo(p: ProductoPOS): boolean {
   );
 }
 
+export function productoRequiereTamanoBebida(p: ProductoPOS): boolean {
+  const categoria = `${p.categoria ?? ""}`.toLowerCase();
+  return categoria.includes("bebida") && Array.isArray(p.variantes) && p.variantes.length > 0;
+}
+
 export function buildLineIdPos(sku: string, opts?: OpcionesVariantesLineaPos): string {
-  if (!opts?.varianteChorizo && !opts?.varianteArepaCombo) return sku;
+  const safeOpts = opts ?? {};
+  const varsLibres = (safeOpts.variantes ?? []).map(normalizarVarianteLibre).filter(Boolean);
+  if (!safeOpts.varianteChorizo && !safeOpts.varianteArepaCombo && varsLibres.length === 0) return sku;
   let id = sku;
-  if (opts.varianteChorizo) id += `|chorizo:${opts.varianteChorizo}`;
-  if (opts.varianteArepaCombo) id += `|arepa:${opts.varianteArepaCombo}`;
+  if (safeOpts.varianteChorizo) id += `|chorizo:${safeOpts.varianteChorizo}`;
+  if (safeOpts.varianteArepaCombo) id += `|arepa:${safeOpts.varianteArepaCombo}`;
+  for (const v of varsLibres) id += `|variante:${v}`;
   return id;
 }
 

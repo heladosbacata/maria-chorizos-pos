@@ -54,4 +54,10 @@ export interface ProductoPOS {
   precioUnitario: number;
   unidad?: string;
   urlImagen: string | null;
+  variantes?: Array<{
+    clave: string;
+    etiqueta: string;
+    precioVenta?: number | null;
+  }>;
+  preciosPorVariante?: Record<string, number>;
 }

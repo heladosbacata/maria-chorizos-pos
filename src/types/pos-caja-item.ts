@@ -9,6 +9,7 @@ export interface ItemCuenta {
   cantidad: number;
   varianteChorizo?: VarianteChorizo;
   varianteArepaCombo?: VarianteArepaCombo;
+  variantes?: string[];
   precioUnitarioOverride?: number;
   descuentoModo?: DescuentoModoLinea;
   descuentoValor?: number;

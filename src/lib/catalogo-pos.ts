@@ -25,6 +25,12 @@ interface PosProductoItem {
   precioVenta?: number;
   unidad?: string;
   urlImagen?: string | null;
+  variantes?: Array<{
+    clave?: string;
+    etiqueta?: string;
+    precioVenta?: number;
+  }>;
+  preciosPorVariante?: Record<string, number>;
   [key: string]: unknown;
 }
 
@@ -64,6 +70,16 @@ function toProductoPOS(item: PosProductoItem): ProductoPOS | null {
     item.Nombre ??
     item.nombre_producto ??
     String(sku);
+  const variantes = Array.isArray(item.variantes)
+    ? item.variantes
+        .filter((v) => v && typeof v.clave === "string" && String(v.clave).trim())
+        .map((v) => ({
+          clave: String(v.clave).trim(),
+          etiqueta: String(v.etiqueta ?? v.clave ?? "").trim() || String(v.clave).trim(),
+          precioVenta:
+            typeof v.precioVenta === "number" && Number.isFinite(v.precioVenta) ? v.precioVenta : undefined,
+        }))
+    : [];
   return {
     sku: String(sku).trim(),
     descripcion: desc,
@@ -71,6 +87,15 @@ function toProductoPOS(item: PosProductoItem): ProductoPOS | null {
     precioUnitario: Number.isFinite(precio) && !Number.isNaN(precio) ? precio : 0,
     unidad: item.unidad ?? undefined,
     urlImagen: item.urlImagen ?? null,
+    variantes,
+    preciosPorVariante:
+      item.preciosPorVariante && typeof item.preciosPorVariante === "object"
+        ? Object.fromEntries(
+            Object.entries(item.preciosPorVariante).filter(
+              ([k, v]) => !!String(k).trim() && typeof v === "number" && Number.isFinite(v)
+            )
+          )
+        : {},
   };
 }
 

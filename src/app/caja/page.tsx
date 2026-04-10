@@ -36,6 +36,7 @@ import {
   productoRequiereChorizoYArepa,
   productoRequiereSoloChorizoPan,
   productoRequiereSoloTipoArepaPeto,
+  productoRequiereTamanoBebida,
   type OpcionesVariantesLineaPos,
   type VarianteArepaCombo,
   type VarianteChorizo,
@@ -234,6 +235,16 @@ function detalleVarianteTicketLinea(it: ItemCuenta): string | undefined {
   const parts: string[] = [];
   if (it.varianteChorizo) parts.push(etiquetaVarianteChorizo(it.varianteChorizo));
   if (it.varianteArepaCombo) parts.push(etiquetaArepaCombo(it.varianteArepaCombo));
+  if (Array.isArray(it.variantes) && it.variantes.length > 0) {
+    const variantesEtiquetas = it.variantes
+      .map((v) => {
+        const norm = String(v ?? "").trim().toUpperCase();
+        const match = it.producto.variantes?.find((opt) => String(opt.clave ?? "").trim().toUpperCase() === norm);
+        return match?.etiqueta ?? v;
+      })
+      .filter(Boolean);
+    parts.push(...variantesEtiquetas);
+  }
   const dto = montoDescuentoLinea(lineInputDesdeItemCuentaLike(it));
   const modo = it.descuentoModo ?? "ninguno";
   if (dto > 0) {
@@ -491,6 +502,8 @@ export default function CajaPage() {
   const [modalProductoChorizo, setModalProductoChorizo] = useState<ProductoPOS | null>(null);
   const [varianteModalChorizo, setVarianteModalChorizo] = useState<VarianteChorizo>("tradicional");
   const [varianteModalArepa, setVarianteModalArepa] = useState<VarianteArepaCombo>("arepa_queso");
+  const [modalProductoBebida, setModalProductoBebida] = useState<ProductoPOS | null>(null);
+  const [varianteModalBebida, setVarianteModalBebida] = useState<string>("");
   /** Evita escribir localStorage antes de restaurar el turno guardado (misma sesión / otro usuario). */
   const [turnoHidratadoDesdeStorage, setTurnoHidratadoDesdeStorage] = useState(false);
   const resumenMovimientosCaja = useMemo(
@@ -1191,6 +1204,12 @@ export default function CajaPage() {
   /** Clic en catálogo: chorizo + arepa, chorizo con pan, o arepa de peto (solo tipo de arepa) */
   const onClicProductoCatalogo = (producto: ProductoPOS) => {
     if (!turnoAbierto) return;
+    if (productoRequiereTamanoBebida(producto)) {
+      const primera = producto.variantes?.[0]?.clave ?? "";
+      setVarianteModalBebida(primera);
+      setModalProductoBebida(producto);
+      return;
+    }
     if (productoRequiereChorizoYArepa(producto)) {
       setVarianteModalChorizo("tradicional");
       setVarianteModalArepa("arepa_queso");
@@ -1213,6 +1232,10 @@ export default function CajaPage() {
   /** Agregar producto a la cuenta (variantes opcionales: chorizo y/o arepa en combo) */
   const agregarProductoACuenta = (producto: ProductoPOS, opts?: OpcionesVariantesLineaPos) => {
     const lineId = buildLineIdPos(producto.sku, opts);
+    const precioVariante =
+      opts?.variantes?.length && producto.preciosPorVariante
+        ? producto.preciosPorVariante[opts.variantes[0] ?? ""]
+        : undefined;
     setItemsPorPrecuenta((prev) => {
       const items = prev[activePrecuentaId] ?? [];
       const idx = items.findIndex((i) => i.lineId === lineId);
@@ -1226,6 +1249,10 @@ export default function CajaPage() {
           cantidad: 1,
           ...(opts?.varianteChorizo ? { varianteChorizo: opts.varianteChorizo } : {}),
           ...(opts?.varianteArepaCombo ? { varianteArepaCombo: opts.varianteArepaCombo } : {}),
+          ...(opts?.variantes?.length ? { variantes: [...opts.variantes] } : {}),
+          ...(typeof precioVariante === "number" && Number.isFinite(precioVariante)
+            ? { precioUnitarioOverride: precioVariante }
+            : {}),
         });
       }
       return { ...prev, [activePrecuentaId]: next };
@@ -1246,6 +1273,12 @@ export default function CajaPage() {
       agregarProductoACuenta(p, { varianteChorizo: varianteModalChorizo });
     }
     setModalProductoChorizo(null);
+  };
+
+  const confirmarAgregarBebidaModal = () => {
+    if (!modalProductoBebida || !varianteModalBebida) return;
+    agregarProductoACuenta(modalProductoBebida, { variantes: [varianteModalBebida] });
+    setModalProductoBebida(null);
   };
 
   const itemsCuentaActiva = itemsPorPrecuenta[activePrecuentaId] ?? [];
@@ -3000,6 +3033,73 @@ export default function CajaPage() {
                 type="button"
                 onClick={confirmarAgregarChorizoModal}
                 className="flex-1 rounded-lg bg-primary-600 py-2.5 text-sm font-semibold text-white hover:bg-primary-700"
+              >
+                Agregar a la cuenta
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modalProductoBebida && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="modal-bebida-title"
+        >
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setModalProductoBebida(null)}
+            aria-hidden="true"
+          />
+          <div className="relative max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
+            <h2 id="modal-bebida-title" className="text-lg font-semibold text-gray-900">
+              Selecciona el tamaño
+            </h2>
+            <p className="mt-1 text-sm text-gray-600 line-clamp-2">{modalProductoBebida.descripcion}</p>
+            <fieldset className="mt-5 space-y-3">
+              <legend className="mb-2 block text-sm font-semibold text-gray-800">Tamaño de la bebida</legend>
+              {(modalProductoBebida.variantes ?? []).map((opt) => {
+                const precio =
+                  typeof opt.precioVenta === "number"
+                    ? opt.precioVenta
+                    : modalProductoBebida.preciosPorVariante?.[opt.clave] ?? modalProductoBebida.precioUnitario;
+                return (
+                  <label
+                    key={opt.clave}
+                    className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border-2 border-gray-200 px-4 py-3 has-[:checked]:border-primary-500 has-[:checked]:bg-primary-50"
+                  >
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="radio"
+                        name="variante-bebida"
+                        checked={varianteModalBebida === opt.clave}
+                        onChange={() => setVarianteModalBebida(opt.clave)}
+                        className="h-4 w-4 text-primary-600"
+                      />
+                      <span className="text-sm font-medium text-gray-900">{opt.etiqueta}</span>
+                    </div>
+                    <span className="text-sm font-semibold text-primary-700">
+                      ${Number(precio ?? 0).toLocaleString("es-CO")}
+                    </span>
+                  </label>
+                );
+              })}
+            </fieldset>
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setModalProductoBebida(null)}
+                className="flex-1 rounded-lg border border-gray-300 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={!varianteModalBebida}
+                onClick={confirmarAgregarBebidaModal}
+                className="flex-1 rounded-lg bg-primary-600 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60"
               >
                 Agregar a la cuenta
               </button>
