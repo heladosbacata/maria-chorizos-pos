@@ -96,6 +96,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
   const [minInputTick, setMinInputTick] = useState(0);
 
   const [busqueda, setBusqueda] = useState("");
+  const [categoriaFiltro, setCategoriaFiltro] = useState("");
   const [movInsumoId, setMovInsumoId] = useState("");
   const [movTipo, setMovTipo] = useState<TipoMovimientoInventario>("salida_danio");
   const [movCantidad, setMovCantidad] = useState("");
@@ -464,6 +465,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
 
   const filasStock = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
+    const categoriaActiva = categoriaFiltro.trim().toLowerCase();
     const base = insumos.map((i) => {
       const { saldo, editable: saldoEditableClic, costoUnitarioReferencia } = saldoMostradoYFuenteParaInsumoKit(
         i,
@@ -491,14 +493,24 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
         bajoMinimo,
       };
     });
-    if (!q) return base;
-    return base.filter(
-      (r) =>
+    return base.filter((r) => {
+      const coincideCategoria =
+        !categoriaActiva || (r.categoria?.trim().toLowerCase() ?? "") === categoriaActiva;
+      if (!coincideCategoria) return false;
+      if (!q) return true;
+      return (
         r.sku.toLowerCase().includes(q) ||
         r.descripcion.toLowerCase().includes(q) ||
         (r.categoria && r.categoria.toLowerCase().includes(q))
-    );
-  }, [insumos, saldoRows, saldosPorClaveMap, minimosUsuario, busqueda]);
+      );
+    });
+  }, [insumos, saldoRows, saldosPorClaveMap, minimosUsuario, busqueda, categoriaFiltro]);
+
+  const categoriasDisponibles = useMemo(() => {
+    return Array.from(
+      new Set(insumos.map((i) => i.categoria?.trim()).filter((categoria): categoria is string => Boolean(categoria)))
+    ).sort((a, b) => a.localeCompare(b, "es"));
+  }, [insumos]);
 
   const cantidadBajoMinimo = useMemo(() => filasStock.filter((r) => r.bajoMinimo).length, [filasStock]);
 
@@ -793,13 +805,28 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       {pestaña === "stock" && (
         <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
           <div className="border-b border-gray-100 p-4">
-            <input
-              type="search"
-              placeholder="Buscar por código, nombre o categoría…"
-              value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
-              className="w-full max-w-md rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
-            />
+            <div className="flex flex-col gap-3 md:flex-row md:items-center">
+              <input
+                type="search"
+                placeholder="Buscar por código, nombre o categoría…"
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
+                className="w-full max-w-md rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+              />
+              <select
+                value={categoriaFiltro}
+                onChange={(e) => setCategoriaFiltro(e.target.value)}
+                className="w-full max-w-xs rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+                aria-label="Filtrar por categoría"
+              >
+                <option value="">Todas las categorías</option>
+                {categoriasDisponibles.map((categoria) => (
+                  <option key={categoria} value={categoria}>
+                    {categoria}
+                  </option>
+                ))}
+              </select>
+            </div>
             <p className="mt-2 max-w-2xl text-xs text-gray-600">
               <span className="font-medium text-gray-800">Saldo actual:</span> si el valor viene del inventario POS (cargue),
               podés hacer clic para ajustarlo tras ingresar la clave. Si el saldo lo marca solo el{" "}
@@ -853,6 +880,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                 <tr>
                   <th className="px-4 py-3">Código</th>
                   <th className="px-4 py-3">Descripción</th>
+                  <th className="px-4 py-3">Categoría</th>
                   <th className="px-4 py-3">Unidad</th>
                   <th className="px-4 py-3 text-right">Saldo actual</th>
                   <th
@@ -873,13 +901,13 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
               <tbody className="divide-y divide-gray-100">
                 {cargando ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
+                    <td colSpan={9} className="px-4 py-12 text-center text-gray-500">
                       Cargando catálogo…
                     </td>
                   </tr>
                 ) : filasStock.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
+                    <td colSpan={9} className="px-4 py-12 text-center text-gray-500">
                       Sin ítems para mostrar.
                     </td>
                   </tr>
@@ -898,6 +926,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                       >
                         <td className="px-4 py-2.5 font-mono text-xs text-gray-800">{row.sku}</td>
                         <td className="px-4 py-2.5 text-gray-900">{row.descripcion}</td>
+                        <td className="px-4 py-2.5 text-gray-600">{row.categoria?.trim() || "—"}</td>
                         <td className="px-4 py-2.5 text-gray-600">{row.unidad}</td>
                         <td className="px-4 py-2.5 text-right align-middle">
                           <div className="inline-flex max-w-full items-center justify-end gap-1.5">
