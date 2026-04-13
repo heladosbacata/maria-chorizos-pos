@@ -39,6 +39,94 @@ import {
 } from "@/lib/wms-aplicar-venta-ensamble";
 
 type Pestaña = "stock" | "movimiento" | "historial";
+type FuenteCatalogoInventario = "sheet" | "firestore" | "wms";
+
+const INVENTARIO_CATALOGO_CACHE_PREFIX = "pos_mc_inventario_catalogo_v2";
+
+type CatalogoInventarioCache = {
+  items: InsumoKitItem[];
+  fuenteCatalogo: FuenteCatalogoInventario | null;
+  incluyeCatalogoPos: boolean;
+  productosPosAgregados: number;
+  savedAtIso: string;
+};
+
+function claveCacheCatalogoInventario(puntoVenta: string): string {
+  return `${INVENTARIO_CATALOGO_CACHE_PREFIX}:${normPuntoVentaCatalogo(puntoVenta) || puntoVenta.trim()}`;
+}
+
+function leerCacheCatalogoInventario(puntoVenta: string): CatalogoInventarioCache | null {
+  if (typeof window === "undefined" || !puntoVenta.trim()) return null;
+  try {
+    const raw = localStorage.getItem(claveCacheCatalogoInventario(puntoVenta));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CatalogoInventarioCache;
+    if (!parsed || !Array.isArray(parsed.items)) return null;
+    return {
+      items: parsed.items,
+      fuenteCatalogo:
+        parsed.fuenteCatalogo === "sheet" || parsed.fuenteCatalogo === "firestore" || parsed.fuenteCatalogo === "wms"
+          ? parsed.fuenteCatalogo
+          : null,
+      incluyeCatalogoPos: parsed.incluyeCatalogoPos === true,
+      productosPosAgregados:
+        typeof parsed.productosPosAgregados === "number" && Number.isFinite(parsed.productosPosAgregados)
+          ? parsed.productosPosAgregados
+          : 0,
+      savedAtIso: typeof parsed.savedAtIso === "string" ? parsed.savedAtIso : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+function guardarCacheCatalogoInventario(puntoVenta: string, payload: Omit<CatalogoInventarioCache, "savedAtIso">) {
+  if (typeof window === "undefined" || !puntoVenta.trim()) return;
+  try {
+    localStorage.setItem(
+      claveCacheCatalogoInventario(puntoVenta),
+      JSON.stringify({
+        ...payload,
+        savedAtIso: new Date().toISOString(),
+      } satisfies CatalogoInventarioCache)
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+function PremiumHourglassIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 64 64" fill="none" aria-hidden>
+      <defs>
+        <linearGradient id="inv-hourglass-frame" x1="12" y1="8" x2="52" y2="56" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#FDE68A" />
+          <stop offset="0.5" stopColor="#F59E0B" />
+          <stop offset="1" stopColor="#B45309" />
+        </linearGradient>
+        <linearGradient id="inv-hourglass-sand" x1="24" y1="16" x2="40" y2="48" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#FFF7CC" />
+          <stop offset="1" stopColor="#F59E0B" />
+        </linearGradient>
+      </defs>
+      <rect x="18" y="8" width="28" height="4" rx="2" fill="url(#inv-hourglass-frame)" />
+      <rect x="18" y="52" width="28" height="4" rx="2" fill="url(#inv-hourglass-frame)" />
+      <path
+        d="M22 12h20c0 9-6.5 12-10 14.5C28.5 24 22 21 22 12Zm0 40h20c0-9-6.5-12-10-14.5C28.5 40 22 43 22 52Z"
+        fill="url(#inv-hourglass-sand)"
+        fillOpacity="0.95"
+      />
+      <path
+        d="M22 12c0 9 6.5 12 10 14.5C35.5 24 42 21 42 12M22 52c0-9 6.5-12 10-14.5C35.5 40 42 43 42 52M24 16h16M24 48h16"
+        stroke="url(#inv-hourglass-frame)"
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M29 33h6l-3 4-3-4Z" fill="url(#inv-hourglass-frame)" className="origin-center animate-pulse" />
+    </svg>
+  );
+}
 
 /** Tipos disponibles en «Registrar movimiento». El cargue va en el módulo «Cargue inventario». */
 const TIPOS_MOVIMIENTO: { value: TipoMovimientoInventario; label: string; ayuda: string }[] = [
@@ -83,7 +171,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     () => new Map()
   );
   const [minimosUsuario, setMinimosUsuario] = useState<Map<string, number>>(new Map());
-  const [fuenteCatalogo, setFuenteCatalogo] = useState<"sheet" | "firestore" | "wms" | null>(null);
+  const [fuenteCatalogo, setFuenteCatalogo] = useState<FuenteCatalogoInventario | null>(null);
   const [incluyeCatalogoPos, setIncluyeCatalogoPos] = useState(false);
   const [productosPosAgregados, setProductosPosAgregados] = useState(0);
   const [avisoCatalogo, setAvisoCatalogo] = useState<string | null>(null);
@@ -134,6 +222,16 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     return () => window.removeEventListener("pos-ultimo-ensamble-actualizado", onEvt);
   }, [refrescarDiagEnsamble]);
 
+  useEffect(() => {
+    if (!pv) return;
+    const cache = leerCacheCatalogoInventario(pv);
+    if (!cache || cache.items.length === 0) return;
+    setInsumos(cache.items);
+    setFuenteCatalogo(cache.fuenteCatalogo);
+    setIncluyeCatalogoPos(cache.incluyeCatalogoPos);
+    setProductosPosAgregados(cache.productosPosAgregados);
+  }, [pv]);
+
   const cargarTodo = useCallback(async () => {
     if (!pv) {
       setInsumos([]);
@@ -153,11 +251,13 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     setError(null);
     setAvisoCatalogo(null);
     setAvisoPvHoja(null);
+    const cacheExistente = leerCacheCatalogoInventario(pv);
     try {
-      const [sheetRes, saldosPack, posRes] = await Promise.all([
+      const [sheetRes, saldosPack, posRes, listaFs] = await Promise.all([
         fetchCatalogoInsumosDesdeSheet(pv),
         listarSaldosInventarioConFuentePorPuntoVenta(pv),
         getCatalogoPOS(),
+        listarInsumosKitPorPuntoVenta(pv),
       ]);
       const productosPos = posRes.ok ? posRes.productos ?? [] : [];
       setSaldoRows(saldosPack.saldoRows);
@@ -170,6 +270,12 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
         setInsumos(merged.items);
         setFuenteCatalogo("sheet");
         setProductosPosAgregados(merged.agregados);
+        guardarCacheCatalogoInventario(pv, {
+          items: merged.items,
+          fuenteCatalogo: "sheet",
+          incluyeCatalogoPos: productosPos.length > 0,
+          productosPosAgregados: merged.agregados,
+        });
         setError(null);
         if (sheetRes.pvFiltroSinCoincidencias) {
           setAvisoPvHoja(
@@ -177,16 +283,24 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
           );
         }
       } else {
-        const lista = await listarInsumosKitPorPuntoVenta(pv);
-        const merged = mergeCatalogoInventarioConProductosPos(lista, productosPos);
+        const merged = mergeCatalogoInventarioConProductosPos(listaFs, productosPos);
         setInsumos(merged.items);
         setProductosPosAgregados(merged.agregados);
-        setFuenteCatalogo(lista.length > 0 ? "firestore" : productosPos.length > 0 ? "wms" : "firestore");
+        const fuenteFinal: FuenteCatalogoInventario = listaFs.length > 0 ? "firestore" : "wms";
+        setFuenteCatalogo(fuenteFinal);
+        if (merged.items.length > 0) {
+          guardarCacheCatalogoInventario(pv, {
+            items: merged.items,
+            fuenteCatalogo: fuenteFinal,
+            incluyeCatalogoPos: productosPos.length > 0,
+            productosPosAgregados: merged.agregados,
+          });
+        }
         if (merged.items.length === 0) {
           setError(
             `No hay ítems en la hoja ni en «${CATALOGO_INSUMOS_KIT_COLLECTION}» para «${pv}». Revisá la hoja DB_Franquicia_Insumos_Kit (columna PV si aplica) o documentos en Firestore.`
           );
-        } else if (lista.length === 0 && productosPos.length > 0) {
+        } else if (listaFs.length === 0 && productosPos.length > 0) {
           setAvisoCatalogo(
             "No se encontró catálogo base de insumos para este punto. Se muestran también los productos del catálogo POS (DB_POS_Productos / WMS) para que queden reflejados en Inventarios."
           );
@@ -198,10 +312,14 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       }
     } catch {
       setError("No se pudo cargar el catálogo de insumos.");
-      setInsumos([]);
-      setFuenteCatalogo(null);
-      setIncluyeCatalogoPos(false);
-      setProductosPosAgregados(0);
+      if (!cacheExistente || cacheExistente.items.length === 0) {
+        setInsumos([]);
+        setFuenteCatalogo(null);
+        setIncluyeCatalogoPos(false);
+        setProductosPosAgregados(0);
+      } else {
+        setAvisoCatalogo("Mostrando el último catálogo guardado mientras se recupera la conexión.");
+      }
     } finally {
       setCargando(false);
       refrescarDiagEnsamble();
@@ -899,10 +1017,24 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {cargando ? (
+                {cargando && filasStock.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-4 py-12 text-center text-gray-500">
-                      Cargando catálogo…
+                    <td colSpan={9} className="px-4 py-10 text-center">
+                      <div className="mx-auto flex max-w-md flex-col items-center gap-4 rounded-2xl border border-amber-200/70 bg-gradient-to-b from-amber-50 via-white to-orange-50/70 px-6 py-7 text-center shadow-[0_14px_40px_-22px_rgba(180,130,40,0.5)]">
+                        <div className="relative">
+                          <div className="absolute inset-0 rounded-full bg-amber-300/35 blur-xl" />
+                          <PremiumHourglassIcon className="relative h-16 w-16 drop-shadow-[0_8px_18px_rgba(180,130,40,0.28)]" />
+                        </div>
+                        <div>
+                          <p className="text-base font-semibold tracking-tight text-amber-950">Cargando inventario</p>
+                          <p className="mt-1 text-sm text-amber-900/80">
+                            Consultando hoja, Firestore y catálogo POS para mostrar el stock más actualizado.
+                          </p>
+                        </div>
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-amber-100">
+                          <div className="h-full w-1/2 animate-[pulse_1.4s_ease-in-out_infinite] rounded-full bg-gradient-to-r from-amber-400 via-yellow-500 to-amber-600" />
+                        </div>
+                      </div>
                     </td>
                   </tr>
                 ) : filasStock.length === 0 ? (
