@@ -1,5 +1,7 @@
 import { fetchCatalogoInsumosDesdeSheet } from "@/lib/catalogo-insumos-sheet-client";
 import { auth } from "@/lib/firebase";
+import { getCatalogoPOS } from "@/lib/catalogo-pos";
+import { mergeCatalogoInventarioBase, mergeCatalogoInventarioConProductosPos } from "@/lib/inventario-pos-catalogo";
 import {
   insumoKitDesdeCatalogoPorSku,
   listarInsumosKitPorPuntoVenta,
@@ -10,19 +12,14 @@ import { anularVentaPosCloud } from "@/lib/pos-ventas-cloud-client";
 import { marcarVentaAnuladaLocal, type VentaGuardadaLocal } from "@/lib/pos-ventas-local-storage";
 import type { InsumoKitItem } from "@/types/inventario-pos";
 
-/** Hoja Google primero; se unen filas de Firestore que no estén ya por SKU/id (misma lógica que cargue de inventario). */
-function catalogoInsumosKitParaAnulacion(sheet: InsumoKitItem[], firestore: InsumoKitItem[]): InsumoKitItem[] {
-  const map = new Map<string, InsumoKitItem>();
-  const clave = (it: InsumoKitItem) => normSkuInventario(it.sku) || normSkuInventario(it.id);
-  for (const it of sheet) {
-    const k = clave(it);
-    if (k) map.set(k, it);
-  }
-  for (const it of firestore) {
-    const k = clave(it);
-    if (k && !map.has(k)) map.set(k, it);
-  }
-  return Array.from(map.values());
+async function catalogoInsumosKitParaAnulacion(puntoVenta: string): Promise<InsumoKitItem[]> {
+  const [sheetRes, desdeFs, posRes] = await Promise.all([
+    fetchCatalogoInsumosDesdeSheet(puntoVenta),
+    listarInsumosKitPorPuntoVenta(puntoVenta),
+    getCatalogoPOS(),
+  ]);
+  const base = mergeCatalogoInventarioBase(sheetRes.ok && sheetRes.data.length > 0 ? sheetRes.data : [], desdeFs);
+  return mergeCatalogoInventarioConProductosPos(base, posRes.ok ? posRes.productos ?? [] : []).items;
 }
 
 /**
@@ -56,18 +53,15 @@ export async function anularVentaEnEquipoInventarioYNube(params: {
   const fallosSku: string[] = [];
 
   if (!omitirDevolucionInventarioPos) {
-    const sheetRes = await fetchCatalogoInsumosDesdeSheet(pv);
-    const desdeSheet = sheetRes.ok && sheetRes.data.length > 0 ? sheetRes.data : [];
-    const desdeFs = await listarInsumosKitPorPuntoVenta(pv);
-    const catalog = catalogoInsumosKitParaAnulacion(desdeSheet, desdeFs);
+    const catalog = await catalogoInsumosKitParaAnulacion(pv);
     const notasBase = `Anulación recibo ${ventaId}. ${motivoTrim}`;
 
     for (const linea of actualizada.lineas) {
       const qty = linea.cantidad;
       if (!(qty > 0)) continue;
-      const insumo = insumoKitDesdeCatalogoPorSku(catalog, linea.sku);
+      const insumo = insumoKitDesdeCatalogoPorSku(catalog, linea.inventarioLookupKey || linea.lineId || linea.sku);
       if (!insumo) {
-        fallosSku.push(linea.sku || linea.descripcion);
+        fallosSku.push(linea.inventarioLookupKey || linea.lineId || linea.sku || linea.descripcion);
         continue;
       }
       const r = await registrarMovimientoInventario({

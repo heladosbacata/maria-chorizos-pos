@@ -4,7 +4,7 @@ import type { ProductoPOS } from "@/types";
 import type { InsumoKitItem } from "@/types/inventario-pos";
 
 function inventarioIdDesdeSkuPos(sku: string): string {
-  return `wms-pos-${encodeURIComponent(sku.trim())}`;
+  return sku.trim();
 }
 
 export function insumoKitItemDesdeProductoPos(producto: ProductoPOS): InsumoKitItem {
@@ -22,6 +22,10 @@ type ItemInventarioPosNormalizado = {
   item: InsumoKitItem;
   mergeKey: string;
 };
+
+function codigoVisibleVariantePos(skuBase: string, etiqueta: string): string {
+  return `${skuBase.trim()} · ${etiqueta.trim()}`;
+}
 
 function itemsInventarioDesdeProductoPos(producto: ProductoPOS): ItemInventarioPosNormalizado[] {
   const variantes = Array.isArray(producto.variantes) ? producto.variantes.filter((opt) => opt?.clave?.trim()) : [];
@@ -41,7 +45,7 @@ function itemsInventarioDesdeProductoPos(producto: ProductoPOS): ItemInventarioP
     const skuLinea = buildLineIdPos(producto.sku.trim(), { variantes: [clave] });
     const item: InsumoKitItem = {
       id: inventarioIdDesdeSkuPos(skuLinea),
-      sku: producto.sku.trim(),
+      sku: codigoVisibleVariantePos(producto.sku.trim(), etiqueta),
       descripcion: `${producto.descripcion?.trim() || producto.sku.trim()} (${etiqueta})`,
       unidad: producto.unidad?.trim() || "und",
       categoria: producto.categoria?.trim() || "DB_POS_Productos",
@@ -51,6 +55,22 @@ function itemsInventarioDesdeProductoPos(producto: ProductoPOS): ItemInventarioP
       mergeKey: `pos-var:${normSkuInventario(skuLinea)}`,
     };
   });
+}
+
+export function mergeCatalogoInventarioBase(preferente: InsumoKitItem[], respaldo: InsumoKitItem[]): InsumoKitItem[] {
+  const merged = new Map<string, InsumoKitItem>();
+  const clave = (item: InsumoKitItem) => normSkuInventario(item.sku) || normSkuInventario(item.id);
+
+  for (const item of preferente) {
+    const key = clave(item);
+    if (key) merged.set(key, item);
+  }
+  for (const item of respaldo) {
+    const key = clave(item);
+    if (key && !merged.has(key)) merged.set(key, item);
+  }
+
+  return Array.from(merged.values()).sort((a, b) => a.descripcion.localeCompare(b.descripcion, "es"));
 }
 
 export function mergeCatalogoInventarioConProductosPos(

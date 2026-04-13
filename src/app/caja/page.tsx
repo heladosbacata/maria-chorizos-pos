@@ -60,6 +60,7 @@ import {
 } from "@/lib/pos-geb-print";
 import { fetchCatalogoInsumosDesdeSheet } from "@/lib/catalogo-insumos-sheet-client";
 import { getCatalogoPOS } from "@/lib/catalogo-pos";
+import { mergeCatalogoInventarioBase, mergeCatalogoInventarioConProductosPos } from "@/lib/inventario-pos-catalogo";
 import {
   insumoBolsaPapelParaLlevarResolver,
   insumoKitDesdeCatalogoPorSku,
@@ -255,6 +256,20 @@ function detalleVarianteTicketLinea(it: ItemCuenta): string | undefined {
     }
   }
   return parts.length ? parts.join(" · ") : undefined;
+}
+
+async function cargarCatalogoInventarioUnificado(puntoVenta: string) {
+  const [sheetRes, desdeFs, posRes] = await Promise.all([
+    fetchCatalogoInsumosDesdeSheet(puntoVenta),
+    listarInsumosKitPorPuntoVenta(puntoVenta),
+    getCatalogoPOS(),
+  ]);
+  const base = mergeCatalogoInventarioBase(sheetRes.ok && sheetRes.data.length > 0 ? sheetRes.data : [], desdeFs);
+  return mergeCatalogoInventarioConProductosPos(base, posRes.ok ? posRes.productos ?? [] : []).items;
+}
+
+function itemCuentaEsBebidaConInventarioDirecto(it: ItemCuenta): boolean {
+  return productoRequiereTamanoBebida(it.producto) || `${it.producto.categoria ?? ""}`.toLowerCase().includes("bebida");
 }
 
 function lineasTicketDesdeItemsCuenta(items: ItemCuenta[]): TicketVentaLinea[] {
@@ -1333,11 +1348,7 @@ export default function CajaPage() {
     }
     setAplicandoParaLlevar(true);
     try {
-      const sheetRes = await fetchCatalogoInsumosDesdeSheet(pv);
-      const catalog =
-        sheetRes.ok && sheetRes.data.length > 0
-          ? sheetRes.data
-          : await listarInsumosKitPorPuntoVenta(pv);
+      const catalog = await cargarCatalogoInventarioUnificado(pv);
       const bolsa = insumoBolsaPapelParaLlevarResolver(catalog, skuBolsaPapelParaLlevarEnv());
       const sticker = insumoStickerDomicilioParaLlevarResolver(catalog, skuStickerDomicilioParaLlevarEnv());
       if (!bolsa && !sticker) {
@@ -1426,11 +1437,7 @@ export default function CajaPage() {
       return { ok: false, message: "Abrí el turno para descontar el sticker de fidelización en inventario." };
     }
     try {
-      const sheetRes = await fetchCatalogoInsumosDesdeSheet(pv);
-      const catalog =
-        sheetRes.ok && sheetRes.data.length > 0
-          ? sheetRes.data
-          : await listarInsumosKitPorPuntoVenta(pv);
+      const catalog = await cargarCatalogoInventarioUnificado(pv);
       const insumo = insumoKitDesdeCatalogoPorSku(catalog, sku);
       if (!insumo) {
         return {
@@ -1465,11 +1472,7 @@ export default function CajaPage() {
     const sku = skuStickerFidelizacion();
     if (!sku) return;
     try {
-      const sheetRes = await fetchCatalogoInsumosDesdeSheet(pv);
-      const catalog =
-        sheetRes.ok && sheetRes.data.length > 0
-          ? sheetRes.data
-          : await listarInsumosKitPorPuntoVenta(pv);
+      const catalog = await cargarCatalogoInventarioUnificado(pv);
       const insumo = insumoKitDesdeCatalogoPorSku(catalog, sku);
       if (!insumo) {
         console.warn("[POS] Cancelar vista previa: no se pudo devolver sticker fidelización (SKU no en catálogo).");
@@ -1809,6 +1812,7 @@ export default function CajaPage() {
           const qty = Math.max(0.0001, it.cantidad);
           return {
             lineId: it.lineId,
+            inventarioLookupKey: it.lineId,
             sku: it.producto.sku,
             descripcion: it.producto.descripcion,
             cantidad: it.cantidad,
@@ -1833,6 +1837,39 @@ export default function CajaPage() {
           ...(notaPieTicket ? { pagoResumen: notaPieTicket } : {}),
           ...(mediosPago ? { mediosPago } : {}),
         });
+
+        const bebidasInventarioDirecto = itemsSnap.filter(itemCuentaEsBebidaConInventarioDirecto);
+        if (bebidasInventarioDirecto.length > 0) {
+          const catalogoInventario = await cargarCatalogoInventarioUnificado(pv);
+          const fallosBebidas: string[] = [];
+          for (const item of bebidasInventarioDirecto) {
+            const insumo = insumoKitDesdeCatalogoPorSku(catalogoInventario, item.lineId);
+            if (!insumo) {
+              fallosBebidas.push(item.lineId);
+              continue;
+            }
+            const detalleVariante = detalleVarianteTicketLinea(item);
+            const notasBebida = `Venta POS bebida${detalleVariante ? ` · ${detalleVariante}` : ""}`.slice(0, 500);
+            const rBebida = await registrarMovimientoInventario({
+              puntoVenta: pv,
+              insumo,
+              tipo: "consumo_interno",
+              cantidad: item.cantidad,
+              notas: notasBebida,
+              uid: user.uid,
+              email: user.email ?? null,
+              permitirNegativo: false,
+            });
+            if (!rBebida.ok) {
+              fallosBebidas.push(`${item.lineId}: ${rBebida.message ?? "error"}`);
+            }
+          }
+          if (fallosBebidas.length > 0) {
+            window.alert(
+              `La venta se registró, pero no se pudo descontar inventario para estas bebidas: ${fallosBebidas.join(", ")}.`
+            );
+          }
+        }
 
         let ensamblePendienteParaVista: WmsAplicarVentaEnsambleBody | null = null;
         const lineasEnsamble = lineasWmsEnsambleDesdeItemsCuenta(itemsSnap);

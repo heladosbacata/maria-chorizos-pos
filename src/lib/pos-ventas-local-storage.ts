@@ -23,6 +23,8 @@ const MAX_VENTAS = 500;
 
 export interface LineaVentaGuardada {
   lineId: string;
+  /** SKU compuesto de la línea (ej. bebida con variante) para ubicar el mismo ítem en inventario. */
+  inventarioLookupKey?: string;
   sku: string;
   descripcion: string;
   cantidad: number;
