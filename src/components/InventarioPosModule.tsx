@@ -42,6 +42,8 @@ type Pestaña = "stock" | "movimiento" | "historial";
 type FuenteCatalogoInventario = "sheet" | "firestore" | "wms";
 
 const INVENTARIO_CATALOGO_CACHE_PREFIX = "pos_mc_inventario_catalogo_v2";
+const HISTORIAL_LIMITE_STOCK = 80;
+const HISTORIAL_LIMITE_COMPLETO = 150;
 
 type CatalogoInventarioCache = {
   items: InsumoKitItem[];
@@ -444,11 +446,11 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     };
   }, [pv]);
 
-  const cargarHistorial = useCallback(async () => {
+  const cargarHistorial = useCallback(async (limite = HISTORIAL_LIMITE_COMPLETO) => {
     if (!pv) return;
     setCargandoHist(true);
     try {
-      const rows = await listarMovimientosInventario(pv, 150);
+      const rows = await listarMovimientosInventario(pv, limite);
       setHistorial(rows);
     } catch {
       setHistorial([]);
@@ -458,7 +460,14 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
   }, [pv]);
 
   useEffect(() => {
-    if ((pestaña === "stock" || pestaña === "historial") && pv) void cargarHistorial();
+    if (!pv) return;
+    if (pestaña === "stock") {
+      void cargarHistorial(HISTORIAL_LIMITE_STOCK);
+      return;
+    }
+    if (pestaña === "historial") {
+      void cargarHistorial(HISTORIAL_LIMITE_COMPLETO);
+    }
   }, [pestaña, pv, cargarHistorial]);
 
   const historialAjustesSaldoDesdeStock = useMemo(() => {
@@ -569,7 +578,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     }
     cerrarModalAjusteSaldo();
     setMensajeOk("Ajuste de saldo registrado.");
-    void cargarHistorial();
+    void cargarHistorial(pestaña === "historial" ? HISTORIAL_LIMITE_COMPLETO : HISTORIAL_LIMITE_STOCK);
   }, [
     ajusteSaldoModal,
     pv,
@@ -579,6 +588,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     email,
     cerrarModalAjusteSaldo,
     cargarHistorial,
+    pestaña,
   ]);
 
   const filasStock = useMemo(() => {
@@ -681,7 +691,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     setMovCantidad("");
     setMovNotas("");
     await cargarTodo();
-    void cargarHistorial();
+    void cargarHistorial(pestaña === "historial" ? HISTORIAL_LIMITE_COMPLETO : HISTORIAL_LIMITE_STOCK);
   };
 
   if (!pv) {
