@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { fetchCatalogoInsumosDesdeSheet } from "@/lib/catalogo-insumos-sheet-client";
+import { getCatalogoPOS } from "@/lib/catalogo-pos";
 import { db } from "@/lib/firebase";
 import {
   escribirMinimoInventarioLocal,
   leerMinimosInventarioLocal,
 } from "@/lib/inventario-minimos-local-storage";
+import { mergeCatalogoInventarioConProductosPos } from "@/lib/inventario-pos-catalogo";
 import type { InsumoKitItem, InventarioMovimientoDoc, TipoMovimientoInventario } from "@/types/inventario-pos";
 import { fechaColombia, fechaHoraColombia, mediodiaColombiaDesdeYmd } from "@/lib/fecha-colombia";
 import { normPuntoVentaCatalogo } from "@/lib/punto-venta-catalogo-norm";
@@ -81,7 +83,9 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     () => new Map()
   );
   const [minimosUsuario, setMinimosUsuario] = useState<Map<string, number>>(new Map());
-  const [fuenteCatalogo, setFuenteCatalogo] = useState<"sheet" | "firestore" | null>(null);
+  const [fuenteCatalogo, setFuenteCatalogo] = useState<"sheet" | "firestore" | "wms" | null>(null);
+  const [incluyeCatalogoPos, setIncluyeCatalogoPos] = useState(false);
+  const [productosPosAgregados, setProductosPosAgregados] = useState(0);
   const [avisoCatalogo, setAvisoCatalogo] = useState<string | null>(null);
   const [avisoPvHoja, setAvisoPvHoja] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
@@ -136,6 +140,8 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       setSaldosPorClaveMap(new Map());
       setMinimosUsuario(new Map());
       setFuenteCatalogo(null);
+      setIncluyeCatalogoPos(false);
+      setProductosPosAgregados(0);
       setAvisoCatalogo(null);
       setAvisoPvHoja(null);
       setCargando(false);
@@ -147,17 +153,22 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     setAvisoCatalogo(null);
     setAvisoPvHoja(null);
     try {
-      const [sheetRes, saldosPack] = await Promise.all([
+      const [sheetRes, saldosPack, posRes] = await Promise.all([
         fetchCatalogoInsumosDesdeSheet(pv),
         listarSaldosInventarioConFuentePorPuntoVenta(pv),
+        getCatalogoPOS(),
       ]);
+      const productosPos = posRes.ok ? posRes.productos ?? [] : [];
       setSaldoRows(saldosPack.saldoRows);
       setSaldosPorClaveMap(saldosPack.porClave);
       setMinimosUsuario(leerMinimosInventarioLocal(uid, pv));
+      setIncluyeCatalogoPos(productosPos.length > 0);
 
       if (sheetRes.ok && sheetRes.data.length > 0) {
-        setInsumos(sheetRes.data);
+        const merged = mergeCatalogoInventarioConProductosPos(sheetRes.data, productosPos);
+        setInsumos(merged.items);
         setFuenteCatalogo("sheet");
+        setProductosPosAgregados(merged.agregados);
         setError(null);
         if (sheetRes.pvFiltroSinCoincidencias) {
           setAvisoPvHoja(
@@ -166,11 +177,17 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
         }
       } else {
         const lista = await listarInsumosKitPorPuntoVenta(pv);
-        setInsumos(lista);
-        setFuenteCatalogo("firestore");
-        if (lista.length === 0) {
+        const merged = mergeCatalogoInventarioConProductosPos(lista, productosPos);
+        setInsumos(merged.items);
+        setProductosPosAgregados(merged.agregados);
+        setFuenteCatalogo(lista.length > 0 ? "firestore" : productosPos.length > 0 ? "wms" : "firestore");
+        if (merged.items.length === 0) {
           setError(
             `No hay ítems en la hoja ni en «${CATALOGO_INSUMOS_KIT_COLLECTION}» para «${pv}». Revisá la hoja DB_Franquicia_Insumos_Kit (columna PV si aplica) o documentos en Firestore.`
+          );
+        } else if (lista.length === 0 && productosPos.length > 0) {
+          setAvisoCatalogo(
+            "No se encontró catálogo base de insumos para este punto. Se muestran también los productos del catálogo POS (DB_POS_Productos / WMS) para que queden reflejados en Inventarios."
           );
         } else if (sheetRes.message) {
           setAvisoCatalogo(
@@ -182,6 +199,8 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       setError("No se pudo cargar el catálogo de insumos.");
       setInsumos([]);
       setFuenteCatalogo(null);
+      setIncluyeCatalogoPos(false);
+      setProductosPosAgregados(0);
     } finally {
       setCargando(false);
       refrescarDiagEnsamble();
@@ -551,7 +570,13 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
           {fuenteCatalogo && (
             <p className="mt-2 text-xs font-medium text-primary-700">
               Catálogo activo:{" "}
-              {fuenteCatalogo === "sheet" ? "hoja Google (DB_Franquicia_Insumos_Kit)" : `Firestore «${CATALOGO_INSUMOS_KIT_COLLECTION}»`}
+              {fuenteCatalogo === "sheet"
+                ? "hoja Google (DB_Franquicia_Insumos_Kit)"
+                : fuenteCatalogo === "firestore"
+                  ? `Firestore «${CATALOGO_INSUMOS_KIT_COLLECTION}»`
+                  : "catálogo POS (DB_POS_Productos / WMS)"}
+              {incluyeCatalogoPos && fuenteCatalogo !== "wms" ? " + catálogo POS (WMS)" : ""}
+              {productosPosAgregados > 0 ? ` · ${productosPosAgregados} producto(s) POS agregados` : ""}
             </p>
           )}
           <p className="mt-2 text-xs font-medium text-primary-700">Punto de venta: {pv}</p>

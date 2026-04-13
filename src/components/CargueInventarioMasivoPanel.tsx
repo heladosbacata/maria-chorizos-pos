@@ -5,6 +5,7 @@ import {
   fetchCatalogoInsumosDesdeSheet,
   type CatalogoSheetSetupHint,
 } from "@/lib/catalogo-insumos-sheet-client";
+import { getCatalogoPOS } from "@/lib/catalogo-pos";
 import { ymdColombia } from "@/lib/fecha-colombia";
 import {
   CATALOGO_INSUMOS_KIT_COLLECTION,
@@ -14,6 +15,7 @@ import {
   normSkuInventario,
   registrarMovimientoInventario,
 } from "@/lib/inventario-pos-firestore";
+import { mergeCatalogoInventarioConProductosPos } from "@/lib/inventario-pos-catalogo";
 import type { InsumoKitItem } from "@/types/inventario-pos";
 
 export interface CargueInventarioMasivoPanelProps {
@@ -59,7 +61,9 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
   const [cargando, setCargando] = useState(true);
   const [errorCat, setErrorCat] = useState<string | null>(null);
   const [sheetSetupAyuda, setSheetSetupAyuda] = useState<CatalogoSheetSetupHint | null>(null);
-  const [fuenteCat, setFuenteCat] = useState<"sheet" | "firestore" | null>(null);
+  const [fuenteCat, setFuenteCat] = useState<"sheet" | "firestore" | "wms" | null>(null);
+  const [incluyeCatalogoPos, setIncluyeCatalogoPos] = useState(false);
+  const [productosPosAgregados, setProductosPosAgregados] = useState(0);
 
   const [busqueda, setBusqueda] = useState("");
   const [fechaCargue, setFechaCargue] = useState(() => ymdColombia());
@@ -81,6 +85,8 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
       setSaldoRows([]);
       setCargando(false);
       setFuenteCat(null);
+      setIncluyeCatalogoPos(false);
+      setProductosPosAgregados(0);
       setErrorCat("No hay punto de venta asignado en tu perfil.");
       return;
     }
@@ -89,26 +95,35 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
     setFuenteCat(null);
     setSheetSetupAyuda(null);
     try {
-      const [sheet, saldosR] = await Promise.all([
+      const [sheet, saldosR, posRes] = await Promise.all([
         fetchCatalogoInsumosDesdeSheet(pv),
         listarSaldosInventarioPorPuntoVenta(pv),
+        getCatalogoPOS(),
       ]);
+      const productosPos = posRes.ok ? posRes.productos ?? [] : [];
       setSaldoRows(saldosR);
+      setIncluyeCatalogoPos(productosPos.length > 0);
       if (sheet.ok && sheet.data.length > 0) {
-        setInsumos(sheet.data);
+        const merged = mergeCatalogoInventarioConProductosPos(sheet.data, productosPos);
+        setInsumos(merged.items);
         setFuenteCat("sheet");
+        setProductosPosAgregados(merged.agregados);
         if (sheet.sheetSetup) setSheetSetupAyuda(sheet.sheetSetup);
         return;
       }
       if (sheet.sheetSetup) setSheetSetupAyuda(sheet.sheetSetup);
       const listaFs = await listarInsumosKitPorPuntoVenta(pv);
-      if (listaFs.length > 0) {
-        setInsumos(listaFs);
-        setFuenteCat("firestore");
+      const merged = mergeCatalogoInventarioConProductosPos(listaFs, productosPos);
+      if (merged.items.length > 0) {
+        setInsumos(merged.items);
+        setFuenteCat(listaFs.length > 0 ? "firestore" : productosPos.length > 0 ? "wms" : "firestore");
+        setProductosPosAgregados(merged.agregados);
         if (!sheet.ok && sheet.message) {
           setErrorCat(
             `No se leyó la hoja (${sheet.message}). Catálogo Firestore «${CATALOGO_INSUMOS_KIT_COLLECTION}».`
           );
+        } else if (listaFs.length === 0 && productosPos.length > 0) {
+          setErrorCat("No hubo catálogo base de insumos; se muestra el catálogo POS (DB_POS_Productos / WMS) para permitir el cargue.");
         }
         return;
       }
@@ -120,6 +135,8 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
     } catch {
       setErrorCat("No se pudo cargar el catálogo.");
       setInsumos([]);
+      setIncluyeCatalogoPos(false);
+      setProductosPosAgregados(0);
     } finally {
       setCargando(false);
     }
@@ -437,8 +454,16 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
         {fuenteCat && insumos.length > 0 && (
           <div className="shrink-0 border-t border-gray-100 bg-gray-50 px-4 py-2">
             <p className="text-xs text-gray-500">
-              Catálogo: {fuenteCat === "sheet" ? "hoja Google" : "Firestore"} · {insumosFiltrados.length} de {insumos.length}{" "}
-              filas mostradas
+              Catálogo:{" "}
+              {fuenteCat === "sheet"
+                ? "hoja Google"
+                : fuenteCat === "firestore"
+                  ? "Firestore"
+                  : "DB_POS_Productos / WMS"}
+              {incluyeCatalogoPos && fuenteCat !== "wms" ? " + catálogo POS (WMS)" : ""}
+              {productosPosAgregados > 0 ? ` · ${productosPosAgregados} producto(s) POS agregados` : ""}
+              {" · "}
+              {insumosFiltrados.length} de {insumos.length} filas mostradas
               {busqueda.trim() ? " (filtro activo)" : ""}.
             </p>
             <p className="mt-1 text-sm font-medium text-gray-800">
