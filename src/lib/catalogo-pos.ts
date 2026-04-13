@@ -106,12 +106,15 @@ function toProductoPOS(item: PosProductoItem): ProductoPOS | null {
  * Respuesta esperada: { ok: true, data: [...], productos: [...] }; cada ítem: sku, skuBarcode, descripcion, categoria, precioUnitario, unidad, urlImagen.
  */
 export async function getCatalogoPOS(
-  idToken?: string | null
+  idToken?: string | null,
+  puntoVenta?: string | null
 ): Promise<CatalogoPOSResult> {
   const isBrowser = typeof window !== "undefined";
-  const url = isBrowser
+  const pv = String(puntoVenta ?? "").trim();
+  const urlBase = isBrowser
     ? "/api/productos_listar"
     : `${getWmsPublicBaseUrl()}/api/pos/productos/listar`;
+  const url = pv ? `${urlBase}?puntoVenta=${encodeURIComponent(pv)}` : urlBase;
   const headers: HeadersInit = {};
   if (idToken) {
     headers.Authorization = `Bearer ${idToken}`;

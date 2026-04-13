@@ -98,7 +98,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
       const [sheet, saldosR, posRes] = await Promise.all([
         fetchCatalogoInsumosDesdeSheet(pv),
         listarSaldosInventarioPorPuntoVenta(pv),
-        getCatalogoPOS(),
+        getCatalogoPOS(null, pv),
       ]);
       const productosPos = posRes.ok ? posRes.productos ?? [] : [];
       setSaldoRows(saldosR);

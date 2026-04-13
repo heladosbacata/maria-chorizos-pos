@@ -262,7 +262,7 @@ async function cargarCatalogoInventarioUnificado(puntoVenta: string) {
   const [sheetRes, desdeFs, posRes] = await Promise.all([
     fetchCatalogoInsumosDesdeSheet(puntoVenta),
     listarInsumosKitPorPuntoVenta(puntoVenta),
-    getCatalogoPOS(),
+    getCatalogoPOS(null, puntoVenta),
   ]);
   const base = mergeCatalogoInventarioBase(sheetRes.ok && sheetRes.data.length > 0 ? sheetRes.data : [], desdeFs);
   return mergeCatalogoInventarioConProductosPos(base, posRes.ok ? posRes.productos ?? [] : []).items;
@@ -722,7 +722,7 @@ export default function CajaPage() {
     setCatalogoError(null);
     const tokenPromise = auth?.currentUser ? auth.currentUser.getIdToken() : Promise.resolve(null);
     tokenPromise
-      .then((token) => getCatalogoPOS(token))
+      .then((token) => getCatalogoPOS(token, user?.puntoVenta?.trim() ?? ""))
       .then((res) => {
         if (res.ok && res.productos) setCatalogoProductos(res.productos ?? []);
         else setCatalogoError(res.message ?? "No se pudo cargar el catálogo");
@@ -739,7 +739,7 @@ export default function CajaPage() {
     setCatalogoError(null);
     const tokenPromise = auth?.currentUser ? auth.currentUser.getIdToken() : Promise.resolve(null);
     tokenPromise
-      .then((token) => getCatalogoPOS(token))
+      .then((token) => getCatalogoPOS(token, user?.puntoVenta?.trim() ?? ""))
       .then((res) => {
         if (cancelled) return;
         if (res.ok && res.productos) setCatalogoProductos(res.productos ?? []);
@@ -754,7 +754,7 @@ export default function CajaPage() {
     return () => {
       cancelled = true;
     };
-  }, [moduloActivo, user?.role, user]);
+  }, [moduloActivo, user?.role, user, user?.puntoVenta]);
 
   useEffect(() => {
     if (!user?.puntoVenta?.trim() || esContadorInvitado(user.role)) return;

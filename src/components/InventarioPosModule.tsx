@@ -258,7 +258,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       const [sheetRes, saldosPack, posRes, listaFs] = await Promise.all([
         fetchCatalogoInsumosDesdeSheet(pv),
         listarSaldosInventarioConFuentePorPuntoVenta(pv),
-        getCatalogoPOS(),
+        getCatalogoPOS(null, pv),
         listarInsumosKitPorPuntoVenta(pv),
       ]);
       const productosPos = posRes.ok ? posRes.productos ?? [] : [];

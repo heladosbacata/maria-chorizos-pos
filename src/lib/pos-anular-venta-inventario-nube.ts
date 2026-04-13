@@ -16,7 +16,7 @@ async function catalogoInsumosKitParaAnulacion(puntoVenta: string): Promise<Insu
   const [sheetRes, desdeFs, posRes] = await Promise.all([
     fetchCatalogoInsumosDesdeSheet(puntoVenta),
     listarInsumosKitPorPuntoVenta(puntoVenta),
-    getCatalogoPOS(),
+    getCatalogoPOS(null, puntoVenta),
   ]);
   const base = mergeCatalogoInventarioBase(sheetRes.ok && sheetRes.data.length > 0 ? sheetRes.data : [], desdeFs);
   return mergeCatalogoInventarioConProductosPos(base, posRes.ok ? posRes.productos ?? [] : []).items;

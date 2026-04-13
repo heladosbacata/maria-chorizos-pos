@@ -173,7 +173,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
     setErrorCat(null);
     setFuenteCat(null);
     try {
-      const [sheet, posRes] = await Promise.all([fetchCatalogoInsumosDesdeSheet(pv), getCatalogoPOS()]);
+      const [sheet, posRes] = await Promise.all([fetchCatalogoInsumosDesdeSheet(pv), getCatalogoPOS(null, pv)]);
       const productosPos = posRes.ok ? posRes.productos ?? [] : [];
       setIncluyeCatalogoPos(productosPos.length > 0);
       if (sheet.ok && sheet.data.length > 0) {
