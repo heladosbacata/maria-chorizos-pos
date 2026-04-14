@@ -53,6 +53,16 @@ function primeraImagenProducto(p: ProductoPOS): string | null {
   return url;
 }
 
+function imagenProductoOptimizable(src: string): boolean {
+  if (src.startsWith("/")) return true;
+  try {
+    const u = new URL(src);
+    return u.protocol === "https:" || u.protocol === "http:";
+  } catch {
+    return false;
+  }
+}
+
 type VarianteUi = {
   key: string;
   label: string;
@@ -677,7 +687,7 @@ function PedidosLandingClient() {
               </div>
             ) : (
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {productosFiltrados.map((prod) => {
+                {productosFiltrados.map((prod, idx) => {
                   const variantes = opcionesVariantesProducto(prod);
                   const varianteActivaKey = varianteSeleccionadaPorSku[prod.sku] ?? (variantes[0]?.key ?? null);
                   const varianteActiva = varianteActivaKey ? variantes.find((v) => v.key === varianteActivaKey) : null;
@@ -685,10 +695,21 @@ function PedidosLandingClient() {
                   const lineKey = keyLineaPedido(prod.sku, varianteActivaKey);
                   const cant = cantidades[lineKey] ?? 0;
                   const img = primeraImagenProducto(prod);
+                  const usarImageOptimizada = img ? imagenProductoOptimizable(img) : false;
                   return (
                     <article key={prod.sku} className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md sm:rounded-2xl">
                       <div className="relative flex h-48 items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 sm:h-56 md:aspect-[4/3] md:h-auto">
-                        {img ? (
+                        {img && usarImageOptimizada ? (
+                          <Image
+                            src={img}
+                            alt={prod.descripcion}
+                            fill
+                            sizes="(max-width: 640px) calc(100vw - 2rem), (max-width: 1280px) calc(50vw - 1.5rem), 360px"
+                            quality={68}
+                            priority={idx < 2}
+                            className="block bg-white object-contain object-center p-2 sm:p-3 md:bg-transparent md:object-cover md:p-0"
+                          />
+                        ) : img ? (
                           <img
                             src={img}
                             alt={prod.descripcion}
@@ -952,16 +973,27 @@ function PedidosLandingClient() {
               </div>
             </div>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {recomendaciones.map((prod) => {
+              {recomendaciones.map((prod, idx) => {
                 const img = primeraImagenProducto(prod);
                 const vars = opcionesVariantesProducto(prod);
                 const varKey = varianteSeleccionadaPorSku[prod.sku] ?? (vars[0]?.key ?? null);
                 const varActiva = varKey ? vars.find((v) => v.key === varKey) : null;
                 const precioRec = varActiva?.precio ?? prod.precioUnitario;
+                const usarImageOptimizada = img ? imagenProductoOptimizable(img) : false;
                 return (
                   <article key={`rec-${prod.sku}`} className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
                     <div className="relative flex aspect-[16/10] items-center justify-center bg-slate-100">
-                      {img ? (
+                      {img && usarImageOptimizada ? (
+                        <Image
+                          src={img}
+                          alt={prod.descripcion}
+                          fill
+                          sizes="(max-width: 640px) calc(100vw - 2rem), (max-width: 1024px) calc(50vw - 1.5rem), 280px"
+                          quality={64}
+                          priority={idx < 1}
+                          className="block bg-white object-contain object-center p-2 sm:object-cover sm:p-0"
+                        />
+                      ) : img ? (
                         <img
                           src={img}
                           alt={prod.descripcion}
