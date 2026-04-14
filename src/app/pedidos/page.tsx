@@ -657,7 +657,7 @@ function PedidosLandingClient() {
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {Array.from({ length: 6 }).map((_, idx) => (
                   <article key={`skeleton-${idx}`} className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
-                    <div className="h-36 animate-pulse bg-slate-200" />
+                    <div className="h-28 animate-pulse bg-slate-200 sm:h-32" />
                     <div className="space-y-3 p-3">
                       <div className="space-y-2">
                         <div className="h-3 w-3/4 animate-pulse rounded bg-slate-200" />
@@ -687,7 +687,7 @@ function PedidosLandingClient() {
                   const img = primeraImagenProducto(prod);
                   return (
                     <article key={prod.sku} className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md sm:rounded-2xl">
-                      <div className="relative aspect-[16/11] bg-gradient-to-br from-slate-100 to-slate-200 sm:aspect-[4/3]">
+                      <div className="relative h-48 bg-gradient-to-br from-slate-100 to-slate-200 sm:h-56 md:aspect-[4/3] md:h-auto">
                         {img ? (
                           <img
                             src={img}
