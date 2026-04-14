@@ -573,7 +573,7 @@ function PedidosLandingClient() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-50 pb-28 lg:pb-0">
+    <main className="min-h-screen w-full overflow-x-hidden bg-slate-50 pb-28 lg:pb-0">
       <section className="mx-auto max-w-6xl space-y-4 px-3 py-4 sm:px-4 sm:py-5 md:space-y-5 md:px-6 md:py-6">
         <header className="relative overflow-hidden rounded-2xl border border-cyan-200 bg-gradient-to-br from-cyan-700 via-sky-700 to-sky-600 p-4 text-white shadow-xl md:rounded-3xl md:p-6">
           <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/15 blur-2xl" />
@@ -585,9 +585,9 @@ function PedidosLandingClient() {
               <p className="mt-2 max-w-2xl text-sm text-cyan-50">
                 Elige productos, confirma tu direccion y recibe tu pedido rapido. Atencion directa del punto POS.
               </p>
-              <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-white/35 bg-white/15 px-3 py-1.5 text-xs font-semibold">
+              <div className="mt-3 inline-flex max-w-full items-center gap-2 rounded-full border border-white/35 bg-white/15 px-3 py-1.5 text-xs font-semibold">
                 <span className="inline-block h-2 w-2 rounded-full bg-lime-300" />
-                Punto de venta: {puntoVenta}
+                <span className="truncate">Punto de venta: {puntoVenta}</span>
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -687,7 +687,7 @@ function PedidosLandingClient() {
                   const img = primeraImagenProducto(prod);
                   return (
                     <article key={prod.sku} className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md sm:rounded-2xl">
-                      <div className="relative aspect-[16/10] bg-gradient-to-br from-slate-100 to-slate-200 sm:aspect-[4/3]">
+                      <div className="relative aspect-[16/11] bg-gradient-to-br from-slate-100 to-slate-200 sm:aspect-[4/3]">
                         {img ? (
                           <img
                             src={img}
@@ -960,7 +960,7 @@ function PedidosLandingClient() {
                 const precioRec = varActiva?.precio ?? prod.precioUnitario;
                 return (
                   <article key={`rec-${prod.sku}`} className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-                    <div className="relative aspect-[16/9] bg-slate-100">
+                    <div className="relative aspect-[16/10] bg-slate-100">
                       {img ? (
                         <img
                           src={img}
