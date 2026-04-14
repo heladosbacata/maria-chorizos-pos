@@ -692,7 +692,7 @@ function PedidosLandingClient() {
                           <img
                             src={img}
                             alt={prod.descripcion}
-                            className="h-full w-full object-cover object-center"
+                            className="h-full w-full bg-white object-contain object-center p-2 sm:p-3 md:bg-transparent md:object-cover md:p-0"
                             loading="lazy"
                           />
                         ) : (
@@ -965,7 +965,7 @@ function PedidosLandingClient() {
                         <img
                           src={img}
                           alt={prod.descripcion}
-                          className="h-full w-full object-cover object-center"
+                          className="h-full w-full bg-white object-contain object-center p-2 sm:object-cover sm:p-0"
                           loading="lazy"
                         />
                       ) : (
