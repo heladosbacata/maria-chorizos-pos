@@ -687,9 +687,14 @@ function PedidosLandingClient() {
                   const img = primeraImagenProducto(prod);
                   return (
                     <article key={prod.sku} className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md sm:rounded-2xl">
-                      <div className="relative h-40 bg-gradient-to-br from-slate-100 to-slate-200 sm:h-36">
+                      <div className="relative aspect-[16/10] bg-gradient-to-br from-slate-100 to-slate-200 sm:aspect-[4/3]">
                         {img ? (
-                          <img src={img} alt={prod.descripcion} className="h-full w-full object-cover" />
+                          <img
+                            src={img}
+                            alt={prod.descripcion}
+                            className="h-full w-full object-cover object-center"
+                            loading="lazy"
+                          />
                         ) : (
                           <div className="flex h-full w-full items-center justify-center">
                             <Image src={LOGO_ORG_URL} alt="Maria Chorizos" width={108} height={40} className="h-9 w-auto opacity-75" />
@@ -955,9 +960,14 @@ function PedidosLandingClient() {
                 const precioRec = varActiva?.precio ?? prod.precioUnitario;
                 return (
                   <article key={`rec-${prod.sku}`} className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-                    <div className="h-24 bg-slate-100">
+                    <div className="relative aspect-[16/9] bg-slate-100">
                       {img ? (
-                        <img src={img} alt={prod.descripcion} className="h-full w-full object-cover" />
+                        <img
+                          src={img}
+                          alt={prod.descripcion}
+                          className="h-full w-full object-cover object-center"
+                          loading="lazy"
+                        />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center">
                           <Image src={LOGO_ORG_URL} alt="Maria Chorizos" width={88} height={32} className="h-7 w-auto opacity-70" />
