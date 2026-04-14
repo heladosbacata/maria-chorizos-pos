@@ -23,6 +23,7 @@ import ModalCobroSinInternet from "@/components/ModalCobroSinInternet";
 import ModalInformeCierreCorreo from "@/components/ModalInformeCierreCorreo";
 import PosCajaMensajesBell from "@/components/PosCajaMensajesBell";
 import PosBroadcastBell from "@/components/PosBroadcastBell";
+import PosDomiciliosModule from "@/components/PosDomiciliosModule";
 import RegistrarPagoPanel, { type DetallePagoConfirmado } from "@/components/RegistrarPagoPanel";
 import TurnoCierreExitoPremiumModal from "@/components/TurnoCierreExitoPremiumModal";
 import TurnosHistorialModule from "@/components/TurnosHistorialModule";
@@ -304,6 +305,7 @@ type ModuloActivo =
   | "inventarios"
   | "metasBonificaciones"
   | "reportes"
+  | "domicilios"
   | "mas";
 
 type TipoComprobante = TipoComprobanteVenta;
@@ -2257,6 +2259,8 @@ export default function CajaPage() {
                 ? "Metas y bonificaciones"
                 : moduloActivo === "reportes"
                   ? "Reportes"
+                  : moduloActivo === "domicilios"
+                    ? "Domicilios"
                   : "Más";
 
   return (
@@ -2446,6 +2450,42 @@ export default function CajaPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
             </svg>
             Reportes
+          </button>
+          <button
+            type="button"
+            data-pos-tutorial="nav-domicilios"
+            onClick={() => setModuloActivo("domicilios")}
+            className={`group relative flex w-full items-center gap-3 overflow-hidden rounded-xl border px-3 py-2.5 text-left text-sm font-semibold transition-all ${
+              moduloActivo === "domicilios"
+                ? "border-cyan-400 bg-gradient-to-r from-cyan-600 to-sky-600 text-white shadow-md"
+                : "border-cyan-200 bg-gradient-to-r from-cyan-50 to-sky-50 text-cyan-900 hover:border-cyan-300 hover:shadow-sm"
+            }`}
+          >
+            <span
+              className={`absolute inset-y-0 right-0 w-12 bg-white/20 blur-xl transition-opacity ${
+                moduloActivo === "domicilios" ? "opacity-70" : "opacity-0 group-hover:opacity-50"
+              }`}
+            />
+            <span
+              className={`relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+                moduloActivo === "domicilios" ? "bg-white/20" : "bg-white"
+              }`}
+            >
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.9}
+                  d="M3 8.25h11.5v7.5H3m0-7.5l2.3-3.5h7.4l1.8 3.5M14.5 10.5h2.25l2.25 2.25v3h-4.5m0-5.25V15.75m0 0A2.25 2.25 0 1 0 19 15.75m-15.75 0A2.25 2.25 0 1 0 7.5 15.75"
+                />
+              </svg>
+            </span>
+            <span className="relative flex min-w-0 flex-1 flex-col leading-tight">
+              <span>Domicilios</span>
+              <span className={`text-[10px] uppercase tracking-wide ${moduloActivo === "domicilios" ? "text-cyan-100" : "text-cyan-700"}`}>
+                Premium
+              </span>
+            </span>
           </button>
           {!esContador && (
             <button
@@ -3696,6 +3736,8 @@ export default function CajaPage() {
                 onRegistrarMovimiento: registrarMovimientoCaja,
               }}
             />
+          ) : moduloActivo === "domicilios" ? (
+            <PosDomiciliosModule puntoVenta={user.puntoVenta} />
           ) : moduloActivo === "mas" ? (
             <ConfiguracionMasModule puntoVenta={user.puntoVenta} uid={user.uid} role={user.role} />
           ) : (
