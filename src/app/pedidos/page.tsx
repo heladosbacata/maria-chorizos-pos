@@ -573,15 +573,15 @@ function PedidosLandingClient() {
   };
 
   return (
-    <main className="min-h-screen bg-slate-50">
-      <section className="mx-auto max-w-6xl space-y-5 px-4 py-6 md:px-6">
-        <header className="relative overflow-hidden rounded-3xl border border-cyan-200 bg-gradient-to-br from-cyan-700 via-sky-700 to-sky-600 p-5 text-white shadow-xl md:p-6">
+    <main className="min-h-screen bg-slate-50 pb-28 lg:pb-0">
+      <section className="mx-auto max-w-6xl space-y-4 px-3 py-4 sm:px-4 sm:py-5 md:space-y-5 md:px-6 md:py-6">
+        <header className="relative overflow-hidden rounded-2xl border border-cyan-200 bg-gradient-to-br from-cyan-700 via-sky-700 to-sky-600 p-4 text-white shadow-xl md:rounded-3xl md:p-6">
           <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/15 blur-2xl" />
           <div className="pointer-events-none absolute -bottom-12 left-20 h-36 w-36 rounded-full bg-amber-200/20 blur-2xl" />
-          <div className="relative flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+          <div className="relative flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-100">App de pedidos Maria Chorizos</p>
-              <h1 className="mt-1 text-3xl font-black leading-tight md:text-4xl">Pide como en una app de delivery</h1>
+              <h1 className="mt-1 text-2xl font-black leading-tight sm:text-3xl md:text-4xl">Pide como en una app de delivery</h1>
               <p className="mt-2 max-w-2xl text-sm text-cyan-50">
                 Elige productos, confirma tu direccion y recibe tu pedido rapido. Atencion directa del punto POS.
               </p>
@@ -590,9 +590,9 @@ function PedidosLandingClient() {
                 Punto de venta: {puntoVenta}
               </div>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
               <div className="rounded-2xl border border-white/35 bg-white p-2 shadow-sm">
-                <Image src={LOGO_ORG_URL} alt="Maria Chorizos" width={168} height={60} className="h-11 w-auto rounded-lg object-contain" />
+                <Image src={LOGO_ORG_URL} alt="Maria Chorizos" width={168} height={60} className="h-9 w-auto rounded-lg object-contain sm:h-11" />
               </div>
             </div>
           </div>
@@ -619,9 +619,9 @@ function PedidosLandingClient() {
           </article>
         </section>
 
-        <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
+        <div className="grid gap-4 lg:grid-cols-[1fr_360px] lg:gap-5">
           <section className="space-y-4">
-            <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+            <div className="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm sm:p-4">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
                   <h2 className="text-lg font-bold text-gray-900">Catalogo de productos</h2>
@@ -632,17 +632,17 @@ function PedidosLandingClient() {
                     value={busqueda}
                     onChange={(e) => setBusqueda(e.target.value)}
                     placeholder="Buscar producto..."
-                    className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none ring-cyan-200 transition focus:border-cyan-500 focus:ring-2"
+                    className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 transition focus:border-cyan-500 focus:ring-2"
                   />
                 </div>
               </div>
-              <div className="mt-3 flex gap-2 overflow-auto pb-1">
+              <div className="-mx-1 mt-3 flex snap-x gap-2 overflow-auto px-1 pb-1">
                 {categorias.map((cat) => (
                   <button
                     key={cat}
                     type="button"
                     onClick={() => setCategoriaActiva(cat)}
-                    className={`whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
+                    className={`snap-start whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
                       categoriaActiva === cat
                         ? "border-cyan-500 bg-cyan-600 text-white"
                         : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
@@ -654,7 +654,7 @@ function PedidosLandingClient() {
               </div>
             </div>
             {loadingCatalogo ? (
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {Array.from({ length: 6 }).map((_, idx) => (
                   <article key={`skeleton-${idx}`} className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
                     <div className="h-36 animate-pulse bg-slate-200" />
@@ -676,7 +676,7 @@ function PedidosLandingClient() {
                 {errorCatalogo}
               </div>
             ) : (
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                 {productosFiltrados.map((prod) => {
                   const variantes = opcionesVariantesProducto(prod);
                   const varianteActivaKey = varianteSeleccionadaPorSku[prod.sku] ?? (variantes[0]?.key ?? null);
@@ -686,8 +686,8 @@ function PedidosLandingClient() {
                   const cant = cantidades[lineKey] ?? 0;
                   const img = primeraImagenProducto(prod);
                   return (
-                    <article key={prod.sku} className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md">
-                      <div className="relative h-36 bg-gradient-to-br from-slate-100 to-slate-200">
+                    <article key={prod.sku} className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md sm:rounded-2xl">
+                      <div className="relative h-40 bg-gradient-to-br from-slate-100 to-slate-200 sm:h-36">
                         {img ? (
                           <img src={img} alt={prod.descripcion} className="h-full w-full object-cover" />
                         ) : (
@@ -699,7 +699,7 @@ function PedidosLandingClient() {
                           {categoriaProducto(prod)}
                         </span>
                       </div>
-                      <div className="space-y-3 p-3">
+                      <div className="space-y-3 p-3 sm:p-3.5">
                         <div>
                           <p className="line-clamp-2 text-sm font-bold text-gray-900">{prod.descripcion}</p>
                           <p className="text-[11px] text-gray-500">Producto fresco, preparado al momento.</p>
@@ -733,21 +733,21 @@ function PedidosLandingClient() {
                             </div>
                           </div>
                         ) : null}
-                        <div className="flex items-end justify-between gap-3">
+                        <div className="flex items-center justify-between gap-3">
                           <p className="text-lg font-extrabold text-cyan-700">{formatoMoneda(precioMostrar)}</p>
                           <div className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1">
                             <button
                               type="button"
                               onClick={() => bajarCantidad(prod.sku, varianteActivaKey)}
-                              className="h-7 w-7 rounded-md border border-gray-200 bg-white text-sm font-bold text-gray-700 transition hover:bg-gray-100 active:scale-95"
+                              className="h-8 w-8 rounded-md border border-gray-200 bg-white text-base font-bold text-gray-700 transition hover:bg-gray-100 active:scale-95"
                             >
                               -
                             </button>
-                            <span className="w-6 text-center text-sm font-semibold">{cant}</span>
+                            <span className="w-7 text-center text-base font-semibold">{cant}</span>
                             <button
                               type="button"
                               onClick={() => subirCantidad(prod.sku, varianteActivaKey)}
-                              className="h-7 w-7 rounded-md bg-cyan-700 text-sm font-bold text-white transition hover:bg-cyan-800 active:scale-95"
+                              className="h-8 w-8 rounded-md bg-cyan-700 text-base font-bold text-white transition hover:bg-cyan-800 active:scale-95"
                             >
                               +
                             </button>
@@ -766,13 +766,13 @@ function PedidosLandingClient() {
             )}
           </section>
 
-          <aside ref={checkoutRef} className="space-y-4 lg:sticky lg:top-4 lg:h-fit">
-            <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+          <aside ref={checkoutRef} className="space-y-3 lg:sticky lg:top-4 lg:h-fit lg:space-y-4">
+            <section className="scroll-mt-20 rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm sm:p-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-base font-bold text-gray-900">Tu pedido</h3>
                 <span className="rounded-full bg-cyan-100 px-2 py-0.5 text-[11px] font-semibold text-cyan-800">{totalItems} item(s)</span>
               </div>
-              <ul className="mt-3 max-h-56 space-y-2 overflow-auto text-sm text-gray-700">
+              <ul className="mt-3 max-h-48 space-y-2 overflow-auto text-sm text-gray-700 sm:max-h-56">
                 {itemsCarrito.length === 0 ? (
                   <li className="text-gray-500">No has agregado productos.</li>
                 ) : (
@@ -804,7 +804,7 @@ function PedidosLandingClient() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 shadow-sm">
+            <section className="rounded-2xl border border-amber-200 bg-amber-50/70 p-3.5 shadow-sm sm:p-4">
               <h3 className="text-sm font-bold text-amber-900">Promociones inteligentes</h3>
               {subtotal <= 0 ? (
                 <p className="mt-2 text-xs text-amber-800">Agrega productos para activar beneficios personalizados.</p>
@@ -854,37 +854,37 @@ function PedidosLandingClient() {
               )}
             </section>
 
-            <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+            <section className="rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm sm:p-4">
               <h3 className="text-base font-bold text-gray-900">Datos de entrega</h3>
               <div className="mt-3 space-y-2">
                 <input
                   value={cliente}
                   onChange={(e) => setCliente(e.target.value)}
                   placeholder="Nombre completo"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
                 />
                 <input
                   value={telefono}
                   onChange={(e) => setTelefono(e.target.value)}
                   placeholder="Teléfono"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
                 />
                 <input
                   value={direccion}
                   onChange={(e) => setDireccion(e.target.value)}
                   placeholder="Dirección"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
                 />
                 <input
                   value={referencia}
                   onChange={(e) => setReferencia(e.target.value)}
                   placeholder="Referencia (opcional)"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
                 />
                 <select
                   value={metodoPago}
                   onChange={(e) => setMetodoPago(e.target.value as MetodoPago)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
                 >
                   <option value="efectivo">Pago en efectivo</option>
                   <option value="transferencia">Transferencia</option>
@@ -894,7 +894,7 @@ function PedidosLandingClient() {
                   type="button"
                   onClick={enviarPedido}
                   disabled={enviando}
-                  className="w-full rounded-lg bg-cyan-700 px-3 py-2 text-sm font-semibold text-white transition hover:bg-cyan-800 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="w-full rounded-lg bg-cyan-700 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-cyan-800 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {enviando ? "Enviando pedido..." : "Confirmar pedido"}
                 </button>
@@ -907,7 +907,7 @@ function PedidosLandingClient() {
             </section>
 
             {pedidoCreadoId ? (
-              <section className="rounded-2xl border border-cyan-200 bg-cyan-50/50 p-4 shadow-sm">
+              <section className="rounded-2xl border border-cyan-200 bg-cyan-50/50 p-3.5 shadow-sm sm:p-4">
                 <div className="flex items-center justify-between gap-2">
                   <h3 className="text-base font-bold text-cyan-900">Estado de tu pedido</h3>
                   <span className="rounded-full bg-cyan-100 px-2 py-0.5 text-[11px] font-semibold text-cyan-800">
@@ -939,7 +939,7 @@ function PedidosLandingClient() {
         </div>
 
         {recomendaciones.length > 0 ? (
-          <section className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+          <section className="rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm sm:p-4">
             <div className="mb-3 flex items-center justify-between gap-2">
               <div>
                 <h3 className="text-base font-bold text-gray-900">Recomendados para ti</h3>
@@ -984,29 +984,38 @@ function PedidosLandingClient() {
           </section>
         ) : null}
       </section>
-      <button
-        type="button"
-        onClick={() => checkoutRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-        className="fixed bottom-5 left-4 z-40 rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-lg transition hover:bg-black active:scale-[0.98] lg:hidden"
-      >
-        Ver carrito ({totalItems}) · {formatoMoneda(total)}
-      </button>
+      <div className="fixed inset-x-3 bottom-3 z-40 flex gap-2 lg:hidden">
+        <button
+          type="button"
+          onClick={() => checkoutRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+          className="flex-1 rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-black active:scale-[0.98]"
+        >
+          Ver carrito ({totalItems})
+        </button>
+        <button
+          type="button"
+          onClick={() => setChatAbierto((v) => !v)}
+          className="flex-1 rounded-xl bg-cyan-700 px-3 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-cyan-800 active:scale-[0.98]"
+        >
+          {chatAbierto ? "Cerrar chat" : "Chat POS"}
+        </button>
+      </div>
       <button
         type="button"
         onClick={() => setChatAbierto((v) => !v)}
-        className="fixed bottom-5 right-5 z-40 rounded-full bg-cyan-700 px-4 py-2 text-sm font-semibold text-white shadow-lg transition hover:bg-cyan-800 active:scale-[0.98]"
+        className="fixed bottom-5 right-5 z-40 hidden rounded-full bg-cyan-700 px-4 py-2 text-sm font-semibold text-white shadow-lg transition hover:bg-cyan-800 active:scale-[0.98] lg:inline-flex"
       >
         {chatAbierto ? "Cerrar chat" : "Chat con el punto"}
       </button>
       {chatAbierto ? (
-        <section className="fixed bottom-20 right-5 z-40 w-[340px] max-w-[calc(100vw-2rem)] rounded-2xl border border-cyan-200 bg-white shadow-2xl">
-          <header className="rounded-t-2xl bg-cyan-700 px-4 py-3 text-white">
+        <section className="fixed inset-x-0 bottom-0 z-50 max-h-[82vh] rounded-t-2xl border border-cyan-200 bg-white shadow-2xl md:bottom-20 md:right-5 md:inset-x-auto md:w-[340px] md:max-w-[calc(100vw-2rem)] md:rounded-2xl">
+          <header className="rounded-t-2xl bg-cyan-700 px-4 py-3 text-white md:rounded-t-2xl">
             <p className="text-sm font-bold">Chat de pedido</p>
             <p className="text-[11px] text-cyan-100">
               {pedidoCreadoId ? `Pedido ${pedidoCreadoId}` : "Primero confirma tu pedido para chatear"}
             </p>
           </header>
-          <div ref={chatScrollRef} className="max-h-72 min-h-52 space-y-2 overflow-auto bg-slate-50 p-3">
+          <div ref={chatScrollRef} className="max-h-[48vh] min-h-52 space-y-2 overflow-auto bg-slate-50 p-3 md:max-h-72">
             {!pedidoCreadoId ? (
               <p className="text-xs text-slate-500">Cuando confirmes el pedido, este chat quedará activo.</p>
             ) : chatCargando ? (
