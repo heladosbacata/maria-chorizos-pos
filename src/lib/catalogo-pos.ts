@@ -30,6 +30,17 @@ interface PosProductoItem {
     etiqueta?: string;
     precioVenta?: number;
   }>;
+  posVariantesMaria?: {
+    grupos?: Array<{
+      codigo?: string;
+      etiquetaGrupo?: string;
+      opciones?: Array<{
+        valor?: string;
+        etiqueta?: string;
+        precioVenta?: number;
+      }>;
+    }>;
+  };
   preciosPorVariante?: Record<string, number>;
   [key: string]: unknown;
 }
@@ -54,6 +65,31 @@ function numPrecio(v: unknown): number {
   return NaN;
 }
 
+function variantesDesdePosVariantesMaria(item: PosProductoItem): Array<{
+  clave: string;
+  etiqueta: string;
+  precioVenta: number | undefined;
+}> {
+  const grupos = Array.isArray(item.posVariantesMaria?.grupos) ? item.posVariantesMaria.grupos : [];
+  if (grupos.length === 0) return [];
+  // El landing actual maneja una sola seleccion de variante por producto.
+  // Para modales multi-grupo en WMS, usamos el primer grupo como variante visible.
+  const grupo = grupos[0];
+  const codigoGrupo = String(grupo?.codigo ?? "").trim();
+  const opciones = Array.isArray(grupo?.opciones) ? grupo.opciones : [];
+  const out: Array<{ clave: string; etiqueta: string; precioVenta: number | undefined }> = [];
+  for (const op of opciones) {
+    const valor = String(op?.valor ?? "").trim();
+    if (!valor) continue;
+    const clave = codigoGrupo ? `${codigoGrupo}:${valor}` : valor;
+    const etiqueta = String(op?.etiqueta ?? valor).trim() || valor;
+    const precioVenta =
+      typeof op?.precioVenta === "number" && Number.isFinite(op.precioVenta) ? op.precioVenta : undefined;
+    out.push({ clave, etiqueta, precioVenta });
+  }
+  return out;
+}
+
 function toProductoPOS(item: PosProductoItem): ProductoPOS | null {
   const sku =
     item.sku ??
@@ -70,7 +106,7 @@ function toProductoPOS(item: PosProductoItem): ProductoPOS | null {
     item.Nombre ??
     item.nombre_producto ??
     String(sku);
-  const variantes = Array.isArray(item.variantes)
+  let variantes: Array<{ clave: string; etiqueta: string; precioVenta: number | undefined }> = Array.isArray(item.variantes)
     ? item.variantes
         .filter((v) => v && typeof v.clave === "string" && String(v.clave).trim())
         .map((v) => ({
@@ -80,6 +116,9 @@ function toProductoPOS(item: PosProductoItem): ProductoPOS | null {
             typeof v.precioVenta === "number" && Number.isFinite(v.precioVenta) ? v.precioVenta : undefined,
         }))
     : [];
+  if (variantes.length === 0) {
+    variantes = variantesDesdePosVariantesMaria(item);
+  }
   return {
     sku: String(sku).trim(),
     descripcion: desc,
