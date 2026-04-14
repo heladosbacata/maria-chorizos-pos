@@ -620,7 +620,7 @@ function PedidosLandingClient() {
         </section>
 
         <div className="grid gap-4 lg:grid-cols-[1fr_360px] lg:gap-5">
-          <section className="space-y-4">
+          <section className="min-w-0 space-y-4">
             <div className="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm sm:p-4">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
@@ -687,12 +687,12 @@ function PedidosLandingClient() {
                   const img = primeraImagenProducto(prod);
                   return (
                     <article key={prod.sku} className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md sm:rounded-2xl">
-                      <div className="relative h-48 bg-gradient-to-br from-slate-100 to-slate-200 sm:h-56 md:aspect-[4/3] md:h-auto">
+                      <div className="relative flex h-48 items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 sm:h-56 md:aspect-[4/3] md:h-auto">
                         {img ? (
                           <img
                             src={img}
                             alt={prod.descripcion}
-                            className="h-full w-full bg-white object-contain object-center p-2 sm:p-3 md:bg-transparent md:object-cover md:p-0"
+                            className="block max-h-full max-w-full bg-white object-contain object-center p-2 sm:p-3 md:h-full md:w-full md:max-h-none md:max-w-none md:bg-transparent md:object-cover md:p-0"
                             loading="lazy"
                           />
                         ) : (
@@ -771,8 +771,8 @@ function PedidosLandingClient() {
             )}
           </section>
 
-          <aside ref={checkoutRef} className="space-y-3 lg:sticky lg:top-4 lg:h-fit lg:space-y-4">
-            <section className="scroll-mt-20 rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm sm:p-4">
+          <aside ref={checkoutRef} className="min-w-0 space-y-3 lg:sticky lg:top-4 lg:h-fit lg:space-y-4">
+            <section className="scroll-mt-20 overflow-hidden rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm sm:p-4">
               <div className="flex items-center justify-between">
                 <h3 className="text-base font-bold text-gray-900">Tu pedido</h3>
                 <span className="rounded-full bg-cyan-100 px-2 py-0.5 text-[11px] font-semibold text-cyan-800">{totalItems} item(s)</span>
@@ -809,7 +809,7 @@ function PedidosLandingClient() {
               </div>
             </section>
 
-            <section className="rounded-2xl border border-amber-200 bg-amber-50/70 p-3.5 shadow-sm sm:p-4">
+            <section className="overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/70 p-3.5 shadow-sm sm:p-4">
               <h3 className="text-sm font-bold text-amber-900">Promociones inteligentes</h3>
               {subtotal <= 0 ? (
                 <p className="mt-2 text-xs text-amber-800">Agrega productos para activar beneficios personalizados.</p>
@@ -859,37 +859,37 @@ function PedidosLandingClient() {
               )}
             </section>
 
-            <section className="rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm sm:p-4">
+            <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm sm:p-4">
               <h3 className="text-base font-bold text-gray-900">Datos de entrega</h3>
-              <div className="mt-3 space-y-2">
+              <div className="mt-3 min-w-0 space-y-2">
                 <input
                   value={cliente}
                   onChange={(e) => setCliente(e.target.value)}
                   placeholder="Nombre completo"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
+                  className="block w-full max-w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
                 />
                 <input
                   value={telefono}
                   onChange={(e) => setTelefono(e.target.value)}
                   placeholder="Teléfono"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
+                  className="block w-full max-w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
                 />
                 <input
                   value={direccion}
                   onChange={(e) => setDireccion(e.target.value)}
                   placeholder="Dirección"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
+                  className="block w-full max-w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
                 />
                 <input
                   value={referencia}
                   onChange={(e) => setReferencia(e.target.value)}
                   placeholder="Referencia (opcional)"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
+                  className="block w-full max-w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
                 />
                 <select
                   value={metodoPago}
                   onChange={(e) => setMetodoPago(e.target.value as MetodoPago)}
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
+                  className="block w-full max-w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
                 >
                   <option value="efectivo">Pago en efectivo</option>
                   <option value="transferencia">Transferencia</option>
@@ -899,7 +899,7 @@ function PedidosLandingClient() {
                   type="button"
                   onClick={enviarPedido}
                   disabled={enviando}
-                  className="w-full rounded-lg bg-cyan-700 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-cyan-800 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="block w-full max-w-full rounded-lg bg-cyan-700 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-cyan-800 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {enviando ? "Enviando pedido..." : "Confirmar pedido"}
                 </button>
@@ -960,12 +960,12 @@ function PedidosLandingClient() {
                 const precioRec = varActiva?.precio ?? prod.precioUnitario;
                 return (
                   <article key={`rec-${prod.sku}`} className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-                    <div className="relative aspect-[16/10] bg-slate-100">
+                    <div className="relative flex aspect-[16/10] items-center justify-center bg-slate-100">
                       {img ? (
                         <img
                           src={img}
                           alt={prod.descripcion}
-                          className="h-full w-full bg-white object-contain object-center p-2 sm:object-cover sm:p-0"
+                          className="block max-h-full max-w-full bg-white object-contain object-center p-2 sm:h-full sm:w-full sm:max-h-none sm:max-w-none sm:object-cover sm:p-0"
                           loading="lazy"
                         />
                       ) : (
