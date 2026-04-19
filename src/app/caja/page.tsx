@@ -17,6 +17,7 @@ import PosGebAyudaMotorModal from "@/components/PosGebAyudaMotorModal";
 import PosGebBienvenidaModal from "@/components/PosGebBienvenidaModal";
 import PosGebTutorialOverlay from "@/components/PosGebTutorialOverlay";
 import PosCajaPremiumHeader from "@/components/PosCajaPremiumHeader";
+import PosLigaTurnoYMotivacion from "@/components/PosLigaTurnoYMotivacion";
 import CobroImpresionCelebracionOverlay from "@/components/CobroImpresionCelebracionOverlay";
 import TicketPrevisualizacionModal from "@/components/TicketPrevisualizacionModal";
 import ModalCobroSinInternet from "@/components/ModalCobroSinInternet";
@@ -89,6 +90,7 @@ import { anularVentaEnEquipoInventarioYNube } from "@/lib/pos-anular-venta-inven
 import { encolarAplicarEnsamblePendiente, procesarColaAplicarEnsamblePendiente } from "@/lib/pos-wms-ensamble-pendiente";
 import { encolarFeEmitirPendiente, procesarColaFeEmitir } from "@/lib/pos-fe-retry-queue";
 import { encolarVentaPendienteWms, procesarColaVentasPendientesWms } from "@/lib/pos-ventas-pendientes-wms";
+import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
 import { registrarVentaPosCloud } from "@/lib/pos-ventas-cloud-client";
 import {
   agregarProductosEnVentas,
@@ -3397,6 +3399,15 @@ export default function CajaPage() {
         <div className="p-4 sm:p-5 lg:p-4">
           <MetasRetosCajaProvider puntoVenta={user.puntoVenta} uid={user.uid}>
             <PosCajaPremiumHeader puntoVenta={user.puntoVenta} etiquetaModulo={tituloModulo} />
+            {!esContador && turnoAbierto ? (
+              <PosLigaTurnoYMotivacion
+                apiBaseUrl={getWmsPublicBaseUrl()}
+                puntoVenta={user.puntoVenta ?? undefined}
+                getToken={getIdTokenCajaMensajes}
+                pollMs={20000}
+                fraseIntervalMs={10000}
+              />
+            ) : null}
             {esContador ? (
             moduloActivo === "ultimosRecibos" ? (
               <UltimosRecibosModule

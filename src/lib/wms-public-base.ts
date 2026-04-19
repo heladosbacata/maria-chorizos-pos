@@ -37,3 +37,13 @@ export function getWmsPublicBaseUrl(): string {
   }
   return normalized;
 }
+
+/**
+ * Ruta relativa del endpoint de liga del turno en el WMS (debe empezar con `/`).
+ * Por defecto `/api/pos/turnos/liga`. Si el backend usa otra ruta, definí `NEXT_PUBLIC_WMS_LIGA_PATH`.
+ */
+export function getWmsLigaPath(): string {
+  const raw = process.env.NEXT_PUBLIC_WMS_LIGA_PATH?.trim();
+  const p = raw && raw.length > 0 ? raw : "/api/pos/turnos/liga";
+  return p.startsWith("/") ? p : `/${p}`;
+}
