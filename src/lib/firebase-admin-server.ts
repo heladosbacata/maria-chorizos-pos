@@ -181,17 +181,32 @@ export async function provisionUsuarioPosDesdeWms(params: {
     } else {
       uid = existing.uid;
       const patch: { disabled?: boolean; password?: string; displayName?: string } = {};
+      let passwordChanged = false;
       if (typeof params.disabled === "boolean") {
         patch.disabled = params.disabled;
       }
       if (params.password && params.password.length >= 8) {
         patch.password = params.password;
+        passwordChanged = true;
       }
       if (params.displayName?.trim()) {
         patch.displayName = params.displayName.trim();
       }
       if (Object.keys(patch).length > 0) {
         await auth.updateUser(uid, patch);
+        if (passwordChanged) {
+          await auth.revokeRefreshTokens(uid);
+          const refreshed = await auth.getUser(uid);
+          const sessionRevokedAtMs = Date.parse(refreshed.tokensValidAfterTime);
+          await db.collection("users").doc(uid).set(
+            {
+              sessionRevokedAtMs: Number.isFinite(sessionRevokedAtMs) ? sessionRevokedAtMs : Date.now(),
+              sessionRevokedReason: "password_changed",
+              updatedAt: FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+        }
       }
     }
 

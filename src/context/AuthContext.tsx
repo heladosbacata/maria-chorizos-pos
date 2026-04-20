@@ -6,8 +6,9 @@ import {
   signInWithEmailAndPassword,
   signOut as firebaseSignOut,
   onAuthStateChanged,
+  type IdTokenResult,
 } from "firebase/auth";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { doc, onSnapshot, setDoc } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import { POS_CONTADOR_ROLE } from "@/lib/auth-roles";
 import { persistPuntoVentaUsuario } from "@/lib/pos-user-firestore";
@@ -32,6 +33,26 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function authTimeMsFromIdToken(result: IdTokenResult): number | null {
+  const authTimeClaim = result.claims.auth_time;
+  if (typeof authTimeClaim === "number" && Number.isFinite(authTimeClaim)) {
+    return authTimeClaim * 1000;
+  }
+  if (typeof authTimeClaim === "string" && authTimeClaim.trim()) {
+    const asNumber = Number(authTimeClaim);
+    if (Number.isFinite(asNumber)) return asNumber * 1000;
+    const parsed = Date.parse(authTimeClaim);
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  const parsedAuthTime = Date.parse(result.authTime);
+  return Number.isNaN(parsedAuthTime) ? null : parsedAuthTime;
+}
+
+function sesionRevocadaTrasAuth(authTimeMs: number | null, revokedAtMs: number | null): boolean {
+  if (authTimeMs == null || revokedAtMs == null) return false;
+  return Math.floor(authTimeMs / 1000) < Math.floor(revokedAtMs / 1000);
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
@@ -43,7 +64,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
       return;
     }
+    let unsubscribeUserDoc: (() => void) | null = null;
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      unsubscribeUserDoc?.();
+      unsubscribeUserDoc = null;
       setFirebaseUser(user);
       if (!user) {
         setAuthUser(null);
@@ -64,39 +88,66 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setLoading(false);
           return;
         }
-        const userDoc = await getDoc(doc(db, "users", user.uid));
-        const data = userDoc.data();
-        const rawPv = data?.puntoVenta;
-        const puntoTrim =
-          typeof rawPv === "string" && rawPv.trim().length > 0 ? rawPv.trim() : undefined;
-        if (typeof rawPv === "string" && puntoTrim && rawPv !== puntoTrim) {
-          try {
-            await setDoc(doc(db, "users", user.uid), { puntoVenta: puntoTrim }, { merge: true });
-          } catch {
-            /* si las reglas impiden el parche, el API Admin igual usa .trim() al validar */
-          }
-        }
-        const puntoVentaFirestore = puntoTrim;
-        const roleFirestore = (data?.role as string | undefined) ?? null;
+        unsubscribeUserDoc = onSnapshot(
+          doc(db, "users", user.uid),
+          async (userDoc) => {
+            const data = userDoc.data();
+            const revokedAtMs =
+              typeof data?.sessionRevokedAtMs === "number" && Number.isFinite(data.sessionRevokedAtMs)
+                ? data.sessionRevokedAtMs
+                : null;
+            if (sesionRevocadaTrasAuth(authTimeMsFromIdToken(await user.getIdTokenResult()), revokedAtMs)) {
+              clearPosGebOnboarding(user.uid);
+              await firebaseSignOut(auth);
+              setPuntoVentaManual(null);
+              setLoading(false);
+              return;
+            }
 
-        if (puntoVentaFirestore) {
-          setAuthUser({
-            uid: user.uid,
-            email: user.email ?? null,
-            puntoVenta: puntoVentaFirestore,
-            role: roleFirestore,
-            necesitaSeleccionarPunto: false,
-          });
-          setPuntoVentaManual(null);
-        } else {
-          setAuthUser({
-            uid: user.uid,
-            email: user.email ?? null,
-            puntoVenta: puntoVentaManual ?? null,
-            role: roleFirestore,
-            necesitaSeleccionarPunto: true,
-          });
-        }
+            const rawPv = data?.puntoVenta;
+            const puntoTrim =
+              typeof rawPv === "string" && rawPv.trim().length > 0 ? rawPv.trim() : undefined;
+            if (typeof rawPv === "string" && puntoTrim && rawPv !== puntoTrim) {
+              try {
+                await setDoc(doc(db, "users", user.uid), { puntoVenta: puntoTrim }, { merge: true });
+              } catch {
+                /* si las reglas impiden el parche, el API Admin igual usa .trim() al validar */
+              }
+            }
+            const puntoVentaFirestore = puntoTrim;
+            const roleFirestore = (data?.role as string | undefined) ?? null;
+
+            if (puntoVentaFirestore) {
+              setAuthUser({
+                uid: user.uid,
+                email: user.email ?? null,
+                puntoVenta: puntoVentaFirestore,
+                role: roleFirestore,
+                necesitaSeleccionarPunto: false,
+              });
+              setPuntoVentaManual(null);
+            } else {
+              setAuthUser({
+                uid: user.uid,
+                email: user.email ?? null,
+                puntoVenta: puntoVentaManual ?? null,
+                role: roleFirestore,
+                necesitaSeleccionarPunto: true,
+              });
+            }
+            setLoading(false);
+          },
+          () => {
+            setAuthUser({
+              uid: user.uid,
+              email: user.email ?? null,
+              puntoVenta: puntoVentaManual ?? null,
+              role: null,
+              necesitaSeleccionarPunto: true,
+            });
+            setLoading(false);
+          }
+        );
       } catch {
         setAuthUser({
           uid: user.uid,
@@ -105,11 +156,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           role: null,
           necesitaSeleccionarPunto: true,
         });
+        unsubscribeUserDoc = null;
       }
-      setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeUserDoc?.();
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
