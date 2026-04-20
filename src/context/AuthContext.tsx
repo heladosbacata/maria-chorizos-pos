@@ -64,8 +64,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setLoading(false);
       return;
     }
+    const authClient = auth;
     let unsubscribeUserDoc: (() => void) | null = null;
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    const unsubscribe = onAuthStateChanged(authClient, async (user) => {
       unsubscribeUserDoc?.();
       unsubscribeUserDoc = null;
       setFirebaseUser(user);
@@ -98,7 +99,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 : null;
             if (sesionRevocadaTrasAuth(authTimeMsFromIdToken(await user.getIdTokenResult()), revokedAtMs)) {
               clearPosGebOnboarding(user.uid);
-              await firebaseSignOut(auth);
+              await firebaseSignOut(authClient);
               setPuntoVentaManual(null);
               setLoading(false);
               return;
