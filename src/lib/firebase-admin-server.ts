@@ -197,7 +197,8 @@ export async function provisionUsuarioPosDesdeWms(params: {
         if (passwordChanged) {
           await auth.revokeRefreshTokens(uid);
           const refreshed = await auth.getUser(uid);
-          const sessionRevokedAtMs = Date.parse(refreshed.tokensValidAfterTime);
+          const t = refreshed.tokensValidAfterTime;
+          const sessionRevokedAtMs = t ? Date.parse(t) : NaN;
           await db.collection("users").doc(uid).set(
             {
               sessionRevokedAtMs: Number.isFinite(sessionRevokedAtMs) ? sessionRevokedAtMs : Date.now(),

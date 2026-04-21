@@ -78,7 +78,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       try {
-        if (!db) {
+        const firestore = db;
+        if (!firestore) {
           setAuthUser({
             uid: user.uid,
             email: user.email ?? null,
@@ -90,7 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           return;
         }
         unsubscribeUserDoc = onSnapshot(
-          doc(db, "users", user.uid),
+          doc(firestore, "users", user.uid),
           async (userDoc) => {
             const data = userDoc.data();
             const revokedAtMs =
@@ -110,7 +111,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               typeof rawPv === "string" && rawPv.trim().length > 0 ? rawPv.trim() : undefined;
             if (typeof rawPv === "string" && puntoTrim && rawPv !== puntoTrim) {
               try {
-                await setDoc(doc(db, "users", user.uid), { puntoVenta: puntoTrim }, { merge: true });
+                await setDoc(
+                  doc(firestore, "users", user.uid),
+                  { puntoVenta: puntoTrim },
+                  { merge: true }
+                );
               } catch {
                 /* si las reglas impiden el parche, el API Admin igual usa .trim() al validar */
               }
