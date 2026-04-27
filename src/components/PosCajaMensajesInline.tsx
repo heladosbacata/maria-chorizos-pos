@@ -1,12 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   wmsCajaMensajesListar,
   wmsCajaMensajesMarcarLeido,
   wmsCajaMensajesResponder,
   type PosCajaMensajeCliente,
 } from "@/lib/wms-caja-mensajes-client";
+import { EVENT_OPEN_CAJA_CHAT } from "@/lib/pos-geb-chat-event";
+
+const PREVIEW_COUNT = 2;
 
 function formatHora(ms: number): string {
   if (!ms) return "—";
@@ -56,6 +59,13 @@ export default function PosCajaMensajesInline({ getIdToken, className = "" }: Pr
   const [texto, setTexto] = useState("");
   const [error, setError] = useState<string | null>(null);
   const listaRef = useRef<HTMLDivElement>(null);
+
+  const ultimosMensajes = useMemo(() => mensajes.slice(-PREVIEW_COUNT), [mensajes]);
+
+  const abrirChatCompleto = useCallback(() => {
+    if (typeof window === "undefined") return;
+    window.dispatchEvent(new CustomEvent(EVENT_OPEN_CAJA_CHAT));
+  }, []);
 
   const cargarHilo = useCallback(async () => {
     const token = await getIdToken();
@@ -115,29 +125,36 @@ export default function PosCajaMensajesInline({ getIdToken, className = "" }: Pr
       role="region"
       aria-label="Chat con administración"
     >
-      <div className="flex items-center justify-between gap-2 border-b border-white/10 px-3 py-2">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-white/10 px-3 py-1.5">
         <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#FFE9A8]/95">Chat administración</p>
+        <button
+          type="button"
+          onClick={abrirChatCompleto}
+          className="text-[11px] font-semibold text-[#FFE9A8] underline decoration-[#FFE9A8]/40 underline-offset-2 transition hover:text-white hover:decoration-white/80"
+        >
+          Ampliar chat
+        </button>
       </div>
 
       <div
         ref={listaRef}
-        className="max-h-[min(28vh,200px)] space-y-2 overflow-y-auto px-2 py-2 sm:max-h-[min(32vh,240px)]"
+        className="max-h-[104px] space-y-1.5 overflow-y-auto px-2 py-1.5"
       >
         {cargando && mensajes.length === 0 ? (
-          <div className="flex justify-center py-8 text-[#FFE9A8]/70">
-            <Spinner className="h-7 w-7" />
+          <div className="flex justify-center py-5 text-[#FFE9A8]/70">
+            <Spinner className="h-6 w-6" />
           </div>
         ) : mensajes.length === 0 ? (
-          <p className="px-1 py-3 text-center text-[11px] leading-snug text-[#F5E6C8]/55">
-            Sin mensajes aún. El monitor puede escribirte desde el WMS; tus respuestas aparecen aquí.
+          <p className="px-1 py-2 text-center text-[10px] leading-snug text-[#F5E6C8]/55">
+            Sin mensajes aún. Usá <strong className="text-[#FFE9A8]/90">Ampliar chat</strong> para la vista completa.
           </p>
         ) : (
-          mensajes.map((m) => {
+          ultimosMensajes.map((m) => {
             const deAdmin = m.direction === "admin_to_pos";
             return (
               <div key={m.id} className={`flex ${deAdmin ? "justify-start" : "justify-end"}`}>
                 <div
-                  className={`max-w-[94%] rounded-xl px-2.5 py-2 text-xs leading-snug shadow-sm ${
+                  className={`max-w-[94%] rounded-lg px-2 py-1.5 text-[11px] leading-snug shadow-sm ${
                     deAdmin
                       ? "rounded-tl-sm border border-amber-400/30 bg-gradient-to-br from-amber-50/95 to-amber-100/90 text-gray-900"
                       : "rounded-tr-sm bg-gradient-to-br from-emerald-700 to-teal-800 text-white"
@@ -145,7 +162,7 @@ export default function PosCajaMensajesInline({ getIdToken, className = "" }: Pr
                 >
                   <p className="whitespace-pre-wrap break-words">{m.text}</p>
                   <p
-                    className={`mt-1 text-[9px] font-semibold uppercase tracking-wide ${
+                    className={`mt-0.5 text-[8px] font-semibold uppercase tracking-wide ${
                       deAdmin ? "text-amber-900/50" : "text-emerald-100/75"
                     }`}
                   >
@@ -164,14 +181,14 @@ export default function PosCajaMensajesInline({ getIdToken, className = "" }: Pr
         </p>
       ) : null}
 
-      <div className="border-t border-white/10 bg-black/20 p-2">
-        <div className="flex gap-1.5 rounded-xl border border-amber-500/25 bg-white/[0.07] p-1 focus-within:border-[#FFC81C]/45">
+      <div className="border-t border-white/10 bg-black/20 p-1.5">
+        <div className="flex gap-1.5 rounded-lg border border-amber-500/25 bg-white/[0.07] p-1 focus-within:border-[#FFC81C]/45">
           <textarea
             value={texto}
             onChange={(e) => setTexto(e.target.value)}
             placeholder="Escribir al administrativo…"
-            rows={2}
-            className="min-h-[40px] flex-1 resize-none bg-transparent px-2 py-1.5 text-xs text-white placeholder:text-[#F5E6C8]/35 focus:outline-none"
+            rows={1}
+            className="min-h-[34px] max-h-[72px] flex-1 resize-y bg-transparent px-2 py-1.5 text-[11px] text-white placeholder:text-[#F5E6C8]/35 focus:outline-none"
             disabled={enviando}
             maxLength={4000}
           />
@@ -179,7 +196,7 @@ export default function PosCajaMensajesInline({ getIdToken, className = "" }: Pr
             type="button"
             disabled={enviando || !texto.trim()}
             onClick={() => void enviar()}
-            className="flex h-9 w-9 shrink-0 items-center justify-center self-end rounded-lg bg-gradient-to-br from-[#FFC81C] to-amber-600 text-gray-900 shadow-md transition hover:brightness-105 disabled:opacity-40"
+            className="flex h-8 w-8 shrink-0 items-center justify-center self-end rounded-md bg-gradient-to-br from-[#FFC81C] to-amber-600 text-gray-900 shadow-md transition hover:brightness-105 disabled:opacity-40"
             aria-label="Enviar"
           >
             {enviando ? <Spinner className="h-4 w-4" /> : <IconSend className="h-4 w-4" />}
