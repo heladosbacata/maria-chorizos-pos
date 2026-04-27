@@ -43,14 +43,6 @@ function stripTrailingSlash(s: string): string {
   return s.replace(/\/$/, "");
 }
 
-function formatoCop(n: number): string {
-  return new Intl.NumberFormat("es-CO", {
-    style: "currency",
-    currency: "COP",
-    maximumFractionDigits: 0,
-  }).format(Math.round(n));
-}
-
 function etiquetaUid(uid: unknown): string {
   if (typeof uid !== "string" || !uid.trim()) return "";
   const u = uid.trim();
@@ -207,32 +199,28 @@ function esFilaDelPuntoActual(f: LigaTurnoFila, pv: string | undefined): boolean
 }
 
 /** Estilos de medalla: 1 oro, 2 plata, 3 bronce. */
-function estilosMedalla(pos: number): { aro: string; texto: string; barra: string } {
+function estilosMedalla(pos: number): { aro: string; texto: string } {
   if (pos === 1) {
     return {
       aro: "bg-gradient-to-br from-[#FFD700] via-[#E8C547] to-[#B8860B] shadow-[0_0_10px_rgba(255,215,0,0.35)]",
       texto: "text-[#1a140c]",
-      barra: "bg-gradient-to-r from-[#FFD700] to-[#D4AF37]",
     };
   }
   if (pos === 2) {
     return {
       aro: "bg-gradient-to-br from-[#F4F4F5] via-[#D4D4D8] to-[#9CA3AF] shadow-[0_0_8px_rgba(200,200,210,0.25)]",
       texto: "text-[#1a140c]",
-      barra: "bg-gradient-to-r from-[#E5E7EB] to-[#9CA3AF]",
     };
   }
   if (pos === 3) {
     return {
       aro: "bg-gradient-to-br from-[#CD7F32] via-[#B87333] to-[#6B4423] shadow-[0_0_8px_rgba(205,127,50,0.3)]",
       texto: "text-[#FFF8E8]",
-      barra: "bg-gradient-to-r from-[#CD7F32] to-[#8B5A2B]",
     };
   }
   return {
     aro: "bg-[#FFC81C]/90",
     texto: "text-[#1a140c]",
-    barra: "bg-[#FFC81C]/80",
   };
 }
 
@@ -387,13 +375,7 @@ export default function PosLigaTurnoYMotivacion({
 
   const lineaMiPuesto =
     meta.miRank != null
-      ? [
-          `Tu puesto: #${meta.miRank}`,
-          meta.gapAlPrimero != null && meta.gapAlPrimero > 0
-            ? `${formatoCop(meta.gapAlPrimero)} al primero`
-            : null,
-          meta.miTurnoAbierto === false ? "turno cerrado" : null,
-        ]
+      ? [`Tu puesto: #${meta.miRank}`, meta.miTurnoAbierto === false ? "turno cerrado" : null]
           .filter(Boolean)
           .join(" · ")
       : null;
@@ -440,10 +422,9 @@ export default function PosLigaTurnoYMotivacion({
           ) : null}
           {top3.length > 0 ? (
             <div className="flex min-w-0 flex-col gap-1">
-              <ul className="flex gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <ul className="grid min-w-0 grid-cols-3 gap-2">
                 {top3.map((f, i) => {
                   const pegarMiAqui = muestroChipFueraTop3 && i === indiceAnclajeChip;
-                  const pct = f.barPct != null ? Math.max(0, Math.min(100, f.barPct)) : null;
                   const title = [f.abiertoHoraCorta ? `Abierto ${f.abiertoHoraCorta}` : null]
                     .filter(Boolean)
                     .join(" ");
@@ -451,47 +432,33 @@ export default function PosLigaTurnoYMotivacion({
                   return (
                     <li
                       key={f.uid ? `${f.uid}-${f.posicion}` : `${f.posicion}-${f.nombre}`}
-                      className="flex shrink-0 items-stretch gap-1.5"
+                      className="flex min-w-0 items-stretch gap-1.5"
                     >
                       <div
                         title={title || undefined}
-                        className="flex min-w-[7rem] shrink-0 flex-col gap-0.5 rounded-lg border border-[#FFE9B8]/20 bg-black/25 px-2 py-1"
+                        className="flex min-w-0 flex-1 flex-col justify-center gap-1 rounded-lg border border-[#FFE9B8]/20 bg-black/25 px-2 py-1.5"
                       >
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex min-w-0 items-center gap-1.5">
                           <span
-                            className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] font-black ${med.aro} ${med.texto}`}
+                            className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[11px] font-black ${med.aro} ${med.texto}`}
                           >
                             {f.posicion}
                           </span>
-                          <span className="max-w-[7.5rem] truncate text-[11px] font-semibold text-[#FFF8E8] sm:max-w-[10rem]">
+                          <span className="min-w-0 flex-1 truncate text-[11px] font-semibold leading-tight text-[#FFF8E8]">
                             {f.nombre}
                           </span>
-                          <span className="ml-auto text-[10px] font-bold tabular-nums text-[#FFE9A8]">
-                            {formatoCop(f.totalVenta)}
-                          </span>
                         </div>
-                        {pct != null ? (
-                          <div
-                            className="h-0.5 w-full overflow-hidden rounded-full bg-[#3d3428]"
-                            aria-hidden
-                          >
-                            <div className={`h-full rounded-full ${med.barra}`} style={{ width: `${pct}%` }} />
-                          </div>
-                        ) : null}
                       </div>
                       {pegarMiAqui && miFilaRanking ? (
                         <div
-                          className="flex min-w-[6.5rem] max-w-[10rem] shrink-0 flex-col justify-center rounded-lg border border-dashed border-[#FFC81C]/45 bg-[#FFC81C]/08 px-2 py-1"
+                          className="flex min-w-0 max-w-[5.5rem] shrink-0 flex-col justify-center rounded-lg border border-dashed border-[#FFC81C]/45 bg-[#FFC81C]/08 px-1.5 py-1 sm:max-w-[7rem]"
                           title="Tu punto (fuera del top 3)"
                         >
-                          <span className="text-[9px] font-bold uppercase tracking-wide text-[#D4A574]">
+                          <span className="text-[8px] font-bold uppercase tracking-wide text-[#D4A574]">
                             Tu punto
                           </span>
-                          <span className="truncate text-[11px] font-semibold text-[#FFF8E8]">
+                          <span className="line-clamp-2 text-[10px] font-semibold leading-tight text-[#FFF8E8]">
                             {miFilaRanking.nombre}
-                          </span>
-                          <span className="text-[10px] font-bold tabular-nums text-[#FFE9A8]">
-                            {formatoCop(miFilaRanking.totalVenta)}
                           </span>
                         </div>
                       ) : null}
