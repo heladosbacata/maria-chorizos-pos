@@ -8,6 +8,7 @@ import {
   wmsCajaMensajesUnread,
   type PosCajaMensajeCliente,
 } from "@/lib/wms-caja-mensajes-client";
+import { EVENT_OPEN_CAJA_CHAT } from "@/lib/pos-geb-chat-event";
 
 function formatHora(ms: number): string {
   if (!ms) return "—";
@@ -213,6 +214,15 @@ export default function PosCajaMensajesBell({ getIdToken, puntoVentaLabel, visib
       setCargando(false);
     }
   }, [getIdToken]);
+
+  useEffect(() => {
+    if (!visible || typeof window === "undefined") return;
+    const openDesdeCabecera = () => {
+      abrirChat();
+    };
+    window.addEventListener(EVENT_OPEN_CAJA_CHAT, openDesdeCabecera);
+    return () => window.removeEventListener(EVENT_OPEN_CAJA_CHAT, openDesdeCabecera);
+  }, [visible, abrirChat]);
 
   useEffect(() => {
     if (!visible) return;

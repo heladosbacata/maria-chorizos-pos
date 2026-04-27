@@ -3398,7 +3398,11 @@ export default function CajaPage() {
       <main className="min-h-0 min-w-0 flex-1 overflow-y-auto pt-0">
         <div className="p-4 sm:p-5 lg:p-4">
           <MetasRetosCajaProvider puntoVenta={user.puntoVenta} uid={user.uid}>
-            <PosCajaPremiumHeader puntoVenta={user.puntoVenta} etiquetaModulo={tituloModulo} />
+            <PosCajaPremiumHeader
+              puntoVenta={user.puntoVenta}
+              etiquetaModulo={tituloModulo}
+              mostrarAccesoChatAdmin={!esContador}
+            />
             {!esContador && turnoAbierto ? (
               <PosLigaTurnoYMotivacion
                 apiBaseUrl={getWmsPublicBaseUrl()}

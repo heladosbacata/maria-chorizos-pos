@@ -3,6 +3,20 @@
 import { useId, useMemo } from "react";
 import { useMetasRetosCaja } from "@/components/MetasRetosCajaProvider";
 import { avanceUnidadesReto } from "@/lib/metas-retos-avance-ventas";
+import type { MetaRetoActiva } from "@/lib/wms-metas-retos-activas";
+
+function etiquetaCadenciaCorta(c: MetaRetoActiva["cadencia"]): string {
+  if (c === "semanal") return "Semanal";
+  if (c === "mensual") return "Mensual";
+  return "Diario";
+}
+
+/** Prioriza el reto diario; si no hay, el primero activo del periodo. */
+function retoDestacadoParaHoy(retos: MetaRetoActiva[]): MetaRetoActiva | null {
+  const diarios = retos.filter((r) => r.cadencia === "diario");
+  if (diarios.length > 0) return diarios[0] ?? null;
+  return retos[0] ?? null;
+}
 
 /** Estrella de cinco puntas centrada en viewBox 24×24 (forma reconocible al instante). */
 const STAR_PATH_24 =
@@ -134,6 +148,20 @@ export default function PosCajaMetasMotivationPanel() {
     return { promedioPct, completados, total: n, detalles };
   }, [retos, ventas, ymdRef]);
 
+  const retoHoy = useMemo(() => retoDestacadoParaHoy(retos), [retos]);
+  const avanceRetoHoy = useMemo(() => {
+    if (!retoHoy) return null;
+    return avanceUnidadesReto(retoHoy, ventas, ymdRef);
+  }, [retoHoy, ventas, ymdRef]);
+  const pctRetoHoy =
+    retoHoy && avanceRetoHoy
+      ? (() => {
+          const meta = Math.max(0, Number(retoHoy.metaUnidades) || 0);
+          const av = avanceRetoHoy.avance;
+          return meta > 0 ? Math.min(100, Math.round((av / meta) * 100)) : 0;
+        })()
+      : 0;
+
   const tieneError = Boolean(error);
   const msg = mensajeMotivacional(stats.promedioPct, stats.completados, stats.total, cargando && !tieneError, tieneError);
   const barPct = tieneError ? 0 : stats.promedioPct;
@@ -169,6 +197,57 @@ export default function PosCajaMetasMotivationPanel() {
           </div>
           <p className="mt-1.5 text-[11px] font-medium leading-snug text-[#F5E6C8]/92">{msg}</p>
         </div>
+      </div>
+
+      <div className="relative mt-3 rounded-lg border border-[#FFE08A]/25 bg-[#0d0b08]/55 px-2.5 py-2 shadow-inner ring-1 ring-black/20">
+        <div className="flex items-center justify-between gap-2 border-b border-[#3d3428]/80 pb-1.5">
+          <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#FFC81C]/95">Reto activo hoy</p>
+          {retoHoy ? (
+            <span className="shrink-0 rounded border border-[#FFE9B8]/25 bg-[#FFC81C]/10 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-[#E8DCC4]">
+              {etiquetaCadenciaCorta(retoHoy.cadencia)}
+            </span>
+          ) : null}
+        </div>
+        {cargando && retos.length === 0 && !tieneError ? (
+          <div className="mt-2 space-y-1.5" aria-busy>
+            <div className="h-3 w-4/5 animate-pulse rounded bg-[#3d3428]/70" />
+            <div className="h-2 w-full animate-pulse rounded bg-[#3d3428]/50" />
+          </div>
+        ) : retoHoy && avanceRetoHoy ? (
+          <div className="mt-2 min-w-0">
+            <p className="text-[12px] font-bold leading-snug text-[#FFF8E8]">
+              {retoHoy.descripcionProducto.trim() || "Producto del reto"}
+            </p>
+            {retoHoy.skuBarcode.trim() ? (
+              <p className="mt-0.5 font-mono text-[9px] text-[#9A8B74]">SKU {retoHoy.skuBarcode}</p>
+            ) : null}
+            {retoHoy.descripcionReto.trim() ? (
+              <p className="mt-1 line-clamp-2 text-[10px] leading-snug text-[#C4B49A]">{retoHoy.descripcionReto.trim()}</p>
+            ) : null}
+            <div className="mt-2 flex items-baseline justify-between gap-2">
+              <span className="text-[10px] font-medium text-[#B8A88C]">
+                <span className="tabular-nums font-bold text-[#FFE9B8]">{avanceRetoHoy.avance}</span>
+                <span> / </span>
+                <span className="tabular-nums">{Math.max(0, retoHoy.metaUnidades)}</span>
+                <span>{retoHoy.cadencia === "diario" ? " u. hoy" : " u. en el periodo"}</span>
+              </span>
+              <span className="text-sm font-black tabular-nums text-[#FFF8E8]">{pctRetoHoy}%</span>
+            </div>
+            <div className="relative mt-1 h-1.5 overflow-hidden rounded-full bg-[#1a1510] ring-1 ring-[#FFE08A]/20">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-[#8B6914] via-[#FFC81C] to-[#FFF2A8] motion-safe:transition-[width] motion-safe:duration-500 motion-safe:ease-out"
+                style={{ width: `${pctRetoHoy}%` }}
+              />
+            </div>
+          </div>
+        ) : tieneError ? (
+          <p className="mt-2 text-[10px] text-[#D4A574]">No se pudo cargar el reto. Reintentá al actualizar metas.</p>
+        ) : (
+          <p className="mt-2 text-[10px] leading-snug text-[#9A8B74]">
+            No hay reto diario ni campaña activa para tu punto en la fecha de hoy. Entrá a «Metas y bonificaciones» para
+            ver el detalle.
+          </p>
+        )}
       </div>
 
       <div className="relative mt-3">

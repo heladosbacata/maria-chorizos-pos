@@ -381,10 +381,16 @@ export default function PosLigaTurnoYMotivacion({
       : null;
 
   return (
-    <section
-      className="mb-4 overflow-hidden rounded-xl border border-[#FFE08A]/40 bg-gradient-to-r from-[#1f1a14] via-[#2a2318] to-[#1a1610] px-3 py-2.5 shadow-[0_10px_28px_-12px_rgba(0,0,0,0.45)] sm:px-4"
-      aria-label="Liga del turno y mensaje motivacional"
-    >
+    <div className="mb-4 space-y-1.5">
+      <p className="px-0.5 text-[11px] leading-snug text-gray-600">
+        <span className="font-semibold text-gray-700">Aviso:</span> la liga del turno es el{" "}
+        <strong>top 3 de puntos de venta a nivel nacional</strong>, ordenados por ventas{" "}
+        <strong>en este mismo momento</strong> (datos en vivo sincronizados con el administrativo).
+      </p>
+      <section
+        className="overflow-hidden rounded-xl border border-[#FFE08A]/40 bg-gradient-to-r from-[#1f1a14] via-[#2a2318] to-[#1a1610] px-3 py-2.5 shadow-[0_10px_28px_-12px_rgba(0,0,0,0.45)] sm:px-4"
+        aria-label="Liga del turno y mensaje motivacional"
+      >
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
         <div className="flex shrink-0 items-center gap-2">
           <Sparkles className="h-3.5 w-3.5 shrink-0 text-[#FFC81C]" aria-hidden />
@@ -487,5 +493,6 @@ export default function PosLigaTurnoYMotivacion({
         </AnimatePresence>
       </div>
     </section>
+    </div>
   );
 }
