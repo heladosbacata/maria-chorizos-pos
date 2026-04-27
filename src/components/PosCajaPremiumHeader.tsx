@@ -3,27 +3,15 @@
 import type { CSSProperties } from "react";
 import { useMemo } from "react";
 import PosCajaMetasMotivationPanel from "@/components/PosCajaMetasMotivationPanel";
-import { EVENT_OPEN_CAJA_CHAT } from "@/lib/pos-geb-chat-event";
+import PosCajaMensajesInline from "@/components/PosCajaMensajesInline";
 
 type Props = {
   puntoVenta: string | null | undefined;
   etiquetaModulo: string;
-  /** Abre la misma ventana flotante que la campana del menú (mensajes con administración). */
+  /** Chat caja ↔ administración embebido arriba del nombre del punto (misma API que la campana). */
   mostrarAccesoChatAdmin?: boolean;
+  getIdToken?: () => Promise<string | null>;
 };
-
-function IconChatCabecera({ className }: { className?: string }) {
-  return (
-    <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-      <path
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={2}
-        d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-      />
-    </svg>
-  );
-}
 
 /**
  * Hot dog en vista lateral: pan inferior + salchicha + pan superior + mostaza (brand yellow).
@@ -157,6 +145,7 @@ export default function PosCajaPremiumHeader({
   puntoVenta,
   etiquetaModulo,
   mostrarAccesoChatAdmin = false,
+  getIdToken,
 }: Props) {
   const pv = puntoVenta?.trim() || "Sin punto asignado";
 
@@ -222,26 +211,10 @@ export default function PosCajaPremiumHeader({
         <div className="flex flex-wrap items-stretch justify-between gap-3 lg:items-end">
           <div className="min-w-0 flex-1 rounded-xl border border-[#FFE9B8]/25 bg-gradient-to-br from-[#FFFDF8]/[0.14] via-[#FFF6E0]/[0.08] to-white/[0.05] px-4 py-3 shadow-[0_12px_40px_-12px_rgba(0,0,0,0.45)] backdrop-blur-md backdrop-saturate-150">
             <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-[#FFF2CC]/90">Punto de venta</p>
-            <div className="mt-1 flex min-w-0 items-start gap-2 sm:items-center">
-              <p className="min-w-0 flex-1 truncate text-xl font-bold tracking-tight text-white drop-shadow-sm sm:text-2xl">
-                {pv}
-              </p>
-              {mostrarAccesoChatAdmin ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (typeof window !== "undefined") {
-                      window.dispatchEvent(new CustomEvent(EVENT_OPEN_CAJA_CHAT));
-                    }
-                  }}
-                  className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-[#FFE08A]/50 bg-[#FFC81C]/15 text-[#FFF8E8] shadow-[0_8px_24px_-8px_rgba(0,0,0,0.45)] backdrop-blur-sm transition hover:border-[#FFE9A8]/90 hover:bg-[#FFC81C]/25 hover:text-white focus:outline-none focus:ring-2 focus:ring-[#FFC81C]/45 active:scale-[0.97]"
-                  title="Chat con administración — mismos mensajes que la campana del menú"
-                  aria-label="Abrir chat con administración"
-                >
-                  <IconChatCabecera className="h-5 w-5" />
-                </button>
-              ) : null}
-            </div>
+            {mostrarAccesoChatAdmin && getIdToken ? (
+              <PosCajaMensajesInline getIdToken={getIdToken} className="mt-2 mb-3" />
+            ) : null}
+            <p className="truncate text-xl font-bold tracking-tight text-white drop-shadow-sm sm:text-2xl">{pv}</p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <span className="inline-flex items-center rounded-full border border-[#FFE08A]/45 bg-gradient-to-r from-[#FFC81C]/20 to-[#FFE9A8]/15 px-2.5 py-0.5 text-[11px] font-semibold text-[#FFF8E8]">
                 Maria Chorizos · POS GEB

@@ -3402,6 +3402,7 @@ export default function CajaPage() {
               puntoVenta={user.puntoVenta}
               etiquetaModulo={tituloModulo}
               mostrarAccesoChatAdmin={!esContador}
+              getIdToken={getIdTokenCajaMensajes}
             />
             {!esContador && turnoAbierto ? (
               <PosLigaTurnoYMotivacion
