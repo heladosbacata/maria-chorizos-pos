@@ -8,6 +8,14 @@ export interface CatalogoPOSResult {
   message?: string;
 }
 
+const CATALOGO_CACHE_TTL_MS = 90_000;
+const CATALOGO_CACHE_PREFIX = "pos_mc_catalogo_pos_cache_v1";
+
+type CatalogoPosCache = {
+  savedAtMs: number;
+  productos: ProductoPOS[];
+};
+
 /** Item devuelto por GET /api/pos/productos/listar (WMS). Acepta variaciones de nombres de campo. */
 interface PosProductoItem {
   sku?: string;
@@ -158,7 +166,8 @@ function toProductoPOS(item: PosProductoItem): ProductoPOS | null {
  */
 export async function getCatalogoPOS(
   idToken?: string | null,
-  puntoVenta?: string | null
+  puntoVenta?: string | null,
+  opts?: { forceRefresh?: boolean }
 ): Promise<CatalogoPOSResult> {
   const isBrowser = typeof window !== "undefined";
   const pv = String(puntoVenta ?? "").trim();
@@ -169,6 +178,27 @@ export async function getCatalogoPOS(
   let token = idToken ?? null;
   if (!token && isBrowser) {
     token = (await auth?.currentUser?.getIdToken().catch(() => null)) ?? null;
+  }
+  const forceRefresh = opts?.forceRefresh === true;
+  const cacheUid = isBrowser ? auth?.currentUser?.uid ?? "anon" : "ssr";
+  const cacheKey = `${CATALOGO_CACHE_PREFIX}:${cacheUid}:${pv || "_sin_pv_"}`;
+  if (isBrowser && !forceRefresh) {
+    try {
+      const raw = window.localStorage.getItem(cacheKey);
+      if (raw) {
+        const parsed = JSON.parse(raw) as CatalogoPosCache;
+        if (
+          parsed &&
+          Array.isArray(parsed.productos) &&
+          typeof parsed.savedAtMs === "number" &&
+          Date.now() - parsed.savedAtMs <= CATALOGO_CACHE_TTL_MS
+        ) {
+          return { ok: true, productos: parsed.productos };
+        }
+      }
+    } catch {
+      // ignore cache read errors
+    }
   }
   const headers: HeadersInit = {};
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -212,6 +242,19 @@ export async function getCatalogoPOS(
       if (p) productos.push(p);
     }
 
+    if (isBrowser) {
+      try {
+        window.localStorage.setItem(
+          cacheKey,
+          JSON.stringify({
+            savedAtMs: Date.now(),
+            productos,
+          } satisfies CatalogoPosCache)
+        );
+      } catch {
+        // ignore cache write errors
+      }
+    }
     return { ok: true, productos };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Error al cargar el catálogo";

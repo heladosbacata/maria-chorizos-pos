@@ -41,7 +41,7 @@ export default function ProductosServiciosFranquiciaPanel({
     setErrorCatalogo(null);
     try {
       const token = await auth?.currentUser?.getIdToken().catch(() => null);
-      const res = await getCatalogoPOS(token, puntoVenta);
+      const res = await getCatalogoPOS(token, puntoVenta, { forceRefresh: true });
       if (!res.ok) {
         setErrorCatalogo(res.message ?? "No se pudo cargar el catálogo.");
         setCatalogo([]);

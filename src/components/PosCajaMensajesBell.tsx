@@ -78,6 +78,9 @@ type Props = {
   visible?: boolean;
 };
 
+const POLL_UNREAD_MS = 30_000;
+const POLL_HILO_ABIERTO_MS = 15_000;
+
 export default function PosCajaMensajesBell({ getIdToken, puntoVentaLabel, visible = true }: Props) {
   const [abierto, setAbierto] = useState(false);
   const [minimizado, setMinimizado] = useState(false);
@@ -228,7 +231,9 @@ export default function PosCajaMensajesBell({ getIdToken, puntoVentaLabel, visib
     if (!visible) return;
     void fetchUnread();
     const t2 = window.setTimeout(() => void fetchUnread(), 2000);
-    const id = setInterval(() => void fetchUnread(), 10000);
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") void fetchUnread();
+    }, POLL_UNREAD_MS);
     const onVis = () => {
       if (document.visibilityState === "visible") void fetchUnread();
     };
@@ -249,7 +254,9 @@ export default function PosCajaMensajesBell({ getIdToken, puntoVentaLabel, visib
       prevUnreadRef.current = 0;
     })();
     void cargarHilo();
-    const id = setInterval(() => void cargarHilo(), 6000);
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") void cargarHilo();
+    }, POLL_HILO_ABIERTO_MS);
     return () => clearInterval(id);
   }, [abierto, cargarHilo, getIdToken]);
 

@@ -734,7 +734,7 @@ export default function CajaPage() {
     setCatalogoError(null);
     const tokenPromise = auth?.currentUser ? auth.currentUser.getIdToken() : Promise.resolve(null);
     tokenPromise
-      .then((token) => getCatalogoPOS(token, user?.puntoVenta?.trim() ?? ""))
+      .then((token) => getCatalogoPOS(token, user?.puntoVenta?.trim() ?? "", { forceRefresh: true }))
       .then((res) => {
         if (res.ok && res.productos) setCatalogoProductos(res.productos ?? []);
         else setCatalogoError(res.message ?? "No se pudo cargar el catálogo");
