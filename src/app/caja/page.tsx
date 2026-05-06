@@ -62,6 +62,7 @@ import {
 } from "@/lib/pos-geb-print";
 import { fetchCatalogoInsumosDesdeSheet } from "@/lib/catalogo-insumos-sheet-client";
 import { getCatalogoPOS } from "@/lib/catalogo-pos";
+import { solicitarCambioPrecioProductoPos } from "@/lib/pos-solicitud-cambio-precio";
 import { mergeCatalogoInventarioBase, mergeCatalogoInventarioConProductosPos } from "@/lib/inventario-pos-catalogo";
 import {
   insumoBolsaPapelParaLlevarResolver,
@@ -495,6 +496,13 @@ export default function CajaPage() {
   const [catalogoLoading, setCatalogoLoading] = useState(false);
   const [catalogoError, setCatalogoError] = useState<string | null>(null);
   const [busquedaCatalogo, setBusquedaCatalogo] = useState("");
+  const [productoSolicitudPrecio, setProductoSolicitudPrecio] = useState<ProductoPOS | null>(null);
+  const [precioSolicitadoInput, setPrecioSolicitadoInput] = useState("");
+  const [motivoSolicitudPrecio, setMotivoSolicitudPrecio] = useState("");
+  const [descripcionSolicitudPrecio, setDescripcionSolicitudPrecio] = useState("");
+  const [enviandoSolicitudPrecio, setEnviandoSolicitudPrecio] = useState(false);
+  const [mensajeSolicitudPrecio, setMensajeSolicitudPrecio] = useState<string | null>(null);
+  const [errorSolicitudPrecio, setErrorSolicitudPrecio] = useState<string | null>(null);
   /** Tipo de comprobante: Doc. interno (predeterminado) o Factura electrónica */
   const [tipoComprobante, setTipoComprobante] = useState<TipoComprobante>("documento_interno");
   const [clientePorPrecuenta, setClientePorPrecuenta] = useState<Record<string, ClienteVentaRef>>(() => ({
@@ -799,6 +807,69 @@ export default function CajaPage() {
         (p.categoria && p.categoria.toLowerCase().includes(q))
     );
   }, [catalogoProductos, busquedaCatalogo]);
+
+  const abrirModalSolicitudPrecio = useCallback((producto: ProductoPOS) => {
+    setProductoSolicitudPrecio(producto);
+    setPrecioSolicitadoInput(
+      Number.isFinite(producto.precioUnitario) && producto.precioUnitario > 0 ? String(producto.precioUnitario) : ""
+    );
+    setMotivoSolicitudPrecio("");
+    setDescripcionSolicitudPrecio("");
+    setErrorSolicitudPrecio(null);
+    setMensajeSolicitudPrecio(null);
+  }, []);
+
+  const cerrarModalSolicitudPrecio = useCallback(() => {
+    if (enviandoSolicitudPrecio) return;
+    setProductoSolicitudPrecio(null);
+    setPrecioSolicitadoInput("");
+    setMotivoSolicitudPrecio("");
+    setDescripcionSolicitudPrecio("");
+    setErrorSolicitudPrecio(null);
+  }, [enviandoSolicitudPrecio]);
+
+  const enviarSolicitudCambioPrecio = useCallback(async () => {
+    if (!productoSolicitudPrecio) return;
+    setErrorSolicitudPrecio(null);
+    setMensajeSolicitudPrecio(null);
+    const precioSolicitado = parseFloat(precioSolicitadoInput.replace(/,/g, "."));
+    if (!Number.isFinite(precioSolicitado) || precioSolicitado <= 0) {
+      setErrorSolicitudPrecio("Ingresa un precio solicitado válido (mayor a 0).");
+      return;
+    }
+    const motivo = motivoSolicitudPrecio.trim();
+    if (!motivo) {
+      setErrorSolicitudPrecio("El motivo es obligatorio.");
+      return;
+    }
+    const token = await auth?.currentUser?.getIdToken().catch(() => null);
+    if (!token) {
+      setErrorSolicitudPrecio("No se pudo validar tu sesión. Inicia sesión nuevamente.");
+      return;
+    }
+    setEnviandoSolicitudPrecio(true);
+    const res = await solicitarCambioPrecioProductoPos(
+      {
+        skuBarcode: productoSolicitudPrecio.sku,
+        precioSolicitado,
+        motivo,
+        descripcion: descripcionSolicitudPrecio.trim() || undefined,
+      },
+      token
+    );
+    setEnviandoSolicitudPrecio(false);
+    if (!res.ok) {
+      setErrorSolicitudPrecio(res.message ?? "No se pudo enviar la solicitud de cambio de precio.");
+      return;
+    }
+    setMensajeSolicitudPrecio(
+      `${res.message ?? "Solicitud enviada correctamente."}${res.idSolicitud ? ` Código: ${res.idSolicitud}.` : ""}`
+    );
+    setProductoSolicitudPrecio(null);
+    setPrecioSolicitadoInput("");
+    setMotivoSolicitudPrecio("");
+    setDescripcionSolicitudPrecio("");
+  }, [descripcionSolicitudPrecio, motivoSolicitudPrecio, precioSolicitadoInput, productoSolicitudPrecio]);
 
   const clienteActivoPrecuenta: ClienteVentaRef = clientePorPrecuenta[activePrecuentaId] ?? {
     id: CONSUMIDOR_FINAL_ID,
@@ -3557,6 +3628,26 @@ export default function CajaPage() {
                 <p className="mb-4 text-sm text-gray-500">
                   Productos disponibles para venta (origen: WMS — Productos POS)
                 </p>
+                {mensajeSolicitudPrecio && (
+                  <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                    {mensajeSolicitudPrecio}
+                  </div>
+                )}
+                {errorSolicitudPrecio && (
+                  <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                    {errorSolicitudPrecio}
+                  </div>
+                )}
+                <div className="mb-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={cargarCatalogo}
+                    disabled={catalogoLoading}
+                    className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    {catalogoLoading ? "Actualizando..." : "Actualizar precios"}
+                  </button>
+                </div>
                 <input
                   type="text"
                   value={busquedaCatalogo}
@@ -3622,6 +3713,11 @@ export default function CajaPage() {
                             <span className="text-[10px] font-medium uppercase tracking-wide text-gray-500 sm:text-xs">
                               {p.sku}
                             </span>
+                            {p.precioPersonalizado ? (
+                              <span className="mt-1 inline-flex w-fit rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+                                Precio autorizado
+                              </span>
+                            ) : null}
                             <p className="mt-0.5 line-clamp-2 text-[11px] font-medium leading-snug text-gray-900 sm:text-xs">
                               {p.descripcion}
                             </p>
@@ -3664,6 +3760,50 @@ export default function CajaPage() {
                   <p className="py-6 text-center text-sm text-gray-500">
                     {busquedaCatalogo.trim() ? "No hay productos que coincidan con la búsqueda." : "No hay productos en el catálogo."}
                   </p>
+                )}
+                {!catalogoLoading && !catalogoError && catalogosFiltrados.length > 0 && (
+                  <div className="mt-6 overflow-x-auto rounded-xl border border-gray-200">
+                    <table className="min-w-full text-left text-sm">
+                      <thead className="border-b border-gray-200 bg-gray-50 text-xs font-semibold uppercase text-gray-600">
+                        <tr>
+                          <th className="px-3 py-2">SKU</th>
+                          <th className="px-3 py-2">Descripcion</th>
+                          <th className="px-3 py-2 text-right">Precio actual</th>
+                          <th className="px-3 py-2">Estado</th>
+                          <th className="px-3 py-2 text-right">Accion</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 bg-white">
+                        {catalogosFiltrados.map((p) => (
+                          <tr key={`sol-${p.sku}`} className="hover:bg-gray-50/80">
+                            <td className="px-3 py-2 font-mono text-xs text-gray-700">{p.sku}</td>
+                            <td className="px-3 py-2 text-gray-900">{p.descripcion}</td>
+                            <td className="px-3 py-2 text-right font-semibold tabular-nums text-gray-900">
+                              ${Number(p.precioUnitario).toLocaleString("es-CO")}
+                            </td>
+                            <td className="px-3 py-2">
+                              {p.precioPersonalizado ? (
+                                <span className="inline-flex rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800">
+                                  Precio autorizado
+                                </span>
+                              ) : (
+                                <span className="text-xs text-gray-500">Precio base</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <button
+                                type="button"
+                                onClick={() => abrirModalSolicitudPrecio(p)}
+                                className="rounded-lg border border-primary-300 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-800 hover:bg-primary-100"
+                              >
+                                Solicitar cambio
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
 
@@ -3766,6 +3906,85 @@ export default function CajaPage() {
           </MetasRetosCajaProvider>
         </div>
       </main>
+
+      {productoSolicitudPrecio && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/45"
+            aria-label="Cerrar modal"
+            disabled={enviandoSolicitudPrecio}
+            onClick={cerrarModalSolicitudPrecio}
+          />
+          <div className="relative z-[1] w-full max-w-lg rounded-xl border border-gray-200 bg-white p-6 shadow-xl">
+            <h3 className="text-lg font-semibold text-gray-900">Solicitar cambio de precio</h3>
+            <p className="mt-1 text-sm text-gray-600">
+              <span className="font-mono text-xs text-gray-700">{productoSolicitudPrecio.sku}</span> -{" "}
+              {productoSolicitudPrecio.descripcion}
+            </p>
+            <p className="mt-1 text-sm text-gray-700">
+              Precio actual:{" "}
+              <span className="font-semibold tabular-nums">
+                ${Number(productoSolicitudPrecio.precioUnitario).toLocaleString("es-CO")}
+              </span>
+            </p>
+            <div className="mt-4 space-y-3">
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-gray-700">Precio solicitado</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={precioSolicitadoInput}
+                  onChange={(e) => setPrecioSolicitadoInput(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-gray-700">Motivo</span>
+                <input
+                  type="text"
+                  value={motivoSolicitudPrecio}
+                  onChange={(e) => setMotivoSolicitudPrecio(e.target.value)}
+                  placeholder="Ej. Estrategia comercial de la semana"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-gray-700">Descripcion (opcional)</span>
+                <textarea
+                  rows={3}
+                  value={descripcionSolicitudPrecio}
+                  onChange={(e) => setDescripcionSolicitudPrecio(e.target.value)}
+                  placeholder="Contexto adicional para aprobación en WMS..."
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+                />
+              </label>
+            </div>
+            <div className="mt-2 min-h-5">
+              {errorSolicitudPrecio && <p className="text-sm text-red-700">{errorSolicitudPrecio}</p>}
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={enviandoSolicitudPrecio}
+                onClick={cerrarModalSolicitudPrecio}
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={enviandoSolicitudPrecio}
+                onClick={() => void enviarSolicitudCambioPrecio()}
+                className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50"
+              >
+                {enviandoSolicitudPrecio ? "Enviando..." : "Enviar solicitud"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Sidebar derecho — Cuenta a cobrar (solo en Ventas; visible también en móvil debajo del catálogo) */}
       <aside

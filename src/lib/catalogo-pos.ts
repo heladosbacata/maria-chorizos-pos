@@ -1,5 +1,6 @@
 import type { ProductoPOS } from "@/types";
 import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
+import { auth } from "@/lib/firebase";
 
 export interface CatalogoPOSResult {
   ok: boolean;
@@ -20,6 +21,9 @@ interface PosProductoItem {
   nombre_producto?: string;
   categoria?: string;
   precioUnitario?: number;
+  precioBase?: number;
+  precioOverride?: number | null;
+  precioPersonalizado?: boolean;
   precio?: number;
   Precio?: number;
   precioVenta?: number;
@@ -99,7 +103,11 @@ function toProductoPOS(item: PosProductoItem): ProductoPOS | null {
     item.Codigo;
   if (sku == null || String(sku).trim() === "") return null;
   const rawPrecio = item.precioUnitario ?? item.precio ?? item.Precio ?? item.precioVenta;
+  const rawPrecioBase = item.precioBase;
+  const rawPrecioOverride = item.precioOverride;
   const precio = numPrecio(rawPrecio);
+  const precioBase = numPrecio(rawPrecioBase);
+  const precioOverride = numPrecio(rawPrecioOverride);
   const desc =
     item.descripcion ??
     item.nombre ??
@@ -124,6 +132,10 @@ function toProductoPOS(item: PosProductoItem): ProductoPOS | null {
     descripcion: desc,
     categoria: item.categoria ?? undefined,
     precioUnitario: Number.isFinite(precio) && !Number.isNaN(precio) ? precio : 0,
+    precioBase: Number.isFinite(precioBase) && !Number.isNaN(precioBase) ? precioBase : undefined,
+    precioOverride:
+      Number.isFinite(precioOverride) && !Number.isNaN(precioOverride) ? precioOverride : (item.precioOverride ?? null),
+    precioPersonalizado: item.precioPersonalizado === true,
     unidad: item.unidad ?? undefined,
     urlImagen: item.urlImagen ?? null,
     variantes,
@@ -154,10 +166,12 @@ export async function getCatalogoPOS(
     ? "/api/productos_listar"
     : `${getWmsPublicBaseUrl()}/api/pos/productos/listar`;
   const url = pv ? `${urlBase}?puntoVenta=${encodeURIComponent(pv)}` : urlBase;
-  const headers: HeadersInit = {};
-  if (idToken) {
-    headers.Authorization = `Bearer ${idToken}`;
+  let token = idToken ?? null;
+  if (!token && isBrowser) {
+    token = await auth?.currentUser?.getIdToken().catch(() => null);
   }
+  const headers: HeadersInit = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
 
   try {
     const res = await fetch(url, { headers });

@@ -26,7 +26,7 @@
     "google-auth-library": "^9.15.1",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",
-    "lucide-react": "^1.8.0",
+    "lucide-react": "^1.14.0",
     "next": "14.2.15",
     "nodemailer": "^8.0.4",
     "qrcode": "^1.5.4",
