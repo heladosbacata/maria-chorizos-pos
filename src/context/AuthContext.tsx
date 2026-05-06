@@ -67,27 +67,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const authClient = auth;
     let unsubscribeUserDoc: (() => void) | null = null;
     const unsubscribe = onAuthStateChanged(authClient, async (user) => {
+      let settled = false;
+      let timeoutId: number | null = null;
+      const settle = (next: AuthUser | null) => {
+        if (settled) return;
+        settled = true;
+        if (timeoutId != null) {
+          window.clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+        setAuthUser(next);
+        setLoading(false);
+      };
       unsubscribeUserDoc?.();
       unsubscribeUserDoc = null;
       setFirebaseUser(user);
       if (!user) {
-        setAuthUser(null);
+        settle(null);
         setPuntoVentaManual(null);
-        setLoading(false);
         return;
       }
+      timeoutId = window.setTimeout(() => {
+        settle({
+          uid: user.uid,
+          email: user.email ?? null,
+          puntoVenta: puntoVentaManual ?? null,
+          role: null,
+          necesitaSeleccionarPunto: true,
+        });
+      }, 7000);
 
       try {
         const firestore = db;
         if (!firestore) {
-          setAuthUser({
+          settle({
             uid: user.uid,
             email: user.email ?? null,
             puntoVenta: null,
             role: null,
             necesitaSeleccionarPunto: true,
           });
-          setLoading(false);
           return;
         }
         unsubscribeUserDoc = onSnapshot(
@@ -124,7 +143,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             const roleFirestore = (data?.role as string | undefined) ?? null;
 
             if (puntoVentaFirestore) {
-              setAuthUser({
+              settle({
                 uid: user.uid,
                 email: user.email ?? null,
                 puntoVenta: puntoVentaFirestore,
@@ -133,7 +152,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               });
               setPuntoVentaManual(null);
             } else {
-              setAuthUser({
+              settle({
                 uid: user.uid,
                 email: user.email ?? null,
                 puntoVenta: puntoVentaManual ?? null,
@@ -141,21 +160,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 necesitaSeleccionarPunto: true,
               });
             }
-            setLoading(false);
           },
           () => {
-            setAuthUser({
+            settle({
               uid: user.uid,
               email: user.email ?? null,
               puntoVenta: puntoVentaManual ?? null,
               role: null,
               necesitaSeleccionarPunto: true,
             });
-            setLoading(false);
           }
         );
       } catch {
-        setAuthUser({
+        settle({
           uid: user.uid,
           email: user.email ?? null,
           puntoVenta: puntoVentaManual ?? null,
