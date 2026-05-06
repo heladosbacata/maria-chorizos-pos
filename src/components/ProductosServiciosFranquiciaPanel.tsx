@@ -47,23 +47,25 @@ export default function ProductosServiciosFranquiciaPanel({
         setCatalogo([]);
         return;
       }
-      const prev = new Set(catalogo.map((p) => p.sku));
       const next = res.productos ?? [];
-      setCatalogo(next);
-      const nuevos = next.filter((p) => !prev.has(p.sku));
-      const overrides = next.filter((p) => p.precioPersonalizado);
-      if (prev.size > 0 && (nuevos.length > 0 || overrides.length > 0)) {
-        setMensajeOk(
-          `Catálogo actualizado. Nuevos productos detectados: ${nuevos.length}. Productos con precio autorizado: ${overrides.length}.`
-        );
-      }
+      setCatalogo((prevCatalogo) => {
+        const prev = new Set(prevCatalogo.map((p) => p.sku));
+        const nuevos = next.filter((p) => !prev.has(p.sku));
+        const overrides = next.filter((p) => p.precioPersonalizado);
+        if (prev.size > 0 && (nuevos.length > 0 || overrides.length > 0)) {
+          setMensajeOk(
+            `Catálogo actualizado. Nuevos productos detectados: ${nuevos.length}. Productos con precio autorizado: ${overrides.length}.`
+          );
+        }
+        return next;
+      });
     } catch {
       setErrorCatalogo("Error al cargar el catálogo.");
       setCatalogo([]);
     } finally {
       setLoading(false);
     }
-  }, [catalogo, puntoVenta]);
+  }, [puntoVenta]);
 
   useEffect(() => {
     void cargarCatalogo();
