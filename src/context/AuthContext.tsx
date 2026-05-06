@@ -66,7 +66,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     const authClient = auth;
     let unsubscribeUserDoc: (() => void) | null = null;
+    let authStateRecibido = false;
+    const bootTimeoutId = window.setTimeout(() => {
+      if (authStateRecibido) return;
+      setAuthUser(null);
+      setLoading(false);
+    }, 8000);
     const unsubscribe = onAuthStateChanged(authClient, async (user) => {
+      authStateRecibido = true;
+      window.clearTimeout(bootTimeoutId);
       let settled = false;
       let timeoutId: number | null = null;
       const settle = (next: AuthUser | null) => {
@@ -184,6 +192,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => {
+      window.clearTimeout(bootTimeoutId);
       unsubscribeUserDoc?.();
       unsubscribe();
     };
