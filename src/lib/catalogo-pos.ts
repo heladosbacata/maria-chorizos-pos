@@ -168,7 +168,7 @@ export async function getCatalogoPOS(
   const url = pv ? `${urlBase}?puntoVenta=${encodeURIComponent(pv)}` : urlBase;
   let token = idToken ?? null;
   if (!token && isBrowser) {
-    token = await auth?.currentUser?.getIdToken().catch(() => null);
+    token = (await auth?.currentUser?.getIdToken().catch(() => null)) ?? null;
   }
   const headers: HeadersInit = {};
   if (token) headers.Authorization = `Bearer ${token}`;
