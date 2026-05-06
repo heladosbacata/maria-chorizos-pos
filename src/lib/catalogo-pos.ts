@@ -210,7 +210,7 @@ export async function getCatalogoPOS(
     if (!res.ok) {
       const msg = data?.message || data?.error || `Error ${res.status}`;
       if (res.status === 404) {
-        return { ok: false, message: "Catálogo no disponible por ahora." };
+        return { ok: false, message: "El endpoint de catálogo no está disponible en WMS (404)." };
       }
       return { ok: false, message: msg };
     }
@@ -265,7 +265,7 @@ export async function getCatalogoPOS(
       msg.includes("Load failed");
     return {
       ok: false,
-      message: isCorsOrNetwork ? "Catálogo no disponible por ahora." : msg,
+      message: isCorsOrNetwork ? "No se pudo conectar con el servicio de catálogo (WMS)." : msg,
     };
   }
 }
