@@ -25,6 +25,7 @@ import type { TicketVentaPayload } from "@/types/impresion-pos";
 const MAX_LISTA = 60;
 const MAX_RECIBOS_TURNO = 10;
 const MIN_MOTIVO = 5;
+const CLAVE_ANULACION_RECIBO = "MC2026";
 
 function formatoPesos(n: number): string {
   return `$ ${n.toLocaleString("es-CO", { maximumFractionDigits: 0 })}`;
@@ -269,6 +270,7 @@ export default function UltimosRecibosModule({
   const [perfilTick, setPerfilTick] = useState(0);
   const [modalVenta, setModalVenta] = useState<VentaGuardadaLocal | null>(null);
   const [motivoAnulacion, setMotivoAnulacion] = useState("");
+  const [claveAnulacion, setClaveAnulacion] = useState("");
   const [procesando, setProcesando] = useState(false);
   const [errorModal, setErrorModal] = useState<string | null>(null);
   const [accionId, setAccionId] = useState<string | null>(null);
@@ -345,6 +347,7 @@ export default function UltimosRecibosModule({
     if (v.anulada) return;
     setErrorModal(null);
     setMotivoAnulacion("");
+    setClaveAnulacion("");
     setModalVenta(v);
   };
 
@@ -352,6 +355,7 @@ export default function UltimosRecibosModule({
     if (procesando) return;
     setModalVenta(null);
     setMotivoAnulacion("");
+    setClaveAnulacion("");
     setErrorModal(null);
   };
 
@@ -361,6 +365,10 @@ export default function UltimosRecibosModule({
     const motivo = motivoAnulacion.trim();
     if (motivo.length < MIN_MOTIVO) {
       setErrorModal(`Escribe al menos ${MIN_MOTIVO} caracteres en el motivo.`);
+      return;
+    }
+    if (claveAnulacion.trim() !== CLAVE_ANULACION_RECIBO) {
+      setErrorModal("Clave de anulación incorrecta.");
       return;
     }
     setProcesando(true);
@@ -387,6 +395,7 @@ export default function UltimosRecibosModule({
       setListaTick((t) => t + 1);
       setModalVenta(null);
       setMotivoAnulacion("");
+      setClaveAnulacion("");
       setErrorModal(null);
       if (fallosSku.length > 0) {
         window.alert(
@@ -600,6 +609,18 @@ export default function UltimosRecibosModule({
                 rows={4}
                 className="mt-2 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-900 focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-100"
                 placeholder="Ej.: Cliente se arrepintió, error de cobro, producto defectuoso…"
+                disabled={procesando}
+              />
+            </label>
+            <label className="mt-4 block">
+              <span className="text-sm font-semibold text-gray-800">Clave de autorización</span>
+              <input
+                type="password"
+                value={claveAnulacion}
+                onChange={(e) => setClaveAnulacion(e.target.value)}
+                className="mt-2 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-900 focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-100"
+                placeholder="Ingresa la clave para confirmar"
+                autoComplete="off"
                 disabled={procesando}
               />
             </label>
