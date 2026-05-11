@@ -4322,6 +4322,7 @@ export default function CajaPage() {
           onConfirmar={handleConfirmarRegistrarPago}
           onAntesActivarClienteFrecuente={antesActivarClienteFrecuente}
           stickerFidelizacionConfigurado={Boolean(skuStickerFidelizacion())}
+          clienteNumeroIdentificacion={clienteActivoPrecuenta.numeroIdentificacion}
         />
       )}
 
