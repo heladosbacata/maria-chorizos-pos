@@ -163,8 +163,12 @@ export default function CrearClientePosModal({
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-5">
-          <p className="text-xs text-gray-500">
-            Punto de venta: <span className="font-medium text-gray-700">{puntoVenta}</span>. Los datos quedan guardados en el POS para futuras compras y fidelización.
+          <p className="text-xs leading-relaxed text-gray-500">
+            <span className="font-medium text-gray-700">Mismo formulario y mismos campos</span> que el alta de cliente en el
+            sistema central (WMS): tipo y número de identificación, persona o empresa, nombre o razón social, correo y teléfono
+            (y datos complementarios opcionales). Punto de venta:{" "}
+            <span className="font-medium text-gray-700">{puntoVenta}</span>. Los datos quedan en la base del POS de la
+            franquicia; en el servidor se puede configurar la réplica al WMS para mantener una sola definición de cliente.
           </p>
 
           <fieldset className="mt-4">

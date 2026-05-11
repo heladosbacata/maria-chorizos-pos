@@ -148,8 +148,8 @@ export default function ClienteFrecuenteDocumentoModal({
                   type="button"
                   disabled={validando}
                   onClick={() => setCrearClienteOpen(true)}
-                  title="Crear cliente nuevo en el POS (misma base que en caja)"
-                  aria-label="Crear cliente nuevo en el POS"
+                  title="Alta de cliente: mismo formulario y datos que en caja y que el WMS (sistema central)"
+                  aria-label="Crear cliente: mismo formulario que caja y WMS"
                   className="inline-flex h-[42px] w-11 shrink-0 items-center justify-center rounded-lg border-2 border-primary-500 bg-white text-primary-700 shadow-sm hover:bg-primary-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <UserPlus className="h-5 w-5" strokeWidth={2.25} aria-hidden />

@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { getFirebaseAdminApp, getCreadorFirestoreContext } from "@/lib/firebase-admin-server";
+import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
 
 type CreateClienteOk = { ok: true; id: string };
 type CreateClienteErr = { ok: false; message: string };
@@ -20,6 +21,40 @@ function sanitizeComplementarios(raw: unknown): Record<string, string> | undefin
     if (kk && vv) out[kk] = vv;
   }
   return Object.keys(out).length ? out : undefined;
+}
+
+/** Misma forma de datos que guardamos en Firestore; el WMS puede mapear 1:1 si expone esta ruta. */
+async function sincronizarClientePosEnWms(
+  token: string,
+  idFirestore: string,
+  payload: Record<string, unknown>
+): Promise<void> {
+  const raw = process.env.WMS_POS_CLIENTE_UPSERT_PATH?.trim();
+  if (!raw) return;
+  const base = getWmsPublicBaseUrl().replace(/\/$/, "");
+  const path = raw.startsWith("/") ? raw : `/${raw}`;
+  const url = `${base}${path}`;
+  try {
+    const wmsRes = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({
+        ...payload,
+        idDocumentoFirestore: idFirestore,
+        origenAlta: "pos",
+      }),
+      cache: "no-store",
+    });
+    if (!wmsRes.ok) {
+      const t = await wmsRes.text().catch(() => "");
+      console.warn("[pos_cliente_crear] WMS sync HTTP", wmsRes.status, t.slice(0, 400));
+    }
+  } catch (e) {
+    console.warn("[pos_cliente_crear] WMS sync error", e instanceof Error ? e.message : e);
+  }
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<CreateClienteOk | CreateClienteErr>) {
@@ -89,25 +124,30 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(400).json({ ok: false, message: "Indica nombres o apellidos." });
   }
 
+  const payloadCliente: Record<string, unknown> = {
+    puntoVenta,
+    tipoCliente,
+    tipoIdentificacion,
+    numeroIdentificacion,
+    ...(digitoVerificacion ? { digitoVerificacion } : {}),
+    ...(nombres ? { nombres } : {}),
+    ...(apellidos ? { apellidos } : {}),
+    ...(razonSocial ? { razonSocial } : {}),
+    ...(email ? { email } : {}),
+    ...(indicativoTelefono ? { indicativoTelefono } : {}),
+    ...(telefono ? { telefono } : {}),
+    ...(datosComplementarios ? { datosComplementarios } : {}),
+  };
+
   try {
     const db = getFirestore(app);
     const ref = await db.collection("posClientes").add({
-      puntoVenta,
-      tipoCliente,
-      tipoIdentificacion,
-      numeroIdentificacion,
-      ...(digitoVerificacion ? { digitoVerificacion } : {}),
-      ...(nombres ? { nombres } : {}),
-      ...(apellidos ? { apellidos } : {}),
-      ...(razonSocial ? { razonSocial } : {}),
-      ...(email ? { email } : {}),
-      ...(indicativoTelefono ? { indicativoTelefono } : {}),
-      ...(telefono ? { telefono } : {}),
-      ...(datosComplementarios ? { datosComplementarios } : {}),
+      ...payloadCliente,
       createdByUid: ctx.uid,
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });
+    await sincronizarClientePosEnWms(token, ref.id, { ...payloadCliente, createdByUid: ctx.uid });
     return res.status(200).json({ ok: true, id: ref.id });
   } catch (e) {
     return res.status(500).json({ ok: false, message: e instanceof Error ? e.message : "No se pudo crear el cliente." });
