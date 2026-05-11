@@ -4,6 +4,7 @@ import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import ClienteFrecuenteAvisoModal from "@/components/ClienteFrecuenteAvisoModal";
 import ClienteFrecuenteDocumentoModal from "@/components/ClienteFrecuenteDocumentoModal";
 import type { PlanMillasClienteResumen } from "@/lib/plan-millas-validar-resumen";
+import type { ClientePosFirestoreDoc } from "@/types/clientes-pos";
 import { formatPesosCop, parsePesosCopInput } from "@/lib/pesos-cop-input";
 
 const TIPO_PAGO_OTRO = "Otro";
@@ -51,6 +52,10 @@ export interface RegistrarPagoPanelProps {
   stickerFidelizacionConfigurado?: boolean;
   /** Número de documento del cliente elegido en la venta (prellena la validación del plan de millas). */
   clienteNumeroIdentificacion?: string;
+  /** Crear cliente POS desde el modal plan de millas (misma base que caja). */
+  puntoVentaParaCrearCliente?: string;
+  uidParaCrearCliente?: string;
+  onClientePosCreadoDesdeRegistrarPago?: (doc: ClientePosFirestoreDoc) => void;
 }
 
 type LineaOnline = { id: string; tipo: string; tipoOtro: string; montoStr: string };
@@ -74,6 +79,9 @@ export default function RegistrarPagoPanel({
   onAntesActivarClienteFrecuente,
   stickerFidelizacionConfigurado = true,
   clienteNumeroIdentificacion,
+  puntoVentaParaCrearCliente,
+  uidParaCrearCliente,
+  onClientePosCreadoDesdeRegistrarPago,
 }: RegistrarPagoPanelProps) {
   const baseId = useId();
   const [tab, setTab] = useState<"contado">("contado");
@@ -569,6 +577,9 @@ export default function RegistrarPagoPanel({
       documentoInicial={clienteNumeroIdentificacion?.trim()}
       onCancel={() => setModalValidacionDocFrecuente(false)}
       onClienteRegistradoEnPlanMillas={(resumen) => activarClienteFrecuenteTrasValidarWms(resumen)}
+      puntoVentaPos={puntoVentaParaCrearCliente}
+      uidUsuarioPos={uidParaCrearCliente}
+      onClientePosCreado={onClientePosCreadoDesdeRegistrarPago}
     />
     <ClienteFrecuenteAvisoModal
       open={avisoClienteFrecuenteOpen}

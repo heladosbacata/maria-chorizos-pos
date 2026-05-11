@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { crearClientePos } from "@/lib/clientes-pos-firestore";
 import type { ClientePosFirestoreDoc, TipoClientePos } from "@/types/clientes-pos";
 
@@ -20,9 +20,21 @@ export interface CrearClientePosModalProps {
   puntoVenta: string;
   uid: string;
   onCreado: (doc: ClientePosFirestoreDoc) => void;
+  /** z-index del overlay (p. ej. `z-[115]` encima del modal plan de millas `z-[105]`). */
+  portalZClassName?: string;
+  /** Al abrir (`open` pasa a true), prellena número de identificación una vez. */
+  numeroIdentificacionInicial?: string;
 }
 
-export default function CrearClientePosModal({ open, onClose, puntoVenta, uid, onCreado }: CrearClientePosModalProps) {
+export default function CrearClientePosModal({
+  open,
+  onClose,
+  puntoVenta,
+  uid,
+  onCreado,
+  portalZClassName = "z-[60]",
+  numeroIdentificacionInicial,
+}: CrearClientePosModalProps) {
   const [tipoCliente, setTipoCliente] = useState<TipoClientePos>("persona");
   const [tipoIdentificacion, setTipoIdentificacion] = useState("CC");
   const [numeroIdentificacion, setNumeroIdentificacion] = useState("");
@@ -40,6 +52,15 @@ export default function CrearClientePosModal({ open, onClose, puntoVenta, uid, o
 
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const prevOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (open && !prevOpenRef.current) {
+      const s = numeroIdentificacionInicial?.trim();
+      if (s) setNumeroIdentificacion(s);
+    }
+    prevOpenRef.current = open;
+  }, [open, numeroIdentificacionInicial]);
 
   const mostrarDv = tipoIdentificacion === "NIT";
 
@@ -122,7 +143,12 @@ export default function CrearClientePosModal({ open, onClose, puntoVenta, uid, o
   const labelClass = "block text-sm font-medium text-gray-700";
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="crear-cliente-titulo">
+    <div
+      className={`fixed inset-0 ${portalZClassName} flex items-end justify-center p-0 sm:items-center sm:p-4`}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="crear-cliente-titulo"
+    >
       <button type="button" className="absolute inset-0 bg-black/50" aria-label="Cerrar" onClick={handleClose} />
       <div className="relative flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl border border-gray-200 bg-white shadow-2xl sm:rounded-2xl">
         <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 sm:px-5">

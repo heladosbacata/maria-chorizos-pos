@@ -4392,6 +4392,20 @@ export default function CajaPage() {
           onAntesActivarClienteFrecuente={antesActivarClienteFrecuente}
           stickerFidelizacionConfigurado={Boolean(skuStickerFidelizacion())}
           clienteNumeroIdentificacion={clienteActivoPrecuenta.numeroIdentificacion}
+          puntoVentaParaCrearCliente={user?.puntoVenta ?? undefined}
+          uidParaCrearCliente={user?.uid ?? undefined}
+          onClientePosCreadoDesdeRegistrarPago={(doc) => {
+            setClientesPosLista((prev) => [doc, ...prev.filter((x) => x.id !== doc.id)]);
+            setClientePorPrecuenta((prev) => ({
+              ...prev,
+              [activePrecuentaId]: {
+                id: doc.id,
+                nombreDisplay: nombreDisplayCliente(doc),
+                tipoIdentificacion: doc.tipoIdentificacion,
+                numeroIdentificacion: doc.numeroIdentificacion,
+              },
+            }));
+          }}
         />
       )}
 
