@@ -15,10 +15,14 @@ type BodyIn = {
   ventaId?: unknown;
   puntoVenta?: unknown;
   totalCop?: unknown;
+  /** Total factura en COP entero (contrato WMS; si falta se deriva de totalCop). */
+  montoTotalCop?: unknown;
   isoTimestamp?: unknown;
   lineas?: unknown;
   clienteDocumento?: unknown;
   facturaElectronica?: unknown;
+  idFacturaPos?: unknown;
+  cajaId?: unknown;
 };
 
 type OkPayload =
@@ -101,22 +105,35 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const b = (typeof req.body === "object" && req.body !== null ? req.body : {}) as BodyIn;
   const ventaId = str(b.ventaId);
   const puntoVenta = str(b.puntoVenta);
-  const totalCop = typeof b.totalCop === "number" ? b.totalCop : Number(b.totalCop);
+  const totalCopRaw = typeof b.totalCop === "number" ? b.totalCop : Number(b.totalCop);
+  const montoTotalCopRaw =
+    b.montoTotalCop !== undefined && b.montoTotalCop !== null
+      ? typeof b.montoTotalCop === "number"
+        ? b.montoTotalCop
+        : Number(b.montoTotalCop)
+      : NaN;
   const isoTimestamp = str(b.isoTimestamp);
   const lineasRaw = Array.isArray(b.lineas) ? b.lineas : [];
+  const idFacturaPos = str(b.idFacturaPos);
+  const cajaId = str(b.cajaId);
 
   if (!ventaId || !puntoVenta) {
     return res.status(400).json({ ok: false, message: "Faltan ventaId o puntoVenta." });
   }
-  if (!Number.isFinite(totalCop) || totalCop <= 0) {
+  if (!Number.isFinite(totalCopRaw) || totalCopRaw <= 0) {
     return res.status(400).json({ ok: false, message: "totalCop inválido." });
   }
   if (!isoTimestamp) {
     return res.status(400).json({ ok: false, message: "Falta isoTimestamp." });
   }
 
-  const totalRedondeado = Math.round(totalCop * 100) / 100;
-  const ticketsEfectivos = Math.floor(totalRedondeado / COP_POR_TICKET_CLUB);
+  const totalRedondeado = Math.round(totalCopRaw * 100) / 100;
+  const montoTotalCop = Number.isFinite(montoTotalCopRaw) && montoTotalCopRaw > 0 ? Math.round(montoTotalCopRaw) : Math.round(totalRedondeado);
+  if (montoTotalCop < 1 || !Number.isFinite(montoTotalCop)) {
+    return res.status(400).json({ ok: false, message: "montoTotalCop debe ser un entero COP mayor a 0." });
+  }
+
+  const ticketsEfectivos = Math.floor(montoTotalCop / COP_POR_TICKET_CLUB);
   if (ticketsEfectivos < 1) {
     return res.status(200).json({
       ok: true,
@@ -124,7 +141,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       codigo: "monto_insuficiente",
       message:
         "Club de Millas: el total de esta factura no alcanza el mínimo para generar código QR en esta compra " +
-        `(se requiere al menos $${COP_POR_TICKET_CLUB.toLocaleString("es-CO")} COP según la regla acordada).`,
+        `(se requiere al menos $${COP_POR_TICKET_CLUB.toLocaleString("es-CO")} COP según la regla acordada; millas = floor(monto/9000)).`,
     });
   }
 
@@ -149,14 +166,17 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     if (Object.keys(facturaElectronica).length === 0) facturaElectronica = undefined;
   }
 
-  const wmsBody = {
+  const wmsBody: Record<string, unknown> = {
     ventaId,
     puntoVenta,
+    montoTotalCop,
     totalCop: totalRedondeado,
     isoTimestamp,
     lineas,
     ...(str(b.clienteDocumento) ? { clienteDocumento: str(b.clienteDocumento) } : {}),
     ...(facturaElectronica ? { facturaElectronica } : {}),
+    ...(idFacturaPos ? { idFacturaPos } : {}),
+    ...(cajaId ? { cajaId } : {}),
   };
 
   const primaryBase = getWmsPublicBaseUrl().replace(/\/$/, "");
@@ -213,6 +233,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const limpio = qrPayload.replace(/\s+/g, "").trim();
   if (!limpio) {
     return res.status(200).json({ ok: false, message: "El WMS devolvió qrPayload vacío." });
+  }
+
+  const esperadoPrefijo = /^BACATA-CLUB-V1-[0-9a-fA-F]{32}$/;
+  if (!esperadoPrefijo.test(limpio)) {
+    console.warn(
+      "[club_millas_registrar_ticket] qrPayload no coincide con BACATA-CLUB-V1- + 32 hex; el WMS o la tirilla pueden rechazarlo:",
+      limpio.slice(0, 80)
+    );
+  }
+
+  if (process.env.CLUB_MILLAS_DEBUG_LOG === "1") {
+    console.info("[club_millas_registrar_ticket] WMS ok", {
+      montoTotalCop,
+      totalRedondeado,
+      qrPayloadLen: limpio.length,
+      qrPayloadPrefijo: limpio.slice(0, 24),
+    });
   }
 
   return res.status(200).json({ ok: true, qrPayload: limpio });

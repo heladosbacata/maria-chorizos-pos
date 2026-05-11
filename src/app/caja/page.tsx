@@ -2061,6 +2061,8 @@ export default function CajaPage() {
           const ventaIdFid =
             ventaLocalId ?? `pos-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
           const totalCop = Math.round(total * 100) / 100;
+          /** Total COP entero para WMS (millas = floor(montoTotalCop / 9000)). */
+          const montoTotalCop = Math.round(total);
           const usarClubMillasWms =
             tipoComprobante === "factura_electronica" && Boolean(ticket.facturaElectronica?.cufe?.trim());
 
@@ -2077,6 +2079,9 @@ export default function CajaPage() {
                   ventaId: ventaIdFid,
                   puntoVenta: pv,
                   totalCop,
+                  montoTotalCop,
+                  idFacturaPos: ventaLocalId ?? ventaIdFid,
+                  ...(sid || ct?.id ? { cajaId: String(sid || ct?.id) } : {}),
                   isoTimestamp: isoVenta,
                   lineas: itemsSnap.map((it) => ({
                     sku: it.producto.sku,

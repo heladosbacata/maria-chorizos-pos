@@ -35,7 +35,7 @@ function sanitizeComplementarios(raw: unknown): Record<string, string> | undefin
 
 /**
  * Réplica al WMS (`upsert-socio`): mismo secreto que registrar-ticket (`CLUB_MILLAS_POS_SECRET`),
- * cabecera `X-Club-Millas-POS-Secret` (o `CLUB_MILLAS_WMS_SECRET_HEADER`). Ver docs WMS: POS-CLUB-DE-MILLAS-WMS.md.
+ * cabecera `x-club-millas-pos-secret` (o `CLUB_MILLAS_WMS_SECRET_HEADER`). Ver docs WMS: POS-CLUB-DE-MILLAS-WMS.md.
  */
 async function sincronizarClientePosEnWms(idFirestore: string, payload: Record<string, unknown>): Promise<void> {
   const raw = process.env.WMS_POS_CLIENTE_UPSERT_PATH?.trim();

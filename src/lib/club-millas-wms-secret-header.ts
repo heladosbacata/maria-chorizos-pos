@@ -14,5 +14,6 @@ export function headersClubMillasPosSecretHaciaWms(secret: string): HeadersInit 
       }
     }
   }
-  return { "Content-Type": "application/json", "X-Club-Millas-POS-Secret": secret };
+  /* Mismo nombre que documenta el WMS (HTTP trata las cabeceras sin distinguir mayúsculas). */
+  return { "Content-Type": "application/json", "x-club-millas-pos-secret": secret };
 }
