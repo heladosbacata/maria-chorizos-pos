@@ -4,8 +4,13 @@ import { getWmsPublicBaseUrl, WMS_VERCEL_URL } from "@/lib/wms-public-base";
 /**
  * Rutas bajo Club de Millas en el WMS (mismo dominio que el catálogo).
  * `WMS_CLUB_VALIDAR_DOCUMENTO_PATH` puede listar varias separadas por coma; la primera que responda 2xx gana.
- * Defecto: `/api/club-de-millas/pos/validar-documento`
+ * Defecto: varias rutas bajo Club de Millas (se prueban en orden hasta una 2xx).
  */
+const PATHS_VALIDAR_DOCUMENTO_DEFAULT = [
+  "/api/club-de-millas/pos/validar-documento",
+  "/api/club-de-millas/validar-documento",
+] as const;
+
 function listaPathsValidarDocumento(): string[] {
   const raw = process.env.WMS_CLUB_VALIDAR_DOCUMENTO_PATH?.trim();
   if (raw) {
@@ -15,7 +20,7 @@ function listaPathsValidarDocumento(): string[] {
       .filter(Boolean)
       .map((p) => (p.startsWith("/") ? p : `/${p}`));
   }
-  return ["/api/club-de-millas/pos/validar-documento"];
+  return [...PATHS_VALIDAR_DOCUMENTO_DEFAULT];
 }
 
 const QUERY_KEYS = ["documento", "numeroDocumento", "numeroIdentificacion"] as const;
@@ -199,11 +204,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   if (status === 404) {
+    const host = (() => {
+      try {
+        return new URL(primaryBase.includes("://") ? primaryBase : `https://${primaryBase}`).origin;
+      } catch {
+        return primaryBase;
+      }
+    })();
     return res.status(200).json({
       ok: false,
       message:
-        `El WMS respondió 404 en las rutas: ${pathsLabel}. ` +
-        "Desplegá en ese mismo dominio el endpoint Club de Millas que usa Mercadeo, o definí WMS_CLUB_VALIDAR_DOCUMENTO_PATH en el POS con la ruta exacta (puede ser una lista separada por comas).",
+        `El WMS (${host}) respondió 404 en: ${pathsLabel}. ` +
+        "Ese host no expone ninguna de esas rutas: hay que publicar en el WMS el handler que valida el documento (mismo contrato que Mercadeo) o definir en Vercel del POS `WMS_CLUB_VALIDAR_DOCUMENTO_PATH` con la ruta exacta que devolvió el equipo de backend.",
     });
   }
 
