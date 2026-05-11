@@ -1,11 +1,12 @@
 import { auth } from "@/lib/firebase";
+import type { PlanMillasClienteResumen } from "@/lib/plan-millas-validar-resumen";
 
 function normalizarDocumentoInput(raw: string): string {
   return raw.replace(/\s/g, "").replace(/[.\-]/g, "").trim();
 }
 
 export type ConsultaPlanMillasResult =
-  | { ok: true; registrado: boolean; message?: string }
+  | { ok: true; registrado: boolean; message?: string; clientePlanMillas?: PlanMillasClienteResumen }
   | { ok: false; message: string };
 
 /**
@@ -32,13 +33,20 @@ export async function consultarDocumentoPlanMillasWms(documentoRaw: string): Pro
       ok?: boolean;
       registrado?: boolean;
       message?: string;
+      clientePlanMillas?: PlanMillasClienteResumen;
     };
     if (data && data.ok === false) {
       return { ok: false, message: data.message ?? "No se pudo validar el documento." };
     }
     /** Solo cuenta `registrado === true` del WMS (no basta con `ok`). */
     if (data?.ok === true && data.registrado === true) {
-      return { ok: true, registrado: true };
+      return {
+        ok: true,
+        registrado: true,
+        ...(data.clientePlanMillas && Object.keys(data.clientePlanMillas).length > 0
+          ? { clientePlanMillas: data.clientePlanMillas }
+          : {}),
+      };
     }
     if (data?.ok === true) {
       return {

@@ -2,10 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import type { PlanMillasClienteResumen } from "@/lib/plan-millas-validar-resumen";
 
 export interface ClienteFrecuenteAvisoModalProps {
   open: boolean;
   onCerrar: () => void;
+  /** Datos devueltos por el WMS al validar documento (nombre, millas, documento). */
+  planMillasResumen?: PlanMillasClienteResumen | null;
 }
 
 function IconoTelefono({ className }: { className?: string }) {
@@ -52,7 +55,11 @@ function IconoUsuarioPlus({ className }: { className?: string }) {
 /**
  * Aviso animado al activar «Soy cliente frecuente»: guión para el cajero (app + registro + QR).
  */
-export default function ClienteFrecuenteAvisoModal({ open, onCerrar }: ClienteFrecuenteAvisoModalProps) {
+function formatMillas(n: number): string {
+  return new Intl.NumberFormat("es-CO", { maximumFractionDigits: 0 }).format(n);
+}
+
+export default function ClienteFrecuenteAvisoModal({ open, onCerrar, planMillasResumen }: ClienteFrecuenteAvisoModalProps) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -119,6 +126,32 @@ export default function ClienteFrecuenteAvisoModal({ open, onCerrar }: ClienteFr
               en la app.
             </p>
           </div>
+
+          {planMillasResumen &&
+          (planMillasResumen.nombre?.trim() ||
+            typeof planMillasResumen.millas === "number" ||
+            planMillasResumen.documento?.trim()) ? (
+            <div className="mt-5 rounded-2xl border border-emerald-400/40 bg-emerald-500/15 px-4 py-3 text-left text-sm text-emerald-50">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-emerald-300/95">Cliente en plan de millas</p>
+              {planMillasResumen.nombre?.trim() ? (
+                <p className="mt-1.5 text-base font-bold text-white">{planMillasResumen.nombre.trim()}</p>
+              ) : null}
+              {planMillasResumen.documento?.trim() ? (
+                <p className="mt-1 text-emerald-100/90">
+                  Documento: <span className="font-mono font-semibold text-white">{planMillasResumen.documento.trim()}</span>
+                </p>
+              ) : null}
+              {typeof planMillasResumen.millas === "number" ? (
+                <p className="mt-2 text-lg font-extrabold tabular-nums text-brand-yellow">
+                  {formatMillas(planMillasResumen.millas)} <span className="text-sm font-bold text-emerald-100">millas</span>
+                </p>
+              ) : planMillasResumen.nombre?.trim() || planMillasResumen.documento?.trim() ? (
+                <p className="mt-2 text-xs text-emerald-200/85">
+                  El saldo de millas no vino en esta consulta. Si necesitás confirmarlo, revisalo en la app del cliente.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           <div className="mt-5 rounded-2xl border border-amber-400/35 bg-amber-500/10 px-4 py-3 text-left text-sm leading-relaxed text-amber-50/95">
             <strong className="text-amber-200">Preguntale al cliente</strong> si{" "}

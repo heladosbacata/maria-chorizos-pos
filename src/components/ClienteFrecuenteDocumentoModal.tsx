@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import type { PlanMillasClienteResumen } from "@/lib/plan-millas-validar-resumen";
 import { consultarDocumentoPlanMillasWms } from "@/lib/wms-fidelizacion-consulta-documento";
 
 export interface ClienteFrecuenteDocumentoModalProps {
@@ -9,8 +10,14 @@ export interface ClienteFrecuenteDocumentoModalProps {
   /** Si el cliente ya está elegido en la venta, se prellena el campo. */
   documentoInicial?: string;
   onCancel: () => void;
-  /** Tras validar en WMS que está registrado: descuento sticker + abrir aviso al cajero. Si devuelve false, el modal no se cierra. */
-  onClienteRegistradoEnPlanMillas: () => boolean | void | Promise<boolean | void>;
+  /**
+   * Tras validar en WMS que está registrado: descuento sticker + abrir aviso al cajero.
+   * Recibe el resumen que devolvió el proxy (nombre, millas, documento) si el WMS lo incluye en el JSON.
+   * Si devuelve false, el modal no se cierra.
+   */
+  onClienteRegistradoEnPlanMillas: (
+    resumen: PlanMillasClienteResumen | undefined
+  ) => boolean | void | Promise<boolean | void>;
 }
 
 export default function ClienteFrecuenteDocumentoModal({
@@ -67,7 +74,7 @@ export default function ClienteFrecuenteDocumentoModal({
         setError(null);
         return;
       }
-      const activado = await Promise.resolve(onClienteRegistradoEnPlanMillas());
+      const activado = await Promise.resolve(onClienteRegistradoEnPlanMillas(r.clientePlanMillas));
       if (activado === false) return;
       onCancel();
     } finally {

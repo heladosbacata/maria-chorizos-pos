@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import ClienteFrecuenteAvisoModal from "@/components/ClienteFrecuenteAvisoModal";
 import ClienteFrecuenteDocumentoModal from "@/components/ClienteFrecuenteDocumentoModal";
+import type { PlanMillasClienteResumen } from "@/lib/plan-millas-validar-resumen";
 import { formatPesosCop, parsePesosCopInput } from "@/lib/pesos-cop-input";
 
 const TIPO_PAGO_OTRO = "Otro";
@@ -85,6 +86,7 @@ export default function RegistrarPagoPanel({
   const [avisoClienteFrecuenteOpen, setAvisoClienteFrecuenteOpen] = useState(false);
   const [aplicandoClienteFrecuente, setAplicandoClienteFrecuente] = useState(false);
   const [modalValidacionDocFrecuente, setModalValidacionDocFrecuente] = useState(false);
+  const [planMillasResumenTrasValidar, setPlanMillasResumenTrasValidar] = useState<PlanMillasClienteResumen | null>(null);
 
   const resetForm = useCallback(() => {
     setTab("contado");
@@ -96,6 +98,7 @@ export default function RegistrarPagoPanel({
     setAvisoClienteFrecuenteOpen(false);
     setAplicandoClienteFrecuente(false);
     setModalValidacionDocFrecuente(false);
+    setPlanMillasResumenTrasValidar(null);
   }, []);
 
   useEffect(() => {
@@ -123,23 +126,30 @@ export default function RegistrarPagoPanel({
 
   const cubreTotal = totalPagado + EPS >= totalAPagar;
 
-  const activarClienteFrecuenteTrasValidarWms = useCallback(async (): Promise<boolean> => {
-    if (onAntesActivarClienteFrecuente) {
-      setAplicandoClienteFrecuente(true);
-      try {
-        const r = await onAntesActivarClienteFrecuente();
-        if (!r.ok) {
-          window.alert(r.message);
-          return false;
+  const activarClienteFrecuenteTrasValidarWms = useCallback(
+    async (resumen?: PlanMillasClienteResumen): Promise<boolean> => {
+      setPlanMillasResumenTrasValidar(
+        resumen && Object.keys(resumen).length > 0 ? { ...resumen } : null
+      );
+      if (onAntesActivarClienteFrecuente) {
+        setAplicandoClienteFrecuente(true);
+        try {
+          const r = await onAntesActivarClienteFrecuente();
+          if (!r.ok) {
+            window.alert(r.message);
+            setPlanMillasResumenTrasValidar(null);
+            return false;
+          }
+        } finally {
+          setAplicandoClienteFrecuente(false);
         }
-      } finally {
-        setAplicandoClienteFrecuente(false);
       }
-    }
-    setClienteFrecuenteActivo(true);
-    setAvisoClienteFrecuenteOpen(true);
-    return true;
-  }, [onAntesActivarClienteFrecuente]);
+      setClienteFrecuenteActivo(true);
+      setAvisoClienteFrecuenteOpen(true);
+      return true;
+    },
+    [onAntesActivarClienteFrecuente]
+  );
 
   const setNumLineasOnline = (n: number) => {
     const next = Math.max(1, Math.min(8, n));
@@ -558,11 +568,12 @@ export default function RegistrarPagoPanel({
       open={modalValidacionDocFrecuente}
       documentoInicial={clienteNumeroIdentificacion?.trim()}
       onCancel={() => setModalValidacionDocFrecuente(false)}
-      onClienteRegistradoEnPlanMillas={() => activarClienteFrecuenteTrasValidarWms()}
+      onClienteRegistradoEnPlanMillas={(resumen) => activarClienteFrecuenteTrasValidarWms(resumen)}
     />
     <ClienteFrecuenteAvisoModal
       open={avisoClienteFrecuenteOpen}
       onCerrar={() => setAvisoClienteFrecuenteOpen(false)}
+      planMillasResumen={planMillasResumenTrasValidar}
     />
     </>
   );

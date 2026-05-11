@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getWmsPublicBaseUrl, WMS_VERCEL_URL } from "@/lib/wms-public-base";
+import { extraerResumenPlanMillasDesdeBodyWms, type PlanMillasClienteResumen } from "@/lib/plan-millas-validar-resumen";
 
 /**
  * Rutas bajo Club de Millas en el WMS (mismo dominio que el catálogo).
@@ -25,7 +26,7 @@ function listaPathsValidarDocumento(): string[] {
 
 const QUERY_KEYS = ["documento", "numeroDocumento", "numeroIdentificacion"] as const;
 
-type ConsultaOk = { ok: true; registrado: boolean; message?: string };
+type ConsultaOk = { ok: true; registrado: boolean; message?: string; clientePlanMillas?: PlanMillasClienteResumen };
 type ConsultaErr = { ok: false; message: string };
 
 function wmsHostIsLocalhost(base: string): boolean {
@@ -226,9 +227,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   const { registrado, message } = leerRegistradoEstricto(data);
+  const clientePlanMillas = registrado ? extraerResumenPlanMillasDesdeBodyWms(data, documento) : undefined;
+
   return res.status(200).json({
     ok: true,
     registrado,
     ...(registrado ? {} : { message: message ?? "Cliente no registrado en el plan de millas." }),
+    ...(clientePlanMillas && Object.keys(clientePlanMillas).length > 0 ? { clientePlanMillas } : {}),
   });
 }
