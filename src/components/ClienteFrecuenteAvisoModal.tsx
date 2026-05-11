@@ -56,6 +56,7 @@ export default function ClienteFrecuenteAvisoModal({ open, onCerrar, planMillasR
       />
 
       <div
+        data-pos-modal="plan-millas-cliente-v2"
         className="relative z-[1] w-full max-w-md animate-cliente-frec-modal-in overflow-hidden rounded-3xl border border-emerald-400/35 bg-gradient-to-b from-slate-900 via-slate-900 to-[#0c0e14] shadow-[0_24px_64px_-12px_rgba(0,0,0,0.65),0_0_0_1px_rgba(255,255,255,0.06)_inset,0_0_80px_-20px_rgba(16,185,129,0.18)]"
       >
         <div
