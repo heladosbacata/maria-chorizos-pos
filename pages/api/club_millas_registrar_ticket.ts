@@ -1,6 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getAuth } from "firebase-admin/auth";
 import { getFirebaseAdminApp } from "@/lib/firebase-admin-server";
+import { headersClubMillasPosSecretHaciaWms } from "@/lib/club-millas-wms-secret-header";
 import { getWmsPublicBaseUrl, WMS_VERCEL_URL } from "@/lib/wms-public-base";
 
 /** COP por cada “ticket” de club (regla de negocio acordada con el WMS). */
@@ -61,21 +62,6 @@ function extraerQrPayloadWms(data: unknown): string | null {
     if (q) return q;
   }
   return null;
-}
-
-function headersSecretoHaciaWms(secret: string): HeadersInit {
-  const raw = process.env.CLUB_MILLAS_WMS_SECRET_HEADER?.trim();
-  if (raw) {
-    const idx = raw.indexOf(":");
-    if (idx > 0) {
-      const name = raw.slice(0, idx).trim();
-      const value = raw.slice(idx + 1).trim();
-      if (name && value) {
-        return { "Content-Type": "application/json", [name]: value };
-      }
-    }
-  }
-  return { "Content-Type": "application/json", "X-Club-Millas-POS-Secret": secret };
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<OkPayload>) {
@@ -183,7 +169,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     try {
       const response = await fetch(url, {
         method: "POST",
-        headers: headersSecretoHaciaWms(secretParaWms),
+        headers: headersClubMillasPosSecretHaciaWms(secretParaWms),
         body: JSON.stringify(wmsBody),
       });
       const data = await response.json().catch(() => ({}));

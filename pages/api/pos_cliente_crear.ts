@@ -5,6 +5,7 @@ import {
   enviarBienvenidaClienteClubMillasPorCorreo,
   generarPinClubMillas4Digitos,
 } from "@/lib/email-bienvenida-cliente-club-millas";
+import { headersClubMillasPosSecretHaciaWms } from "@/lib/club-millas-wms-secret-header";
 import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
 
 type CreateClienteOk = {
@@ -32,26 +33,34 @@ function sanitizeComplementarios(raw: unknown): Record<string, string> | undefin
   return Object.keys(out).length ? out : undefined;
 }
 
-/** Misma forma de datos que guardamos en Firestore; el WMS puede mapear 1:1 si expone esta ruta. */
-async function sincronizarClientePosEnWms(
-  token: string,
-  idFirestore: string,
-  payload: Record<string, unknown>
-): Promise<void> {
+/**
+ * Réplica al WMS (`upsert-socio`): mismo secreto que registrar-ticket (`CLUB_MILLAS_POS_SECRET`),
+ * cabecera `X-Club-Millas-POS-Secret` (o `CLUB_MILLAS_WMS_SECRET_HEADER`). Ver docs WMS: POS-CLUB-DE-MILLAS-WMS.md.
+ */
+async function sincronizarClientePosEnWms(idFirestore: string, payload: Record<string, unknown>): Promise<void> {
   const raw = process.env.WMS_POS_CLIENTE_UPSERT_PATH?.trim();
   if (!raw) return;
+  const secret = process.env.CLUB_MILLAS_POS_SECRET?.trim();
+  if (!secret) {
+    console.warn("[pos_cliente_crear] WMS upsert-socio omitido: falta CLUB_MILLAS_POS_SECRET en el servidor del POS.");
+    return;
+  }
   const base = getWmsPublicBaseUrl().replace(/\/$/, "");
   const path = raw.startsWith("/") ? raw : `/${raw}`;
   const url = `${base}${path}`;
+  const ni = typeof payload.numeroIdentificacion === "string" ? payload.numeroIdentificacion.trim() : "";
+  const aliases: Record<string, string> = {};
+  if (ni) {
+    aliases.documento = ni;
+    aliases.numeroDocumento = ni;
+  }
   try {
     const wmsRes = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
+      headers: headersClubMillasPosSecretHaciaWms(secret),
       body: JSON.stringify({
         ...payload,
+        ...aliases,
         idDocumentoFirestore: idFirestore,
         origenAlta: "pos",
       }),
@@ -183,7 +192,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       }
     }
 
-    await sincronizarClientePosEnWms(token, ref.id, {
+    await sincronizarClientePosEnWms(ref.id, {
       ...payloadCliente,
       createdByUid: ctx.uid,
       ...(pinInicial ? { pinAccesoClubMillasInicial: pinInicial } : {}),
