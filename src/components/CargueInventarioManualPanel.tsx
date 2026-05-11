@@ -7,7 +7,7 @@ import {
 } from "@/lib/catalogo-insumos-sheet-client";
 import { getCatalogoPOS } from "@/lib/catalogo-pos";
 import { fechaColombia, fechaHoraColombia, mediodiaColombiaDesdeYmd, ymdColombia } from "@/lib/fecha-colombia";
-import { mergeCatalogoInventarioConProductosPos } from "@/lib/inventario-pos-catalogo";
+import { mergeCatalogoInventarioBase, mergeCatalogoInventarioConProductosPos } from "@/lib/inventario-pos-catalogo";
 import {
   CATALOGO_INSUMOS_KIT_COLLECTION,
   corregirMovimientoCargueInventario,
@@ -173,17 +173,21 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
     setErrorCat(null);
     setFuenteCat(null);
     try {
-      const [sheet, posRes] = await Promise.all([fetchCatalogoInsumosDesdeSheet(pv), getCatalogoPOS(null, pv)]);
+      const [sheet, posRes, listaFs] = await Promise.all([
+        fetchCatalogoInsumosDesdeSheet(pv),
+        getCatalogoPOS(null, pv),
+        listarInsumosKitPorPuntoVenta(pv),
+      ]);
       const productosPos = posRes.ok ? posRes.productos ?? [] : [];
       setIncluyeCatalogoPos(productosPos.length > 0);
       if (sheet.ok && sheet.data.length > 0) {
-        const merged = mergeCatalogoInventarioConProductosPos(sheet.data, productosPos);
+        const mergedBase = mergeCatalogoInventarioBase(sheet.data, listaFs);
+        const merged = mergeCatalogoInventarioConProductosPos(mergedBase, productosPos);
         setInsumos(merged.items);
         setFuenteCat("sheet");
         setProductosPosAgregados(merged.agregados);
         return;
       }
-      const listaFs = await listarInsumosKitPorPuntoVenta(pv);
       const merged = mergeCatalogoInventarioConProductosPos(listaFs, productosPos);
       if (merged.items.length > 0) {
         setInsumos(merged.items);

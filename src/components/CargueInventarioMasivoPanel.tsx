@@ -15,7 +15,7 @@ import {
   normSkuInventario,
   registrarMovimientoInventario,
 } from "@/lib/inventario-pos-firestore";
-import { mergeCatalogoInventarioConProductosPos } from "@/lib/inventario-pos-catalogo";
+import { mergeCatalogoInventarioBase, mergeCatalogoInventarioConProductosPos } from "@/lib/inventario-pos-catalogo";
 import type { InsumoKitItem } from "@/types/inventario-pos";
 
 export interface CargueInventarioMasivoPanelProps {
@@ -95,16 +95,18 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
     setFuenteCat(null);
     setSheetSetupAyuda(null);
     try {
-      const [sheet, saldosR, posRes] = await Promise.all([
+      const [sheet, saldosR, posRes, listaFs] = await Promise.all([
         fetchCatalogoInsumosDesdeSheet(pv),
         listarSaldosInventarioPorPuntoVenta(pv),
         getCatalogoPOS(null, pv),
+        listarInsumosKitPorPuntoVenta(pv),
       ]);
       const productosPos = posRes.ok ? posRes.productos ?? [] : [];
       setSaldoRows(saldosR);
       setIncluyeCatalogoPos(productosPos.length > 0);
       if (sheet.ok && sheet.data.length > 0) {
-        const merged = mergeCatalogoInventarioConProductosPos(sheet.data, productosPos);
+        const mergedBase = mergeCatalogoInventarioBase(sheet.data, listaFs);
+        const merged = mergeCatalogoInventarioConProductosPos(mergedBase, productosPos);
         setInsumos(merged.items);
         setFuenteCat("sheet");
         setProductosPosAgregados(merged.agregados);
@@ -112,7 +114,6 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
         return;
       }
       if (sheet.sheetSetup) setSheetSetupAyuda(sheet.sheetSetup);
-      const listaFs = await listarInsumosKitPorPuntoVenta(pv);
       const merged = mergeCatalogoInventarioConProductosPos(listaFs, productosPos);
       if (merged.items.length > 0) {
         setInsumos(merged.items);

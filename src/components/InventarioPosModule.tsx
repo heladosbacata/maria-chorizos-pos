@@ -9,7 +9,7 @@ import {
   escribirMinimoInventarioLocal,
   leerMinimosInventarioLocal,
 } from "@/lib/inventario-minimos-local-storage";
-import { mergeCatalogoInventarioConProductosPos } from "@/lib/inventario-pos-catalogo";
+import { mergeCatalogoInventarioBase, mergeCatalogoInventarioConProductosPos } from "@/lib/inventario-pos-catalogo";
 import type { InsumoKitItem, InventarioMovimientoDoc, TipoMovimientoInventario } from "@/types/inventario-pos";
 import { fechaColombia, fechaHoraColombia, mediodiaColombiaDesdeYmd } from "@/lib/fecha-colombia";
 import { normPuntoVentaCatalogo } from "@/lib/punto-venta-catalogo-norm";
@@ -41,7 +41,7 @@ import {
 type Pestaña = "stock" | "movimiento" | "historial";
 type FuenteCatalogoInventario = "sheet" | "firestore" | "wms";
 
-const INVENTARIO_CATALOGO_CACHE_PREFIX = "pos_mc_inventario_catalogo_v2";
+const INVENTARIO_CATALOGO_CACHE_PREFIX = "pos_mc_inventario_catalogo_v3";
 const HISTORIAL_LIMITE_STOCK = 80;
 const HISTORIAL_LIMITE_COMPLETO = 150;
 
@@ -268,7 +268,10 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       setIncluyeCatalogoPos(productosPos.length > 0);
 
       if (sheetRes.ok && sheetRes.data.length > 0) {
-        const merged = mergeCatalogoInventarioConProductosPos(sheetRes.data, productosPos);
+        // La hoja suele listar paquetes/ensambles; Firestore puede tener componentes (p. ej. chorizo suelto).
+        // Unificamos como en caja: hoja preferente + ítems extra desde «DB_Franquicia_Insumos_Kit».
+        const mergedBase = mergeCatalogoInventarioBase(sheetRes.data, listaFs);
+        const merged = mergeCatalogoInventarioConProductosPos(mergedBase, productosPos);
         setInsumos(merged.items);
         setFuenteCatalogo("sheet");
         setProductosPosAgregados(merged.agregados);
