@@ -130,7 +130,11 @@ export interface CrearClientePosInput {
   createdByUid: string;
 }
 
-export async function crearClientePos(input: CrearClientePosInput): Promise<{ ok: true; id: string } | { ok: false; message: string }> {
+export type CrearClientePosResult =
+  | { ok: true; id: string; bienvenidaCorreoEnviado?: boolean; bienvenidaCorreoError?: string }
+  | { ok: false; message: string };
+
+export async function crearClientePos(input: CrearClientePosInput): Promise<CrearClientePosResult> {
   const pv = input.puntoVenta.trim();
   if (!pv) return { ok: false, message: "Falta punto de venta." };
   if (!input.tipoIdentificacion.trim()) return { ok: false, message: "Indica el tipo de identificación." };
@@ -169,14 +173,25 @@ export async function crearClientePos(input: CrearClientePosInput): Promise<{ ok
             : {}),
         }),
       });
-      let data: { ok?: boolean; id?: string; message?: string } = {};
+      let data: {
+        ok?: boolean;
+        id?: string;
+        message?: string;
+        bienvenidaCorreoEnviado?: boolean;
+        bienvenidaCorreoError?: string;
+      } = {};
       try {
-        data = (await res.json()) as { ok?: boolean; id?: string; message?: string };
+        data = (await res.json()) as typeof data;
       } catch {
         /* cuerpo vacío o no JSON */
       }
       if (res.ok && data.ok && data.id) {
-        return { ok: true, id: data.id };
+        return {
+          ok: true,
+          id: data.id,
+          ...(data.bienvenidaCorreoEnviado ? { bienvenidaCorreoEnviado: true } : {}),
+          ...(data.bienvenidaCorreoError ? { bienvenidaCorreoError: data.bienvenidaCorreoError } : {}),
+        };
       }
       const msgLower = String(data.message ?? "").toLowerCase();
       const sinAdmin =

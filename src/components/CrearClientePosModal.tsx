@@ -116,6 +116,11 @@ export default function CrearClientePosModal({
       setError(r.message);
       return;
     }
+    if (r.bienvenidaCorreoError && email.trim()) {
+      window.alert(
+        `Cliente creado, pero no se pudo enviar el correo de bienvenida al plan de millas.\n\n${r.bienvenidaCorreoError}\n\nRevisá en Vercel SMTP, Zoho o Resend (mismo que el informe de cierre).`
+      );
+    }
     const doc: ClientePosFirestoreDoc = {
       id: r.id,
       puntoVenta: puntoVenta.trim(),
@@ -169,6 +174,8 @@ export default function CrearClientePosModal({
             (y datos complementarios opcionales). Punto de venta:{" "}
             <span className="font-medium text-gray-700">{puntoVenta}</span>. Los datos quedan en la base del POS de la
             franquicia; en el servidor se puede configurar la réplica al WMS para mantener una sola definición de cliente.
+            Si indicás un correo válido, el cliente recibe un e-mail de bienvenida al plan de millas con una clave de 4 dígitos
+            y enlaces para consultar puntos.
           </p>
 
           <fieldset className="mt-4">
@@ -280,6 +287,9 @@ export default function CrearClientePosModal({
             <div className="mt-3">
               <label className={labelClass}>Correo electrónico</label>
               <input className={inputClass} type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+              <p className="mt-1 text-xs text-gray-500">
+                Opcional para facturación. Si es válido, se envía bienvenida al plan de millas (clave de 4 dígitos + enlace a tu plan).
+              </p>
             </div>
 
             <div className="mt-3 flex gap-2">

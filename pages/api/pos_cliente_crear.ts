@@ -1,9 +1,18 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { getFirebaseAdminApp, getCreadorFirestoreContext } from "@/lib/firebase-admin-server";
+import {
+  enviarBienvenidaClienteClubMillasPorCorreo,
+  generarPinClubMillas4Digitos,
+} from "@/lib/email-bienvenida-cliente-club-millas";
 import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
 
-type CreateClienteOk = { ok: true; id: string };
+type CreateClienteOk = {
+  ok: true;
+  id: string;
+  bienvenidaCorreoEnviado?: boolean;
+  bienvenidaCorreoError?: string;
+};
 type CreateClienteErr = { ok: false; message: string };
 
 function str(v: unknown): string {
@@ -139,6 +148,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     ...(datosComplementarios ? { datosComplementarios } : {}),
   };
 
+  const emailValido = Boolean(email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
+
   try {
     const db = getFirestore(app);
     const ref = await db.collection("posClientes").add({
@@ -147,8 +158,43 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });
-    await sincronizarClientePosEnWms(token, ref.id, { ...payloadCliente, createdByUid: ctx.uid });
-    return res.status(200).json({ ok: true, id: ref.id });
+
+    let pinInicial: string | undefined;
+    let bienvenidaCorreoEnviado = false;
+    let bienvenidaCorreoError: string | undefined;
+
+    if (emailValido) {
+      pinInicial = generarPinClubMillas4Digitos();
+      const nombreDisplay =
+        tipoCliente === "empresa"
+          ? razonSocial
+          : [nombres, apellidos].filter(Boolean).join(" ").trim() || "Cliente";
+      const envio = await enviarBienvenidaClienteClubMillasPorCorreo({
+        to: email,
+        nombreDisplay,
+        pin: pinInicial,
+      });
+      if (envio.ok) {
+        bienvenidaCorreoEnviado = true;
+        await ref.update({ clubMillasBienvenidaCorreoEnviadoAt: FieldValue.serverTimestamp() });
+      } else {
+        bienvenidaCorreoError = envio.error;
+        console.warn("[pos_cliente_crear] correo bienvenida club millas:", envio.error);
+      }
+    }
+
+    await sincronizarClientePosEnWms(token, ref.id, {
+      ...payloadCliente,
+      createdByUid: ctx.uid,
+      ...(pinInicial ? { pinAccesoClubMillasInicial: pinInicial } : {}),
+    });
+
+    return res.status(200).json({
+      ok: true,
+      id: ref.id,
+      ...(bienvenidaCorreoEnviado ? { bienvenidaCorreoEnviado: true } : {}),
+      ...(bienvenidaCorreoError ? { bienvenidaCorreoError } : {}),
+    });
   } catch (e) {
     return res.status(500).json({ ok: false, message: e instanceof Error ? e.message : "No se pudo crear el cliente." });
   }

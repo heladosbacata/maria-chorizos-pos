@@ -10,6 +10,8 @@ export type CierreInformeEmailPayload = {
   cc?: string[];
   subject: string;
   text: string;
+  /** Cuerpo HTML opcional (clientes bienvenida, etc.). */
+  html?: string;
   attachments?: InformeAdjuntoCorreo[];
 };
 
@@ -52,7 +54,7 @@ export function detectCierreEmailBackend(): "zoho" | "resend" | null {
 export async function sendPosCierreInformeEmail(
   payload: CierreInformeEmailPayload
 ): Promise<CierreInformeEmailResult> {
-  const { to, cc, subject, text, attachments } = payload;
+  const { to, cc, subject, text, html, attachments } = payload;
   const backend = detectCierreEmailBackend();
 
   if (backend === "zoho") {
@@ -73,6 +75,7 @@ export async function sendPosCierreInformeEmail(
         to,
         subject: subject.trim(),
         text: text.trim(),
+        ...(html?.trim() ? { html: html.trim() } : {}),
         cc: cc?.length ? cc : undefined,
         attachments: attachments?.map((attachment) => ({
           filename: attachment.filename,
@@ -97,6 +100,7 @@ export async function sendPosCierreInformeEmail(
       to: [to],
       subject: subject.trim(),
       text: text.trim(),
+      ...(html?.trim() ? { html: html.trim() } : {}),
     };
     if (cc?.length) body.cc = cc;
     if (attachments?.length) {

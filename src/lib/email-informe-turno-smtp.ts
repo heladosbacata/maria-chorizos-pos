@@ -24,6 +24,7 @@ export async function enviarInformeTurnoPorSmtp(opts: {
   cc: string[];
   subject: string;
   text: string;
+  html?: string;
   attachments?: InformeAdjuntoCorreo[];
 }): Promise<{ ok: true } | { ok: false; message: string }> {
   const host = process.env.SMTP_HOST?.trim();
@@ -60,6 +61,7 @@ export async function enviarInformeTurnoPorSmtp(opts: {
       ...(opts.cc.length > 0 ? { cc: opts.cc.join(", ") } : {}),
       subject: opts.subject,
       text: opts.text,
+      ...(opts.html?.trim() ? { html: opts.html.trim() } : {}),
       attachments: opts.attachments?.map((attachment) => ({
         filename: attachment.filename,
         content: Buffer.from(attachment.contentBase64, "base64"),
