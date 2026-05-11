@@ -1,6 +1,13 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getWmsPublicBaseUrl, WMS_VERCEL_URL } from "@/lib/wms-public-base";
 
+/**
+ * Misma ruta que Mercadeo / WMS Club de Millas (no inferir desde otras colecciones en el POS).
+ * Override opcional si el WMS expone otra ruta equivalente (debe empezar con /).
+ */
+const VALIDAR_DOCUMENTO_PATH =
+  process.env.WMS_CLUB_VALIDAR_DOCUMENTO_PATH?.trim() || "/api/club-de-millas/pos/validar-documento";
+
 type ConsultaOk = { ok: true; registrado: boolean; message?: string };
 type ConsultaErr = { ok: false; message: string };
 
@@ -18,60 +25,40 @@ function normalizarDocumento(raw: string): string {
   return raw.replace(/\s/g, "").replace(/[.\-]/g, "").trim();
 }
 
-/** Interpreta JSON del WMS: contrato flexible para «plan de millas» / fidelización. */
-function interpretarConsultaFidelizacion(
-  status: number,
-  body: unknown
-): { kind: "registrado" } | { kind: "no_registrado" } | { kind: "indeterminado"; message: string } {
-  const d =
-    body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
-  const nested =
-    d.result && typeof d.result === "object" && !Array.isArray(d.result)
-      ? (d.result as Record<string, unknown>)
-      : null;
+/** Solo `registrado === true` cuenta como afiliado (no basta con `ok`). */
+function leerRegistradoEstricto(body: unknown): { registrado: boolean; message?: string } {
+  const root = body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : null;
+  const pick = (o: Record<string, unknown>): boolean | undefined => {
+    if (!("registrado" in o)) return undefined;
+    if (o.registrado === true) return true;
+    if (o.registrado === false) return false;
+    return false;
+  };
 
-  const registradoTrue = (o: Record<string, unknown>) =>
-    o.registrado === true || o.existe === true || o.encontrado === true || o.encontradoEnPlan === true;
-  const registradoFalse = (o: Record<string, unknown>) =>
-    o.registrado === false || o.existe === false || o.encontrado === false;
+  let msg: string | undefined;
+  if (root && typeof root.message === "string" && root.message.trim()) msg = root.message.trim();
 
-  const merge = { ...d, ...(nested ?? {}) };
+  if (root) {
+    const direct = pick(root);
+    if (direct === true) return { registrado: true };
+    if (direct === false) return { registrado: false, ...(msg ? { message: msg } : {}) };
 
-  if (status === 200) {
-    if (registradoTrue(merge)) return { kind: "registrado" };
-    if (registradoFalse(merge)) return { kind: "no_registrado" };
-    const data = merge.data;
-    if (data != null && typeof data === "object" && !Array.isArray(data) && Object.keys(data as object).length > 0) {
-      return { kind: "registrado" };
-    }
-    const cliente = merge.cliente;
-    if (cliente && typeof cliente === "object" && !Array.isArray(cliente) && Object.keys(cliente as object).length > 0) {
-      return { kind: "registrado" };
-    }
-    if (merge.ok === true && merge.cliente === null) return { kind: "no_registrado" };
-    if (Array.isArray(merge.resultados) && merge.resultados.length > 0) return { kind: "registrado" };
-    if (merge.ok === false && typeof merge.message === "string" && /no\s*(se\s*)?encontr|not\s*found|inexistente/i.test(merge.message)) {
-      return { kind: "no_registrado" };
+    const data = root.data;
+    if (data && typeof data === "object" && !Array.isArray(data)) {
+      const nested = data as Record<string, unknown>;
+      const n = pick(nested);
+      if (typeof nested.message === "string" && nested.message.trim()) msg = nested.message.trim();
+      if (n === true) return { registrado: true };
+      if (n === false) return { registrado: false, ...(msg ? { message: msg } : {}) };
     }
   }
-  if (status === 404) return { kind: "no_registrado" };
-  const msg =
-    typeof d.message === "string" && d.message.trim()
-      ? d.message.trim()
-      : typeof d.error === "string" && d.error.trim()
-        ? d.error.trim()
-        : `Respuesta del WMS no reconocida (HTTP ${status}).`;
-  return { kind: "indeterminado", message: msg };
-}
 
-async function fetchWmsJson(
-  url: string,
-  headers: HeadersInit,
-  init?: RequestInit
-): Promise<{ status: number; data: unknown }> {
-  const res = await fetch(url, { ...init, headers });
-  const data = await res.json().catch(() => ({}));
-  return { status: res.status, data };
+  return {
+    registrado: false,
+    message:
+      msg ??
+      "El WMS no devolvió registrado: true para este documento. Verificá que el despliegue use /api/club-de-millas/pos/validar-documento y el mismo dominio que el catálogo POS.",
+  };
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<ConsultaOk | ConsultaErr>) {
@@ -96,73 +83,90 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   const primaryBase = getWmsPublicBaseUrl().replace(/\/$/, "");
-  const auth = req.headers.authorization;
-  const headers: HeadersInit = { Accept: "application/json" };
-  if (auth) headers.Authorization = auth;
-
-  const customPath = process.env.WMS_FIDELIZACION_CONSULTA_PATH?.trim();
-  const pathCandidates = customPath
-    ? [customPath.startsWith("/") ? customPath : `/${customPath}`]
-    : [
-        "/api/pos/fidelizacion/cliente",
-        "/api/pos/plan-mill/cliente",
-        "/api/pos/fidelizacion/consulta-documento",
-      ];
-
-  const paramNames = ["documento", "numeroDocumento", "numeroIdentificacion"] as const;
   const fallbackBase = (process.env.WMS_CATALOGO_FALLBACK_URL?.trim() || WMS_VERCEL_URL).replace(/\/$/, "");
+  const auth = req.headers.authorization;
+  const headers: HeadersInit = { Accept: "application/json", ...(auth ? { Authorization: auth } : {}) };
 
-  async function intentarEnBase(base: string): Promise<{ kind: "ok"; registrado: boolean } | { kind: "fail" }> {
+  const path = VALIDAR_DOCUMENTO_PATH.startsWith("/") ? VALIDAR_DOCUMENTO_PATH : `/${VALIDAR_DOCUMENTO_PATH}`;
+
+  async function llamarValidarEnBase(base: string): Promise<{ status: number; data: unknown }> {
     const root = base.replace(/\/$/, "");
-    for (const path of pathCandidates) {
-      const p = path.startsWith("/") ? path : `/${path}`;
-      for (const param of paramNames) {
-        const qs = `${param}=${encodeURIComponent(documento)}`;
-        const getUrl = `${root}${p}?${qs}`;
-        try {
-          const { status, data } = await fetchWmsJson(getUrl, headers);
-          const inter = interpretarConsultaFidelizacion(status, data);
-          if (inter.kind === "registrado") return { kind: "ok", registrado: true };
-          if (inter.kind === "no_registrado") return { kind: "ok", registrado: false };
-          if (status === 404 || status >= 500) continue;
-        } catch {
-          /* intentar POST */
-        }
-        try {
-          const postUrl = `${root}${p}`;
-          const { status, data } = await fetchWmsJson(postUrl, { ...headers, "Content-Type": "application/json" }, {
-            method: "POST",
-            body: JSON.stringify({ documento, numeroDocumento: documento, numeroIdentificacion: documento }),
-          });
-          const inter = interpretarConsultaFidelizacion(status, data);
-          if (inter.kind === "registrado") return { kind: "ok", registrado: true };
-          if (inter.kind === "no_registrado") return { kind: "ok", registrado: false };
-        } catch {
-          /* siguiente combinación */
-        }
+    const getUrl = `${root}${path}?documento=${encodeURIComponent(documento)}`;
+
+    try {
+      const resGet = await fetch(getUrl, { method: "GET", headers, cache: "no-store" });
+      const dataGet = await resGet.json().catch(() => ({}));
+      if (resGet.status >= 200 && resGet.status < 300) {
+        return { status: resGet.status, data: dataGet };
       }
+      if (resGet.status === 401 || resGet.status === 403) {
+        return { status: resGet.status, data: dataGet };
+      }
+    } catch {
+      /* seguir con POST */
     }
-    return { kind: "fail" };
+
+    try {
+      const resPost = await fetch(`${root}${path}`, {
+        method: "POST",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ documento }),
+        cache: "no-store",
+      });
+      const dataPost = await resPost.json().catch(() => ({}));
+      return { status: resPost.status, data: dataPost };
+    } catch (e) {
+      return {
+        status: 0,
+        data: { message: e instanceof Error ? e.message : "Error de red hacia el WMS." },
+      };
+    }
   }
 
-  let outcome = await intentarEnBase(primaryBase);
-  if (outcome.kind === "fail" && wmsHostIsLocalhost(primaryBase) && fallbackBase.toLowerCase() !== primaryBase.toLowerCase()) {
-    outcome = await intentarEnBase(fallbackBase);
+  let { status, data } = await llamarValidarEnBase(primaryBase);
+  if (
+    (status === 0 || status === 404 || status >= 500) &&
+    wmsHostIsLocalhost(primaryBase) &&
+    fallbackBase.toLowerCase() !== primaryBase.toLowerCase()
+  ) {
+    const second = await llamarValidarEnBase(fallbackBase);
+    if (second.status >= 200 && second.status < 500 && second.status !== 404) {
+      status = second.status;
+      data = second.data;
+    } else if (status === 0 || status === 404) {
+      status = second.status;
+      data = second.data;
+    }
   }
 
-  if (outcome.kind === "ok") {
+  if (status === 0) {
     return res.status(200).json({
-      ok: true,
-      registrado: outcome.registrado,
-      ...(outcome.registrado ? {} : { message: "Cliente no registrado en el plan de millas." }),
+      ok: false,
+      message:
+        "No hubo respuesta del WMS al validar el documento. Revisá red, NEXT_PUBLIC_WMS_URL (mismo dominio que el catálogo) y que exista GET o POST " +
+        path +
+        ".",
     });
   }
 
+  if (status === 404) {
+    return res.status(200).json({
+      ok: false,
+      message:
+        `El WMS respondió 404 en ${path}. Desplegá el WMS con la ruta Club de Millas o revisá que la URL base sea la de producción (no localhost si el catálogo es prod).`,
+    });
+  }
+
+  if (status < 200 || status >= 300) {
+    const d = data as { message?: string; error?: string };
+    const msg = d?.message || d?.error || `El WMS respondió HTTP ${status}.`;
+    return res.status(200).json({ ok: false, message: msg });
+  }
+
+  const { registrado, message } = leerRegistradoEstricto(data);
   return res.status(200).json({
-    ok: false,
-    message:
-      "No se pudo validar el documento contra el WMS (no hay respuesta clara o el endpoint no está configurado). " +
-      "Definí en el servidor la variable WMS_FIDELIZACION_CONSULTA_PATH con la ruta exacta del WMS " +
-      "(por ejemplo /api/pos/fidelizacion/cliente) que consulte el plan de millas por documento.",
+    ok: true,
+    registrado,
+    ...(registrado ? {} : { message: message ?? "Cliente no registrado en el plan de millas." }),
   });
 }

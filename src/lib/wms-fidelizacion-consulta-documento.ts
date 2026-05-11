@@ -9,8 +9,9 @@ export type ConsultaPlanMillasResult =
   | { ok: false; message: string };
 
 /**
- * Consulta en el WMS si el documento ya está registrado en el plan de millas (fidelización).
- * Usa el proxy `/api/pos_fidelizacion_consulta_documento` (Bearer Firebase del cajero).
+ * Consulta en el WMS (mismo dominio que el catálogo) si el documento está en el plan de millas.
+ * Proxy: `/api/pos_fidelizacion_consulta_documento` → `GET|POST …/api/club-de-millas/pos/validar-documento`.
+ * Solo acepta afiliación si la respuesta trae `registrado === true` (no basta con `ok`).
  */
 export async function consultarDocumentoPlanMillasWms(documentoRaw: string): Promise<ConsultaPlanMillasResult> {
   const documento = normalizarDocumentoInput(documentoRaw);
@@ -25,7 +26,7 @@ export async function consultarDocumentoPlanMillasWms(documentoRaw: string): Pro
   try {
     const res = await fetch(
       `/api/pos_fidelizacion_consulta_documento?documento=${encodeURIComponent(documento)}`,
-      { headers }
+      { headers, cache: "no-store" }
     );
     const data = (await res.json().catch(() => ({}))) as {
       ok?: boolean;
@@ -35,11 +36,18 @@ export async function consultarDocumentoPlanMillasWms(documentoRaw: string): Pro
     if (data && data.ok === false) {
       return { ok: false, message: data.message ?? "No se pudo validar el documento." };
     }
-    return {
-      ok: true,
-      registrado: Boolean(data.registrado),
-      ...(typeof data.message === "string" && data.message.trim() ? { message: data.message.trim() } : {}),
-    };
+    /** Solo cuenta `registrado === true` del WMS (no basta con `ok`). */
+    if (data?.ok === true && data.registrado === true) {
+      return { ok: true, registrado: true };
+    }
+    if (data?.ok === true) {
+      return {
+        ok: true,
+        registrado: false,
+        ...(typeof data.message === "string" && data.message.trim() ? { message: data.message.trim() } : {}),
+      };
+    }
+    return { ok: false, message: "Respuesta inválida al validar el documento." };
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Error de red";
     return { ok: false, message: msg.includes("Failed to fetch") ? "Sin conexión. Reintentá en unos segundos." : msg };
