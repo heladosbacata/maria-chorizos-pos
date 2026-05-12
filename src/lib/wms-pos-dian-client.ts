@@ -22,7 +22,19 @@ export type DianPingOk = {
     minNumber: number;
     maxNumber: number;
   };
+  /** Notas del WMS (sandbox DIAN, FAJ43b, etc.). */
+  notasDian?: string[];
 };
+
+export type DianPingErr = {
+  ok: false;
+  error: string;
+  paso?: string;
+  /** Si Alegra respondió pero falló resolución en Sheets, el WMS puede devolver la empresa igual. */
+  empresaAlegra?: { id: string; name: string; identification?: string };
+};
+
+export type DianPingResult = DianPingOk | DianPingErr;
 
 export type PosCobroLineaPayload = {
   descripcion: string;
@@ -83,9 +95,20 @@ export async function wmsPosDianConfigPut(
   }
 }
 
-export async function wmsPosAlegraPingPos(
-  idToken: string
-): Promise<DianPingOk | { ok: false; error: string; paso?: string }> {
+function parseEmpresaAlegra(raw: unknown): DianPingOk["empresaAlegra"] | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const o = raw as Record<string, unknown>;
+  const id = String(o.id ?? "").trim();
+  const name = String(o.name ?? "").trim();
+  if (!id || !name) return undefined;
+  return {
+    id,
+    name,
+    identification: String(o.identification ?? "").trim(),
+  };
+}
+
+export async function wmsPosAlegraPingPos(idToken: string): Promise<DianPingResult> {
   const t = idToken?.trim();
   if (!t) return { ok: false, error: "Sin sesión." };
   try {
@@ -95,14 +118,31 @@ export async function wmsPosAlegraPingPos(
       headers: { Authorization: `Bearer ${t}`, Accept: "application/json" },
     });
     const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-    if (!res.ok || !data.ok) {
+    if (data.ok === true) {
+      const emp = parseEmpresaAlegra(data.empresaAlegra);
+      const resol = data.resolucion && typeof data.resolucion === "object" && !Array.isArray(data.resolucion) ? (data.resolucion as Record<string, unknown>) : null;
+      if (!emp || !resol) {
+        return { ok: false, error: "Respuesta incompleta del WMS al verificar Alegra." };
+      }
+      const notasDian = Array.isArray(data.notasDian) ? data.notasDian.map((x) => String(x)).filter(Boolean) : undefined;
       return {
-        ok: false,
-        error: String(data.error ?? `Error ${res.status}`),
-        paso: data.paso != null ? String(data.paso) : undefined,
+        ok: true,
+        empresaAlegra: emp,
+        resolucion: {
+          prefix: String(resol.prefix ?? ""),
+          resolutionNumber: String(resol.resolutionNumber ?? ""),
+          minNumber: Number(resol.minNumber ?? 0) || 0,
+          maxNumber: Number(resol.maxNumber ?? 0) || 0,
+        },
+        ...(notasDian?.length ? { notasDian } : {}),
       };
     }
-    return data as unknown as DianPingOk;
+    return {
+      ok: false,
+      error: String(data.error ?? `Error ${res.status}`),
+      paso: data.paso != null ? String(data.paso) : undefined,
+      empresaAlegra: parseEmpresaAlegra(data.empresaAlegra),
+    };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Red" };
   }

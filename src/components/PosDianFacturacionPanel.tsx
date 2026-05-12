@@ -1,13 +1,27 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { auth } from "@/lib/firebase";
+import type { DianPingOk, DianPingResult } from "@/lib/wms-pos-dian-client";
 import {
   wmsPosAlegraPingPos,
   wmsPosDianConfigGet,
   wmsPosDianConfigPut,
 } from "@/lib/wms-pos-dian-client";
+
+/** NIT/cédula sin puntos ni guiones (como pide el flujo Alegra / WMS). */
+function nitSoloDigitos(raw: string): string {
+  return raw.replace(/\D/g, "");
+}
+
+function textoPingDesdeOk(r: DianPingOk): string {
+  const base = `Empresa en Alegra: ${r.empresaAlegra.name} (id ${r.empresaAlegra.id}). Resolución ${r.resolucion.prefix} · ${r.resolucion.resolutionNumber} · rango ${r.resolucion.minNumber}–${r.resolucion.maxNumber}.`;
+  if (r.notasDian?.length) {
+    return `${base}\n\nNotas (pruebas DIAN / FAJ43b):\n- ${r.notasDian.join("\n- ")}`;
+  }
+  return base;
+}
 
 const STEPS = [
   { id: 1, title: "Cuenta reseller Alegra" },
@@ -33,6 +47,15 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
   const [probando, setProbando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pingOk, setPingOk] = useState<string | null>(null);
+  /** Sincronización automática al editar NIT / id empresa (pasos 2 y 3). */
+  const [sincAuto, setSincAuto] = useState(false);
+  const [syncPreview, setSyncPreview] = useState<
+    | { kind: "ok"; data: DianPingOk }
+    | { kind: "partial"; err: Extract<DianPingResult, { ok: false }> }
+    | null
+  >(null);
+  const [syncAutoMensaje, setSyncAutoMensaje] = useState<string | null>(null);
+  const debounceSyncRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const cargar = useCallback(async () => {
     if (!user) return;
@@ -49,7 +72,7 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
         setError(r.error);
         return;
       }
-      setEmisorNit(r.emisorNit);
+      setEmisorNit(nitSoloDigitos(r.emisorNit) || r.emisorNit.trim());
       setAlegraCompanyId(r.alegraCompanyId);
       setHabilitado(r.habilitado);
     } finally {
@@ -60,6 +83,103 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
   useEffect(() => {
     void cargar();
   }, [cargar]);
+
+  /** Al dejar de tipear NIT o id empresa: guarda borrador en Firestore y consulta Alegra + resolución (misma lógica que «Probar conexión»). */
+  useEffect(() => {
+    if (debounceSyncRef.current) {
+      clearTimeout(debounceSyncRef.current);
+      debounceSyncRef.current = null;
+    }
+    if (!user || cargando) return;
+    if (step !== 2 && step !== 3) return;
+    const nit = nitSoloDigitos(emisorNit);
+    if (nit.length < 8) {
+      setSyncPreview(null);
+      setSyncAutoMensaje(null);
+      return;
+    }
+    debounceSyncRef.current = setTimeout(() => {
+      void (async () => {
+        setSincAuto(true);
+        setSyncAutoMensaje(null);
+        try {
+          const token = await auth?.currentUser?.getIdToken();
+          if (!token) return;
+          const put = await wmsPosDianConfigPut(token, {
+            emisorNit: nit,
+            alegraCompanyId: alegraCompanyId.trim(),
+            habilitado: false,
+          });
+          if (!put.ok) {
+            setSyncPreview(null);
+            setSyncAutoMensaje(put.error);
+            return;
+          }
+          const r = await wmsPosAlegraPingPos(token);
+          if (r.ok) {
+            setSyncPreview({ kind: "ok", data: r });
+            setAlegraCompanyId((prev) => (prev.trim() ? prev : r.empresaAlegra.id));
+            setSyncAutoMensaje(null);
+          } else {
+            setSyncPreview({ kind: "partial", err: r });
+            setSyncAutoMensaje(null);
+          }
+        } catch {
+          setSyncPreview(null);
+          setSyncAutoMensaje("No se pudo contactar al servidor.");
+        } finally {
+          setSincAuto(false);
+        }
+      })();
+    }, 900);
+    return () => {
+      if (debounceSyncRef.current) {
+        clearTimeout(debounceSyncRef.current);
+        debounceSyncRef.current = null;
+      }
+    };
+  }, [user, cargando, step, emisorNit, alegraCompanyId]);
+
+  useEffect(() => {
+    if (step !== 4) return;
+    if (!syncPreview) return;
+    if (syncPreview.kind === "ok") setPingOk(textoPingDesdeOk(syncPreview.data));
+    else setPingOk(null);
+  }, [step, syncPreview]);
+
+  const bloqueSincAlegra = (
+    <div className="space-y-2 rounded-xl border border-sky-200 bg-sky-50/90 p-4">
+      <p className="text-xs font-semibold text-sky-900">Sincronización con Alegra / WMS (pruebas)</p>
+      <p className="text-xs text-sky-900/90">
+        Al dejar de escribir (~1 s), con 8 o más dígitos en el NIT/cédula, se guarda borrador y se consulta el mismo
+        chequeo que «Probar conexión»: empresa en Alegra, resolución en la hoja y notas DIAN si el servidor las envía.
+      </p>
+      {sincAuto ? <p className="text-xs text-sky-800">Consultando…</p> : null}
+      {syncAutoMensaje ? <p className="text-xs text-red-700">{syncAutoMensaje}</p> : null}
+      {syncPreview?.kind === "ok" ? (
+        <div className="whitespace-pre-line rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs text-emerald-950">
+          {textoPingDesdeOk(syncPreview.data)}
+        </div>
+      ) : null}
+      {syncPreview?.kind === "partial" ? (
+        <div className="space-y-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+          {syncPreview.err.empresaAlegra ? (
+            <p>
+              <span className="font-medium">Empresa (parcial):</span> {syncPreview.err.empresaAlegra.name} (id{" "}
+              {syncPreview.err.empresaAlegra.id})
+            </p>
+          ) : null}
+          <p className="font-medium text-red-800">{syncPreview.err.error}</p>
+          {syncPreview.err.paso != null ? (
+            <p className="text-amber-900">Referencia paso wizard: {String(syncPreview.err.paso)}</p>
+          ) : null}
+        </div>
+      ) : null}
+      {!sincAuto && nitSoloDigitos(emisorNit).length < 8 ? (
+        <p className="text-xs text-gray-600">Escribí al menos 8 dígitos para disparar la consulta automática.</p>
+      ) : null}
+    </div>
+  );
 
   const guardarBorrador = async () => {
     if (!user) return;
@@ -72,7 +192,7 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
         return;
       }
       const r = await wmsPosDianConfigPut(token, {
-        emisorNit: emisorNit.trim(),
+        emisorNit: nitSoloDigitos(emisorNit) || emisorNit.trim(),
         alegraCompanyId: alegraCompanyId.trim(),
         habilitado: false,
       });
@@ -98,7 +218,7 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
         return;
       }
       await wmsPosDianConfigPut(token, {
-        emisorNit: emisorNit.trim(),
+        emisorNit: nitSoloDigitos(emisorNit) || emisorNit.trim(),
         alegraCompanyId: alegraCompanyId.trim(),
         habilitado: false,
       });
@@ -107,9 +227,7 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
         setError(r.error);
         return;
       }
-      setPingOk(
-        `Empresa en Alegra: ${r.empresaAlegra.name} (id ${r.empresaAlegra.id}). Resolución ${r.resolucion.prefix} · ${r.resolucion.resolutionNumber} · rango ${r.resolucion.minNumber}–${r.resolucion.maxNumber}.`
-      );
+      setPingOk(textoPingDesdeOk(r));
     } finally {
       setProbando(false);
     }
@@ -130,7 +248,7 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
         return;
       }
       const r = await wmsPosDianConfigPut(token, {
-        emisorNit: emisorNit.trim(),
+        emisorNit: nitSoloDigitos(emisorNit) || emisorNit.trim(),
         alegraCompanyId: alegraCompanyId.trim(),
         habilitado: true,
       });
@@ -152,7 +270,7 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
       const token = await auth?.currentUser?.getIdToken();
       if (!token) return;
       const r = await wmsPosDianConfigPut(token, {
-        emisorNit: emisorNit.trim(),
+        emisorNit: nitSoloDigitos(emisorNit) || emisorNit.trim(),
         alegraCompanyId: alegraCompanyId.trim(),
         habilitado: false,
       });
@@ -241,6 +359,7 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
               <p className="text-sm text-gray-600">
                 Debe coincidir con el documento registrado en la empresa de Alegra de este punto (sin puntos en el NIT).
               </p>
+              {bloqueSincAlegra}
               <label className="block">
                 <span className="text-sm font-medium text-gray-700">NIT o cédula del emisor (este punto)</span>
                 <input
@@ -280,6 +399,11 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
 
           {step === 3 && (
             <div className="space-y-3 text-sm leading-relaxed text-gray-700">
+              {bloqueSincAlegra}
+              <p className="text-xs text-sky-900">
+                El NIT del paso anterior se usa en la consulta; si cambiás el NIT, volvé al paso 2 o esperá la
+                sincronización automática.
+              </p>
               <p>
                 En el WMS debe existir la hoja <code className="rounded bg-gray-100 px-1">DB_ResolucionesDian</code> con
                 una fila para <strong>este mismo NIT/cédula</strong> (columna tipo{" "}
@@ -304,7 +428,7 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
               </p>
               <button
                 type="button"
-                disabled={probando || !emisorNit.trim()}
+                disabled={probando || nitSoloDigitos(emisorNit).length < 8}
                 onClick={() => void ejecutarPing()}
                 className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-gray-900 disabled:opacity-50"
               >
