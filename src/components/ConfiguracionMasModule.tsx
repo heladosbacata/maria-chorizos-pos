@@ -36,6 +36,8 @@ const CP_CENTRO_ITEM_ID = "cp-centro";
 const PS_POLITICA_ITEM_ID = "ps-politica-catalogo";
 /** Facturación electrónica POS → Alegra / DIAN */
 const DIAN_VEN_FACT_ITEM_ID = "dian-ven-fact";
+/** Misma pantalla que facturación electrónica, abriendo en el paso de NIT y número de resolución */
+const DIAN_VEN_RES_ITEM_ID = "dian-ven-res";
 
 const VISTA_DETALLE_ITEM_IDS = new Set<string>([
   PERFIL_ORGANIZACION_ITEM_ID,
@@ -50,6 +52,7 @@ const VISTA_DETALLE_ITEM_IDS = new Set<string>([
   CP_CENTRO_ITEM_ID,
   PS_POLITICA_ITEM_ID,
   DIAN_VEN_FACT_ITEM_ID,
+  DIAN_VEN_RES_ITEM_ID,
 ]);
 
 export type ConfigCategoriaId =
@@ -420,8 +423,13 @@ export default function ConfiguracionMasModule({ puntoVenta, uid, role }: Config
 
       {/* Panel principal */}
       <div className="min-w-0 flex-1 overflow-y-auto p-6">
-        {vistaDetalleItemId === DIAN_VEN_FACT_ITEM_ID ? (
-          <PosDianFacturacionPanel puntoVenta={puntoVenta} onVolver={() => setVistaDetalleItemId(null)} />
+        {vistaDetalleItemId === DIAN_VEN_FACT_ITEM_ID || vistaDetalleItemId === DIAN_VEN_RES_ITEM_ID ? (
+          <PosDianFacturacionPanel
+            key={vistaDetalleItemId}
+            puntoVenta={puntoVenta}
+            initialStep={vistaDetalleItemId === DIAN_VEN_RES_ITEM_ID ? 2 : 1}
+            onVolver={() => setVistaDetalleItemId(null)}
+          />
         ) : vistaDetalleItemId === PERFIL_ORGANIZACION_ITEM_ID ? (
           uid ? (
             <PerfilOrganizacionForm uid={uid} onVolver={() => setVistaDetalleItemId(null)} />

@@ -34,13 +34,21 @@ const STEPS = [
 type Props = {
   puntoVenta: string | null;
   onVolver: () => void;
+  /** 1 por defecto; usar 2 al abrir desde «Sincroniza tu resolución» para ir directo a NIT + resolución. */
+  initialStep?: 1 | 2 | 3 | 4 | 5;
 };
 
-export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props) {
+export default function PosDianFacturacionPanel({
+  puntoVenta,
+  onVolver,
+  initialStep = 1,
+}: Props) {
   const { user } = useAuth();
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(initialStep);
   const [emisorNit, setEmisorNit] = useState("");
   const [alegraCompanyId, setAlegraCompanyId] = useState("");
+  /** Número de resolución DIAN (coincide con la numeración en hoja / WMS). */
+  const [dianResolutionNumber, setDianResolutionNumber] = useState("");
   const [habilitado, setHabilitado] = useState(false);
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
@@ -74,6 +82,7 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
       }
       setEmisorNit(nitSoloDigitos(r.emisorNit) || r.emisorNit.trim());
       setAlegraCompanyId(r.alegraCompanyId);
+      setDianResolutionNumber(r.dianResolutionNumber);
       setHabilitado(r.habilitado);
     } finally {
       setCargando(false);
@@ -108,6 +117,7 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
           const put = await wmsPosDianConfigPut(token, {
             emisorNit: nit,
             alegraCompanyId: alegraCompanyId.trim(),
+            dianResolutionNumber: dianResolutionNumber.trim(),
             habilitado: false,
           });
           if (!put.ok) {
@@ -138,7 +148,7 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
         debounceSyncRef.current = null;
       }
     };
-  }, [user, cargando, step, emisorNit, alegraCompanyId]);
+  }, [user, cargando, step, emisorNit, alegraCompanyId, dianResolutionNumber]);
 
   useEffect(() => {
     if (step !== 4) return;
@@ -151,8 +161,10 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
     <div className="space-y-2 rounded-xl border border-sky-200 bg-sky-50/90 p-4">
       <p className="text-xs font-semibold text-sky-900">Sincronización con Alegra / WMS (pruebas)</p>
       <p className="text-xs text-sky-900/90">
-        Al dejar de escribir (~1 s), con 8 o más dígitos en el NIT/cédula, se guarda borrador y se consulta el mismo
-        chequeo que «Probar conexión»: empresa en Alegra, resolución en la hoja y notas DIAN si el servidor las envía.
+        Al dejar de escribir (~1 s), con 8 o más dígitos en el NIT/cédula, se guarda borrador y se llama a{" "}
+        <code className="rounded bg-sky-100/80 px-1">ping-pos</code> (misma validación que «Probar conexión»): empresa en
+        Alegra, fila en <code className="rounded bg-sky-100/80 px-1">DB_ResolucionesDian</code> y notas DIAN si el WMS
+        las envía. Incluye NIT, id Alegra y número de resolución del paso 2 si los cargaste.
       </p>
       {sincAuto ? <p className="text-xs text-sky-800">Consultando…</p> : null}
       {syncAutoMensaje ? <p className="text-xs text-red-700">{syncAutoMensaje}</p> : null}
@@ -194,6 +206,7 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
       const r = await wmsPosDianConfigPut(token, {
         emisorNit: nitSoloDigitos(emisorNit) || emisorNit.trim(),
         alegraCompanyId: alegraCompanyId.trim(),
+        dianResolutionNumber: dianResolutionNumber.trim(),
         habilitado: false,
       });
       if (!r.ok) {
@@ -201,6 +214,22 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
         return;
       }
       setPingOk(null);
+      setSyncAutoMensaje(null);
+      const nitGuardado = nitSoloDigitos(emisorNit);
+      if (nitGuardado.length >= 8) {
+        try {
+          const rPing = await wmsPosAlegraPingPos(token);
+          if (rPing.ok) {
+            setSyncPreview({ kind: "ok", data: rPing });
+            setAlegraCompanyId((prev) => (prev.trim() ? prev : rPing.empresaAlegra.id));
+          } else {
+            setSyncPreview({ kind: "partial", err: rPing });
+          }
+        } catch {
+          setSyncPreview(null);
+          setSyncAutoMensaje("No se pudo contactar al servidor.");
+        }
+      }
     } finally {
       setGuardando(false);
     }
@@ -220,6 +249,7 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
       await wmsPosDianConfigPut(token, {
         emisorNit: nitSoloDigitos(emisorNit) || emisorNit.trim(),
         alegraCompanyId: alegraCompanyId.trim(),
+        dianResolutionNumber: dianResolutionNumber.trim(),
         habilitado: false,
       });
       const r = await wmsPosAlegraPingPos(token);
@@ -250,6 +280,7 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
       const r = await wmsPosDianConfigPut(token, {
         emisorNit: nitSoloDigitos(emisorNit) || emisorNit.trim(),
         alegraCompanyId: alegraCompanyId.trim(),
+        dianResolutionNumber: dianResolutionNumber.trim(),
         habilitado: true,
       });
       if (!r.ok) {
@@ -272,6 +303,7 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
       const r = await wmsPosDianConfigPut(token, {
         emisorNit: nitSoloDigitos(emisorNit) || emisorNit.trim(),
         alegraCompanyId: alegraCompanyId.trim(),
+        dianResolutionNumber: dianResolutionNumber.trim(),
         habilitado: false,
       });
       if (r.ok) {
@@ -340,16 +372,37 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
           {step === 1 && (
             <div className="space-y-3 text-sm leading-relaxed text-gray-700">
               <p>
-                Bacatá opera como <strong>reseller</strong> en Alegra: se usa el <strong>mismo token</strong> en el servidor
-                del WMS para todas las empresas (puntos) dadas de alta en esa cuenta.
+                Según la documentación de Alegra e-provider, el token queda ligado a la compañía{" "}
+                <strong>principal</strong>; cada franquicia emisora debe existir como compañía{" "}
+                <strong>asociada</strong>. Bacatá usa una cuenta tipo reseller: el WMS usa el{" "}
+                <strong>mismo token</strong> para todas las compañías asociadas de esa cuenta.
               </p>
               <p>
-                Cada punto de venta debe existir como <strong>empresa</strong> en Alegra con su NIT o cédula (persona
-                natural o jurídica), según lo hayan configurado con Alegra.
+                Antes de usar este POS, en Alegra/API deben estar hechos (fuera de esta pantalla) el{" "}
+                <strong>alta de la compañía asociada</strong> (p. ej. <code className="rounded bg-gray-100 px-1">createcompany</code> con NIT, DV, certificado) y la{" "}
+                <strong>habilitación en la DIAN</strong> con el set de pruebas (
+                <code className="rounded bg-gray-100 px-1">createtestset</code>
+                ). Para <strong>factura electrónica de venta</strong> el tipo de set es{" "}
+                <code className="rounded bg-gray-100 px-1">invoices</code> (no confundir con{" "}
+                <code className="rounded bg-gray-100 px-1">pos</code>, que es documento equivalente POS). En sandbox,
+                Alegra indica el <code className="rounded bg-gray-100 px-1">governmentId</code> fijo de pruebas en su guía.
+              </p>
+              <p>
+                Guía oficial:{" "}
+                <a
+                  href="https://e-provider-docs.alegra.com/docs/gu%C3%ADa-creaci%C3%B3n-de-una-compa%C3%B1%C3%ADa-asociada"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-medium text-amber-800 underline decoration-amber-600/60 underline-offset-2 hover:text-amber-900"
+                >
+                  Creación y habilitación de una compañía asociada (Alegra)
+                </a>
+                . Los pasos 2 a 4 aquí solo <strong>verifican</strong> NIT, id de empresa y resolución que el WMS enviará
+                al emitir (alineado al objeto <code className="rounded bg-gray-100 px-1">resolution</code> de la API).
               </p>
               <p className="text-amber-900">
-                Si aún no tenés la empresa del franquiciado en Alegra, completá ese alta con el soporte de Alegra antes de
-                seguir.
+                Si la compañía asociada o el set DIAN aún no están listos, completá ese proceso con Alegra o el equipo
+                técnico antes de seguir.
               </p>
             </div>
           )}
@@ -357,7 +410,9 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
           {step === 2 && (
             <div className="space-y-4">
               <p className="text-sm text-gray-600">
-                Debe coincidir con el documento registrado en la empresa de Alegra de este punto (sin puntos en el NIT).
+                Completá el <strong>NIT o cédula</strong> del punto y, si corresponde, el{" "}
+                <strong>número de resolución DIAN</strong> de facturas de venta. Deben coincidir con la empresa en Alegra
+                y con la fila en el WMS (sin puntos en el NIT).
               </p>
               {bloqueSincAlegra}
               <label className="block">
@@ -371,6 +426,24 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
                   autoComplete="off"
                 />
               </label>
+              <div className="space-y-2 rounded-xl border-2 border-amber-300/80 bg-amber-50/50 p-4">
+                <p className="text-sm font-semibold text-gray-900">Número de resolución DIAN</p>
+                <p className="text-xs text-gray-700 leading-relaxed">
+                  Es el <strong>número del acto de resolución</strong> de numeración de facturas de venta (no el prefijo
+                  tipo FV-5 ni el rango desde–hasta). Si tenés más de una resolución en Alanube para tu NIT, pegá aquí el
+                  número exacto que usás para facturas de venta. Lo encontrás en la resolución DIAN o en Alanube. Si lo
+                  dejás vacío, el sistema intentará elegir una automáticamente.
+                </p>
+                <input
+                  type="text"
+                  value={dianResolutionNumber}
+                  onChange={(e) => setDianResolutionNumber(e.target.value)}
+                  className="w-full rounded-lg border border-amber-200/90 bg-white px-3 py-2 text-sm shadow-sm"
+                  placeholder="Ej. 18760000001 o el número que figure en tu resolución"
+                  autoComplete="off"
+                  aria-label="Número de resolución DIAN"
+                />
+              </div>
               <label className="block">
                 <span className="text-sm font-medium text-gray-700">Id empresa en Alegra (opcional)</span>
                 <input
@@ -401,8 +474,8 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
             <div className="space-y-3 text-sm leading-relaxed text-gray-700">
               {bloqueSincAlegra}
               <p className="text-xs text-sky-900">
-                El NIT del paso anterior se usa en la consulta; si cambiás el NIT, volvé al paso 2 o esperá la
-                sincronización automática.
+                El NIT y el número de resolución DIAN los cargás en el <strong>paso 2</strong>; si los cambiás, esperá la
+                sincronización automática o usá «Guardar datos del punto» y revisá el resultado arriba.
               </p>
               <p>
                 En el WMS debe existir la hoja <code className="rounded bg-gray-100 px-1">DB_ResolucionesDian</code> con

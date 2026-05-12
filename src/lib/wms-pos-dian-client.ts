@@ -10,6 +10,8 @@ export type DianConfigResponse = {
   ok: true;
   emisorNit: string;
   alegraCompanyId: string;
+  /** Número de resolución DIAN (texto); el WMS puede usarlo para elegir la fila en DB_ResolucionesDian. */
+  dianResolutionNumber: string;
   habilitado: boolean;
 };
 
@@ -62,6 +64,7 @@ export async function wmsPosDianConfigGet(
       ok: true,
       emisorNit: String(data.emisorNit ?? ""),
       alegraCompanyId: String(data.alegraCompanyId ?? ""),
+      dianResolutionNumber: String(data.dianResolutionNumber ?? "").trim(),
       habilitado: Boolean(data.habilitado),
     };
   } catch (e) {
@@ -71,7 +74,7 @@ export async function wmsPosDianConfigGet(
 
 export async function wmsPosDianConfigPut(
   idToken: string,
-  body: { emisorNit: string; alegraCompanyId?: string; habilitado: boolean }
+  body: { emisorNit: string; alegraCompanyId?: string; dianResolutionNumber?: string; habilitado: boolean }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const t = idToken?.trim();
   if (!t) return { ok: false, error: "Sin sesión." };

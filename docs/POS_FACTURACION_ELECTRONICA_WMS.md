@@ -27,12 +27,13 @@ Campos (constantes en WMS `POS_DIAN_FIRESTORE`):
 | `posDianEmisorNit` | NIT/cédula emisor del punto (prioritario). |
 | `nitEmisor` | Fallback si no hay `posDianEmisorNit` (NIT perfil GEB del cajero). |
 | `posDianAlegraCompanyId` | Id empresa en Alegra (`GET /companies`); opcional si una sola empresa con ese NIT. |
+| `posDianResolutionNumber` | Número de resolución DIAN (texto); opcional. El POS lo envía como `dianResolutionNumber` en `PUT /api/pos/dian-config`. El WMS debe persistirlo (p. ej. Firestore) y usarlo al resolver la fila en `DB_ResolucionesDian` (p. ej. filtrar por columna de número de resolución). |
 | `posDianFacturacionHabilitada` | `true` para permitir emitir; si `false`, el WMS responde `403`. |
 
 **API WMS**
 
-- `GET /api/pos/dian-config` — lee la config actual.
-- `PUT /api/pos/dian-config` — body JSON: `{ "emisorNit", "alegraCompanyId", "habilitado" }`. No permitir habilitar sin NIT real (no consumidor final `222222222`).
+- `GET /api/pos/dian-config` — lee la config actual (`emisorNit`, `alegraCompanyId`, `dianResolutionNumber`, `habilitado`).
+- `PUT /api/pos/dian-config` — body JSON: `{ "emisorNit", "alegraCompanyId", "dianResolutionNumber"?, "habilitado" }`. `dianResolutionNumber` es opcional (string). No permitir habilitar sin NIT real (no consumidor final `222222222`).
 
 El POS debe exponer pantalla tipo **«Habilitaciones DIAN»** que persista vía WMS y, opcionalmente, llame al **ping** antes de habilitar.
 
@@ -105,7 +106,7 @@ Errores: `502` / `4xx` con `{ ok: false, error, status?, alegra? }`.
 ## 4) Responsabilidades del POS (UI + flujo)
 
 - Login Firebase del cajero.
-- Pantalla config: `GET`/`PUT` dian-config vía WMS (no inventar otra ruta).
+- Pantalla config: `GET`/`PUT` dian-config vía WMS (no inventar otra ruta). En el wizard, **paso 2** (NIT, id Alegra): campo opcional **Número de resolución DIAN** (`dianResolutionNumber`); texto de ayuda alineado al contrato WMS (número de acto de resolución de facturas de venta, no prefijo ni rango; vacío = auto). Tras **Guardar datos del punto**, si el NIT tiene 8+ dígitos, el POS vuelve a llamar `GET …/alegra/ping-pos` vía proxy y actualiza la vista previa de sincronización.
 - Antes de emitir: si `!habilitado` o sin NIT emisor, no llamar `emitir-cobro`.
 - Tras venta: armar `lineas` desde el carrito (`descripcion`, `cantidad`, total con IVA por línea según reglas de producto).
 - Cliente: consumidor final → NIT genérico y nombre según reglas DIAN (el WMS puede normalizar `CONSUMIDOR FINAL` para NIT `222…`). Empresa → NIT y razón social; idealmente alineado con `DB_Clientes` en WMS para `registrationNameDian`.
@@ -120,7 +121,7 @@ Variables/env en Vercel del WMS: `ALEGRA_COL_API_URL`, `ALEGRA_COL_TOKEN` y/o `A
 
 Opcional FAJ43b emisor: `ALEGRA_COMPANY_LEGAL_NAME_DIAN`, `ALEGRA_DIAN_COMPANY_NAME_UPPERCASE`.
 
-En Sheets debe existir fila de `DB_ResolucionesDian` para el NIT del franquiciado (prefijo, rango, fechas, `CLAVE_TECNICA_HEX`, `ALEGRA_COMPANY_ID` si aplica, `RAZON_SOCIAL_DIAN`).
+En Sheets debe existir fila de `DB_ResolucionesDian` para el NIT del franquiciado (`NIT_EMISOR`, `NUMERO_RESOLUCION` si el usuario indicó número en el POS, prefijo, rango, fechas, `CLAVE_TECNICA_HEX`, `ALEGRA_COMPANY_ID` si aplica, `RAZON_SOCIAL_DIAN`).
 
 ---
 
