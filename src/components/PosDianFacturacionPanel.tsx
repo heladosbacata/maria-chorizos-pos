@@ -414,7 +414,6 @@ export default function PosDianFacturacionPanel({
                 <strong>número de resolución DIAN</strong> de facturas de venta. Deben coincidir con la empresa en Alegra
                 y con la fila en el WMS (sin puntos en el NIT).
               </p>
-              {bloqueSincAlegra}
               <label className="block">
                 <span className="text-sm font-medium text-gray-700">NIT o cédula del emisor (este punto)</span>
                 <input
@@ -426,9 +425,9 @@ export default function PosDianFacturacionPanel({
                   autoComplete="off"
                 />
               </label>
-              <div className="space-y-2 rounded-xl border-2 border-amber-300/80 bg-amber-50/50 p-4">
-                <p className="text-sm font-semibold text-gray-900">Número de resolución DIAN</p>
-                <p className="text-xs text-gray-700 leading-relaxed">
+              <div className="space-y-2 rounded-xl border-2 border-amber-400 bg-amber-50 p-4 shadow-sm">
+                <p className="text-sm font-semibold text-amber-950">Número de resolución DIAN</p>
+                <p className="text-xs text-amber-950/90 leading-relaxed">
                   Es el <strong>número del acto de resolución</strong> de numeración de facturas de venta (no el prefijo
                   tipo FV-5 ni el rango desde–hasta). Si tenés más de una resolución en Alanube para tu NIT, pegá aquí el
                   número exacto que usás para facturas de venta. Lo encontrás en la resolución DIAN o en Alanube. Si lo
@@ -438,8 +437,8 @@ export default function PosDianFacturacionPanel({
                   type="text"
                   value={dianResolutionNumber}
                   onChange={(e) => setDianResolutionNumber(e.target.value)}
-                  className="w-full rounded-lg border border-amber-200/90 bg-white px-3 py-2 text-sm shadow-sm"
-                  placeholder="Ej. 18760000001 o el número que figure en tu resolución"
+                  className="w-full rounded-lg border-2 border-amber-500/70 bg-white px-3 py-2.5 text-sm text-gray-900 shadow-inner"
+                  placeholder="Escribí aquí el número de resolución (ej. 18760000001)"
                   autoComplete="off"
                   aria-label="Número de resolución DIAN"
                 />
@@ -459,6 +458,7 @@ export default function PosDianFacturacionPanel({
                 Si lo dejás vacío, el WMS buscará la empresa por el NIT/cédula en la lista de compañías de la cuenta
                 reseller.
               </p>
+              {bloqueSincAlegra}
               <button
                 type="button"
                 disabled={guardando}
