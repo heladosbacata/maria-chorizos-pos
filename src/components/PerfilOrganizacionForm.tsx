@@ -1,6 +1,9 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import type { PosPerfilOrganizacionDatos } from "@/types/pos-perfil-organizacion";
+import { emptyPosPerfilOrganizacion } from "@/types/pos-perfil-organizacion";
+import { loadPosPerfilOrganizacionFromFirestore, persistPosPerfilOrganizacion } from "@/lib/pos-user-firestore";
 
 function CollapsibleSection({
   title,
@@ -84,15 +87,17 @@ const RESP_FISCAL_OPTS = ["No aplica - Otros", "Gran contribuyente", "Autorreten
 const TRIBUTOS_OPTS = ["Nombre de la figura tributaria", "ICA", "Retención en la fuente"];
 
 export interface PerfilOrganizacionFormProps {
+  /** Usuario Firebase (Firestore `users/{uid}.posPerfilOrganizacion`). */
+  uid: string;
   onVolver: () => void;
-  onGuardar?: (payload: Record<string, unknown>) => void;
 }
 
-export default function PerfilOrganizacionForm({ onVolver, onGuardar }: PerfilOrganizacionFormProps) {
+export default function PerfilOrganizacionForm({ uid, onVolver }: PerfilOrganizacionFormProps) {
+  const [cargandoPerfil, setCargandoPerfil] = useState(true);
   const [tipoRazon, setTipoRazon] = useState<"persona" | "empresa">("persona");
   const [nombres, setNombres] = useState("");
   const [apellidos, setApellidos] = useState("");
-  const [serial] = useState("01020525549412");
+  const [serial, setSerial] = useState("01020525549412");
   const [tipoIdentificacion, setTipoIdentificacion] = useState(TIPOS_IDENTIFICACION[0]!);
   const [identificacion, setIdentificacion] = useState("");
   const [digitoVerificacion, setDigitoVerificacion] = useState("");
@@ -134,13 +139,79 @@ export default function PerfilOrganizacionForm({ onVolver, onGuardar }: PerfilOr
   const [repIdentificacion, setRepIdentificacion] = useState("");
   const [tieneSocios, setTieneSocios] = useState<"si" | "no">("no");
 
+  const aplicarDatosCargados = useCallback((x: PosPerfilOrganizacionDatos) => {
+    setTipoRazon(x.tipoRazon);
+    setNombres(x.nombres);
+    setApellidos(x.apellidos);
+    setSerial(x.serial);
+    setTipoIdentificacion(x.tipoIdentificacion);
+    setIdentificacion(x.identificacion);
+    setDigitoVerificacion(x.digitoVerificacion);
+    setNombreComercial(x.nombreComercial);
+    setMostrarNombreComercialComprobantes(x.mostrarNombreComercialComprobantes);
+    setCiudad(x.ciudad);
+    setCodigoPostal(x.codigoPostal);
+    setDireccion(x.direccion);
+    setTipoRegimenIva(x.tipoRegimenIva);
+    setCorreoContacto(x.correoContacto);
+    setContacto(x.contacto);
+    setPaginaWeb(x.paginaWeb);
+    setTelPais(x.telefono.pais);
+    setTelNumero(x.telefono.numero);
+    setTelExt(x.telefono.ext);
+    setCobradorTipo(x.cobradorTipo);
+    setCobradorNombre(x.cobradorNombre);
+    setCodigoActividad(x.codigoActividad);
+    setTarifaIca(x.tarifaIca);
+    setManejaAIU(x.manejaAIU);
+    setDosImpuestosCargos(x.dosImpuestosCargos);
+    setAgenteRetenedorIva(x.agenteRetenedorIva);
+    setImpuestoAdValorem(x.impuestoAdValorem);
+    setRespFiscal(x.respFiscal);
+    setTributos(x.tributos);
+    setManejaMonedaExtranjera(x.manejaMonedaExtranjera);
+    setRepNombres(x.representante.nombres);
+    setRepApellidos(x.representante.apellidos);
+    setRepTipoId(x.representante.tipoIdentificacion);
+    setRepIdentificacion(x.representante.identificacion);
+    setTieneSocios(x.representante.tieneSocios);
+  }, []);
+
+  useEffect(() => {
+    let cancel = false;
+    (async () => {
+      if (!uid?.trim()) {
+        setCargandoPerfil(false);
+        return;
+      }
+      setCargandoPerfil(true);
+      try {
+        const d = await loadPosPerfilOrganizacionFromFirestore(uid.trim());
+        if (cancel) return;
+        if (d) aplicarDatosCargados(d);
+        else aplicarDatosCargados(emptyPosPerfilOrganizacion());
+      } catch {
+        if (!cancel) aplicarDatosCargados(emptyPosPerfilOrganizacion());
+      } finally {
+        if (!cancel) setCargandoPerfil(false);
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
+  }, [uid, aplicarDatosCargados]);
+
   const toggleEnLista = useCallback((lista: string[], setLista: (v: string[]) => void, valor: string) => {
     if (lista.includes(valor)) setLista(lista.filter((x) => x !== valor));
     else setLista([...lista, valor]);
   }, []);
 
-  const handleGuardar = useCallback(() => {
-    const payload = {
+  const handleGuardar = useCallback(async () => {
+    if (!uid?.trim()) {
+      window.alert("No hay sesión de usuario para guardar el perfil.");
+      return;
+    }
+    const datos: PosPerfilOrganizacionDatos = {
       tipoRazon,
       nombres,
       apellidos,
@@ -177,9 +248,14 @@ export default function PerfilOrganizacionForm({ onVolver, onGuardar }: PerfilOr
         tieneSocios,
       },
     };
-    onGuardar?.(payload);
-    window.alert("Datos guardados en esta sesión. Conecta con tu backend para persistir.");
+    const r = await persistPosPerfilOrganizacion(uid.trim(), datos);
+    if (r.ok) {
+      window.alert("Datos guardados en la nube. Al volver a iniciar sesión seguirán disponibles en este perfil.");
+    } else {
+      window.alert(r.message ?? "No se pudo guardar. Revisá permisos de Firestore para users/{tu usuario}.");
+    }
   }, [
+    uid,
     tipoRazon,
     nombres,
     apellidos,
@@ -215,7 +291,6 @@ export default function PerfilOrganizacionForm({ onVolver, onGuardar }: PerfilOr
     repTipoId,
     repIdentificacion,
     tieneSocios,
-    onGuardar,
   ]);
 
   const selectClass =
@@ -230,7 +305,8 @@ export default function PerfilOrganizacionForm({ onVolver, onGuardar }: PerfilOr
         <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={handleGuardar}
+            onClick={() => void handleGuardar()}
+            disabled={cargandoPerfil}
             className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-700"
           >
             Guardar
@@ -245,6 +321,15 @@ export default function PerfilOrganizacionForm({ onVolver, onGuardar }: PerfilOr
         </div>
       </div>
 
+      {cargandoPerfil ? (
+        <p className="mb-4 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">Cargando datos guardados de tu perfil…</p>
+      ) : (
+        <p className="mb-4 rounded-lg border border-emerald-100 bg-emerald-50/90 px-4 py-2 text-xs text-emerald-900">
+          Los datos se guardan en la nube (Firestore, documento del usuario) y quedan al volver a iniciar sesión.
+        </p>
+      )}
+
+      <fieldset disabled={cargandoPerfil} className="min-w-0 border-0 p-0 disabled:opacity-60">
       <div className="space-y-4">
         <CollapsibleSection
           title="Datos generales"
@@ -562,6 +647,7 @@ export default function PerfilOrganizacionForm({ onVolver, onGuardar }: PerfilOr
           </FieldRow>
         </CollapsibleSection>
       </div>
+      </fieldset>
     </div>
   );
 }

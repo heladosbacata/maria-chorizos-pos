@@ -423,7 +423,13 @@ export default function ConfiguracionMasModule({ puntoVenta, uid, role }: Config
         {vistaDetalleItemId === DIAN_VEN_FACT_ITEM_ID ? (
           <PosDianFacturacionPanel puntoVenta={puntoVenta} onVolver={() => setVistaDetalleItemId(null)} />
         ) : vistaDetalleItemId === PERFIL_ORGANIZACION_ITEM_ID ? (
-          <PerfilOrganizacionForm onVolver={() => setVistaDetalleItemId(null)} />
+          uid ? (
+            <PerfilOrganizacionForm uid={uid} onVolver={() => setVistaDetalleItemId(null)} />
+          ) : (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              Iniciá sesión para cargar y guardar el perfil de la organización.
+            </p>
+          )
         ) : vistaDetalleItemId === CONTRATO_POS_GEB_ITEM_ID ? (
           <ContratoPosGebPanel onVolver={() => setVistaDetalleItemId(null)} />
         ) : vistaDetalleItemId === CONFIG_IMPRESION_POS_GEB_ITEM_ID ? (
