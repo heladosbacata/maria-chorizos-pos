@@ -12,6 +12,7 @@ import PygFranquiciaPanel from "@/components/PygFranquiciaPanel";
 import UsuariosPosRegistradosPanel from "@/components/UsuariosPosRegistradosPanel";
 import PosDianFacturacionPanel from "@/components/PosDianFacturacionPanel";
 import ProductosServiciosFranquiciaPanel from "@/components/ProductosServiciosFranquiciaPanel";
+import VentasDocumentosPosPanel from "@/components/VentasDocumentosPosPanel";
 
 /** Id de la herramienta «Perfil de la organización» en CATEGORIAS */
 const PERFIL_ORGANIZACION_ITEM_ID = "gen-org-perfil";
@@ -24,6 +25,7 @@ const ADMIN_USUARIOS_POS_ITEM_ID = "gen-user-admin";
 /** Id de «Invita a tu contador» */
 const INVITAR_CONTADOR_ITEM_ID = "gen-user-contador";
 /** Ventas → documentos (franquiciado): cotizaciones y remisiones con PDF */
+const VEN_DOC_VIS_ITEM_ID = "ven-doc-vis";
 const VEN_DOC_COT_ITEM_ID = "ven-doc-cot";
 const VEN_DOC_REM_ITEM_ID = "ven-doc-rem";
 /** PyG / estado de resultados simplificado para el franquiciado */
@@ -45,6 +47,7 @@ const VISTA_DETALLE_ITEM_IDS = new Set<string>([
   CONFIG_IMPRESION_POS_GEB_ITEM_ID,
   INVITAR_CONTADOR_ITEM_ID,
   ADMIN_USUARIOS_POS_ITEM_ID,
+  VEN_DOC_VIS_ITEM_ID,
   VEN_DOC_COT_ITEM_ID,
   VEN_DOC_REM_ITEM_ID,
   CONT_PYG_ITEM_ID,
@@ -133,6 +136,7 @@ const CATEGORIAS: ConfigCategoria[] = [
       {
         titulo: "Documentos",
         items: [
+          { id: VEN_DOC_VIS_ITEM_ID, label: "Ventas y comprobantes" },
           { id: VEN_DOC_COT_ITEM_ID, label: "Cotizaciones" },
           { id: VEN_DOC_REM_ITEM_ID, label: "Remisiones" },
         ],
@@ -446,6 +450,12 @@ export default function ConfiguracionMasModule({ puntoVenta, uid, role }: Config
           <InvitarContadorPanel onVolver={() => setVistaDetalleItemId(null)} />
         ) : vistaDetalleItemId === ADMIN_USUARIOS_POS_ITEM_ID ? (
           <UsuariosPosRegistradosPanel onVolver={() => setVistaDetalleItemId(null)} />
+        ) : vistaDetalleItemId === VEN_DOC_VIS_ITEM_ID ? (
+          <VentasDocumentosPosPanel
+            puntoVenta={puntoVenta}
+            uid={uid}
+            onVolver={() => setVistaDetalleItemId(null)}
+          />
         ) : vistaDetalleItemId === VEN_DOC_COT_ITEM_ID ? (
           <DocumentoComercialFranquiciaPanel tipo="cotizacion" onVolver={() => setVistaDetalleItemId(null)} />
         ) : vistaDetalleItemId === VEN_DOC_REM_ITEM_ID ? (
