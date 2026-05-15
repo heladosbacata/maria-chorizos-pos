@@ -15,7 +15,7 @@ const ROWS_CAJERO: { id: string; label: string; hint: string }[] = [
   { id: "nav-ultimos", label: "Últimos recibos", hint: "Tickets y anulaciones" },
   { id: "nav-metas", label: "Metas y bonificaciones", hint: "Retos del punto" },
   { id: "nav-reportes", label: "Reportes", hint: "Resumen del día" },
-  { id: "nav-mas", label: "Espacio Franquiciado", hint: "Solo titular · candado" },
+  { id: "nav-mas", label: "Espacio para franquiciados", hint: "Solo titular · candado" },
 ];
 
 const ROWS_CONTADOR: { id: string; label: string; hint: string }[] = [

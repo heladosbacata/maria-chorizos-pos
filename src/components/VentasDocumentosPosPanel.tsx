@@ -13,8 +13,14 @@ import {
   mergeVentasReporteNubeLocal,
   type VentaGuardadaLocal,
 } from "@/lib/pos-ventas-local-storage";
+import { emailComprobanteValido } from "@/lib/comprobante-correo-pos";
+import { enviarComprobantePorCorreo } from "@/lib/pos-comprobante-email-client";
+import {
+  actualizarVentaLocalComprobanteEmail,
+} from "@/lib/pos-ventas-local-storage";
 import {
   construirFilasDocumentosPos,
+  filaComprobanteCorreoBody,
   filtrarFilasDocumentosPos,
   formatoFechaTabla,
   formatoPesos,
@@ -66,6 +72,15 @@ function DetalleFila({ f }: { f: FilaDocumentoPosVenta }) {
             <div className="sm:col-span-2">
               <dt className="font-semibold text-gray-600">CUFE</dt>
               <dd className="mt-0.5 break-all font-mono text-[10px]">{v.facturaElectronicaCufe}</dd>
+            </div>
+          ) : null}
+          {v.comprobanteEmailEnviadoAt ? (
+            <div>
+              <dt className="font-semibold text-gray-600">Correo enviado</dt>
+              <dd className="mt-0.5 text-xs">
+                {v.comprobanteEmailDestino?.trim() || "—"} ·{" "}
+                {fechaHoraColombia(new Date(v.comprobanteEmailEnviadoAt))}
+              </dd>
             </div>
           ) : null}
         </dl>
@@ -136,6 +151,128 @@ function DetalleFila({ f }: { f: FilaDocumentoPosVenta }) {
   return null;
 }
 
+type EmailDocEnviado = { destino: string; enviadoAt: string };
+
+function ModalEnviarCorreo({
+  fila,
+  puntoVenta,
+  uid,
+  onCerrar,
+  onEnviado,
+}: {
+  fila: FilaDocumentoPosVenta;
+  puntoVenta: string;
+  uid: string;
+  onCerrar: () => void;
+  onEnviado: (destino: string, enviadoAt: string) => void;
+}) {
+  const [email, setEmail] = useState(fila.emailDestino ?? fila.emailSugerido ?? "");
+  const [mensaje, setMensaje] = useState("");
+  const [enviando, setEnviando] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const enviar = async () => {
+    const to = email.trim();
+    if (!emailComprobanteValido(to)) {
+      setError("Indicá un correo válido del destinatario.");
+      return;
+    }
+    const body = filaComprobanteCorreoBody(fila, puntoVenta);
+    if (!body) {
+      setError("No se pudo armar el comprobante.");
+      return;
+    }
+    setEnviando(true);
+    setError(null);
+    try {
+      const token = await auth?.currentUser?.getIdToken();
+      if (!token) throw new Error("Sesión expirada. Volvé a iniciar sesión.");
+      const r = await enviarComprobantePorCorreo(token, {
+        ...body,
+        to,
+        mensaje: mensaje.trim() || undefined,
+      });
+      if ("ventaLocalId" in body && body.ventaLocalId) {
+        actualizarVentaLocalComprobanteEmail(uid, body.ventaLocalId, {
+          destino: r.destino,
+          enviadoAt: r.enviadoAt,
+        });
+      }
+      onEnviado(r.destino, r.enviadoAt);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo enviar el correo.");
+    } finally {
+      setEnviando(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-correo-titulo"
+      onClick={onCerrar}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl border border-gray-200 bg-white p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h4 id="modal-correo-titulo" className="text-lg font-bold text-gray-900">
+          Enviar por correo
+        </h4>
+        <p className="mt-1 text-sm text-gray-600">
+          <span className="font-medium text-gray-800">{fila.comprobante}</span> · {fila.tipoLabel}
+        </p>
+        <label className="mt-4 block">
+          <span className="text-xs font-medium text-gray-600">Correo del cliente</span>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="cliente@ejemplo.com"
+            className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            autoFocus
+          />
+        </label>
+        <label className="mt-3 block">
+          <span className="text-xs font-medium text-gray-600">Mensaje opcional</span>
+          <textarea
+            value={mensaje}
+            onChange={(e) => setMensaje(e.target.value)}
+            rows={3}
+            className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            placeholder="Gracias por su compra…"
+          />
+        </label>
+        {error ? (
+          <p className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <div className="mt-5 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onCerrar}
+            disabled={enviando}
+            className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={() => void enviar()}
+            disabled={enviando}
+            className="rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50"
+          >
+            {enviando ? "Enviando…" : "Enviar"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: Props) {
   const pv = (puntoVenta ?? "").trim();
   const u = (uid ?? "").trim();
@@ -153,6 +290,8 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
   const [cotizaciones, setCotizaciones] = useState<DocumentoComercialFirestoreDoc[]>([]);
   const [remisiones, setRemisiones] = useState<DocumentoComercialFirestoreDoc[]>([]);
   const [nubeOk, setNubeOk] = useState<boolean | null>(null);
+  const [filaCorreo, setFilaCorreo] = useState<FilaDocumentoPosVenta | null>(null);
+  const [emailsDocsEnviados, setEmailsDocsEnviados] = useState<Record<string, EmailDocEnviado>>({});
 
   const refrescar = useCallback(() => setTick((t) => t + 1), []);
 
@@ -213,7 +352,7 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
     [ventas, cotizaciones, remisiones]
   );
 
-  const filas = useMemo(
+  const filasBase = useMemo(
     () =>
       filtrarFilasDocumentosPos(todasFilas, {
         tab,
@@ -224,6 +363,20 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
       }),
     [todasFilas, tab, desdeYmd, hastaYmd, busqueda, soloVigentes]
   );
+
+  const filas = useMemo(() => {
+    return filasBase.map((f) => {
+      if (f.fuente !== "documento" || !f.documento) return f;
+      const st = emailsDocsEnviados[f.documento.id];
+      if (!st) return f;
+      return {
+        ...f,
+        emailEnviado: true,
+        emailLabel: "Enviado",
+        emailDestino: st.destino,
+      };
+    });
+  }, [filasBase, emailsDocsEnviados]);
 
   const totalFiltrado = useMemo(
     () => filas.filter((f) => !f.anulada).reduce((s, f) => s + f.total, 0),
@@ -417,7 +570,8 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
                   <th className="px-4 py-3 text-right">Total</th>
                   <th className="px-4 py-3">Saldo</th>
                   <th className="px-4 py-3">DIAN</th>
-                  <th className="px-4 py-3 w-24" />
+                  <th className="px-4 py-3">Correo</th>
+                  <th className="px-4 py-3">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -425,9 +579,9 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
                   const abierto = expandidoId === f.id;
                   return (
                     <tr key={f.id} className={f.anulada ? "bg-rose-50/40" : "bg-white hover:bg-gray-50/80"}>
-                      <td colSpan={7} className="p-0">
+                      <td colSpan={8} className="p-0">
                         <div className="grid grid-cols-[minmax(0,1fr)]">
-                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 md:grid md:grid-cols-[7rem_1fr_1fr_6rem_5rem_5rem_5rem] md:items-center">
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 md:grid md:grid-cols-[7rem_1fr_1fr_6rem_5rem_5rem_6rem_7rem] md:items-center">
                             <span className="text-gray-800 tabular-nums">
                               {formatoFechaTabla(f.fechaYmd, f.fechaMs)}
                             </span>
@@ -462,13 +616,34 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
                               </span>
                             </span>
                             <span className="text-xs text-gray-600">{f.dianLabel}</span>
-                            <span className="text-right">
+                            <span>
+                              <span
+                                className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                  f.emailEnviado
+                                    ? "bg-emerald-100 text-emerald-800"
+                                    : "bg-amber-100 text-amber-900"
+                                }`}
+                                title={f.emailDestino}
+                              >
+                                {f.emailLabel}
+                              </span>
+                            </span>
+                            <span className="flex flex-col items-end gap-1 text-right">
+                              {f.puedeEnviarCorreo ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setFilaCorreo(f)}
+                                  className="text-[11px] font-medium text-primary-700 hover:underline"
+                                >
+                                  Enviar por correo
+                                </button>
+                              ) : null}
                               <button
                                 type="button"
                                 onClick={() => setExpandidoId(abierto ? null : f.id)}
-                                className="text-xs font-medium text-primary-700 hover:underline"
+                                className="text-[11px] font-medium text-gray-600 hover:underline"
                               >
-                                {abierto ? "Cerrar" : "Ver"}
+                                {abierto ? "Cerrar" : "Ver detalle"}
                               </button>
                             </span>
                           </div>
@@ -486,8 +661,28 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
 
       <p className="text-xs text-gray-500">
         Las cotizaciones y remisiones se gestionan en sus herramientas; los cobros de caja aparecen como recibo o factura
-        electrónica según el tipo de comprobante al cobrar.
+        electrónica según el tipo de comprobante al cobrar. El envío por correo usa el mismo SMTP o Resend del informe de
+        cierre de turno.
       </p>
+
+      {filaCorreo ? (
+        <ModalEnviarCorreo
+          fila={filaCorreo}
+          puntoVenta={pv}
+          uid={u}
+          onCerrar={() => setFilaCorreo(null)}
+          onEnviado={(destino, enviadoAt) => {
+            if (filaCorreo.documento) {
+              setEmailsDocsEnviados((prev) => ({
+                ...prev,
+                [filaCorreo.documento!.id]: { destino, enviadoAt },
+              }));
+            }
+            setFilaCorreo(null);
+            refrescar();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

@@ -95,6 +95,7 @@ import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
 import { registrarVentaPosCloud } from "@/lib/pos-ventas-cloud-client";
 import {
   agregarProductosEnVentas,
+  actualizarVentaLocalClienteComprobante,
   actualizarVentaLocalFacturaElectronica,
   appendVentaLocal,
   filtrarVentasVigentes,
@@ -173,7 +174,8 @@ import { getPosGebTutorialSteps, type PosGebTutorialModulo } from "@/lib/pos-geb
 
 const LS_INFORME_TURNO_PARA = "pos_mc_informe_turno_para_v1";
 const LS_INFORME_TURNO_CC = "pos_mc_informe_turno_cc_v1";
-/** Clave maestra para abrir «Espacio Franquiciado» (misma que PYG, inventario y contrato POS en el proyecto). */
+/** Clave maestra para abrir «Espacio para franquiciados» (misma que PYG, inventario y contrato POS en el proyecto). */
+const ETIQUETA_ESPACIO_FRANQUICIADOS = "Espacio para franquiciados";
 const CLAVE_ACCESO_MAS = "MC2026";
 /** Tiempo mínimo visible del overlay de impresión al cobrar (experiencia pulida). */
 const MIN_COBRO_IMPRESION_OVERLAY_MS = 2600;
@@ -2051,6 +2053,10 @@ export default function CajaPage() {
                   cufe: feBlock.cufe,
                   enviadoAt: feBlock.enviadoAt,
                 });
+                actualizarVentaLocalClienteComprobante(user.uid, ventaLocalId, {
+                  nombre: clienteNombreFe,
+                  nit: clienteNitFe,
+                });
               }
               ticket = { ...ticket, facturaElectronica: feBlock };
             }
@@ -2408,7 +2414,7 @@ export default function CajaPage() {
                   ? "Reportes"
                   : moduloActivo === "domicilios"
                     ? "Domicilios"
-                  : "Espacio Franquiciado";
+                  : ETIQUETA_ESPACIO_FRANQUICIADOS;
 
   return (
     <div className="flex h-dvh max-h-dvh min-h-0 overflow-hidden bg-gray-100/90">
@@ -2638,6 +2644,8 @@ export default function CajaPage() {
             <button
               type="button"
               data-pos-tutorial="nav-mas"
+              title={ETIQUETA_ESPACIO_FRANQUICIADOS}
+              aria-label={`${ETIQUETA_ESPACIO_FRANQUICIADOS} (requiere clave)`}
               onClick={() => {
                 if (moduloActivo === "mas") return;
                 abrirModuloMasConClave();
@@ -2650,7 +2658,7 @@ export default function CajaPage() {
             >
               <span
                 className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
-                  moduloActivo === "mas" ? "bg-amber-100 text-amber-900" : "bg-gray-100 text-gray-700"
+                  moduloActivo === "mas" ? "bg-amber-100 text-amber-900" : "bg-amber-50 text-amber-900"
                 }`}
                 aria-hidden
               >
@@ -2664,8 +2672,8 @@ export default function CajaPage() {
                 </svg>
               </span>
               <span className="min-w-0 flex-1 leading-tight">
-                <span className="block text-[13px] font-semibold">Espacio</span>
-                <span className="block text-[11px] font-medium text-gray-600">Franquiciado</span>
+                <span className="block text-[12px] font-semibold leading-snug">Espacio para</span>
+                <span className="block text-[11px] font-medium text-gray-600">franquiciados</span>
               </span>
             </button>
           )}
@@ -2929,7 +2937,7 @@ export default function CajaPage() {
         esContador={esContador}
       />
 
-      {/* Modal clave Espacio Franquiciado */}
+      {/* Modal clave Espacio para franquiciados */}
       {showModalClaveMas && (
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center p-4"
@@ -2954,7 +2962,7 @@ export default function CajaPage() {
                     />
                   </svg>
                 </span>
-                Espacio Franquiciado
+                {ETIQUETA_ESPACIO_FRANQUICIADOS}
               </h2>
               <button
                 type="button"

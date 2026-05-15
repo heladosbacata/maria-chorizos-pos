@@ -62,7 +62,7 @@ export function getPosGebTutorialSteps(esContador: boolean): PosGebTutorialStep[
       modulo: "ventas",
       title: "Barra lateral: todas tus herramientas",
       body:
-        "Cada botón de este menú te lleva a un módulo distinto: ventas, turnos, inventario, recibos, metas, reportes y «Espacio Franquiciado» (candado).\n\n" +
+        "Cada botón de este menú te lleva a un módulo distinto: ventas, turnos, inventario, recibos, metas, reportes y «Espacio para franquiciados» (candado).\n\n" +
         "En el tour siguiente te explicamos qué hacés en cada uno (tareas del día a día). Más abajo volvemos a la pantalla de caja: turno, pre-cuentas, catálogo y cobro.",
     },
     {
@@ -128,9 +128,9 @@ export function getPosGebTutorialSteps(esContador: boolean): PosGebTutorialStep[
     {
       target: "nav-mas",
       modulo: "ventas",
-      title: "Espacio Franquiciado — solo titular",
+      title: "Espacio para franquiciados — solo titular",
       body:
-        "Al tocar «Espacio Franquiciado» (ícono de candado) el sistema pide una clave maestra. Solo debe ingresar el titular de la franquicia (o una persona que él autorice por escrito), porque ahí hay datos sensibles.\n\n" +
+        "Al tocar «Espacio para franquiciados» (ícono de candado) el sistema pide una clave maestra. Solo debe ingresar el titular de la franquicia (o una persona que él autorice por escrito), porque ahí hay datos sensibles.\n\n" +
         "Dentro encontrás cosas como: alta y edición de cajeros de turno, preferencias de impresión y ticket, contrato POS GEB, registro de compras y gastos, PYG del punto de venta y herramientas que no debe tocar cualquier cajero.\n\n" +
         "Si no sos titular, no pidas la clave: coordiná con quien administra el punto. El tour no abre este módulo para no interrumpirte con el teclado de clave.",
     },

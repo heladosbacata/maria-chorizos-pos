@@ -152,7 +152,7 @@ export default function PosGebAyudaMotorModal({
                         Ver en pantalla
                       </button>
                     ) : a.moduloSugerido === "mas" && esContador ? (
-                      <p className="mt-3 text-xs text-slate-500">Espacio Franquiciado no está disponible en la vista contador.</p>
+                      <p className="mt-3 text-xs text-slate-500">Espacio para franquiciados no está disponible en la vista contador.</p>
                     ) : null}
                   </div>
                 )}

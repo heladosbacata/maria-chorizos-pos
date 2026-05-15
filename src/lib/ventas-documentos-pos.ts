@@ -24,6 +24,12 @@ export type FilaDocumentoPosVenta = {
   dianLabel: string;
   estadoLabel: string;
   anulada: boolean;
+  /** «Sin enviar» o «Enviado» (correo transaccional). */
+  emailLabel: string;
+  emailEnviado: boolean;
+  emailDestino?: string;
+  emailSugerido?: string;
+  puedeEnviarCorreo: boolean;
   venta?: VentaGuardadaLocal;
   documento?: DocumentoComercialFirestoreDoc;
 };
@@ -44,6 +50,14 @@ function ventaAFila(v: VentaGuardadaLocal): FilaDocumentoPosVenta {
     ? v.facturaElectronicaNumero?.trim() || `POS-${v.id.slice(0, 8)}`
     : `POS-${v.id.slice(0, 12)}`;
   const anulada = v.anulada === true;
+  const emailEnviado = Boolean(v.comprobanteEmailEnviadoAt?.trim());
+  const emailDestino = v.comprobanteEmailDestino?.trim();
+  const clienteNombre = v.clienteNombreVenta?.trim()
+    ? v.clienteNombreVenta.trim()
+    : v.cajeroNombre?.trim()
+      ? `Cajero: ${v.cajeroNombre.trim()}`
+      : "Consumidor final";
+  const clienteDocumento = v.clienteNitVenta?.trim() ?? "";
   return {
     id: `venta:${v.id}`,
     fuente: "venta",
@@ -52,13 +66,18 @@ function ventaAFila(v: VentaGuardadaLocal): FilaDocumentoPosVenta {
     fechaMs: msDesdeIso(v.isoTimestamp),
     comprobante,
     tipoLabel: tieneFe ? "Factura electrónica de venta" : "Recibo POS",
-    clienteNombre: v.cajeroNombre?.trim() ? `Cajero: ${v.cajeroNombre.trim()}` : "Consumidor final",
-    clienteDocumento: "",
+    clienteNombre,
+    clienteDocumento,
     total: v.total,
     saldoLabel: anulada ? "Anulada" : "Pagada",
     dianLabel: tieneFe ? (v.facturaElectronicaCufe?.trim() ? "Con CUFE" : "Emitida") : "—",
     estadoLabel: anulada ? "Anulada" : "Vigente",
     anulada,
+    emailLabel: emailEnviado ? "Enviado" : "Sin enviar",
+    emailEnviado,
+    ...(emailDestino ? { emailDestino } : {}),
+    ...(v.clienteEmailVenta?.trim() ? { emailSugerido: v.clienteEmailVenta.trim() } : {}),
+    puedeEnviarCorreo: !anulada,
     venta: v,
   };
 }
@@ -80,8 +99,59 @@ function documentoAFila(d: DocumentoComercialFirestoreDoc): FilaDocumentoPosVent
     dianLabel: "—",
     estadoLabel: "Guardado",
     anulada: false,
+    emailLabel: "Sin enviar",
+    emailEnviado: false,
+    puedeEnviarCorreo: true,
     documento: d,
   };
+}
+
+export function filaComprobanteCorreoBody(f: FilaDocumentoPosVenta, puntoVenta: string) {
+  if (f.venta) {
+    const v = f.venta;
+    const tieneFe = Boolean(v.facturaElectronicaCufe?.trim() || v.facturaElectronicaNumero?.trim());
+    return {
+      ventaLocalId: v.id,
+      comprobante: f.comprobante,
+      tipoLabel: f.tipoLabel,
+      total: v.total,
+      fechaIso: v.isoTimestamp,
+      puntoVenta,
+      lineas: v.lineas.map((l) => ({
+        descripcion: l.descripcion,
+        cantidad: l.cantidad,
+        precioUnitario: l.precioUnitario,
+      })),
+      clienteNombre: v.clienteNombreVenta?.trim() || f.clienteNombre,
+      clienteNit: v.clienteNitVenta?.trim(),
+      ...(tieneFe
+        ? {
+            facturaElectronica: {
+              numero: v.facturaElectronicaNumero?.trim(),
+              cufe: v.facturaElectronicaCufe?.trim(),
+            },
+          }
+        : {}),
+    };
+  }
+  if (f.documento) {
+    const d = f.documento;
+    return {
+      comprobante: f.comprobante,
+      tipoLabel: f.tipoLabel,
+      total: f.total,
+      fechaIso: d.fechaIso,
+      puntoVenta,
+      lineas: d.lineas.map((l) => ({
+        descripcion: l.descripcion || l.sku,
+        cantidad: l.cantidad,
+        precioUnitario: l.precioUnitario,
+      })),
+      clienteNombre: d.clienteNombre.trim() || undefined,
+      clienteNit: d.clienteDocumento?.trim(),
+    };
+  }
+  return null;
 }
 
 export function construirFilasDocumentosPos(params: {

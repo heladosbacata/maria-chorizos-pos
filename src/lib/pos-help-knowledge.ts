@@ -140,10 +140,10 @@ const ARTICULOS: PosGebHelpArticle[] = [
   },
   {
     id: "mas-config",
-    title: "Espacio Franquiciado y configuración",
+    title: "Espacio para franquiciados y configuración",
     summary: "Herramientas avanzadas protegidas por clave (candado).",
     pasos: [
-      "Tocá «Espacio Franquiciado» (candado) en el menú lateral.",
+      "Tocá «Espacio para franquiciados» (candado) en el menú lateral.",
       "Ingresá la clave maestra que te proporcionó el administrador.",
       "Ahí encontrás cajeros de turno, impresión, contrato POS y más ajustes.",
     ],
