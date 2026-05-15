@@ -24,6 +24,7 @@ import ModalCobroSinInternet from "@/components/ModalCobroSinInternet";
 import ModalInformeCierreCorreo from "@/components/ModalInformeCierreCorreo";
 import PosCajaMensajesBell from "@/components/PosCajaMensajesBell";
 import PosBroadcastBell from "@/components/PosBroadcastBell";
+import PlanMillasPosModule from "@/components/PlanMillasPosModule";
 import PosDomiciliosModule from "@/components/PosDomiciliosModule";
 import RegistrarPagoPanel, { type DetallePagoConfirmado } from "@/components/RegistrarPagoPanel";
 import TurnoCierreExitoPremiumModal from "@/components/TurnoCierreExitoPremiumModal";
@@ -310,6 +311,7 @@ type ModuloActivo =
   | "inventarios"
   | "metasBonificaciones"
   | "reportes"
+  | "planMillas"
   | "domicilios"
   | "mas";
 
@@ -2412,9 +2414,11 @@ export default function CajaPage() {
                 ? "Metas y bonificaciones"
                 : moduloActivo === "reportes"
                   ? "Reportes"
-                  : moduloActivo === "domicilios"
-                    ? "Domicilios"
-                  : ETIQUETA_ESPACIO_FRANQUICIADOS;
+                  : moduloActivo === "planMillas"
+                    ? "Plan de millas"
+                    : moduloActivo === "domicilios"
+                      ? "Domicilios"
+                      : ETIQUETA_ESPACIO_FRANQUICIADOS;
 
   return (
     <div className="flex h-dvh max-h-dvh min-h-0 overflow-hidden bg-gray-100/90">
@@ -2603,6 +2607,46 @@ export default function CajaPage() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
             </svg>
             Reportes
+          </button>
+          <button
+            type="button"
+            data-pos-tutorial="nav-plan-millas"
+            onClick={() => setModuloActivo("planMillas")}
+            className={`group relative flex w-full items-center gap-3 overflow-hidden rounded-xl border px-3 py-2.5 text-left text-sm font-semibold transition-all ${
+              moduloActivo === "planMillas"
+                ? "border-emerald-400 bg-gradient-to-r from-emerald-700 to-teal-600 text-white shadow-md"
+                : "border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-950 hover:border-emerald-300 hover:shadow-sm"
+            }`}
+          >
+            <span
+              className={`absolute inset-y-0 right-0 w-12 bg-white/20 blur-xl transition-opacity ${
+                moduloActivo === "planMillas" ? "opacity-70" : "opacity-0 group-hover:opacity-50"
+              }`}
+            />
+            <span
+              className={`relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+                moduloActivo === "planMillas" ? "bg-white/20" : "bg-white"
+              }`}
+            >
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+            </span>
+            <span className="relative flex min-w-0 flex-1 flex-col leading-tight">
+              <span>Plan de millas</span>
+              <span
+                className={`text-[10px] uppercase tracking-wide ${
+                  moduloActivo === "planMillas" ? "text-emerald-100" : "text-emerald-700"
+                }`}
+              >
+                Club María Chorizos
+              </span>
+            </span>
           </button>
           <button
             type="button"
@@ -4004,6 +4048,8 @@ export default function CajaPage() {
                 onRegistrarMovimiento: registrarMovimientoCaja,
               }}
             />
+          ) : moduloActivo === "planMillas" ? (
+            <PlanMillasPosModule />
           ) : moduloActivo === "domicilios" ? (
             <PosDomiciliosModule puntoVenta={user.puntoVenta} />
           ) : moduloActivo === "mas" ? (

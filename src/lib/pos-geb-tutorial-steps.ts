@@ -6,6 +6,7 @@ export type PosGebTutorialModulo =
   | "inventarios"
   | "metasBonificaciones"
   | "reportes"
+  | "planMillas"
   | "mas";
 
 export type PosGebTutorialStep = {

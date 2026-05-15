@@ -14,6 +14,7 @@ export type PosGebHelpArticle = {
     | "inventarios"
     | "metasBonificaciones"
     | "reportes"
+    | "planMillas"
     | "mas";
   dataTutorialTarget?: string;
 };
@@ -101,6 +102,31 @@ const ARTICULOS: PosGebHelpArticle[] = [
     ],
     keywords: ["reporte", "reportes", "resumen", "día", "ventas del día", "dashboard", "estadísticas"],
     moduloSugerido: "reportes",
+  },
+  {
+    id: "plan-millas-consulta",
+    title: "Plan de millas — consulta y premios",
+    summary: "Consultá puntos del cliente por cédula y mostrá el catálogo de premios del Club María Chorizos.",
+    pasos: [
+      "En el menú izquierdo, debajo de «Reportes», entrá a «Plan de millas».",
+      "Escribí el número de documento del cliente y tocá «Consultar puntos».",
+      "Revisá los puntos acumulados y qué premios puede reclamar (verde = alcanza).",
+      "El canje lo hace el cliente en el portal club-de-millas con su PIN.",
+    ],
+    keywords: [
+      "millas",
+      "plan de millas",
+      "club",
+      "puntos",
+      "premios",
+      "fidelización",
+      "cliente frecuente",
+      "cédula",
+      "documento",
+      "reclamar",
+    ],
+    moduloSugerido: "planMillas",
+    dataTutorialTarget: "nav-plan-millas",
   },
   {
     id: "inventario-cargue",
