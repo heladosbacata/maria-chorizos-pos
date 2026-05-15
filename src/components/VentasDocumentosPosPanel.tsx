@@ -13,8 +13,17 @@ import {
   mergeVentasReporteNubeLocal,
   type VentaGuardadaLocal,
 } from "@/lib/pos-ventas-local-storage";
+import TicketPrevisualizacionModal from "@/components/TicketPrevisualizacionModal";
 import { emailComprobanteValido } from "@/lib/comprobante-correo-pos";
+import { loadImpresionPrefs } from "@/lib/impresion-pos-storage";
 import { enviarComprobantePorCorreo } from "@/lib/pos-comprobante-email-client";
+import {
+  imprimirTicketConQz,
+  imprimirTicketEnNavegador,
+  reservarVentanaTicketNavegador,
+} from "@/lib/pos-geb-print";
+import { payloadTicketDesdeVenta } from "@/lib/pos-ticket-desde-venta";
+import type { TicketVentaPayload } from "@/types/impresion-pos";
 import {
   actualizarVentaLocalComprobanteEmail,
 } from "@/lib/pos-ventas-local-storage";
@@ -292,8 +301,38 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
   const [nubeOk, setNubeOk] = useState<boolean | null>(null);
   const [filaCorreo, setFilaCorreo] = useState<FilaDocumentoPosVenta | null>(null);
   const [emailsDocsEnviados, setEmailsDocsEnviados] = useState<Record<string, EmailDocEnviado>>({});
+  const [ticketConsulta, setTicketConsulta] = useState<TicketVentaPayload | null>(null);
+  const [reimprimiendoTicket, setReimprimiendoTicket] = useState(false);
 
   const refrescar = useCallback(() => setTick((t) => t + 1), []);
+
+  const abrirTicketVenta = useCallback((v: VentaGuardadaLocal) => {
+    setTicketConsulta(payloadTicketDesdeVenta(v));
+  }, []);
+
+  const reimprimirTicketConsulta = useCallback(async () => {
+    if (!ticketConsulta) return;
+    setReimprimiendoTicket(true);
+    try {
+      const prefs = loadImpresionPrefs();
+      const reservada = prefs.metodo === "directa" ? reservarVentanaTicketNavegador() : null;
+      const payload = { ...ticketConsulta, titulo: "TICKET DE VENTA (copia)" };
+      if (prefs.metodo === "directa") {
+        try {
+          await imprimirTicketConQz(prefs, payload);
+          if (reservada && !reservada.closed) reservada.close();
+        } catch {
+          imprimirTicketEnNavegador(payload, reservada);
+        }
+      } else {
+        imprimirTicketEnNavegador(payload);
+      }
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "No se pudo reimprimir.");
+    } finally {
+      setReimprimiendoTicket(false);
+    }
+  }, [ticketConsulta]);
 
   useEffect(() => {
     if (!u || !pv) {
@@ -533,7 +572,7 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
             onClick={() => setTab(t.id)}
             className={`rounded-t-lg px-3 py-2 text-sm font-medium transition-colors ${
               tab === t.id
-                ? "border-b-2 border-primary-600 text-primary-800"
+                ? "border-b-2 border-emerald-600 text-emerald-800"
                 : "text-gray-600 hover:text-gray-900"
             }`}
           >
@@ -586,7 +625,18 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
                               {formatoFechaTabla(f.fechaYmd, f.fechaMs)}
                             </span>
                             <span>
-                              <span className="font-semibold text-primary-700">{f.comprobante}</span>
+                              {f.venta ? (
+                                <button
+                                  type="button"
+                                  onClick={() => abrirTicketVenta(f.venta!)}
+                                  className="text-left font-semibold text-emerald-700 underline-offset-2 hover:text-emerald-800 hover:underline"
+                                  title="Ver tirilla entregada al cliente"
+                                >
+                                  {f.comprobante}
+                                </button>
+                              ) : (
+                                <span className="font-semibold text-emerald-800">{f.comprobante}</span>
+                              )}
                               <span className="mt-0.5 block text-[11px] text-gray-500">{f.tipoLabel}</span>
                             </span>
                             <span className="min-w-0">
@@ -633,7 +683,7 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
                                 <button
                                   type="button"
                                   onClick={() => setFilaCorreo(f)}
-                                  className="text-[11px] font-medium text-primary-700 hover:underline"
+                                  className="text-[11px] font-medium text-emerald-700 hover:underline"
                                 >
                                   Enviar por correo
                                 </button>
@@ -664,6 +714,14 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
         electrónica según el tipo de comprobante al cobrar. El envío por correo usa el mismo SMTP o Resend del informe de
         cierre de turno.
       </p>
+
+      <TicketPrevisualizacionModal
+        open={ticketConsulta != null}
+        ticket={ticketConsulta}
+        modoConsulta
+        onCerrar={() => setTicketConsulta(null)}
+        onImprimir={() => void reimprimirTicketConsulta()}
+      />
 
       {filaCorreo ? (
         <ModalEnviarCorreo

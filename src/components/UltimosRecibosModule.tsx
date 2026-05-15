@@ -20,7 +20,7 @@ import {
   etiquetaCuentaParaGuardado,
   leerNombrePerfilCajeroDesdeLocal,
 } from "@/lib/pos-perfil-cajero-display";
-import type { TicketVentaPayload } from "@/types/impresion-pos";
+import { payloadTicketDesdeVenta } from "@/lib/pos-ticket-desde-venta";
 
 const MAX_LISTA = 60;
 const MAX_RECIBOS_TURNO = 10;
@@ -203,41 +203,6 @@ function PanelDetalleRecibo({ v }: { v: VentaGuardadaLocal }) {
   );
 }
 
-function payloadTicketDesdeVenta(v: VentaGuardadaLocal): TicketVentaPayload {
-  const t = new Date(v.isoTimestamp);
-  const fechaHora = Number.isNaN(t.getTime()) ? v.isoTimestamp : fechaHoraColombia(t);
-  const tieneFe = Boolean(v.facturaElectronicaCufe?.trim() || v.facturaElectronicaNumero?.trim());
-  return {
-    titulo: "TICKET DE VENTA (copia)",
-    puntoVenta: v.puntoVenta,
-    precuentaNombre: "Recibo",
-    fechaHora,
-    clienteNombre: "—",
-    tipoComprobanteLabel: tieneFe ? "Factura electrónica (DIAN)" : "Recibo POS",
-    vendedorLabel: v.cajeroNombre?.trim() || "—",
-    lineas: v.lineas.map((l) => ({
-      descripcion: l.descripcion,
-      cantidad: l.cantidad,
-      precioUnitario: l.precioUnitario,
-      subtotal: Math.round(l.precioUnitario * l.cantidad * 100) / 100,
-      ...(l.detalleVariante?.trim() ? { detalleVariante: l.detalleVariante.trim() } : {}),
-    })),
-    total: v.total,
-    ...(tieneFe
-      ? {
-          facturaElectronica: {
-            ...(v.facturaElectronicaNumero?.trim() ? { numero: v.facturaElectronicaNumero.trim() } : {}),
-            ...(v.facturaElectronicaCufe?.trim() ? { cufe: v.facturaElectronicaCufe.trim() } : {}),
-            ...(v.facturaElectronicaEnviadoAt?.trim() ? { enviadoAt: v.facturaElectronicaEnviadoAt.trim() } : {}),
-          },
-        }
-      : {}),
-    notaPie:
-      (v.pagoResumen?.trim() ? `${v.pagoResumen.trim()}\n` : "") +
-      `Copia · ID ${v.id.slice(0, 24)}…`,
-  };
-}
-
 export interface UltimosRecibosModuleProps {
   uid: string;
   email: string | null;
@@ -320,7 +285,7 @@ export default function UltimosRecibosModule({
     async (v: VentaGuardadaLocal) => {
       setAccionId(v.id);
       try {
-        const payload = payloadTicketDesdeVenta(v);
+        const payload = payloadTicketDesdeVenta(v, { copia: true });
         const prefs = loadImpresionPrefs();
         const reservada = prefs.metodo === "directa" ? reservarVentanaTicketNavegador() : null;
         if (prefs.metodo === "directa") {
