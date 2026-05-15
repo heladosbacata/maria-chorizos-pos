@@ -173,7 +173,7 @@ import { getPosGebTutorialSteps, type PosGebTutorialModulo } from "@/lib/pos-geb
 
 const LS_INFORME_TURNO_PARA = "pos_mc_informe_turno_para_v1";
 const LS_INFORME_TURNO_CC = "pos_mc_informe_turno_cc_v1";
-/** Clave maestra para abrir el menú «Más» (misma que PYG, inventario y contrato POS en el proyecto). */
+/** Clave maestra para abrir «Espacio Franquiciado» (misma que PYG, inventario y contrato POS en el proyecto). */
 const CLAVE_ACCESO_MAS = "MC2026";
 /** Tiempo mínimo visible del overlay de impresión al cobrar (experiencia pulida). */
 const MIN_COBRO_IMPRESION_OVERLAY_MS = 2600;
@@ -2037,7 +2037,7 @@ export default function CajaPage() {
             if (!rFe.ok) {
               encolarFeEmitirPendiente(user.uid, ventaLocalId, payloadFe);
               window.alert(
-                `La venta se registró en caja, pero la factura electrónica no se pudo enviar a la DIAN:\n\n${rFe.error}\n\nSe reintentará automáticamente al recuperar conexión. Revisá también Más → Habilitaciones DIAN → Facturación electrónica o contactá a administración.`
+                `La venta se registró en caja, pero la factura electrónica no se pudo enviar a la DIAN:\n\n${rFe.error}\n\nSe reintentará automáticamente al recuperar conexión. Revisá también Espacio Franquiciado → Habilitaciones DIAN → Facturación electrónica o contactá a administración.`
               );
             } else {
               const feBlock = {
@@ -2408,7 +2408,7 @@ export default function CajaPage() {
                   ? "Reportes"
                   : moduloActivo === "domicilios"
                     ? "Domicilios"
-                  : "Más";
+                  : "Espacio Franquiciado";
 
   return (
     <div className="flex h-dvh max-h-dvh min-h-0 overflow-hidden bg-gray-100/90">
@@ -2642,14 +2642,31 @@ export default function CajaPage() {
                 if (moduloActivo === "mas") return;
                 abrirModuloMasConClave();
               }}
-              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
-                moduloActivo === "mas" ? "bg-brand-yellow/25 text-gray-900 border border-brand-yellow/50" : "text-gray-600 hover:bg-gray-50"
+              className={`flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-2.5 text-left text-sm font-medium transition-colors ${
+                moduloActivo === "mas"
+                  ? "border-amber-300/80 bg-brand-yellow/25 text-gray-900"
+                  : "border-transparent text-gray-600 hover:border-gray-200 hover:bg-gray-50"
               }`}
             >
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-              Más
+              <span
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+                  moduloActivo === "mas" ? "bg-amber-100 text-amber-900" : "bg-gray-100 text-gray-700"
+                }`}
+                aria-hidden
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                  />
+                </svg>
+              </span>
+              <span className="min-w-0 flex-1 leading-tight">
+                <span className="block text-[13px] font-semibold">Espacio</span>
+                <span className="block text-[11px] font-medium text-gray-600">Franquiciado</span>
+              </span>
             </button>
           )}
         </nav>
@@ -2912,7 +2929,7 @@ export default function CajaPage() {
         esContador={esContador}
       />
 
-      {/* Modal clave «Más» */}
+      {/* Modal clave Espacio Franquiciado */}
       {showModalClaveMas && (
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center p-4"
@@ -2923,8 +2940,21 @@ export default function CajaPage() {
           <div className="absolute inset-0 bg-black/50" onClick={cerrarModalClaveMas} aria-hidden="true" />
           <div className="relative w-full max-w-md overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
-              <h2 id="modal-clave-mas-titulo" className="text-lg font-semibold text-gray-900">
-                Acceso a Más
+              <h2
+                id="modal-clave-mas-titulo"
+                className="flex items-center gap-2 text-lg font-semibold text-gray-900"
+              >
+                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-100 text-amber-900" aria-hidden>
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                    />
+                  </svg>
+                </span>
+                Espacio Franquiciado
               </h2>
               <button
                 type="button"
@@ -3097,7 +3127,7 @@ export default function CajaPage() {
                   {cajerosModalTurno.length === 0 ? (
                     <p className="mb-4 rounded-lg border border-amber-100 bg-amber-50/80 px-3 py-2 text-xs text-amber-950">
                       No hay cajeros de turno registrados. El turno se atribuye al franquiciado. Puedes dar de alta
-                      cajeros en <strong>Más → Cajeros de turno</strong> cuando otra persona opere la caja.
+                      cajeros en <strong>Espacio Franquiciado → Cajeros de turno</strong> cuando otra persona opere la caja.
                     </p>
                   ) : null}
                 </>
@@ -4087,7 +4117,7 @@ export default function CajaPage() {
             </select>
             <p className="mt-1 text-[11px] leading-snug text-gray-500">
               {tipoComprobante === "factura_electronica"
-                ? "Al cobrar se envía a la DIAN vía Alegra si habilitaste el punto en Más → Habilitaciones DIAN → Facturación electrónica."
+                ? "Al cobrar se envía a la DIAN vía Alegra si habilitaste el punto en Espacio Franquiciado → Habilitaciones DIAN → Facturación electrónica."
                 : "Doc. interno no reemplaza una factura electrónica."}
             </p>
           </div>

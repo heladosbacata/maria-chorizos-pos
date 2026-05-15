@@ -26,7 +26,7 @@ export interface PygFranquiciaPanelProps {
   puntoVenta: string | null;
   uid: string | null;
   onVolver?: () => void;
-  /** Navega al registro de compras y gastos (Más → Compras y gastos) */
+  /** Navega al registro de compras y gastos (Espacio Franquiciado → Compras y gastos) */
   onIrAComprasGastos?: () => void;
 }
 
