@@ -16,12 +16,24 @@ function nitSoloDigitos(raw: string): string {
 }
 
 function textoPingDesdeOk(r: DianPingOk): string {
-  const lineas = [
+  const lineas: string[] = [];
+  if (r.alegraAmbiente === "sandbox" && r.alegraApiHost) {
+    lineas.push(`Ambiente API: SANDBOX (${r.alegraApiHost})`);
+    lineas.push(
+      "→ Facturas exitosas: buscalas en Alanube Reseller pruebas (sandbox-reseller.alanube.co), empresa vinculada al mismo token COL/JWT del WMS."
+    );
+    lineas.push("");
+  } else if (r.alegraAmbiente === "produccion" && r.alegraApiHost) {
+    lineas.push(`Ambiente API: PRODUCCIÓN (${r.alegraApiHost})`);
+    lineas.push("→ No vas a ver esas facturas en sandbox-reseller; es otro entorno.");
+    lineas.push("");
+  }
+  lineas.push(
     `Empresa: ${r.empresaAlegra.name}`,
     `Prefijo de factura: ${r.resolucion.prefix}`,
     `Número de resolución: ${r.resolucion.resolutionNumber}`,
-    `Consecutivos disponibles: del ${r.resolucion.minNumber} al ${r.resolucion.maxNumber}`,
-  ];
+    `Consecutivos disponibles: del ${r.resolucion.minNumber} al ${r.resolucion.maxNumber}`
+  );
   if (r.notasDian?.length) {
     lineas.push("", "Información adicional:", ...r.notasDian.map((n) => `· ${n}`));
   }
@@ -172,8 +184,22 @@ export default function PosDianFacturacionPanel({
       {sincAuto ? <p className="text-xs text-sky-800">Consultando…</p> : null}
       {syncAutoMensaje ? <p className="text-xs text-red-700">{syncAutoMensaje}</p> : null}
       {syncPreview?.kind === "ok" ? (
-        <div className="whitespace-pre-line rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs text-emerald-950">
-          {textoPingDesdeOk(syncPreview.data)}
+        <div className="space-y-2">
+          {syncPreview.data.alegraAmbiente ? (
+            <p
+              className={`rounded-lg px-2.5 py-1.5 text-center text-[11px] font-bold uppercase tracking-wide ${
+                syncPreview.data.alegraAmbiente === "sandbox"
+                  ? "border border-emerald-300 bg-emerald-100 text-emerald-950"
+                  : "border border-amber-400 bg-amber-100 text-amber-950"
+              }`}
+            >
+              WMS → Alegra: {syncPreview.data.alegraAmbiente === "sandbox" ? "sandbox (pruebas)" : "producción"}
+              {syncPreview.data.alegraApiHost ? ` · ${syncPreview.data.alegraApiHost}` : ""}
+            </p>
+          ) : null}
+          <div className="whitespace-pre-line rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs text-emerald-950">
+            {textoPingDesdeOk(syncPreview.data)}
+          </div>
         </div>
       ) : null}
       {syncPreview?.kind === "partial" ? (

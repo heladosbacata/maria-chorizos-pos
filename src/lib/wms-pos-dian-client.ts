@@ -24,6 +24,10 @@ export type DianPingOk = {
     minNumber: number;
     maxNumber: number;
   };
+  /** Indica si el WMS llama a sandbox-api.alegra.com (facturas de prueba en Alanube Reseller sandbox). */
+  alegraAmbiente?: "sandbox" | "produccion";
+  /** Host de la API e-provider (ej. sandbox-api.alegra.com). */
+  alegraApiHost?: string;
   /** Notas del WMS (sandbox DIAN, FAJ43b, etc.). */
   notasDian?: string[];
 };
@@ -128,6 +132,10 @@ export async function wmsPosAlegraPingPos(idToken: string): Promise<DianPingResu
         return { ok: false, error: "Respuesta incompleta del WMS al verificar Alegra." };
       }
       const notasDian = Array.isArray(data.notasDian) ? data.notasDian.map((x) => String(x)).filter(Boolean) : undefined;
+      const ambRaw = data.alegraAmbiente;
+      const alegraAmbiente =
+        ambRaw === "sandbox" || ambRaw === "produccion" ? (ambRaw as "sandbox" | "produccion") : undefined;
+      const alegraApiHost = String(data.alegraApiHost ?? "").trim() || undefined;
       return {
         ok: true,
         empresaAlegra: emp,
@@ -137,6 +145,7 @@ export async function wmsPosAlegraPingPos(idToken: string): Promise<DianPingResu
           minNumber: Number(resol.minNumber ?? 0) || 0,
           maxNumber: Number(resol.maxNumber ?? 0) || 0,
         },
+        ...(alegraAmbiente && alegraApiHost ? { alegraAmbiente, alegraApiHost } : {}),
         ...(notasDian?.length ? { notasDian } : {}),
       };
     }
