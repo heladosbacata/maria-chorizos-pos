@@ -2,12 +2,17 @@ import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { POS_CONTADOR_ROLE } from "@/lib/auth-roles";
 import type { CajeroFichaDatos } from "@/types/pos-perfil-cajero";
 import { emptyCajeroFicha } from "@/types/pos-perfil-cajero";
+import type { PosPerfilOrganizacionDatos } from "@/types/pos-perfil-organizacion";
+import { mergePosPerfilOrganizacion } from "@/types/pos-perfil-organizacion";
 import { db } from "@/lib/firebase";
 
 const USERS = "users";
 
 /** Campo en `users/{uid}` con el JSON del perfil del cajero (sin foto; la foto sigue en localStorage). */
 export const POS_PERFIL_CAJERO_FIELD = "posPerfilCajero";
+
+/** Campo en `users/{uid}` con el JSON «Datos de la empresa» (perfil de organización). */
+export const POS_PERFIL_ORGANIZACION_FIELD = "posPerfilOrganizacion";
 
 /**
  * Crea o actualiza el documento del usuario POS en Firestore (punto de venta, rol).
@@ -89,6 +94,42 @@ export async function persistPosPerfilCajero(uid: string, datos: CajeroFichaDato
   } catch (e) {
     const msg = e instanceof Error ? e.message : "No se pudo guardar el perfil.";
     return { ok: false, message: msg };
+  }
+}
+
+/** Guarda «Datos de la empresa» en `users/{uid}.posPerfilOrganizacion`. */
+export async function persistPosPerfilOrganizacion(
+  uid: string,
+  datos: PosPerfilOrganizacionDatos
+): Promise<{ ok: boolean; message?: string }> {
+  if (!db) return { ok: false, message: "Firestore no está disponible." };
+  try {
+    await setDoc(
+      doc(db, USERS, uid),
+      {
+        [POS_PERFIL_ORGANIZACION_FIELD]: { ...datos },
+        posPerfilOrganizacionUpdatedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
+    return { ok: true };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "No se pudo guardar el perfil de la organización.";
+    return { ok: false, message: msg };
+  }
+}
+
+/** Lee el perfil de organización guardado (si existe). */
+export async function loadPosPerfilOrganizacionFromFirestore(uid: string): Promise<PosPerfilOrganizacionDatos | null> {
+  if (!db) return null;
+  try {
+    const snap = await getDoc(doc(db, USERS, uid));
+    const raw = snap.data()?.[POS_PERFIL_ORGANIZACION_FIELD];
+    if (!raw || typeof raw !== "object") return null;
+    return mergePosPerfilOrganizacion(raw);
+  } catch {
+    return null;
   }
 }
 

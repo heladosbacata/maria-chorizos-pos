@@ -19,10 +19,14 @@ type FetchOutcome =
 
 async function fetchCatalogo(
   base: string,
-  headers: HeadersInit
+  headers: HeadersInit,
+  puntoVenta?: string,
+  endpointPath = "/api/pos/productos/listar"
 ): Promise<FetchOutcome> {
   const root = base.replace(/\/$/, "");
-  const url = `${root}/api/pos/productos/listar`;
+  const qs = puntoVenta?.trim() ? `?puntoVenta=${encodeURIComponent(puntoVenta.trim())}` : "";
+  const path = endpointPath.startsWith("/") ? endpointPath : `/${endpointPath}`;
+  const url = `${root}${path}${qs}`;
   try {
     const response = await fetch(url, { headers });
     const data = await response.json().catch(() => ({}));
@@ -39,6 +43,28 @@ function sendJson(res: NextApiResponse, status: number, body: unknown) {
   return res.status(status).json(body);
 }
 
+async function fetchCatalogoConFallbackPaths(
+  base: string,
+  headers: HeadersInit,
+  puntoVenta?: string
+): Promise<FetchOutcome> {
+  const endpointCandidates = [
+    "/api/pos/productos/listar",
+    "/api/productos_listar",
+    "/api/pos/productos_listar",
+    "/api/productos/listar",
+  ];
+  let last: FetchOutcome | null = null;
+  for (const endpointPath of endpointCandidates) {
+    const r = await fetchCatalogo(base, headers, puntoVenta, endpointPath);
+    last = r;
+    if (r.kind === "network") return r;
+    if (r.response.ok) return r;
+    if (r.response.status !== 404) return r;
+  }
+  return last ?? { kind: "network", code: "NO_ENDPOINT", message: "No se encontraron endpoints de catálogo en WMS." };
+}
+
 export default async function handler(
   req: NextApiRequest,
   res: NextApiResponse
@@ -50,13 +76,19 @@ export default async function handler(
   const primaryBase = getWmsPublicBaseUrl();
   const headers: HeadersInit = {};
   const auth = req.headers.authorization;
+  const puntoVenta =
+    typeof req.query.puntoVenta === "string"
+      ? req.query.puntoVenta.trim()
+      : Array.isArray(req.query.puntoVenta)
+        ? String(req.query.puntoVenta[0] ?? "").trim()
+        : "";
   if (auth) headers.Authorization = auth;
 
   const fallbackBase = (
     process.env.WMS_CATALOGO_FALLBACK_URL?.trim() || WMS_VERCEL_URL
   ).replace(/\/$/, "");
 
-  let outcome = await fetchCatalogo(primaryBase, headers);
+  let outcome = await fetchCatalogoConFallbackPaths(primaryBase, headers, puntoVenta);
 
   if (outcome.kind === "network") {
     const canFallback =
@@ -64,7 +96,7 @@ export default async function handler(
       isLocalWmsHost(primaryBase) &&
       fallbackBase.toLowerCase() !== primaryBase.toLowerCase();
     if (canFallback) {
-      outcome = await fetchCatalogo(fallbackBase, headers);
+      outcome = await fetchCatalogoConFallbackPaths(fallbackBase, headers, puntoVenta);
     }
   }
 
@@ -85,7 +117,7 @@ export default async function handler(
     isLocalWmsHost(primaryBase) &&
     fallbackBase.toLowerCase() !== primaryBase.toLowerCase()
   ) {
-    const fb = await fetchCatalogo(fallbackBase, headers);
+    const fb = await fetchCatalogoConFallbackPaths(fallbackBase, headers, puntoVenta);
     if (fb.kind === "ok" && fb.response.ok) {
       return sendJson(res, 200, fb.data);
     }

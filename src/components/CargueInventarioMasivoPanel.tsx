@@ -5,14 +5,17 @@ import {
   fetchCatalogoInsumosDesdeSheet,
   type CatalogoSheetSetupHint,
 } from "@/lib/catalogo-insumos-sheet-client";
+import { getCatalogoPOS } from "@/lib/catalogo-pos";
 import { ymdColombia } from "@/lib/fecha-colombia";
 import {
   CATALOGO_INSUMOS_KIT_COLLECTION,
   cantidadSaldoParaInsumoKit,
   listarInsumosKitPorPuntoVenta,
   listarSaldosInventarioPorPuntoVenta,
+  normSkuInventario,
   registrarMovimientoInventario,
 } from "@/lib/inventario-pos-firestore";
+import { mergeCatalogoInventarioBase, mergeCatalogoInventarioConProductosPos } from "@/lib/inventario-pos-catalogo";
 import type { InsumoKitItem } from "@/types/inventario-pos";
 
 export interface CargueInventarioMasivoPanelProps {
@@ -29,6 +32,27 @@ function textoBusquedaFold(s: string): string {
     .trim();
 }
 
+function costoUnitarioReferenciaParaInsumoKit(
+  item: InsumoKitItem,
+  rows: Awaited<ReturnType<typeof listarSaldosInventarioPorPuntoVenta>>
+): number | null {
+  const k = normSkuInventario(item.sku);
+  if (k) {
+    for (const r of rows) {
+      if (normSkuInventario(r.insumoSku) === k || normSkuInventario(r.insumoId) === k) {
+        const c = Number(r.costoUnitarioPromedio);
+        return Number.isFinite(c) && c > 0 ? c : null;
+      }
+    }
+  }
+  const direct = rows.find((r) => r.insumoId === item.id);
+  if (direct) {
+    const c = Number(direct.costoUnitarioPromedio);
+    return Number.isFinite(c) && c > 0 ? c : null;
+  }
+  return null;
+}
+
 export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: CargueInventarioMasivoPanelProps) {
   const pv = (puntoVenta ?? "").replace(/\u00a0/g, " ").trim();
 
@@ -37,13 +61,17 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
   const [cargando, setCargando] = useState(true);
   const [errorCat, setErrorCat] = useState<string | null>(null);
   const [sheetSetupAyuda, setSheetSetupAyuda] = useState<CatalogoSheetSetupHint | null>(null);
-  const [fuenteCat, setFuenteCat] = useState<"sheet" | "firestore" | null>(null);
+  const [fuenteCat, setFuenteCat] = useState<"sheet" | "firestore" | "wms" | null>(null);
+  const [incluyeCatalogoPos, setIncluyeCatalogoPos] = useState(false);
+  const [productosPosAgregados, setProductosPosAgregados] = useState(0);
 
   const [busqueda, setBusqueda] = useState("");
   const [fechaCargue, setFechaCargue] = useState(() => ymdColombia());
   const [notasGlobales, setNotasGlobales] = useState("");
   /** cantidades a ingresar por id de ítem del catálogo */
   const [cantidades, setCantidades] = useState<Record<string, string>>({});
+  /** precio de compra unitario (COP) por id cuando hay cantidad */
+  const [preciosCompra, setPreciosCompra] = useState<Record<string, string>>({});
 
   const [enviando, setEnviando] = useState(false);
   const [progreso, setProgreso] = useState<{ hecho: number; total: number } | null>(null);
@@ -57,6 +85,8 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
       setSaldoRows([]);
       setCargando(false);
       setFuenteCat(null);
+      setIncluyeCatalogoPos(false);
+      setProductosPosAgregados(0);
       setErrorCat("No hay punto de venta asignado en tu perfil.");
       return;
     }
@@ -65,26 +95,36 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
     setFuenteCat(null);
     setSheetSetupAyuda(null);
     try {
-      const [sheet, saldosR] = await Promise.all([
+      const [sheet, saldosR, posRes, listaFs] = await Promise.all([
         fetchCatalogoInsumosDesdeSheet(pv),
         listarSaldosInventarioPorPuntoVenta(pv),
+        getCatalogoPOS(null, pv),
+        listarInsumosKitPorPuntoVenta(pv),
       ]);
+      const productosPos = posRes.ok ? posRes.productos ?? [] : [];
       setSaldoRows(saldosR);
+      setIncluyeCatalogoPos(productosPos.length > 0);
       if (sheet.ok && sheet.data.length > 0) {
-        setInsumos(sheet.data);
+        const mergedBase = mergeCatalogoInventarioBase(sheet.data, listaFs);
+        const merged = mergeCatalogoInventarioConProductosPos(mergedBase, productosPos);
+        setInsumos(merged.items);
         setFuenteCat("sheet");
+        setProductosPosAgregados(merged.agregados);
         if (sheet.sheetSetup) setSheetSetupAyuda(sheet.sheetSetup);
         return;
       }
       if (sheet.sheetSetup) setSheetSetupAyuda(sheet.sheetSetup);
-      const listaFs = await listarInsumosKitPorPuntoVenta(pv);
-      if (listaFs.length > 0) {
-        setInsumos(listaFs);
-        setFuenteCat("firestore");
+      const merged = mergeCatalogoInventarioConProductosPos(listaFs, productosPos);
+      if (merged.items.length > 0) {
+        setInsumos(merged.items);
+        setFuenteCat(listaFs.length > 0 ? "firestore" : productosPos.length > 0 ? "wms" : "firestore");
+        setProductosPosAgregados(merged.agregados);
         if (!sheet.ok && sheet.message) {
           setErrorCat(
             `No se leyó la hoja (${sheet.message}). Catálogo Firestore «${CATALOGO_INSUMOS_KIT_COLLECTION}».`
           );
+        } else if (listaFs.length === 0 && productosPos.length > 0) {
+          setErrorCat("No hubo catálogo base de insumos; se muestra el catálogo POS (DB_POS_Productos / WMS) para permitir el cargue.");
         }
         return;
       }
@@ -96,6 +136,8 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
     } catch {
       setErrorCat("No se pudo cargar el catálogo.");
       setInsumos([]);
+      setIncluyeCatalogoPos(false);
+      setProductosPosAgregados(0);
     } finally {
       setCargando(false);
     }
@@ -114,12 +156,35 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
     });
   }, [insumos, busqueda]);
 
+  const totalSaldoActualPv = useMemo(() => {
+    let total = 0;
+    for (const it of insumos) {
+      total += cantidadSaldoParaInsumoKit(it, saldoRows);
+    }
+    return Math.round(total * 1000) / 1000;
+  }, [insumos, saldoRows]);
+
+  const totalInventarioValorizadoPv = useMemo(() => {
+    let total = 0;
+    for (const it of insumos) {
+      const saldo = cantidadSaldoParaInsumoKit(it, saldoRows);
+      const costo = costoUnitarioReferenciaParaInsumoKit(it, saldoRows);
+      if (costo != null && Number.isFinite(saldo)) total += saldo * costo;
+    }
+    return Math.round(total);
+  }, [insumos, saldoRows]);
+
   const setCantidad = useCallback((id: string, raw: string) => {
     setCantidades((prev) => ({ ...prev, [id]: raw }));
   }, []);
 
+  const setPrecioCompra = useCallback((id: string, raw: string) => {
+    setPreciosCompra((prev) => ({ ...prev, [id]: raw }));
+  }, []);
+
   const limpiarCantidades = useCallback(() => {
     setCantidades({});
+    setPreciosCompra({});
     setMensajeOk(null);
     setResumenErrores([]);
   }, []);
@@ -130,13 +195,31 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
     setError(null);
     setResumenErrores([]);
 
-    const lineas: { insumo: InsumoKitItem; cantidad: number }[] = [];
+    const lineas: { insumo: InsumoKitItem; cantidad: number; precioCompraUnitario: number }[] = [];
+    const faltanPrecio: string[] = [];
     for (const it of insumos) {
       const raw = (cantidades[it.id] ?? "").trim().replace(/,/g, ".");
       if (raw === "") continue;
       const n = parseFloat(raw);
       if (!Number.isFinite(n) || n <= 0) continue;
-      lineas.push({ insumo: it, cantidad: Math.round(n * 1000) / 1000 });
+      const rawP = (preciosCompra[it.id] ?? "").trim().replace(/,/g, ".");
+      const p = parseFloat(rawP);
+      if (!Number.isFinite(p) || p <= 0) {
+        faltanPrecio.push(it.sku);
+        continue;
+      }
+      lineas.push({
+        insumo: it,
+        cantidad: Math.round(n * 1000) / 1000,
+        precioCompraUnitario: Math.round(p * 100) / 100,
+      });
+    }
+
+    if (faltanPrecio.length > 0) {
+      setError(
+        `Cada producto con cantidad debe tener precio de compra unitario (COP > 0). Revisá: ${faltanPrecio.slice(0, 8).join(", ")}${faltanPrecio.length > 8 ? "…" : ""}.`
+      );
+      return;
     }
 
     if (lineas.length === 0) {
@@ -154,7 +237,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
     const fallos: string[] = [];
 
     for (let i = 0; i < lineas.length; i++) {
-      const { insumo, cantidad } = lineas[i]!;
+      const { insumo, cantidad, precioCompraUnitario } = lineas[i]!;
       setProgreso({ hecho: i, total: lineas.length });
       const r = await registrarMovimientoInventario({
         puntoVenta: pv,
@@ -165,6 +248,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
         uid,
         email,
         fechaCargue: sufijoFecha || undefined,
+        precioCompraUnitario,
       });
       if (!r.ok) {
         fallos.push(`${insumo.sku}: ${r.message ?? "Error"}`);
@@ -185,12 +269,17 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
           delete n[insumo.id];
           return n;
         });
+        setPreciosCompra((prev) => {
+          const n = { ...prev };
+          delete n[insumo.id];
+          return n;
+        });
       }
     }
 
     const saldosR = await listarSaldosInventarioPorPuntoVenta(pv);
     setSaldoRows(saldosR);
-  }, [pv, uid, email, insumos, cantidades, notasGlobales, fechaCargue]);
+  }, [pv, uid, email, insumos, cantidades, preciosCompra, notasGlobales, fechaCargue]);
 
   if (!pv) {
     return (
@@ -206,7 +295,8 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
         <h2 className="text-lg font-semibold text-gray-900">Cargue inicial del punto de venta</h2>
         <p className="mt-1 text-sm text-gray-600">
           Una sola tabla con <strong className="font-medium text-gray-800">todos</strong> los insumos del catálogo: completá
-          solo las cantidades que entraron. Las filas vacías o en cero se omiten. Para cargue con{" "}
+          cantidad y precio de compra unitario (COP) en cada fila que entra. Las filas vacías o en cero se omiten. Para
+          cargue con{" "}
           <strong className="font-medium">lote</strong> por producto o lista paso a paso, usá la pestaña{" "}
           <strong className="font-medium">Cargue por producto y lote</strong>.
         </p>
@@ -269,7 +359,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
             disabled={enviando}
             className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
-            Limpiar cantidades
+            Limpiar cantidades y precios
           </button>
           <button
             type="button"
@@ -309,7 +399,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
           ) : insumos.length === 0 ? (
             <p className="p-8 text-center text-gray-500">No hay ítems para mostrar.</p>
           ) : (
-            <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[880px] border-collapse text-left text-sm">
               <thead className="sticky top-0 z-[1] bg-gray-100 shadow-sm">
                 <tr>
                   <th className="border-b border-gray-200 px-3 py-2 font-semibold text-gray-800">Código</th>
@@ -317,6 +407,9 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
                   <th className="border-b border-gray-200 px-3 py-2 font-semibold text-gray-800">Unidad</th>
                   <th className="w-28 border-b border-gray-200 px-3 py-2 text-right font-semibold text-gray-800">Saldo actual</th>
                   <th className="w-36 border-b border-gray-200 px-3 py-2 font-semibold text-gray-800">Cantidad a cargar</th>
+                  <th className="w-40 border-b border-gray-200 px-3 py-2 font-semibold text-gray-800">
+                    Precio compra COP/u. <span className="text-red-600">*</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -340,6 +433,18 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
                         aria-label={`Cantidad cargue ${it.sku}`}
                       />
                     </td>
+                    <td className="px-3 py-2">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={preciosCompra[it.id] ?? ""}
+                        onChange={(e) => setPrecioCompra(it.id, e.target.value)}
+                        disabled={enviando}
+                        placeholder="COP"
+                        className="w-full rounded border border-gray-300 px-2 py-1.5 text-right font-mono text-sm tabular-nums focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 disabled:bg-gray-100"
+                        aria-label={`Precio compra ${it.sku}`}
+                      />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -348,11 +453,34 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
         </div>
 
         {fuenteCat && insumos.length > 0 && (
-          <p className="shrink-0 border-t border-gray-100 bg-gray-50 px-4 py-2 text-xs text-gray-500">
-            Catálogo: {fuenteCat === "sheet" ? "hoja Google" : "Firestore"} · {insumosFiltrados.length} de {insumos.length}{" "}
-            filas mostradas
-            {busqueda.trim() ? " (filtro activo)" : ""}.
-          </p>
+          <div className="shrink-0 border-t border-gray-100 bg-gray-50 px-4 py-2">
+            <p className="text-xs text-gray-500">
+              Catálogo:{" "}
+              {fuenteCat === "sheet"
+                ? "hoja Google"
+                : fuenteCat === "firestore"
+                  ? "Firestore"
+                  : "DB_POS_Productos / WMS"}
+              {incluyeCatalogoPos && fuenteCat !== "wms" ? " + catálogo POS (WMS)" : ""}
+              {productosPosAgregados > 0 ? ` · ${productosPosAgregados} producto(s) POS agregados` : ""}
+              {" · "}
+              {insumosFiltrados.length} de {insumos.length} filas mostradas
+              {busqueda.trim() ? " (filtro activo)" : ""}.
+            </p>
+            <p className="mt-1 text-sm font-medium text-gray-800">
+              Total inventario actual (punto de venta):{" "}
+              <span className="tabular-nums">{totalSaldoActualPv.toLocaleString("es-CO", { maximumFractionDigits: 3 })}</span>
+              {" · "}
+              Valor aprox.:{" "}
+              <span className="tabular-nums">
+                {totalInventarioValorizadoPv.toLocaleString("es-CO", {
+                  style: "currency",
+                  currency: "COP",
+                  maximumFractionDigits: 0,
+                })}
+              </span>
+            </p>
+          </div>
         )}
       </div>
     </div>

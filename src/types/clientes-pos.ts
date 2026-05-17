@@ -19,6 +19,8 @@ export interface ClientePosFirestoreDoc {
   createdByUid: string;
   createdAt?: unknown;
   updatedAt?: unknown;
+  /** Marca de tiempo del servidor cuando se envió el correo de bienvenida al plan de millas (solo API Admin). */
+  clubMillasBienvenidaCorreoEnviadoAt?: unknown;
 }
 
 /** Selección en carrito / envío de venta */

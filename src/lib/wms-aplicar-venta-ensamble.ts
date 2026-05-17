@@ -59,10 +59,17 @@ export function lineasWmsEnsambleDesdeItemsCuenta(items: ItemCuenta[]): WmsAplic
     const skuProducto = buildLineIdPos(skuBase, {
       varianteChorizo: it.varianteChorizo,
       varianteArepaCombo: it.varianteArepaCombo,
+      variantes: it.variantes,
     });
     const variantes: string[] = [];
     if (it.varianteChorizo) variantes.push(`chorizo:${it.varianteChorizo}`);
     if (it.varianteArepaCombo) variantes.push(`arepa:${it.varianteArepaCombo}`);
+    if (Array.isArray(it.variantes)) {
+      for (const v of it.variantes) {
+        const t = String(v ?? "").trim();
+        if (t) variantes.push(t);
+      }
+    }
     out.push({
       skuProducto,
       cantidad,

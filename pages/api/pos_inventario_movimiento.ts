@@ -110,6 +110,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const notas = typeof b.notas === "string" ? b.notas : "";
   const fechaCargue = typeof b.fechaCargue === "string" ? b.fechaCargue.trim() : undefined;
   const permitirNegativo = b.permitirNegativo === true;
+  const precioRaw = b.precioCompraUnitario;
+  const precioCompraUnitario =
+    typeof precioRaw === "number" ? precioRaw : precioRaw != null ? Number(precioRaw) : undefined;
+
+  if (tipo === "cargue") {
+    if (!Number.isFinite(precioCompraUnitario) || (precioCompraUnitario as number) <= 0) {
+      return res.status(400).json({
+        ok: false,
+        message: "El precio de compra unitario es obligatorio y debe ser mayor que cero.",
+      });
+    }
+  }
 
   const r = await registrarMovimientoInventarioAdmin(app, {
     uid: ctx.uid,
@@ -121,6 +133,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     notas,
     permitirNegativo,
     fechaCargue: fechaCargue || undefined,
+    ...(tipo === "cargue" && Number.isFinite(precioCompraUnitario)
+      ? { precioCompraUnitario: precioCompraUnitario as number }
+      : {}),
   });
 
   if (!r.ok) {

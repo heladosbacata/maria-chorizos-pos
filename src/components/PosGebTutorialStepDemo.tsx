@@ -15,7 +15,8 @@ const ROWS_CAJERO: { id: string; label: string; hint: string }[] = [
   { id: "nav-ultimos", label: "Últimos recibos", hint: "Tickets y anulaciones" },
   { id: "nav-metas", label: "Metas y bonificaciones", hint: "Retos del punto" },
   { id: "nav-reportes", label: "Reportes", hint: "Resumen del día" },
-  { id: "nav-mas", label: "Más", hint: "Solo titular" },
+  { id: "nav-plan-millas", label: "Plan de millas", hint: "Puntos y premios" },
+  { id: "nav-mas", label: "Espacio para franquiciados", hint: "Solo titular · candado" },
 ];
 
 const ROWS_CONTADOR: { id: string; label: string; hint: string }[] = [
@@ -212,6 +213,7 @@ export default function PosGebTutorialStepDemo({ tutorialTarget, esContador }: P
     "nav-ultimos",
     "nav-metas",
     "nav-reportes",
+    "nav-plan-millas",
     "nav-mas",
   ]);
 

@@ -1,14 +1,32 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { auth } from "@/lib/firebase";
+import type { DianPingOk, DianPingResult } from "@/lib/wms-pos-dian-client";
 import {
   wmsPosAlegraPingPos,
   wmsPosDianConfigGet,
   wmsPosDianConfigPut,
-  type DianPingOk,
 } from "@/lib/wms-pos-dian-client";
+
+/** NIT/cédula sin puntos ni guiones (como pide el flujo Alegra / WMS). */
+function nitSoloDigitos(raw: string): string {
+  return raw.replace(/\D/g, "");
+}
+
+function textoPingDesdeOk(r: DianPingOk): string {
+  const lineas = [
+    `Empresa: ${r.empresaAlegra.name}`,
+    `Prefijo de factura: ${r.resolucion.prefix}`,
+    `Número de resolución: ${r.resolucion.resolutionNumber}`,
+    `Consecutivos disponibles: del ${r.resolucion.minNumber} al ${r.resolucion.maxNumber}`,
+  ];
+  if (r.notasDian?.length) {
+    lineas.push("", "Información adicional:", ...r.notasDian.map((n) => `· ${n}`));
+  }
+  return lineas.join("\n");
+}
 
 const STEPS = [
   { id: 1, title: "Cómo funciona" },
@@ -21,17 +39,20 @@ const STEPS = [
 type Props = {
   puntoVenta: string | null;
   onVolver: () => void;
+  /** 1 por defecto; usar 2 al abrir desde «Sincroniza tu resolución» para ir directo a NIT + resolución. */
+  initialStep?: 1 | 2 | 3 | 4 | 5;
 };
 
-function resumenPingTexto(r: DianPingOk): string {
-  return `Empresa en Alegra: ${r.empresaAlegra.name} (id ${r.empresaAlegra.id}). Resolución ${r.resolucion.prefix} · ${r.resolucion.resolutionNumber} · rango ${r.resolucion.minNumber}–${r.resolucion.maxNumber}.`;
-}
-
-export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props) {
+export default function PosDianFacturacionPanel({
+  puntoVenta,
+  onVolver,
+  initialStep = 1,
+}: Props) {
   const { user } = useAuth();
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(initialStep);
   const [emisorNit, setEmisorNit] = useState("");
   const [alegraCompanyId, setAlegraCompanyId] = useState("");
+  /** Número de resolución DIAN (coincide con la numeración en hoja / WMS). */
   const [dianResolutionNumber, setDianResolutionNumber] = useState("");
   const [habilitado, setHabilitado] = useState(false);
   const [cargando, setCargando] = useState(true);
@@ -39,11 +60,15 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
   const [probando, setProbando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pingOk, setPingOk] = useState<string | null>(null);
-
-  /** Verificación del paso 3 (confirmación antes de probar de nuevo en paso 4). */
-  const [paso3Status, setPaso3Status] = useState<"idle" | "loading" | "ok" | "error">("idle");
-  const [paso3Error, setPaso3Error] = useState<string | null>(null);
-  const [paso3Ping, setPaso3Ping] = useState<DianPingOk | null>(null);
+  /** Sincronización automática al editar NIT / id empresa (pasos 2 y 3). */
+  const [sincAuto, setSincAuto] = useState(false);
+  const [syncPreview, setSyncPreview] = useState<
+    | { kind: "ok"; data: DianPingOk }
+    | { kind: "partial"; err: Extract<DianPingResult, { ok: false }> }
+    | null
+  >(null);
+  const [syncAutoMensaje, setSyncAutoMensaje] = useState<string | null>(null);
+  const debounceSyncRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const cargar = useCallback(async () => {
     if (!user) return;
@@ -60,7 +85,7 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
         setError(r.error);
         return;
       }
-      setEmisorNit(r.emisorNit);
+      setEmisorNit(nitSoloDigitos(r.emisorNit) || r.emisorNit.trim());
       setAlegraCompanyId(r.alegraCompanyId);
       setDianResolutionNumber(r.dianResolutionNumber);
       setHabilitado(r.habilitado);
@@ -73,29 +98,102 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
     void cargar();
   }, [cargar]);
 
-  /** Guarda borrador en WMS y ejecuta ping Alegra; usado en paso 3 (auto) y paso 4 (botón). */
-  const guardarYPing = useCallback(async (): Promise<
-    { ok: true; ping: DianPingOk; resumen: string } | { ok: false; error: string }
-  > => {
-    const token = await auth?.currentUser?.getIdToken();
-    if (!token) {
-      return { ok: false, error: "No hay sesión." };
+  /** Al dejar de tipear NIT o id empresa: guarda borrador en Firestore y consulta Alegra + resolución (misma lógica que «Probar conexión»). */
+  useEffect(() => {
+    if (debounceSyncRef.current) {
+      clearTimeout(debounceSyncRef.current);
+      debounceSyncRef.current = null;
     }
-    const put = await wmsPosDianConfigPut(token, {
-      emisorNit: emisorNit.trim(),
-      alegraCompanyId: alegraCompanyId.trim(),
-      habilitado: false,
-      dianResolutionNumber: dianResolutionNumber.trim(),
-    });
-    if (!put.ok) {
-      return { ok: false, error: put.error };
+    if (!user || cargando) return;
+    if (step !== 2 && step !== 3) return;
+    const nit = nitSoloDigitos(emisorNit);
+    if (nit.length < 8) {
+      setSyncPreview(null);
+      setSyncAutoMensaje(null);
+      return;
     }
-    const r = await wmsPosAlegraPingPos(token);
-    if (!r.ok) {
-      return { ok: false, error: r.error };
-    }
-    return { ok: true, ping: r, resumen: resumenPingTexto(r) };
-  }, [emisorNit, alegraCompanyId, dianResolutionNumber]);
+    debounceSyncRef.current = setTimeout(() => {
+      void (async () => {
+        setSincAuto(true);
+        setSyncAutoMensaje(null);
+        try {
+          const token = await auth?.currentUser?.getIdToken();
+          if (!token) return;
+          const put = await wmsPosDianConfigPut(token, {
+            emisorNit: nit,
+            alegraCompanyId: alegraCompanyId.trim(),
+            dianResolutionNumber: dianResolutionNumber.trim(),
+            habilitado: false,
+          });
+          if (!put.ok) {
+            setSyncPreview(null);
+            setSyncAutoMensaje(put.error);
+            return;
+          }
+          const r = await wmsPosAlegraPingPos(token);
+          if (r.ok) {
+            setSyncPreview({ kind: "ok", data: r });
+            setAlegraCompanyId((prev) => (prev.trim() ? prev : r.empresaAlegra.id));
+            setSyncAutoMensaje(null);
+          } else {
+            setSyncPreview({ kind: "partial", err: r });
+            setSyncAutoMensaje(null);
+          }
+        } catch {
+          setSyncPreview(null);
+          setSyncAutoMensaje("No se pudo contactar al servidor.");
+        } finally {
+          setSincAuto(false);
+        }
+      })();
+    }, 900);
+    return () => {
+      if (debounceSyncRef.current) {
+        clearTimeout(debounceSyncRef.current);
+        debounceSyncRef.current = null;
+      }
+    };
+  }, [user, cargando, step, emisorNit, alegraCompanyId, dianResolutionNumber]);
+
+  useEffect(() => {
+    if (step !== 4) return;
+    if (!syncPreview) return;
+    if (syncPreview.kind === "ok") setPingOk(textoPingDesdeOk(syncPreview.data));
+    else setPingOk(null);
+  }, [step, syncPreview]);
+
+  const bloqueSincAlegra = (
+    <div className="space-y-2 rounded-xl border border-sky-200 bg-sky-50/90 p-4">
+      <p className="text-xs font-semibold text-sky-900">Verificación automática</p>
+      <p className="text-xs text-sky-900/90">
+        Cuando termines de escribir el NIT (mínimo 8 dígitos), el sistema comprueba si tu punto está listo para facturar.
+        Es la misma prueba del paso «Probar conexión».
+      </p>
+      {sincAuto ? <p className="text-xs text-sky-800">Consultando…</p> : null}
+      {syncAutoMensaje ? <p className="text-xs text-red-700">{syncAutoMensaje}</p> : null}
+      {syncPreview?.kind === "ok" ? (
+        <div className="whitespace-pre-line rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs text-emerald-950">
+          {textoPingDesdeOk(syncPreview.data)}
+        </div>
+      ) : null}
+      {syncPreview?.kind === "partial" ? (
+        <div className="space-y-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+          {syncPreview.err.empresaAlegra ? (
+            <p>
+              <span className="font-medium">Empresa encontrada:</span> {syncPreview.err.empresaAlegra.name}
+            </p>
+          ) : null}
+          <p className="font-medium text-red-800">{syncPreview.err.error}</p>
+          <p className="text-amber-900">
+            Si el mensaje persiste, contactá a administración María Chorizos con tu NIT y número de resolución.
+          </p>
+        </div>
+      ) : null}
+      {!sincAuto && nitSoloDigitos(emisorNit).length < 8 ? (
+        <p className="text-xs text-gray-600">Escribí al menos 8 dígitos para disparar la consulta automática.</p>
+      ) : null}
+    </div>
+  );
 
   const guardarBorrador = async () => {
     if (!user) return;
@@ -108,54 +206,36 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
         return;
       }
       const r = await wmsPosDianConfigPut(token, {
-        emisorNit: emisorNit.trim(),
+        emisorNit: nitSoloDigitos(emisorNit) || emisorNit.trim(),
         alegraCompanyId: alegraCompanyId.trim(),
-        habilitado: false,
         dianResolutionNumber: dianResolutionNumber.trim(),
+        habilitado: false,
       });
       if (!r.ok) {
         setError(r.error);
         return;
       }
       setPingOk(null);
-      setPaso3Status("idle");
-      setPaso3Ping(null);
-      setPaso3Error(null);
+      setSyncAutoMensaje(null);
+      const nitGuardado = nitSoloDigitos(emisorNit);
+      if (nitGuardado.length >= 8) {
+        try {
+          const rPing = await wmsPosAlegraPingPos(token);
+          if (rPing.ok) {
+            setSyncPreview({ kind: "ok", data: rPing });
+            setAlegraCompanyId((prev) => (prev.trim() ? prev : rPing.empresaAlegra.id));
+          } else {
+            setSyncPreview({ kind: "partial", err: rPing });
+          }
+        } catch {
+          setSyncPreview(null);
+          setSyncAutoMensaje("No se pudo contactar al servidor.");
+        }
+      }
     } finally {
       setGuardando(false);
     }
   };
-
-  useEffect(() => {
-    if (step !== 3 || cargando || !user) return;
-    if (!emisorNit.trim()) {
-      setPaso3Status("error");
-      setPaso3Error("Completá el NIT o cédula del emisor en el paso 2 y guardá los datos.");
-      setPaso3Ping(null);
-      return;
-    }
-
-    let cancelled = false;
-    setPaso3Status("loading");
-    setPaso3Error(null);
-    setPaso3Ping(null);
-
-    void (async () => {
-      const out = await guardarYPing();
-      if (cancelled) return;
-      if (!out.ok) {
-        setPaso3Status("error");
-        setPaso3Error(out.error);
-        return;
-      }
-      setPaso3Ping(out.ping);
-      setPaso3Status("ok");
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [step, cargando, user, emisorNit, alegraCompanyId, dianResolutionNumber, guardarYPing]);
 
   const ejecutarPing = async () => {
     if (!user) return;
@@ -163,12 +243,23 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
     setError(null);
     setPingOk(null);
     try {
-      const out = await guardarYPing();
-      if (!out.ok) {
-        setError(out.error);
+      const token = await auth?.currentUser?.getIdToken();
+      if (!token) {
+        setError("No hay sesión.");
         return;
       }
-      setPingOk(out.resumen);
+      await wmsPosDianConfigPut(token, {
+        emisorNit: nitSoloDigitos(emisorNit) || emisorNit.trim(),
+        alegraCompanyId: alegraCompanyId.trim(),
+        dianResolutionNumber: dianResolutionNumber.trim(),
+        habilitado: false,
+      });
+      const r = await wmsPosAlegraPingPos(token);
+      if (!r.ok) {
+        setError(r.error);
+        return;
+      }
+      setPingOk(textoPingDesdeOk(r));
     } finally {
       setProbando(false);
     }
@@ -177,7 +268,7 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
   const habilitarFacturacion = async () => {
     if (!user) return;
     if (!pingOk) {
-      setError("Primero confirmá el paso 3 o ejecutá «Probar conexión» en el paso 4.");
+      setError("Primero ejecutá «Probar conexión» y verificá que todo esté en verde.");
       return;
     }
     setGuardando(true);
@@ -189,10 +280,10 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
         return;
       }
       const r = await wmsPosDianConfigPut(token, {
-        emisorNit: emisorNit.trim(),
+        emisorNit: nitSoloDigitos(emisorNit) || emisorNit.trim(),
         alegraCompanyId: alegraCompanyId.trim(),
-        habilitado: true,
         dianResolutionNumber: dianResolutionNumber.trim(),
+        habilitado: true,
       });
       if (!r.ok) {
         setError(r.error);
@@ -204,6 +295,13 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
     }
   };
 
+  const confirmarPaso3 = useCallback(() => {
+    if (sincAuto || syncPreview?.kind !== "ok") return;
+    setError(null);
+    setPingOk(textoPingDesdeOk(syncPreview.data));
+    setStep(4);
+  }, [sincAuto, syncPreview]);
+
   const deshabilitar = async () => {
     if (!user) return;
     setGuardando(true);
@@ -212,33 +310,18 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
       const token = await auth?.currentUser?.getIdToken();
       if (!token) return;
       const r = await wmsPosDianConfigPut(token, {
-        emisorNit: emisorNit.trim(),
+        emisorNit: nitSoloDigitos(emisorNit) || emisorNit.trim(),
         alegraCompanyId: alegraCompanyId.trim(),
-        habilitado: false,
         dianResolutionNumber: dianResolutionNumber.trim(),
+        habilitado: false,
       });
       if (r.ok) {
         setHabilitado(false);
         setPingOk(null);
-        setPaso3Status("idle");
-        setPaso3Ping(null);
       }
     } finally {
       setGuardando(false);
     }
-  };
-
-  const irCorregirPaso2 = () => {
-    setStep(2);
-    setPaso3Status("idle");
-    setPaso3Ping(null);
-    setPaso3Error(null);
-  };
-
-  const confirmarPaso3 = () => {
-    if (paso3Status !== "ok" || !paso3Ping) return;
-    setPingOk(resumenPingTexto(paso3Ping));
-    setStep(4);
   };
 
   return (
@@ -296,18 +379,28 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
       ) : (
         <div className="space-y-6 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
           {step === 1 && (
-            <div className="space-y-3 text-sm leading-relaxed text-gray-700">
+            <div className="space-y-4 text-sm leading-relaxed text-gray-700">
+              <div className="rounded-xl border border-amber-200 bg-amber-50/80 px-4 py-3">
+                <p className="font-semibold text-amber-950">En pocas palabras</p>
+                <p className="mt-2 text-amber-950/95">
+                  María Chorizos deja lista la conexión con la DIAN y con Alegra por tu franquicia. En esta pantalla solo
+                  confirmás los datos de <strong>tu punto</strong> y activás la factura electrónica en la caja.
+                </p>
+              </div>
+              <p className="font-medium text-gray-900">¿Qué pasa cuando cobrás con factura electrónica?</p>
+              <ol className="list-decimal space-y-2 pl-5">
+                <li>En caja elegís el tipo de comprobante «Factura electrónica de venta».</li>
+                <li>Al cobrar, el sistema envía la venta a la DIAN y recibe el número de factura y el CUFE.</li>
+                <li>El cliente recibe el comprobante legal (impresión o correo, según uses en el POS).</li>
+              </ol>
               <p>
-                Bacatá opera como <strong>reseller</strong> en Alegra: se usa el <strong>mismo token</strong> en el servidor
-                del WMS para todas las empresas (puntos) dadas de alta en esa cuenta.
+                Cada punto usa su propio <strong>NIT o cédula</strong> y su <strong>resolución de facturación</strong>{" "}
+                autorizada por la DIAN. Los pasos siguientes sirven para comprobar que todo coincide con lo que tenemos
+                registrado para vos.
               </p>
-              <p>
-                Cada punto de venta debe existir como <strong>empresa</strong> en Alegra con su NIT o cédula (persona
-                natural o jurídica), según lo hayan configurado con Alegra.
-              </p>
-              <p className="text-amber-900">
-                Si aún no tenés la empresa del franquiciado en Alegra, completá ese alta con el soporte de Alegra antes de
-                seguir.
+              <p className="text-gray-600">
+                Si tu punto es nuevo o cambiaste de resolución, avisá a administración antes de activar; ellos completan
+                el alta en el sistema central.
               </p>
             </div>
           )}
@@ -315,7 +408,9 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
           {step === 2 && (
             <div className="space-y-4">
               <p className="text-sm text-gray-600">
-                Debe coincidir con el documento registrado en la empresa de Alegra de este punto (sin puntos en el NIT).
+                Ingresá el <strong>NIT o cédula</strong> con el que factura este punto y el{" "}
+                <strong>número de resolución DIAN</strong> de tus facturas de venta. Escribí el NIT solo con números, sin
+                puntos ni guiones.
               </p>
               <label className="block">
                 <span className="text-sm font-medium text-gray-700">NIT o cédula del emisor (este punto)</span>
@@ -328,35 +423,24 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
                   autoComplete="off"
                 />
               </label>
-              <label className="block">
-                <span className="text-sm font-medium text-gray-700">Número de resolución DIAN (opcional)</span>
+              <div className="space-y-2 rounded-xl border-2 border-amber-400 bg-amber-50 p-4 shadow-sm">
+                <p className="text-sm font-semibold text-amber-950">Número de resolución DIAN</p>
+                <p className="text-xs text-amber-950/90 leading-relaxed">
+                  Es el número que aparece en tu resolución de facturación ante la DIAN (no el prefijo de la factura ni el
+                  rango de consecutivos). Si tenés varias resoluciones, usá la de facturas de venta. Si no lo sabés,
+                  consultá con administración.
+                </p>
                 <input
                   type="text"
                   value={dianResolutionNumber}
                   onChange={(e) => setDianResolutionNumber(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                  placeholder="Ej. 18760000001 — solo si tenés varias resoluciones y debés filtrar"
+                  className="w-full rounded-lg border-2 border-amber-500/70 bg-white px-3 py-2.5 text-sm text-gray-900 shadow-inner"
+                  placeholder="Escribí aquí el número de resolución (ej. 18760000001)"
                   autoComplete="off"
+                  aria-label="Número de resolución DIAN"
                 />
-              </label>
-              <p className="text-xs text-gray-500">
-                Vacío = el WMS elige la resolución activa para tu NIT en <code className="rounded bg-gray-100 px-1">DB_ResolucionesDian</code>.
-              </p>
-              <label className="block">
-                <span className="text-sm font-medium text-gray-700">Id empresa en Alegra (opcional)</span>
-                <input
-                  type="text"
-                  value={alegraCompanyId}
-                  onChange={(e) => setAlegraCompanyId(e.target.value)}
-                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
-                  placeholder="Si Alegra te dio un id numérico de empresa, pegalo aquí"
-                  autoComplete="off"
-                />
-              </label>
-              <p className="text-xs text-gray-500">
-                Si lo dejás vacío, el WMS buscará la empresa por el NIT/cédula en la lista de compañías de la cuenta
-                reseller.
-              </p>
+              </div>
+              {bloqueSincAlegra}
               <button
                 type="button"
                 disabled={guardando}
@@ -371,94 +455,50 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
           {step === 3 && (
             <div className="space-y-4 text-sm leading-relaxed text-gray-700">
               <p>
-                Revisá que los datos del paso 2 sean correctos. Si los cambiás, esperá unos segundos a que termine la
-                verificación automática o volvé al paso 2.
+                Revisá que los datos del <strong>paso 2</strong> sean correctos. Si los cambiás, esperá unos segundos a
+                que termine la verificación automática o volvé a guardar.
               </p>
+              {bloqueSincAlegra}
               <p>
-                En el WMS debe existir la hoja <code className="rounded bg-gray-100 px-1">DB_ResolucionesDian</code> con
-                datos coherentes para tu NIT (en producción: prefijo, rango y clave técnica). En sandbox el WMS puede usar
-                la resolución de prueba SETT.
+                Si la verificación muestra error, no actives la facturación todavía: escribinos a administración con tu
+                NIT y número de resolución para que lo revisemos en el sistema.
               </p>
-
-              <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3">
-                <p className="text-sm font-semibold text-sky-900">Verificación automática</p>
-                <p className="mt-1 text-xs text-sky-800">
-                  Comprobamos empresa en Alegra y resolución DIAN para el NIT configurado (vía servidor WMS).
-                </p>
-
-                {paso3Status === "loading" ? (
-                  <p className="mt-3 text-sm text-sky-900">Verificando…</p>
-                ) : null}
-
-                {paso3Status === "error" ? (
-                  <div
-                    className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800"
-                    role="status"
-                  >
-                    {paso3Error ?? "No se pudo verificar."}
-                  </div>
-                ) : null}
-
-                {paso3Status === "ok" && paso3Ping ? (
-                  <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm text-emerald-950">
-                    <p>
-                      <span className="font-medium">Empresa:</span> {paso3Ping.empresaAlegra.name}
-                    </p>
-                    <p className="mt-1">
-                      <span className="font-medium">Prefijo de factura:</span> {paso3Ping.resolucion.prefix}
-                    </p>
-                    <p className="mt-1">
-                      <span className="font-medium">Número de resolución:</span> {paso3Ping.resolucion.resolutionNumber}
-                    </p>
-                    <p className="mt-1">
-                      <span className="font-medium">Consecutivos disponibles:</span> del {paso3Ping.resolucion.minNumber}{" "}
-                      al {paso3Ping.resolucion.maxNumber}
-                    </p>
-                    {paso3Ping.notasDian && paso3Ping.notasDian.length > 0 ? (
-                      <ul className="mt-2 list-inside list-disc text-xs text-emerald-900">
-                        {paso3Ping.notasDian.map((n, i) => (
-                          <li key={i}>{n}</li>
-                        ))}
-                      </ul>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-
-              <p className="text-xs text-gray-500">
-                Si la verificación muestra error, no sigas a activar: escribí a administración con tu NIT y el detalle del
-                mensaje.
-              </p>
-
-              <div className="flex flex-wrap gap-2 pt-1">
+              <div className="flex flex-wrap gap-2 border-t border-gray-100 pt-4">
                 <button
                   type="button"
-                  onClick={irCorregirPaso2}
-                  className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50"
+                  onClick={() => {
+                    setError(null);
+                    setStep(2);
+                  }}
+                  className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-800 transition-colors hover:bg-gray-50"
                 >
                   Corregir datos
                 </button>
                 <button
                   type="button"
-                  disabled={paso3Status !== "ok"}
-                  onClick={confirmarPaso3}
+                  disabled={sincAuto || syncPreview?.kind !== "ok"}
+                  onClick={() => confirmarPaso3()}
                   className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-gray-900 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Confirmar y continuar
                 </button>
               </div>
+              {!sincAuto && syncPreview?.kind !== "ok" && nitSoloDigitos(emisorNit).length >= 8 ? (
+                <p className="text-xs text-gray-500">
+                  «Confirmar y continuar» se habilita cuando la verificación automática esté en verde (sin errores).
+                </p>
+              ) : null}
             </div>
           )}
 
           {step === 4 && (
             <div className="space-y-4">
               <p className="text-sm text-gray-600">
-                Si ya confirmaste el paso anterior, podés volver a probar la conexión antes de habilitar la emisión en
-                caja.
+                Hacé una prueba completa: el sistema confirma que tu punto puede emitir facturas electrónicas con la DIAN.
               </p>
               <button
                 type="button"
-                disabled={probando || !emisorNit.trim()}
+                disabled={probando || nitSoloDigitos(emisorNit).length < 8}
                 onClick={() => void ejecutarPing()}
                 className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-gray-900 disabled:opacity-50"
               >
@@ -475,8 +515,8 @@ export default function PosDianFacturacionPanel({ puntoVenta, onVolver }: Props)
           {step === 5 && (
             <div className="space-y-4">
               <p className="text-sm text-gray-600">
-                Cuando la prueba sea correcta, habilitá la emisión. En caja, elegí «Factura electrónica de venta» y, al
-                cobrar, se enviará a la DIAN vía Alegra (consecutivo único por punto).
+                Si la prueba del paso anterior fue exitosa, activá la facturación en este POS. Desde caja, al cobrar,
+                elegí «Factura electrónica de venta» y el comprobante se enviará automáticamente a la DIAN.
               </p>
               <div className="flex flex-wrap gap-2">
                 <button

@@ -8,7 +8,7 @@ import {
   serverTimestamp,
   where,
 } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
 import type { ClientePosFirestoreDoc, TipoClientePos } from "@/types/clientes-pos";
 
 export const POS_CLIENTES_COLLECTION = "posClientes";
@@ -130,8 +130,11 @@ export interface CrearClientePosInput {
   createdByUid: string;
 }
 
-export async function crearClientePos(input: CrearClientePosInput): Promise<{ ok: true; id: string } | { ok: false; message: string }> {
-  if (!db) return { ok: false, message: "Firestore no está disponible." };
+export type CrearClientePosResult =
+  | { ok: true; id: string; bienvenidaCorreoEnviado?: boolean; bienvenidaCorreoError?: string }
+  | { ok: false; message: string };
+
+export async function crearClientePos(input: CrearClientePosInput): Promise<CrearClientePosResult> {
   const pv = input.puntoVenta.trim();
   if (!pv) return { ok: false, message: "Falta punto de venta." };
   if (!input.tipoIdentificacion.trim()) return { ok: false, message: "Indica el tipo de identificación." };
@@ -143,6 +146,73 @@ export async function crearClientePos(input: CrearClientePosInput): Promise<{ ok
       return { ok: false, message: "Indica nombres o apellidos." };
     }
   }
+
+  if (typeof window !== "undefined" && auth?.currentUser) {
+    try {
+      const token = await auth.currentUser.getIdToken();
+      const res = await fetch("/api/pos_cliente_crear", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          puntoVenta: pv,
+          tipoCliente: input.tipoCliente,
+          tipoIdentificacion: input.tipoIdentificacion.trim(),
+          numeroIdentificacion: input.numeroIdentificacion.trim(),
+          ...(input.digitoVerificacion?.trim() ? { digitoVerificacion: input.digitoVerificacion.trim() } : {}),
+          ...(input.nombres?.trim() ? { nombres: input.nombres.trim() } : {}),
+          ...(input.apellidos?.trim() ? { apellidos: input.apellidos.trim() } : {}),
+          ...(input.razonSocial?.trim() ? { razonSocial: input.razonSocial.trim() } : {}),
+          ...(input.email?.trim() ? { email: input.email.trim().toLowerCase() } : {}),
+          ...(input.indicativoTelefono?.trim() ? { indicativoTelefono: input.indicativoTelefono.trim() } : {}),
+          ...(input.telefono?.trim() ? { telefono: input.telefono.trim() } : {}),
+          ...(input.datosComplementarios && Object.keys(input.datosComplementarios).length
+            ? { datosComplementarios: input.datosComplementarios }
+            : {}),
+        }),
+      });
+      let data: {
+        ok?: boolean;
+        id?: string;
+        message?: string;
+        bienvenidaCorreoEnviado?: boolean;
+        bienvenidaCorreoError?: string;
+      } = {};
+      try {
+        data = (await res.json()) as typeof data;
+      } catch {
+        /* cuerpo vacío o no JSON */
+      }
+      if (res.ok && data.ok && data.id) {
+        return {
+          ok: true,
+          id: data.id,
+          ...(data.bienvenidaCorreoEnviado ? { bienvenidaCorreoEnviado: true } : {}),
+          ...(data.bienvenidaCorreoError ? { bienvenidaCorreoError: data.bienvenidaCorreoError } : {}),
+        };
+      }
+      const msgLower = String(data.message ?? "").toLowerCase();
+      const sinAdmin =
+        res.status === 503 && (msgLower.includes("firebase_service_account_json") || msgLower.includes("no está configurada"));
+      if (!sinAdmin) {
+        return {
+          ok: false,
+          message:
+            data.message ??
+            (res.status === 401
+              ? "Sesión expirada. Vuelve a iniciar sesión."
+              : "No se pudo crear el cliente."),
+        };
+      }
+      // sin Admin configurado: se intenta fallback a SDK web
+    } catch {
+      // sin red o API caída: se intenta fallback a SDK web
+    }
+  }
+
+  if (!db) return { ok: false, message: "Firestore no está disponible." };
 
   try {
     const ref = await addDoc(collection(db, POS_CLIENTES_COLLECTION), {

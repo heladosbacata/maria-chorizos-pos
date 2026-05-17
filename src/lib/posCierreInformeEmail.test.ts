@@ -100,6 +100,31 @@ describe("sendPosCierreInformeEmail (Zoho mockeado)", () => {
       expect.objectContaining({ cc: ["b@test.com"] })
     );
   });
+
+  it("adjunta pdf cuando se envía un archivo", async () => {
+    await sendPosCierreInformeEmail({
+      to: "a@test.com",
+      subject: "S",
+      text: "T",
+      attachments: [
+        {
+          filename: "cierre.pdf",
+          contentBase64: Buffer.from("pdf-demo").toString("base64"),
+          contentType: "application/pdf",
+        },
+      ],
+    });
+    expect(sendMail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attachments: [
+          expect.objectContaining({
+            filename: "cierre.pdf",
+            contentType: "application/pdf",
+          }),
+        ],
+      })
+    );
+  });
 });
 
 describe("sendPosCierreInformeEmail Resend (fetch mockeado)", () => {
@@ -142,6 +167,27 @@ describe("sendPosCierreInformeEmail Resend (fetch mockeado)", () => {
     expect(fetch).toHaveBeenCalledWith(
       "https://api.resend.com/emails",
       expect.objectContaining({ method: "POST" })
+    );
+  });
+
+  it("envía adjuntos a Resend en base64", async () => {
+    await sendPosCierreInformeEmail({
+      to: "x@test.com",
+      subject: "Sub",
+      text: "Body",
+      attachments: [
+        {
+          filename: "resumen.pdf",
+          contentBase64: "UERG",
+          contentType: "application/pdf",
+        },
+      ],
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.resend.com/emails",
+      expect.objectContaining({
+        body: expect.stringContaining("\"attachments\":[{\"filename\":\"resumen.pdf\",\"content\":\"UERG\",\"content_type\":\"application/pdf\"}]"),
+      })
     );
   });
 });

@@ -23,6 +23,8 @@ const MAX_VENTAS = 500;
 
 export interface LineaVentaGuardada {
   lineId: string;
+  /** SKU compuesto de la línea (ej. bebida con variante) para ubicar el mismo ítem en inventario. */
+  inventarioLookupKey?: string;
   sku: string;
   descripcion: string;
   cantidad: number;
@@ -56,6 +58,13 @@ export interface VentaGuardadaLocal {
   facturaElectronicaNumero?: string;
   facturaElectronicaCufe?: string;
   facturaElectronicaEnviadoAt?: string;
+  /** Cliente de la venta (FE o datos al cobrar). */
+  clienteNombreVenta?: string;
+  clienteNitVenta?: string;
+  clienteEmailVenta?: string;
+  /** Correo transaccional enviado desde Ventas y comprobantes. */
+  comprobanteEmailEnviadoAt?: string;
+  comprobanteEmailDestino?: string;
 }
 
 /** Ventas que siguen contando como ingreso y stock vendido. */
@@ -155,6 +164,46 @@ export function actualizarVentaLocalFacturaElectronica(
   escribir(uid, next);
 }
 
+export function actualizarVentaLocalClienteComprobante(
+  uid: string,
+  ventaId: string,
+  datos: { nombre?: string; nit?: string; email?: string }
+): void {
+  if (typeof window === "undefined" || !uid.trim() || !ventaId.trim()) return;
+  const prev = leerRaw(uid);
+  const idx = prev.findIndex((v) => v.id === ventaId);
+  if (idx < 0) return;
+  const row: VentaGuardadaLocal = { ...prev[idx] };
+  const n = datos.nombre?.trim();
+  const nit = datos.nit?.trim();
+  const email = datos.email?.trim();
+  if (n) row.clienteNombreVenta = n;
+  if (nit) row.clienteNitVenta = nit;
+  if (email) row.clienteEmailVenta = email;
+  const next = [...prev];
+  next[idx] = row;
+  escribir(uid, next);
+}
+
+export function actualizarVentaLocalComprobanteEmail(
+  uid: string,
+  ventaId: string,
+  email: { destino: string; enviadoAt?: string }
+): void {
+  if (typeof window === "undefined" || !uid.trim() || !ventaId.trim()) return;
+  const prev = leerRaw(uid);
+  const idx = prev.findIndex((v) => v.id === ventaId);
+  if (idx < 0) return;
+  const row: VentaGuardadaLocal = { ...prev[idx] };
+  const destino = email.destino.trim();
+  const enviadoAt = email.enviadoAt?.trim() || new Date().toISOString();
+  if (destino) row.comprobanteEmailDestino = destino;
+  row.comprobanteEmailEnviadoAt = enviadoAt;
+  const next = [...prev];
+  next[idx] = row;
+  escribir(uid, next);
+}
+
 /** Resumen de informes: combina local + nube; si en local está anulada, se conserva el estado de anulación. */
 export function mergeVentasReporteNubeLocal(
   local: VentaGuardadaLocal[],
@@ -167,7 +216,7 @@ export function mergeVentasReporteNubeLocal(
     if (L.anulada) {
       map.set(L.id, N ? { ...N, ...L, anulada: true } : L);
     } else {
-      map.set(L.id, N ?? L);
+      map.set(L.id, N ? { ...N, ...L } : L);
     }
   }
   return Array.from(map.values()).sort(

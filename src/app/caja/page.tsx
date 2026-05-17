@@ -17,13 +17,17 @@ import PosGebAyudaMotorModal from "@/components/PosGebAyudaMotorModal";
 import PosGebBienvenidaModal from "@/components/PosGebBienvenidaModal";
 import PosGebTutorialOverlay from "@/components/PosGebTutorialOverlay";
 import PosCajaPremiumHeader from "@/components/PosCajaPremiumHeader";
+import PosLigaTurnoYMotivacion from "@/components/PosLigaTurnoYMotivacion";
 import CobroImpresionCelebracionOverlay from "@/components/CobroImpresionCelebracionOverlay";
 import TicketPrevisualizacionModal from "@/components/TicketPrevisualizacionModal";
 import ModalCobroSinInternet from "@/components/ModalCobroSinInternet";
 import ModalInformeCierreCorreo from "@/components/ModalInformeCierreCorreo";
 import PosCajaMensajesBell from "@/components/PosCajaMensajesBell";
 import PosBroadcastBell from "@/components/PosBroadcastBell";
+import PlanMillasPosModule from "@/components/PlanMillasPosModule";
+import PosDomiciliosModule from "@/components/PosDomiciliosModule";
 import RegistrarPagoPanel, { type DetallePagoConfirmado } from "@/components/RegistrarPagoPanel";
+import TurnoCierreExitoPremiumModal from "@/components/TurnoCierreExitoPremiumModal";
 import TurnosHistorialModule from "@/components/TurnosHistorialModule";
 import UltimosRecibosModule from "@/components/UltimosRecibosModule";
 import SeleccionClienteVenta from "@/components/SeleccionClienteVenta";
@@ -35,6 +39,7 @@ import {
   productoRequiereChorizoYArepa,
   productoRequiereSoloChorizoPan,
   productoRequiereSoloTipoArepaPeto,
+  productoRequiereTamanoBebida,
   type OpcionesVariantesLineaPos,
   type VarianteArepaCombo,
   type VarianteChorizo,
@@ -58,6 +63,8 @@ import {
 } from "@/lib/pos-geb-print";
 import { fetchCatalogoInsumosDesdeSheet } from "@/lib/catalogo-insumos-sheet-client";
 import { getCatalogoPOS } from "@/lib/catalogo-pos";
+import { solicitarCambioPrecioProductoPos } from "@/lib/pos-solicitud-cambio-precio";
+import { mergeCatalogoInventarioBase, mergeCatalogoInventarioConProductosPos } from "@/lib/inventario-pos-catalogo";
 import {
   insumoBolsaPapelParaLlevarResolver,
   insumoKitDesdeCatalogoPorSku,
@@ -77,6 +84,7 @@ import {
 } from "@/lib/item-cuenta-linea";
 import {
   mediosPagoDesdeDetalle,
+  normalizarMediosPagoVenta,
   sumarMediosPagoVentas,
   type MediosPagoVentaGuardados,
 } from "@/lib/medios-pago-venta";
@@ -84,9 +92,11 @@ import { anularVentaEnEquipoInventarioYNube } from "@/lib/pos-anular-venta-inven
 import { encolarAplicarEnsamblePendiente, procesarColaAplicarEnsamblePendiente } from "@/lib/pos-wms-ensamble-pendiente";
 import { encolarFeEmitirPendiente, procesarColaFeEmitir } from "@/lib/pos-fe-retry-queue";
 import { encolarVentaPendienteWms, procesarColaVentasPendientesWms } from "@/lib/pos-ventas-pendientes-wms";
+import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
 import { registrarVentaPosCloud } from "@/lib/pos-ventas-cloud-client";
 import {
   agregarProductosEnVentas,
+  actualizarVentaLocalClienteComprobante,
   actualizarVentaLocalFacturaElectronica,
   appendVentaLocal,
   filtrarVentasVigentes,
@@ -101,6 +111,17 @@ import {
 } from "@/lib/turno-pos-persist";
 import { appendTurnoCerrado, type TurnoCerradoV1 } from "@/lib/turno-historial-local";
 import { nombreArchivoInformeTurno, textoInformeTurno, triggerDescargaTexto } from "@/lib/turno-informe-texto";
+import {
+  crearPdfDetalleTurno,
+  nombreArchivoDetalleTurnoPdf,
+} from "@/lib/turno-informe-pdf";
+import { textoResumenCorreoCierreTurno } from "@/lib/turno-informe-correo-resumen";
+import {
+  acumularMovimientosCaja,
+  crearMovimientoCajaTurno,
+  type MovimientoCajaTurno,
+  type TipoMovimientoCaja,
+} from "@/lib/turno-movimientos-caja";
 import {
   construirPayloadFidelizacionV1,
   generarDataUrlQrFidelizacion,
@@ -123,6 +144,7 @@ import {
   lineasWmsEnsambleDesdeItemsCuenta,
   mensajeAplicarEnsambleParaCajero,
   mensajeEnsambleOkSinDescuentoInventario,
+  type WmsAplicarVentaEnsambleBody,
   type WmsAplicarVentaEnsambleResult,
 } from "@/lib/wms-aplicar-venta-ensamble";
 import type { TicketVentaLinea, TicketVentaPayload } from "@/types/impresion-pos";
@@ -137,6 +159,7 @@ import {
 } from "@/constants/perfil-pos";
 import { fechaColombia, fechaHoraColombia, ymdColombia } from "@/lib/fecha-colombia";
 import { formatPesosCop, parsePesosCopInput } from "@/lib/pesos-cop-input";
+import { calcularResumenCierreTurno } from "@/lib/turno-cierre-resumen";
 import {
   combinarCcInformeCierreTurno,
   mensajeExitoMotivacionalInformeCierreTurno,
@@ -152,7 +175,8 @@ import { getPosGebTutorialSteps, type PosGebTutorialModulo } from "@/lib/pos-geb
 
 const LS_INFORME_TURNO_PARA = "pos_mc_informe_turno_para_v1";
 const LS_INFORME_TURNO_CC = "pos_mc_informe_turno_cc_v1";
-/** Clave maestra para abrir el menú «Más» (misma que PYG, inventario y contrato POS en el proyecto). */
+/** Clave maestra para abrir «Espacio para franquiciados» (misma que PYG, inventario y contrato POS en el proyecto). */
+const ETIQUETA_ESPACIO_FRANQUICIADOS = "Espacio para franquiciados";
 const CLAVE_ACCESO_MAS = "MC2026";
 /** Tiempo mínimo visible del overlay de impresión al cobrar (experiencia pulida). */
 const MIN_COBRO_IMPRESION_OVERLAY_MS = 2600;
@@ -165,6 +189,10 @@ type VistaPreviaCobroPendiente = {
   ventaLocalId: string | null;
   itemsRestaurar: ItemCuenta[];
   total: number;
+  /** Si existe, el ensamble WMS aún no se aplicó y debe ejecutarse al pulsar «Imprimir». */
+  ensamblePendiente: WmsAplicarVentaEnsambleBody | null;
+  /** Sticker descontado al activar «Cliente frecuente» antes del cobro; al cancelar vista previa se devuelve. */
+  incluirQrClienteFrecuente?: boolean;
 };
 
 function clonarItemsCuenta(items: ItemCuenta[]): ItemCuenta[] {
@@ -215,6 +243,16 @@ function detalleVarianteTicketLinea(it: ItemCuenta): string | undefined {
   const parts: string[] = [];
   if (it.varianteChorizo) parts.push(etiquetaVarianteChorizo(it.varianteChorizo));
   if (it.varianteArepaCombo) parts.push(etiquetaArepaCombo(it.varianteArepaCombo));
+  if (Array.isArray(it.variantes) && it.variantes.length > 0) {
+    const variantesEtiquetas = it.variantes
+      .map((v) => {
+        const norm = String(v ?? "").trim().toUpperCase();
+        const match = it.producto.variantes?.find((opt) => String(opt.clave ?? "").trim().toUpperCase() === norm);
+        return match?.etiqueta ?? v;
+      })
+      .filter(Boolean);
+    parts.push(...variantesEtiquetas);
+  }
   const dto = montoDescuentoLinea(lineInputDesdeItemCuentaLike(it));
   const modo = it.descuentoModo ?? "ninguno";
   if (dto > 0) {
@@ -225,6 +263,20 @@ function detalleVarianteTicketLinea(it: ItemCuenta): string | undefined {
     }
   }
   return parts.length ? parts.join(" · ") : undefined;
+}
+
+async function cargarCatalogoInventarioUnificado(puntoVenta: string) {
+  const [sheetRes, desdeFs, posRes] = await Promise.all([
+    fetchCatalogoInsumosDesdeSheet(puntoVenta),
+    listarInsumosKitPorPuntoVenta(puntoVenta),
+    getCatalogoPOS(null, puntoVenta),
+  ]);
+  const base = mergeCatalogoInventarioBase(sheetRes.ok && sheetRes.data.length > 0 ? sheetRes.data : [], desdeFs);
+  return mergeCatalogoInventarioConProductosPos(base, posRes.ok ? posRes.productos ?? [] : []).items;
+}
+
+function itemCuentaEsBebidaConInventarioDirecto(it: ItemCuenta): boolean {
+  return productoRequiereTamanoBebida(it.producto) || `${it.producto.categoria ?? ""}`.toLowerCase().includes("bebida");
 }
 
 function lineasTicketDesdeItemsCuenta(items: ItemCuenta[]): TicketVentaLinea[] {
@@ -259,6 +311,8 @@ type ModuloActivo =
   | "inventarios"
   | "metasBonificaciones"
   | "reportes"
+  | "planMillas"
+  | "domicilios"
   | "mas";
 
 type TipoComprobante = TipoComprobanteVenta;
@@ -315,6 +369,10 @@ export default function CajaPage() {
   const [cargandoDefaultsInformeCorreo, setCargandoDefaultsInformeCorreo] = useState(false);
   const [procesandoCierreTurno, setProcesandoCierreTurno] = useState(false);
   const [errorInformeCierreCorreo, setErrorInformeCierreCorreo] = useState<string | null>(null);
+  const [modalExitoCierreTurno, setModalExitoCierreTurno] = useState<{
+    titulo: string;
+    lineas: string[];
+  } | null>(null);
   const [detalleVentasExpandido, setDetalleVentasExpandido] = useState(true);
   const [baseInicialCaja, setBaseInicialCaja] = useState(0);
   const [showModalAbrirTurno, setShowModalAbrirTurno] = useState(false);
@@ -417,8 +475,7 @@ export default function CajaPage() {
   );
 
   const [totalVentasEnTurno, setTotalVentasEnTurno] = useState(0);
-  const [totalIngresoEfectivo, setTotalIngresoEfectivo] = useState(0);
-  const [totalRetiroEfectivo, setTotalRetiroEfectivo] = useState(0);
+  const [movimientosCaja, setMovimientosCaja] = useState<MovimientoCajaTurno[]>([]);
   const [ventasCredito, setVentasCredito] = useState(0);
   /** Historial de precuentas anuladas en este turno */
   const [precuentasEliminadasCount, setPrecuentasEliminadasCount] = useState(0);
@@ -443,6 +500,13 @@ export default function CajaPage() {
   const [catalogoLoading, setCatalogoLoading] = useState(false);
   const [catalogoError, setCatalogoError] = useState<string | null>(null);
   const [busquedaCatalogo, setBusquedaCatalogo] = useState("");
+  const [productoSolicitudPrecio, setProductoSolicitudPrecio] = useState<ProductoPOS | null>(null);
+  const [precioSolicitadoInput, setPrecioSolicitadoInput] = useState("");
+  const [motivoSolicitudPrecio, setMotivoSolicitudPrecio] = useState("");
+  const [descripcionSolicitudPrecio, setDescripcionSolicitudPrecio] = useState("");
+  const [enviandoSolicitudPrecio, setEnviandoSolicitudPrecio] = useState(false);
+  const [mensajeSolicitudPrecio, setMensajeSolicitudPrecio] = useState<string | null>(null);
+  const [errorSolicitudPrecio, setErrorSolicitudPrecio] = useState<string | null>(null);
   /** Tipo de comprobante: Doc. interno (predeterminado) o Factura electrónica */
   const [tipoComprobante, setTipoComprobante] = useState<TipoComprobante>("documento_interno");
   const [clientePorPrecuenta, setClientePorPrecuenta] = useState<Record<string, ClienteVentaRef>>(() => ({
@@ -469,8 +533,16 @@ export default function CajaPage() {
   const [modalProductoChorizo, setModalProductoChorizo] = useState<ProductoPOS | null>(null);
   const [varianteModalChorizo, setVarianteModalChorizo] = useState<VarianteChorizo>("tradicional");
   const [varianteModalArepa, setVarianteModalArepa] = useState<VarianteArepaCombo>("arepa_queso");
+  const [modalProductoBebida, setModalProductoBebida] = useState<ProductoPOS | null>(null);
+  const [varianteModalBebida, setVarianteModalBebida] = useState<string>("");
   /** Evita escribir localStorage antes de restaurar el turno guardado (misma sesión / otro usuario). */
   const [turnoHidratadoDesdeStorage, setTurnoHidratadoDesdeStorage] = useState(false);
+  const resumenMovimientosCaja = useMemo(
+    () => acumularMovimientosCaja(movimientosCaja),
+    [movimientosCaja]
+  );
+  const totalIngresoEfectivo = resumenMovimientosCaja.totalIngresoEfectivo;
+  const totalRetiroEfectivo = resumenMovimientosCaja.totalRetiroEfectivo;
 
   useEffect(() => {
     if (!showModalPerfilUsuario || !user?.uid?.trim()) return;
@@ -534,8 +606,7 @@ export default function CajaPage() {
       setBaseInicialCaja(snap.baseInicialCaja);
       setCajeroTurnoActivo(snap.cajeroTurnoActivo);
       setTotalVentasEnTurno(snap.totalVentasEnTurno);
-      setTotalIngresoEfectivo(snap.totalIngresoEfectivo);
-      setTotalRetiroEfectivo(snap.totalRetiroEfectivo);
+      setMovimientosCaja(snap.movimientosCaja ?? []);
       setVentasCredito(snap.ventasCredito);
       setPrecuentasEliminadasCount(snap.precuentasEliminadasCount);
       setProductosEliminadosCount(snap.productosEliminadosCount);
@@ -546,8 +617,7 @@ export default function CajaPage() {
       setTurnoAbierto(false);
       setCajeroTurnoActivo(null);
       setTotalVentasEnTurno(0);
-      setTotalIngresoEfectivo(0);
-      setTotalRetiroEfectivo(0);
+      setMovimientosCaja([]);
       setVentasCredito(0);
       setPrecuentasEliminadasCount(0);
       setProductosEliminadosCount(0);
@@ -571,6 +641,7 @@ export default function CajaPage() {
       totalVentasEnTurno,
       totalIngresoEfectivo,
       totalRetiroEfectivo,
+      movimientosCaja,
       ventasCredito,
       precuentasEliminadasCount,
       productosEliminadosCount,
@@ -589,6 +660,7 @@ export default function CajaPage() {
     totalVentasEnTurno,
     totalIngresoEfectivo,
     totalRetiroEfectivo,
+    movimientosCaja,
     ventasCredito,
     precuentasEliminadasCount,
     productosEliminadosCount,
@@ -666,7 +738,7 @@ export default function CajaPage() {
     setCatalogoError(null);
     const tokenPromise = auth?.currentUser ? auth.currentUser.getIdToken() : Promise.resolve(null);
     tokenPromise
-      .then((token) => getCatalogoPOS(token))
+      .then((token) => getCatalogoPOS(token, user?.puntoVenta?.trim() ?? "", { forceRefresh: true }))
       .then((res) => {
         if (res.ok && res.productos) setCatalogoProductos(res.productos ?? []);
         else setCatalogoError(res.message ?? "No se pudo cargar el catálogo");
@@ -683,7 +755,7 @@ export default function CajaPage() {
     setCatalogoError(null);
     const tokenPromise = auth?.currentUser ? auth.currentUser.getIdToken() : Promise.resolve(null);
     tokenPromise
-      .then((token) => getCatalogoPOS(token))
+      .then((token) => getCatalogoPOS(token, user?.puntoVenta?.trim() ?? ""))
       .then((res) => {
         if (cancelled) return;
         if (res.ok && res.productos) setCatalogoProductos(res.productos ?? []);
@@ -698,7 +770,7 @@ export default function CajaPage() {
     return () => {
       cancelled = true;
     };
-  }, [moduloActivo, user?.role, user]);
+  }, [moduloActivo, user?.role, user, user?.puntoVenta]);
 
   useEffect(() => {
     if (!user?.puntoVenta?.trim() || esContadorInvitado(user.role)) return;
@@ -740,6 +812,69 @@ export default function CajaPage() {
     );
   }, [catalogoProductos, busquedaCatalogo]);
 
+  const abrirModalSolicitudPrecio = useCallback((producto: ProductoPOS) => {
+    setProductoSolicitudPrecio(producto);
+    setPrecioSolicitadoInput(
+      Number.isFinite(producto.precioUnitario) && producto.precioUnitario > 0 ? String(producto.precioUnitario) : ""
+    );
+    setMotivoSolicitudPrecio("");
+    setDescripcionSolicitudPrecio("");
+    setErrorSolicitudPrecio(null);
+    setMensajeSolicitudPrecio(null);
+  }, []);
+
+  const cerrarModalSolicitudPrecio = useCallback(() => {
+    if (enviandoSolicitudPrecio) return;
+    setProductoSolicitudPrecio(null);
+    setPrecioSolicitadoInput("");
+    setMotivoSolicitudPrecio("");
+    setDescripcionSolicitudPrecio("");
+    setErrorSolicitudPrecio(null);
+  }, [enviandoSolicitudPrecio]);
+
+  const enviarSolicitudCambioPrecio = useCallback(async () => {
+    if (!productoSolicitudPrecio) return;
+    setErrorSolicitudPrecio(null);
+    setMensajeSolicitudPrecio(null);
+    const precioSolicitado = parseFloat(precioSolicitadoInput.replace(/,/g, "."));
+    if (!Number.isFinite(precioSolicitado) || precioSolicitado <= 0) {
+      setErrorSolicitudPrecio("Ingresa un precio solicitado válido (mayor a 0).");
+      return;
+    }
+    const motivo = motivoSolicitudPrecio.trim();
+    if (!motivo) {
+      setErrorSolicitudPrecio("El motivo es obligatorio.");
+      return;
+    }
+    const token = await auth?.currentUser?.getIdToken().catch(() => null);
+    if (!token) {
+      setErrorSolicitudPrecio("No se pudo validar tu sesión. Inicia sesión nuevamente.");
+      return;
+    }
+    setEnviandoSolicitudPrecio(true);
+    const res = await solicitarCambioPrecioProductoPos(
+      {
+        skuBarcode: productoSolicitudPrecio.sku,
+        precioSolicitado,
+        motivo,
+        descripcion: descripcionSolicitudPrecio.trim() || undefined,
+      },
+      token
+    );
+    setEnviandoSolicitudPrecio(false);
+    if (!res.ok) {
+      setErrorSolicitudPrecio(res.message ?? "No se pudo enviar la solicitud de cambio de precio.");
+      return;
+    }
+    setMensajeSolicitudPrecio(
+      `${res.message ?? "Solicitud enviada correctamente."}${res.idSolicitud ? ` Código: ${res.idSolicitud}.` : ""}`
+    );
+    setProductoSolicitudPrecio(null);
+    setPrecioSolicitadoInput("");
+    setMotivoSolicitudPrecio("");
+    setDescripcionSolicitudPrecio("");
+  }, [descripcionSolicitudPrecio, motivoSolicitudPrecio, precioSolicitadoInput, productoSolicitudPrecio]);
+
   const clienteActivoPrecuenta: ClienteVentaRef = clientePorPrecuenta[activePrecuentaId] ?? {
     id: CONSUMIDOR_FINAL_ID,
     nombreDisplay: "Consumidor final",
@@ -764,7 +899,7 @@ export default function CajaPage() {
 
   const mediosTurnoModal = useMemo(() => {
     const rows = ventasTurnoActivales
-      .map((v) => v.mediosPago)
+      .map((v) => (v.mediosPago ? normalizarMediosPagoVenta(v.mediosPago, v.total) : undefined))
       .filter((m): m is MediosPagoVentaGuardados => Boolean(m));
     const base = rows.length
       ? sumarMediosPagoVentas(rows)
@@ -798,13 +933,49 @@ export default function CajaPage() {
   /** Efectivo en caja = base inicial + ventas en efectivo; el resto son ventas por medio. No editable. */
   const valoresCierreCajaSegunVentas = useMemo(() => {
     const m = cierreCamposDesdeVentas;
-    const efectivoEnCaja = Math.round((baseInicialCaja + m.efectivo) * 100) / 100;
-    const tarjeta = Math.round(m.tarjeta * 100) / 100;
-    const pagosLinea = Math.round(m.pagosLinea * 100) / 100;
-    const otros = Math.round(m.otros * 100) / 100;
-    const totalIngresado = Math.round((efectivoEnCaja + tarjeta + pagosLinea + otros) * 100) / 100;
-    return { efectivoEnCaja, tarjeta, pagosLinea, otros, totalIngresado };
-  }, [cierreCamposDesdeVentas, baseInicialCaja]);
+    const totalVentasLocales = Math.round(
+      ventasTurnoActivales.reduce((s, v) => s + v.total, 0) * 100
+    ) / 100;
+    return calcularResumenCierreTurno({
+      baseInicialCaja,
+      totalVentasLocales,
+      totalVentasSistema: totalVentasEnTurno,
+      mediosVentas: m,
+      totalIngresoEfectivo,
+      totalRetiroEfectivo,
+    });
+  }, [
+    cierreCamposDesdeVentas,
+    baseInicialCaja,
+    ventasTurnoActivales,
+    totalVentasEnTurno,
+    totalIngresoEfectivo,
+    totalRetiroEfectivo,
+  ]);
+
+  const registrarMovimientoCaja = useCallback(
+    (input: { tipo: TipoMovimientoCaja; monto: number; motivo: string }) => {
+      const monto = Math.round(input.monto * 100) / 100;
+      const motivo = input.motivo.trim();
+      if (!(monto > 0) || !motivo) {
+        return { ok: false as const, message: "Indica un monto mayor a cero y un motivo para el movimiento." };
+      }
+      const nombreDisplay =
+        cajeroTurnoActivo?.nombreDisplay?.trim() ||
+        (user?.email?.trim() ? `Franquiciado · ${user.email.trim()}` : "Usuario POS");
+      const mov = crearMovimientoCajaTurno({
+        tipo: input.tipo,
+        monto,
+        motivo,
+        uid: user?.uid,
+        nombreDisplay,
+        email: user?.email,
+      });
+      setMovimientosCaja((prev) => [mov, ...prev]);
+      return { ok: true as const };
+    },
+    [cajeroTurnoActivo?.nombreDisplay, user?.uid, user?.email]
+  );
 
   const ejecutarCierreTurnoDefinitivo = useCallback(
     async (correoInforme?: { para: string; cc?: string }) => {
@@ -833,10 +1004,15 @@ export default function CajaPage() {
         return;
       }
 
-      const { efectivoEnCaja: efectivoReal, tarjeta, pagosLinea, otros: otrosMedios, totalIngresado } =
-        valoresCierreCajaSegunVentas;
-    const totalEsperado = baseInicialCaja + totalVentasEnTurno;
-    const diferencia = totalIngresado - totalEsperado;
+      const {
+        efectivoEsperadoCaja: efectivoReal,
+        tarjeta,
+        pagosLinea,
+        otros: otrosMedios,
+        totalCierreLocal,
+      } = valoresCierreCajaSegunVentas;
+    const totalEsperado = valoresCierreCajaSegunVentas.totalCierreSistema;
+    const diferencia = totalCierreLocal - totalEsperado;
 
     const fin = new Date();
     const ventasPv = listarVentasPuntoVenta(uid, pv);
@@ -876,13 +1052,14 @@ export default function CajaPage() {
       ventasCredito,
       totalIngresoEfectivo,
       totalRetiroEfectivo,
+      movimientosCaja: [...movimientosCaja],
       totalesMediosVentas,
       cierre: {
         efectivoReal,
         tarjeta,
         pagosLinea,
         otrosMedios,
-        totalIngresado,
+        totalIngresado: totalCierreLocal,
         totalEsperado,
         diferencia,
       },
@@ -898,6 +1075,9 @@ export default function CajaPage() {
     appendTurnoCerrado(uid, pv, registro);
     const txt = textoInformeTurno(registro);
     triggerDescargaTexto(nombreArchivoInformeTurno(registro), txt);
+    const pdfDoc = crearPdfDetalleTurno(registro);
+    const pdfBase64 = pdfDoc.output("datauristring").split(",", 2)[1] || "";
+    const textoCorreo = textoResumenCorreoCierreTurno(registro);
 
     try {
       const tokenMail = await auth?.currentUser?.getIdToken();
@@ -910,7 +1090,16 @@ export default function CajaPage() {
           },
           body: JSON.stringify({
             subject: `Informe cierre turno ${pv} · ${fechaHoraColombia(fin)}`,
-            text: txt,
+            text: textoCorreo,
+            attachments: pdfBase64
+              ? [
+                  {
+                    filename: nombreArchivoDetalleTurnoPdf(registro),
+                    contentBase64: pdfBase64,
+                    contentType: "application/pdf",
+                  },
+                ]
+              : [],
             ...(correoInforme?.para?.trim()
               ? { to: correoInforme.para.trim(), ...(correoInforme.cc?.trim() ? { cc: correoInforme.cc.trim() } : {}) }
               : {}),
@@ -929,7 +1118,16 @@ export default function CajaPage() {
             window.alert(msg || "No se pudo enviar el correo con el informe.");
           }
         } else if (correoInforme?.para?.trim()) {
-          window.alert(mensajeExitoMotivacionalInformeCierreTurno());
+          const msg = mensajeExitoMotivacionalInformeCierreTurno();
+          const parts = msg
+            .split("\n")
+            .map((x) => x.trim())
+            .filter(Boolean);
+          const [titulo, ...lineas] = parts;
+          setModalExitoCierreTurno({
+            titulo: titulo || "Turno cerrado con éxito",
+            lineas,
+          });
         }
       } else if (correoInforme?.para?.trim()) {
         window.alert("No hay sesión válida para enviar el correo. Vuelve a iniciar sesión e intenta de nuevo.");
@@ -963,8 +1161,7 @@ export default function CajaPage() {
     setTurnoAbierto(false);
     setCajeroTurnoActivo(null);
     setTotalVentasEnTurno(0);
-    setTotalIngresoEfectivo(0);
-    setTotalRetiroEfectivo(0);
+    setMovimientosCaja([]);
     setVentasCredito(0);
     setPrecuentasEliminadasCount(0);
     setProductosEliminadosCount(0);
@@ -985,6 +1182,7 @@ export default function CajaPage() {
     ventasCredito,
     totalIngresoEfectivo,
     totalRetiroEfectivo,
+    movimientosCaja,
     precuentasEliminadasCount,
     productosEliminadosCount,
     valorProductosEliminados,
@@ -1100,6 +1298,12 @@ export default function CajaPage() {
   /** Clic en catálogo: chorizo + arepa, chorizo con pan, o arepa de peto (solo tipo de arepa) */
   const onClicProductoCatalogo = (producto: ProductoPOS) => {
     if (!turnoAbierto) return;
+    if (productoRequiereTamanoBebida(producto)) {
+      const primera = producto.variantes?.[0]?.clave ?? "";
+      setVarianteModalBebida(primera);
+      setModalProductoBebida(producto);
+      return;
+    }
     if (productoRequiereChorizoYArepa(producto)) {
       setVarianteModalChorizo("tradicional");
       setVarianteModalArepa("arepa_queso");
@@ -1122,6 +1326,10 @@ export default function CajaPage() {
   /** Agregar producto a la cuenta (variantes opcionales: chorizo y/o arepa en combo) */
   const agregarProductoACuenta = (producto: ProductoPOS, opts?: OpcionesVariantesLineaPos) => {
     const lineId = buildLineIdPos(producto.sku, opts);
+    const precioVariante =
+      opts?.variantes?.length && producto.preciosPorVariante
+        ? producto.preciosPorVariante[opts.variantes[0] ?? ""]
+        : undefined;
     setItemsPorPrecuenta((prev) => {
       const items = prev[activePrecuentaId] ?? [];
       const idx = items.findIndex((i) => i.lineId === lineId);
@@ -1135,6 +1343,10 @@ export default function CajaPage() {
           cantidad: 1,
           ...(opts?.varianteChorizo ? { varianteChorizo: opts.varianteChorizo } : {}),
           ...(opts?.varianteArepaCombo ? { varianteArepaCombo: opts.varianteArepaCombo } : {}),
+          ...(opts?.variantes?.length ? { variantes: [...opts.variantes] } : {}),
+          ...(typeof precioVariante === "number" && Number.isFinite(precioVariante)
+            ? { precioUnitarioOverride: precioVariante }
+            : {}),
         });
       }
       return { ...prev, [activePrecuentaId]: next };
@@ -1155,6 +1367,12 @@ export default function CajaPage() {
       agregarProductoACuenta(p, { varianteChorizo: varianteModalChorizo });
     }
     setModalProductoChorizo(null);
+  };
+
+  const confirmarAgregarBebidaModal = () => {
+    if (!modalProductoBebida || !varianteModalBebida) return;
+    agregarProductoACuenta(modalProductoBebida, { variantes: [varianteModalBebida] });
+    setModalProductoBebida(null);
   };
 
   const itemsCuentaActiva = itemsPorPrecuenta[activePrecuentaId] ?? [];
@@ -1209,11 +1427,7 @@ export default function CajaPage() {
     }
     setAplicandoParaLlevar(true);
     try {
-      const sheetRes = await fetchCatalogoInsumosDesdeSheet(pv);
-      const catalog =
-        sheetRes.ok && sheetRes.data.length > 0
-          ? sheetRes.data
-          : await listarInsumosKitPorPuntoVenta(pv);
+      const catalog = await cargarCatalogoInventarioUnificado(pv);
       const bolsa = insumoBolsaPapelParaLlevarResolver(catalog, skuBolsaPapelParaLlevarEnv());
       const sticker = insumoStickerDomicilioParaLlevarResolver(catalog, skuStickerDomicilioParaLlevarEnv());
       if (!bolsa && !sticker) {
@@ -1302,11 +1516,7 @@ export default function CajaPage() {
       return { ok: false, message: "Abrí el turno para descontar el sticker de fidelización en inventario." };
     }
     try {
-      const sheetRes = await fetchCatalogoInsumosDesdeSheet(pv);
-      const catalog =
-        sheetRes.ok && sheetRes.data.length > 0
-          ? sheetRes.data
-          : await listarInsumosKitPorPuntoVenta(pv);
+      const catalog = await cargarCatalogoInventarioUnificado(pv);
       const insumo = insumoKitDesdeCatalogoPorSku(catalog, sku);
       if (!insumo) {
         return {
@@ -1332,6 +1542,39 @@ export default function CajaPage() {
       return { ok: false, message: e instanceof Error ? e.message : "No se pudo actualizar el inventario." };
     }
   }, [user, turnoAbierto, precuentas, activePrecuentaId]);
+
+  /** Devuelve 1 sticker de fidelización si se descontó al marcar cliente frecuente y luego se cancela desde la vista previa. */
+  const revertirStickerFidelizacionTrasCancelarVistaPrevia = useCallback(async () => {
+    if (!user || esContadorInvitado(user.role)) return;
+    const pv = user.puntoVenta?.trim();
+    if (!pv) return;
+    const sku = skuStickerFidelizacion();
+    if (!sku) return;
+    try {
+      const catalog = await cargarCatalogoInventarioUnificado(pv);
+      const insumo = insumoKitDesdeCatalogoPorSku(catalog, sku);
+      if (!insumo) {
+        console.warn("[POS] Cancelar vista previa: no se pudo devolver sticker fidelización (SKU no en catálogo).");
+        return;
+      }
+      const notas = "Reversión sticker fidelización · cancelación vista previa comprobante".slice(0, 500);
+      const r = await registrarMovimientoInventario({
+        puntoVenta: pv,
+        insumo,
+        tipo: "ajuste_positivo",
+        cantidad: 1,
+        notas,
+        uid: user.uid,
+        email: user.email ?? null,
+        permitirNegativo: false,
+      });
+      if (!r.ok) {
+        console.warn("[POS] Cancelar vista previa: no se pudo devolver sticker fidelización:", r.message);
+      }
+    } catch (e) {
+      console.warn("[POS] Cancelar vista previa: error al devolver sticker fidelización.", e);
+    }
+  }, [user]);
 
   useEffect(() => {
     if (itemsCuentaActiva.length === 0) setSidebarResumenExpandido(false);
@@ -1430,8 +1673,10 @@ export default function CajaPage() {
     }
     const okConfirm = window.confirm(
       "¿Anular por completo esta venta?\n\n" +
-        "Se devolverán los productos a la cuenta actual, se marcará el recibo como anulado y se intentará devolver stock en inventario POS (como en «Últimos recibos»).\n\n" +
-        "El envío de la venta a red / WMS ya realizado no se revierte automáticamente; coordiná con soporte si hace falta corregir reportes o ensamble."
+        "Se devolverán los productos a la cuenta actual y se marcará el recibo como anulado. " +
+        "El inventario por ensamble aún no se había descontado (se aplica al pulsar «Imprimir»), así que no hay reversión de stock de productos.\n\n" +
+        "Si activaste «Cliente frecuente», se devolverá el sticker en inventario. " +
+        "El reporte de venta ya enviado a red / WMS no se revierte solo; coordiná con soporte si hace falta."
     );
     if (!okConfirm) return;
 
@@ -1444,6 +1689,7 @@ export default function CajaPage() {
           puntoVenta: pv,
           ventaId: pack.ventaLocalId,
           motivo: "Cancelación desde vista previa del comprobante (error del cajero).",
+          omitirDevolucionInventarioPos: true,
         });
         if (!r.ok) {
           window.alert(r.message);
@@ -1457,11 +1703,6 @@ export default function CajaPage() {
             if (t) await wmsTurnosSincronizarSilent(t, nextTot);
           })();
         }
-        if (r.fallosSku.length > 0) {
-          window.alert(
-            `La venta quedó anulada, pero no se pudo devolver inventario en algunas líneas:\n${r.fallosSku.slice(0, 8).join("\n")}${r.fallosSku.length > 8 ? "\n…" : ""}`
-          );
-        }
       } else {
         window.alert(
           "No hay id de venta local para registrar la anulación en el historial. Se restauró la cuenta y se ajustó el total del turno en pantalla; revisá «Últimos recibos», inventario y reportes con soporte si los números no cuadran."
@@ -1472,6 +1713,10 @@ export default function CajaPage() {
           const t = await auth?.currentUser?.getIdToken();
           if (t) await wmsTurnosSincronizarSilent(t, nextTot);
         })();
+      }
+
+      if (pack.incluirQrClienteFrecuente) {
+        await revertirStickerFidelizacionTrasCancelarVistaPrevia();
       }
 
       setItemsPorPrecuenta((prev) => ({
@@ -1488,7 +1733,67 @@ export default function CajaPage() {
     turnoAbierto,
     turnoSesionId,
     activePrecuentaId,
+    revertirStickerFidelizacionTrasCancelarVistaPrevia,
   ]);
+
+  const ejecutarAplicarVentaEnsambleWmsDesdeBody = useCallback(async (bodyEnsamble: WmsAplicarVentaEnsambleBody) => {
+    const idEnsamble = bodyEnsamble.idVenta ?? "ens-sin-id";
+    const pv = bodyEnsamble.puntoVenta ?? "";
+    let ultimoEnsamble: WmsAplicarVentaEnsambleResult = {
+      ok: false,
+      status: 0,
+      error: "Ensamble no ejecutado",
+    };
+    try {
+      const tokenEns = await auth?.currentUser?.getIdToken();
+      if (!tokenEns) {
+        ultimoEnsamble = { ok: false, status: 401, error: "Sin token de sesión para ensamble." };
+      } else {
+        let rEns = await aplicarVentaEnsambleWms(tokenEns, bodyEnsamble);
+        if (!rEns.ok && (rEns.status === 0 || rEns.status >= 500)) {
+          await new Promise((r) => setTimeout(r, 1500));
+          const t2 = await auth?.currentUser?.getIdToken();
+          if (t2) rEns = await aplicarVentaEnsambleWms(t2, bodyEnsamble);
+        }
+        ultimoEnsamble = rEns;
+        if (!rEns.ok) {
+          if (rEns.status === 0 || rEns.status >= 500) {
+            encolarAplicarEnsamblePendiente(bodyEnsamble);
+          }
+          window.alert(mensajeAplicarEnsambleParaCajero(rEns));
+        } else {
+          const aplicados = contarAplicadosEnsambleReportados(rEns);
+          if (aplicados === 0) {
+            window.alert(mensajeEnsambleOkSinDescuentoInventario(rEns));
+          } else if (aplicados === null) {
+            console.warn(
+              "[POS] Ensamble WMS: respuesta OK pero sin campo «aplicados». Revisá Inventarios → Diagnóstico último cobro, Firebase projectId y que DB_POS_Composición use el mismo SKU/variante que el POS.",
+              rEns
+            );
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("aplicar-venta-ensamble", e);
+      ultimoEnsamble = {
+        ok: false,
+        status: 0,
+        error: e instanceof Error ? e.message : String(e),
+      };
+      encolarAplicarEnsamblePendiente(bodyEnsamble);
+      window.alert(
+        "La venta quedó registrada en caja, pero hubo un error al sincronizar el inventario por ensamble. Se reintentará automáticamente cuando haya conexión."
+      );
+    } finally {
+      guardarUltimoEnsambleEnSesion(bodyEnsamble, ultimoEnsamble);
+      console.info("[POS] aplicar-venta-ensamble", {
+        idVenta: idEnsamble,
+        puntoVenta: pv,
+        skus: bodyEnsamble.lineas.map((l) => l.skuProducto),
+        ...ultimoEnsamble,
+      });
+    }
+  }, []);
 
   type OpcionesCobroVenta = { notaPie?: string; detallePago?: DetallePagoConfirmado };
 
@@ -1505,12 +1810,14 @@ export default function CajaPage() {
       const notaPie =
         opts?.notaPie ??
         (opts?.detallePago ? construirNotaPiePago(opts.detallePago) : undefined);
-      const mediosPago =
+      const mediosPagoRaw =
         opts?.detallePago != null ? mediosPagoDesdeDetalle(opts.detallePago) : undefined;
       const sid = turnoSesionId.trim();
 
       const total = itemsSnap.reduce((s, i) => s + totalLineaItem(i), 0);
       if (!(total > 0)) return false;
+      const mediosPago =
+        mediosPagoRaw != null ? normalizarMediosPagoVenta(mediosPagoRaw, total) : undefined;
 
       setCobrando(true);
       try {
@@ -1584,6 +1891,7 @@ export default function CajaPage() {
           const qty = Math.max(0.0001, it.cantidad);
           return {
             lineId: it.lineId,
+            inventarioLookupKey: it.lineId,
             sku: it.producto.sku,
             descripcion: it.producto.descripcion,
             cantidad: it.cantidad,
@@ -1609,68 +1917,56 @@ export default function CajaPage() {
           ...(mediosPago ? { mediosPago } : {}),
         });
 
+        const bebidasInventarioDirecto = itemsSnap.filter(itemCuentaEsBebidaConInventarioDirecto);
+        if (bebidasInventarioDirecto.length > 0) {
+          const catalogoInventario = await cargarCatalogoInventarioUnificado(pv);
+          const fallosBebidas: string[] = [];
+          for (const item of bebidasInventarioDirecto) {
+            const insumo = insumoKitDesdeCatalogoPorSku(catalogoInventario, item.lineId);
+            if (!insumo) {
+              fallosBebidas.push(item.lineId);
+              continue;
+            }
+            const detalleVariante = detalleVarianteTicketLinea(item);
+            const notasBebida = `Venta POS bebida${detalleVariante ? ` · ${detalleVariante}` : ""}`.slice(0, 500);
+            const rBebida = await registrarMovimientoInventario({
+              puntoVenta: pv,
+              insumo,
+              tipo: "consumo_interno",
+              cantidad: item.cantidad,
+              notas: notasBebida,
+              uid: user.uid,
+              email: user.email ?? null,
+              permitirNegativo: false,
+            });
+            if (!rBebida.ok) {
+              fallosBebidas.push(`${item.lineId}: ${rBebida.message ?? "error"}`);
+            }
+          }
+          if (fallosBebidas.length > 0) {
+            window.alert(
+              `La venta se registró, pero no se pudo descontar inventario para estas bebidas: ${fallosBebidas.join(", ")}.`
+            );
+          }
+        }
+
+        let ensamblePendienteParaVista: WmsAplicarVentaEnsambleBody | null = null;
         const lineasEnsamble = lineasWmsEnsambleDesdeItemsCuenta(itemsSnap);
         const idEnsamble =
           ventaLocalId ?? `ens-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+        const prefsImpresionCobro = loadImpresionPrefs();
+        const aplazarEnsambleHastaImprimir =
+          prefsImpresionCobro.imprimirAutomaticoAlCobrar && lineasEnsamble.length > 0;
         if (lineasEnsamble.length > 0) {
-          const bodyEnsamble = {
+          const bodyEnsamble: WmsAplicarVentaEnsambleBody = {
             lineas: lineasEnsamble,
             idVenta: idEnsamble,
             puntoVenta: pv,
           };
-          let ultimoEnsamble: WmsAplicarVentaEnsambleResult = {
-            ok: false,
-            status: 0,
-            error: "Ensamble no ejecutado",
-          };
-          try {
-            const tokenEns = await auth?.currentUser?.getIdToken();
-            if (!tokenEns) {
-              ultimoEnsamble = { ok: false, status: 401, error: "Sin token de sesión para ensamble." };
-            } else {
-              let rEns = await aplicarVentaEnsambleWms(tokenEns, bodyEnsamble);
-              if (!rEns.ok && (rEns.status === 0 || rEns.status >= 500)) {
-                await new Promise((r) => setTimeout(r, 1500));
-                const t2 = await auth?.currentUser?.getIdToken();
-                if (t2) rEns = await aplicarVentaEnsambleWms(t2, bodyEnsamble);
-              }
-              ultimoEnsamble = rEns;
-              if (!rEns.ok) {
-                if (rEns.status === 0 || rEns.status >= 500) {
-                  encolarAplicarEnsamblePendiente(bodyEnsamble);
-                }
-                window.alert(mensajeAplicarEnsambleParaCajero(rEns));
-              } else {
-                const aplicados = contarAplicadosEnsambleReportados(rEns);
-                if (aplicados === 0) {
-                  window.alert(mensajeEnsambleOkSinDescuentoInventario(rEns));
-                } else if (aplicados === null) {
-                  console.warn(
-                    "[POS] Ensamble WMS: respuesta OK pero sin campo «aplicados». Revisá Inventarios → Diagnóstico último cobro, Firebase projectId y que DB_POS_Composición use el mismo SKU/variante que el POS.",
-                    rEns
-                  );
-                }
-              }
-            }
-          } catch (e) {
-            console.warn("aplicar-venta-ensamble", e);
-            ultimoEnsamble = {
-              ok: false,
-              status: 0,
-              error: e instanceof Error ? e.message : String(e),
-            };
-            encolarAplicarEnsamblePendiente(bodyEnsamble);
-            window.alert(
-              "La venta quedó registrada en caja, pero hubo un error al sincronizar el inventario por ensamble. Se reintentará automáticamente cuando haya conexión."
-            );
-          } finally {
-            guardarUltimoEnsambleEnSesion(bodyEnsamble, ultimoEnsamble);
-            console.info("[POS] aplicar-venta-ensamble", {
-              idVenta: idEnsamble,
-              puntoVenta: pv,
-              skus: bodyEnsamble.lineas.map((l) => l.skuProducto),
-              ...ultimoEnsamble,
-            });
+          if (aplazarEnsambleHastaImprimir) {
+            ensamblePendienteParaVista = bodyEnsamble;
+          } else {
+            await ejecutarAplicarVentaEnsambleWmsDesdeBody(bodyEnsamble);
           }
         }
 
@@ -1745,7 +2041,7 @@ export default function CajaPage() {
             if (!rFe.ok) {
               encolarFeEmitirPendiente(user.uid, ventaLocalId, payloadFe);
               window.alert(
-                `La venta se registró en caja, pero la factura electrónica no se pudo enviar a la DIAN:\n\n${rFe.error}\n\nSe reintentará automáticamente al recuperar conexión. Revisá también Más → Habilitaciones DIAN → Facturación electrónica o contactá a administración.`
+                `La venta se registró en caja, pero la factura electrónica no se pudo enviar a la DIAN:\n\n${rFe.error}\n\nSe reintentará automáticamente al recuperar conexión. Revisá también Espacio Franquiciado → Habilitaciones DIAN → Facturación electrónica o contactá a administración.`
               );
             } else {
               const feBlock = {
@@ -1759,6 +2055,10 @@ export default function CajaPage() {
                   cufe: feBlock.cufe,
                   enviadoAt: feBlock.enviadoAt,
                 });
+                actualizarVentaLocalClienteComprobante(user.uid, ventaLocalId, {
+                  nombre: clienteNombreFe,
+                  nit: clienteNitFe,
+                });
               }
               ticket = { ...ticket, facturaElectronica: feBlock };
             }
@@ -1768,26 +2068,100 @@ export default function CajaPage() {
         if (opts?.detallePago?.incluirQrClienteFrecuente) {
           const ventaIdFid =
             ventaLocalId ?? `pos-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 9)}`;
-          const payloadJson = construirPayloadFidelizacionV1({
-            ventaId: ventaIdFid,
-            puntoVenta: pv,
-            isoTimestamp: isoVenta,
-            total,
-            lineas: itemsSnap.map((it) => ({
-              sku: it.producto.sku,
-              cantidad: it.cantidad,
-            })),
-          });
-          try {
-            const dataUrl = await generarDataUrlQrFidelizacion(payloadJson);
-            ticket = {
-              ...ticket,
-              fidelizacionQrDataUrl: dataUrl,
-              fidelizacionPayloadTexto: payloadJson,
-            };
-          } catch (e) {
-            console.warn("[POS] QR cliente frecuente:", e);
-            ticket = { ...ticket, fidelizacionPayloadTexto: payloadJson };
+          const totalCop = Math.round(total * 100) / 100;
+          /** Total COP entero para WMS (millas = floor(montoTotalCop / 9000)). */
+          const montoTotalCop = Math.round(total);
+          const usarClubMillasWms =
+            tipoComprobante === "factura_electronica" && Boolean(ticket.facturaElectronica?.cufe?.trim());
+
+          if (usarClubMillasWms) {
+            try {
+              const tokenFid = await auth?.currentUser?.getIdToken();
+              const resClub = await fetch("/api/club_millas_registrar_ticket", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  ...(tokenFid ? { Authorization: `Bearer ${tokenFid}` } : {}),
+                },
+                body: JSON.stringify({
+                  ventaId: ventaIdFid,
+                  puntoVenta: pv,
+                  totalCop,
+                  montoTotalCop,
+                  idFacturaPos: ventaLocalId ?? ventaIdFid,
+                  ...(sid || ct?.id ? { cajaId: String(sid || ct?.id) } : {}),
+                  isoTimestamp: isoVenta,
+                  lineas: itemsSnap.map((it) => ({
+                    sku: it.producto.sku,
+                    cantidad: it.cantidad,
+                  })),
+                  clienteDocumento: cr.numeroIdentificacion?.trim() ?? "",
+                  facturaElectronica: ticket.facturaElectronica,
+                }),
+              });
+              const clubJson = (await resClub.json().catch(() => ({}))) as {
+                ok?: boolean;
+                omitido?: boolean;
+                codigo?: string;
+                message?: string;
+                qrPayload?: string;
+              };
+              if (clubJson.ok === true && clubJson.omitido === true && clubJson.codigo === "monto_insuficiente") {
+                ticket = {
+                  ...ticket,
+                  ...(clubJson.message?.trim()
+                    ? { fidelizacionPayloadTexto: clubJson.message.trim() }
+                    : {
+                        fidelizacionPayloadTexto:
+                          "Club de Millas: el total de esta factura no alcanza el mínimo para generar código QR en esta compra.",
+                      }),
+                };
+              } else if (clubJson.ok === true && typeof clubJson.qrPayload === "string" && clubJson.qrPayload.trim()) {
+                const raw = clubJson.qrPayload.replace(/\s+/g, "").trim();
+                const dataUrl = await generarDataUrlQrFidelizacion(raw);
+                ticket = {
+                  ...ticket,
+                  fidelizacionQrDataUrl: dataUrl,
+                  fidelizacionPayloadTexto: raw,
+                };
+              } else {
+                const msg =
+                  typeof clubJson.message === "string" && clubJson.message.trim()
+                    ? clubJson.message.trim()
+                    : "Club de Millas: no se pudo registrar el ticket para el QR. Revisá conexión y variables del POS.";
+                ticket = { ...ticket, fidelizacionPayloadTexto: msg };
+                console.warn("[POS] club_millas_registrar_ticket:", clubJson);
+              }
+            } catch (e) {
+              console.warn("[POS] Club de Millas registrar-ticket:", e);
+              ticket = {
+                ...ticket,
+                fidelizacionPayloadTexto:
+                  "Club de Millas: error al registrar el ticket. Informá a sistemas o reintentá más tarde.",
+              };
+            }
+          } else {
+            const payloadJson = construirPayloadFidelizacionV1({
+              ventaId: ventaIdFid,
+              puntoVenta: pv,
+              isoTimestamp: isoVenta,
+              total,
+              lineas: itemsSnap.map((it) => ({
+                sku: it.producto.sku,
+                cantidad: it.cantidad,
+              })),
+            });
+            try {
+              const dataUrl = await generarDataUrlQrFidelizacion(payloadJson);
+              ticket = {
+                ...ticket,
+                fidelizacionQrDataUrl: dataUrl,
+                fidelizacionPayloadTexto: payloadJson,
+              };
+            } catch (e) {
+              console.warn("[POS] QR cliente frecuente (documento interno / sin FE):", e);
+              ticket = { ...ticket, fidelizacionPayloadTexto: payloadJson };
+            }
           }
         }
 
@@ -1800,6 +2174,8 @@ export default function CajaPage() {
             ventaLocalId: ventaLocalId ?? null,
             itemsRestaurar: clonarItemsCuenta(itemsSnap),
             total,
+            ensamblePendiente: ensamblePendienteParaVista,
+            incluirQrClienteFrecuente: Boolean(opts?.detallePago?.incluirQrClienteFrecuente),
           });
         }
 
@@ -1822,6 +2198,7 @@ export default function CajaPage() {
       construirPayloadTicket,
       vaciarCuenta,
       pedirConfirmacionCobroSinInternet,
+      ejecutarAplicarVentaEnsambleWmsDesdeBody,
     ]
   );
 
@@ -1901,6 +2278,7 @@ export default function CajaPage() {
       setTurnoInicio(new Date());
       setTotalVentasEnTurno(0);
       totalVentasEnTurnoRef.current = 0;
+      setMovimientosCaja([]);
       setPrecuentasEliminadasCount(0);
       setProductosEliminadosCount(0);
       setValorProductosEliminados(0);
@@ -2036,7 +2414,11 @@ export default function CajaPage() {
                 ? "Metas y bonificaciones"
                 : moduloActivo === "reportes"
                   ? "Reportes"
-                  : "Más";
+                  : moduloActivo === "planMillas"
+                    ? "Plan de millas"
+                    : moduloActivo === "domicilios"
+                      ? "Domicilios"
+                      : ETIQUETA_ESPACIO_FRANQUICIADOS;
 
   return (
     <div className="flex h-dvh max-h-dvh min-h-0 overflow-hidden bg-gray-100/90">
@@ -2226,22 +2608,117 @@ export default function CajaPage() {
             </svg>
             Reportes
           </button>
+          <button
+            type="button"
+            data-pos-tutorial="nav-plan-millas"
+            onClick={() => setModuloActivo("planMillas")}
+            className={`group relative flex w-full items-center gap-3 overflow-hidden rounded-xl border px-3 py-2.5 text-left text-sm font-semibold transition-all ${
+              moduloActivo === "planMillas"
+                ? "border-emerald-400 bg-gradient-to-r from-emerald-700 to-teal-600 text-white shadow-md"
+                : "border-emerald-200 bg-gradient-to-r from-emerald-50 to-teal-50 text-emerald-950 hover:border-emerald-300 hover:shadow-sm"
+            }`}
+          >
+            <span
+              className={`absolute inset-y-0 right-0 w-12 bg-white/20 blur-xl transition-opacity ${
+                moduloActivo === "planMillas" ? "opacity-70" : "opacity-0 group-hover:opacity-50"
+              }`}
+            />
+            <span
+              className={`relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+                moduloActivo === "planMillas" ? "bg-white/20" : "bg-white"
+              }`}
+            >
+              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+            </span>
+            <span className="relative flex min-w-0 flex-1 flex-col leading-tight">
+              <span>Plan de millas</span>
+              <span
+                className={`text-[10px] uppercase tracking-wide ${
+                  moduloActivo === "planMillas" ? "text-emerald-100" : "text-emerald-700"
+                }`}
+              >
+                Club María Chorizos
+              </span>
+            </span>
+          </button>
+          <button
+            type="button"
+            data-pos-tutorial="nav-domicilios"
+            onClick={() => setModuloActivo("domicilios")}
+            className={`group relative flex w-full items-center gap-3 overflow-hidden rounded-xl border px-3 py-2.5 text-left text-sm font-semibold transition-all ${
+              moduloActivo === "domicilios"
+                ? "border-cyan-400 bg-gradient-to-r from-cyan-600 to-sky-600 text-white shadow-md"
+                : "border-cyan-200 bg-gradient-to-r from-cyan-50 to-sky-50 text-cyan-900 hover:border-cyan-300 hover:shadow-sm"
+            }`}
+          >
+            <span
+              className={`absolute inset-y-0 right-0 w-12 bg-white/20 blur-xl transition-opacity ${
+                moduloActivo === "domicilios" ? "opacity-70" : "opacity-0 group-hover:opacity-50"
+              }`}
+            />
+            <span
+              className={`relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+                moduloActivo === "domicilios" ? "bg-white/20" : "bg-white"
+              }`}
+            >
+              <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={1.9}
+                  d="M3 8.25h11.5v7.5H3m0-7.5l2.3-3.5h7.4l1.8 3.5M14.5 10.5h2.25l2.25 2.25v3h-4.5m0-5.25V15.75m0 0A2.25 2.25 0 1 0 19 15.75m-15.75 0A2.25 2.25 0 1 0 7.5 15.75"
+                />
+              </svg>
+            </span>
+            <span className="relative flex min-w-0 flex-1 flex-col leading-tight">
+              <span>Domicilios</span>
+              <span className={`text-[10px] uppercase tracking-wide ${moduloActivo === "domicilios" ? "text-cyan-100" : "text-cyan-700"}`}>
+                Premium
+              </span>
+            </span>
+          </button>
           {!esContador && (
             <button
               type="button"
               data-pos-tutorial="nav-mas"
+              title={ETIQUETA_ESPACIO_FRANQUICIADOS}
+              aria-label={`${ETIQUETA_ESPACIO_FRANQUICIADOS} (requiere clave)`}
               onClick={() => {
                 if (moduloActivo === "mas") return;
                 abrirModuloMasConClave();
               }}
-              className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-colors ${
-                moduloActivo === "mas" ? "bg-brand-yellow/25 text-gray-900 border border-brand-yellow/50" : "text-gray-600 hover:bg-gray-50"
+              className={`flex w-full items-center gap-2.5 rounded-lg border px-2.5 py-2.5 text-left text-sm font-medium transition-colors ${
+                moduloActivo === "mas"
+                  ? "border-amber-300/80 bg-brand-yellow/25 text-gray-900"
+                  : "border-transparent text-gray-600 hover:border-gray-200 hover:bg-gray-50"
               }`}
             >
-              <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
-              </svg>
-              Más
+              <span
+                className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${
+                  moduloActivo === "mas" ? "bg-amber-100 text-amber-900" : "bg-amber-50 text-amber-900"
+                }`}
+                aria-hidden
+              >
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                  />
+                </svg>
+              </span>
+              <span className="min-w-0 flex-1 leading-tight">
+                <span className="block text-[12px] font-semibold leading-snug">Espacio para</span>
+                <span className="block text-[11px] font-medium text-gray-600">franquiciados</span>
+              </span>
             </button>
           )}
         </nav>
@@ -2504,7 +2981,7 @@ export default function CajaPage() {
         esContador={esContador}
       />
 
-      {/* Modal clave «Más» */}
+      {/* Modal clave Espacio para franquiciados */}
       {showModalClaveMas && (
         <div
           className="fixed inset-0 z-[60] flex items-center justify-center p-4"
@@ -2515,8 +2992,21 @@ export default function CajaPage() {
           <div className="absolute inset-0 bg-black/50" onClick={cerrarModalClaveMas} aria-hidden="true" />
           <div className="relative w-full max-w-md overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
             <div className="flex items-center justify-between border-b border-gray-200 px-6 py-4">
-              <h2 id="modal-clave-mas-titulo" className="text-lg font-semibold text-gray-900">
-                Acceso a Más
+              <h2
+                id="modal-clave-mas-titulo"
+                className="flex items-center gap-2 text-lg font-semibold text-gray-900"
+              >
+                <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-amber-100 text-amber-900" aria-hidden>
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"
+                    />
+                  </svg>
+                </span>
+                {ETIQUETA_ESPACIO_FRANQUICIADOS}
               </h2>
               <button
                 type="button"
@@ -2689,7 +3179,7 @@ export default function CajaPage() {
                   {cajerosModalTurno.length === 0 ? (
                     <p className="mb-4 rounded-lg border border-amber-100 bg-amber-50/80 px-3 py-2 text-xs text-amber-950">
                       No hay cajeros de turno registrados. El turno se atribuye al franquiciado. Puedes dar de alta
-                      cajeros en <strong>Más → Cajeros de turno</strong> cuando otra persona opere la caja.
+                      cajeros en <strong>Espacio Franquiciado → Cajeros de turno</strong> cuando otra persona opere la caja.
                     </p>
                   ) : null}
                 </>
@@ -2857,6 +3347,73 @@ export default function CajaPage() {
         </div>
       )}
 
+      {modalProductoBebida && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="modal-bebida-title"
+        >
+          <div
+            className="absolute inset-0 bg-black/50"
+            onClick={() => setModalProductoBebida(null)}
+            aria-hidden="true"
+          />
+          <div className="relative max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl border border-gray-200 bg-white p-6 shadow-2xl">
+            <h2 id="modal-bebida-title" className="text-lg font-semibold text-gray-900">
+              Selecciona el tamaño
+            </h2>
+            <p className="mt-1 text-sm text-gray-600 line-clamp-2">{modalProductoBebida.descripcion}</p>
+            <fieldset className="mt-5 space-y-3">
+              <legend className="mb-2 block text-sm font-semibold text-gray-800">Tamaño de la bebida</legend>
+              {(modalProductoBebida.variantes ?? []).map((opt) => {
+                const precio =
+                  typeof opt.precioVenta === "number"
+                    ? opt.precioVenta
+                    : modalProductoBebida.preciosPorVariante?.[opt.clave] ?? modalProductoBebida.precioUnitario;
+                return (
+                  <label
+                    key={opt.clave}
+                    className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border-2 border-gray-200 px-4 py-3 has-[:checked]:border-primary-500 has-[:checked]:bg-primary-50"
+                  >
+                    <div className="flex items-center gap-3">
+                      <input
+                        type="radio"
+                        name="variante-bebida"
+                        checked={varianteModalBebida === opt.clave}
+                        onChange={() => setVarianteModalBebida(opt.clave)}
+                        className="h-4 w-4 text-primary-600"
+                      />
+                      <span className="text-sm font-medium text-gray-900">{opt.etiqueta}</span>
+                    </div>
+                    <span className="text-sm font-semibold text-primary-700">
+                      ${Number(precio ?? 0).toLocaleString("es-CO")}
+                    </span>
+                  </label>
+                );
+              })}
+            </fieldset>
+            <div className="mt-6 flex gap-3">
+              <button
+                type="button"
+                onClick={() => setModalProductoBebida(null)}
+                className="flex-1 rounded-lg border border-gray-300 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={!varianteModalBebida}
+                onClick={confirmarAgregarBebidaModal}
+                className="flex-1 rounded-lg bg-primary-600 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60"
+              >
+                Agregar a la cuenta
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal Detalle del turno (cierre de caja) */}
       {showModalCierreTurno && (
         <div
@@ -2925,17 +3482,7 @@ export default function CajaPage() {
                 {detalleVentasExpandido && (
                   <div className="border-t border-gray-100 px-4 py-3 text-sm text-gray-600">
                     <p>Total base inicial de caja: {baseInicialCaja.toLocaleString("es-CO", { minimumFractionDigits: 2 })}</p>
-                    <p className="mt-1">
-                      Total ventas (WMS / acumulado turno):{" "}
-                      {totalVentasEnTurno.toLocaleString("es-CO", { minimumFractionDigits: 2 })}
-                    </p>
                     <p className="mt-1">Tickets locales en turno: {ventasTurnoActivales.length}</p>
-                    <p className="mt-1">
-                      Suma tickets (detalle local):{" "}
-                      {ventasTurnoActivales
-                        .reduce((s, v) => s + v.total, 0)
-                        .toLocaleString("es-CO", { minimumFractionDigits: 2 })}
-                    </p>
                     <p className="mt-2 font-medium text-gray-800">Medios de pago (suma por ticket)</p>
                     <p className="mt-1">Efectivo: {mediosTurnoModal.efectivo.toLocaleString("es-CO", { minimumFractionDigits: 2 })}</p>
                     <p className="mt-1">Tarjeta / datáfono: {mediosTurnoModal.tarjeta.toLocaleString("es-CO", { minimumFractionDigits: 2 })}</p>
@@ -2952,62 +3499,13 @@ export default function CajaPage() {
                 <p className="mt-1 text-gray-600">Total retiro de efectivo: $ {totalRetiroEfectivo.toLocaleString("es-CO", { minimumFractionDigits: 2 })}</p>
               </div>
 
-              {/* Totales del cierre desde tickets (solo lectura) */}
-              <p className="mb-1 text-sm font-medium text-gray-900">
-                Totales según ventas registradas en el turno
-              </p>
-              <p className="mb-3 text-xs text-gray-500">
-                Calculados automáticamente desde los tickets de esta caja; el cajero no puede modificarlos.
-              </p>
-              <div className="space-y-3">
-                <div>
-                  <label className="mb-1 block text-xs text-gray-600">
-                    Efectivo en caja (base inicial + ventas en efectivo)
-                  </label>
-                  <div className="flex rounded-lg border border-gray-200 bg-gray-50">
-                    <span className="flex items-center px-3 text-gray-500">$</span>
-                    <span className="w-full py-2 pr-3 text-gray-900 tabular-nums">
-                      {formatPesosCop(valoresCierreCajaSegunVentas.efectivoEnCaja)}
-                    </span>
-                  </div>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs text-gray-600">Ventas con tarjeta / datáfono</label>
-                  <div className="flex rounded-lg border border-gray-200 bg-gray-50">
-                    <span className="flex items-center px-3 text-gray-500">$</span>
-                    <span className="w-full py-2 pr-3 text-gray-900 tabular-nums">
-                      {formatPesosCop(valoresCierreCajaSegunVentas.tarjeta)}
-                    </span>
-                  </div>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs text-gray-600">Ventas con pagos en línea</label>
-                  <div className="flex rounded-lg border border-gray-200 bg-gray-50">
-                    <span className="flex items-center px-3 text-gray-500">$</span>
-                    <span className="w-full py-2 pr-3 text-gray-900 tabular-nums">
-                      {formatPesosCop(valoresCierreCajaSegunVentas.pagosLinea)}
-                    </span>
-                  </div>
-                </div>
-                <div>
-                  <label className="mb-1 block text-xs text-gray-600">Ventas otros medios de pago</label>
-                  <div className="flex rounded-lg border border-gray-200 bg-gray-50">
-                    <span className="flex items-center px-3 text-gray-500">$</span>
-                    <span className="w-full py-2 pr-3 text-gray-900 tabular-nums">
-                      {formatPesosCop(valoresCierreCajaSegunVentas.otros)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
               {/* Resumen cierre */}
               {(() => {
-                const decEfe = valoresCierreCajaSegunVentas.efectivoEnCaja;
                 const decTar = valoresCierreCajaSegunVentas.tarjeta;
                 const decLin = valoresCierreCajaSegunVentas.pagosLinea;
                 const decOtr = valoresCierreCajaSegunVentas.otros;
-                const totalIngresado = valoresCierreCajaSegunVentas.totalIngresado;
-                const totalEsperado = baseInicialCaja + totalVentasEnTurno;
+                const totalIngresado = valoresCierreCajaSegunVentas.totalCierreLocal;
+                const totalEsperado = valoresCierreCajaSegunVentas.totalCierreSistema;
                 const diferencia = totalIngresado - totalEsperado;
                 const cuadreExacto = Math.abs(diferencia) < 0.005;
                 const haySobrante = diferencia > 0.005;
@@ -3018,155 +3516,58 @@ export default function CajaPage() {
                     : "text-red-600 font-medium";
                 const fmtCop = (n: number) => n.toLocaleString("es-CO", { minimumFractionDigits: 2 });
                 const espVentasEfectivo = mediosTurnoModal.efectivo;
-                const espTar = mediosTurnoModal.tarjeta;
-                const espLin = mediosTurnoModal.pagosLinea;
-                const espOtr = mediosTurnoModal.otros;
-                /** Efectivo físico que debería haber en caja: base con la que abriste + ventas cobradas en efectivo (tickets). */
-                const esperadoEfectivoEnCaja = baseInicialCaja + espVentasEfectivo;
-                const sumaTicketsTurno = ventasTurnoActivales.reduce((s, v) => s + v.total, 0);
-                const sumaEsperadaPorTickets = baseInicialCaja + sumaTicketsTurno;
-                const wmsDiffiereDeTickets = Math.abs(totalEsperado - sumaEsperadaPorTickets) >= 0.02;
+                const netoMovimientosEfectivo = valoresCierreCajaSegunVentas.netoMovimientosEfectivo;
+                const esperadoEfectivoEnCaja = valoresCierreCajaSegunVentas.efectivoEsperadoCaja;
                 return (
                   <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 text-sm">
-                    <p className="flex justify-between">
-                      <span className="text-gray-600">Total ingresado en cierre de caja</span>
-                      <span className="font-medium">$ {fmtCop(totalIngresado)}</span>
-                    </p>
-                    <p className="mt-1 text-xs text-gray-500">
-                      Suma automática: base + ventas en efectivo, más tarjeta, pagos en línea y otros medios según tickets.
-                    </p>
-                    <p className="mt-2 flex justify-between">
-                      <span className="text-gray-600">Total esperado en cierre de caja</span>
-                      <span className="font-medium">$ {fmtCop(totalEsperado)}</span>
-                    </p>
-                    <p className="mt-1 text-xs text-gray-500">
-                      Base inicial del turno más el <strong>total de ventas acumulado del turno</strong> (sistema / WMS). Es el
-                      monto global contra el que se calcula la diferencia de abajo.
-                    </p>
-
-                    <div className="mt-3 rounded-md border border-emerald-200/80 bg-emerald-50/40 p-3 text-xs leading-relaxed text-gray-800">
-                      <p className="font-semibold text-emerald-900">Desglose esperado por medio (según tickets en este equipo)</p>
+                    <div className="rounded-md border border-emerald-200/80 bg-emerald-50/40 p-3 text-xs leading-relaxed text-gray-800">
+                      <p className="font-semibold text-emerald-900">Efectivo esperado en caja</p>
                       <p className="mt-1 text-gray-600">
-                        El <strong>efectivo en gaveta</strong> debería ser la <strong>caja con la que iniciaste</strong> más las{" "}
-                        <strong>ventas registradas en efectivo</strong> en los tickets del turno. Lo demás no va a la gaveta: es
-                        lo que deberías tener liquidado por tarjeta, Nequi/Daviplata/transferencia u otros medios.
+                        Se calcula con base inicial + ventas en efectivo + ingresos de efectivo - retiros de efectivo.
                       </p>
                       <ul className="mt-2 space-y-1.5 border-t border-emerald-200/60 pt-2">
                         <li className="flex flex-wrap justify-between gap-x-2 gap-y-0.5">
-                          <span className="text-gray-700">Base inicial en caja</span>
+                          <span className="text-gray-700">Base inicial</span>
                           <span className="font-medium tabular-nums text-gray-900">$ {fmtCop(baseInicialCaja)}</span>
                         </li>
                         <li className="flex flex-wrap justify-between gap-x-2 gap-y-0.5">
-                          <span className="text-gray-700">+ Ventas en efectivo (tickets)</span>
+                          <span className="text-gray-700">+ Ventas en efectivo</span>
                           <span className="font-medium tabular-nums text-gray-900">$ {fmtCop(espVentasEfectivo)}</span>
                         </li>
+                        <li className="flex flex-wrap justify-between gap-x-2 gap-y-0.5">
+                          <span className="text-gray-700">
+                            {netoMovimientosEfectivo >= 0 ? "+ Neto ingresos / retiros" : "- Neto ingresos / retiros"}
+                          </span>
+                          <span className="font-medium tabular-nums text-gray-900">$ {fmtCop(Math.abs(netoMovimientosEfectivo))}</span>
+                        </li>
                         <li className="flex flex-wrap justify-between gap-x-2 gap-y-0.5 border-t border-emerald-200/50 pt-1.5 font-semibold text-emerald-950">
-                          <span>= Efectivo físico esperado en caja</span>
+                          <span>= Efectivo esperado en gaveta</span>
                           <span className="tabular-nums">$ {fmtCop(esperadoEfectivoEnCaja)}</span>
                         </li>
-                        <li className="flex flex-wrap justify-between gap-x-2 gap-y-0.5 pt-1">
-                          <span className="text-gray-700">Tarjeta / datáfono esperado</span>
-                          <span className="font-medium tabular-nums text-gray-900">$ {fmtCop(espTar)}</span>
-                        </li>
-                        <li className="flex flex-wrap justify-between gap-x-2 gap-y-0.5">
-                          <span className="text-gray-700">Pagos en línea esperado</span>
-                          <span className="font-medium tabular-nums text-gray-900">$ {fmtCop(espLin)}</span>
-                        </li>
-                        <li className="flex flex-wrap justify-between gap-x-2 gap-y-0.5">
-                          <span className="text-gray-700">Otros medios esperado</span>
-                          <span className="font-medium tabular-nums text-gray-900">$ {fmtCop(espOtr)}</span>
-                        </li>
-                        <li className="flex flex-wrap justify-between gap-x-2 gap-y-0.5 border-t border-emerald-200/50 pt-1.5 text-gray-700">
-                          <span>Suma base + ventas por medio (tickets)</span>
-                          <span className="font-medium tabular-nums text-gray-900">$ {fmtCop(sumaEsperadaPorTickets)}</span>
-                        </li>
                       </ul>
-                      {wmsDiffiereDeTickets ? (
-                        <p className="mt-2 rounded bg-amber-100/80 px-2 py-1.5 text-[11px] text-amber-950">
-                          El total esperado del sistema ($ {fmtCop(totalEsperado)}) no coincide con base + suma de tickets en este
-                          equipo ($ {fmtCop(sumaEsperadaPorTickets)}). Revisá sincronización o ventas registradas fuera de esta
-                          caja; la diferencia global usa el acumulado del sistema.
-                        </p>
-                      ) : null}
                     </div>
 
                     <div className="mt-3 rounded-md border border-gray-200 bg-white p-3 text-xs">
-                      <p className="font-semibold text-gray-900">Desglose usado en el cierre (tickets + base)</p>
-                      <p className="mt-1 text-gray-600">
-                        Mismos importes que el recuadro verde de arriba; un solo origen de datos (ventas del turno en este
-                        equipo).
+                      <p className="font-semibold text-gray-900">Otros medios esperados</p>
+                      <p className="mt-2 flex justify-between">
+                        <span className="text-gray-600">Tarjeta / datáfono</span>
+                        <span className="font-medium">$ {fmtCop(decTar)}</span>
                       </p>
-                      <div className="mt-2 overflow-x-auto">
-                        <table className="w-full min-w-[220px] border-collapse text-left text-[11px]">
-                          <thead>
-                            <tr className="border-b border-gray-200 text-gray-600">
-                              <th className="py-1 pr-2 font-medium">Medio</th>
-                              <th className="py-1 text-right font-medium">Importe</th>
-                            </tr>
-                          </thead>
-                          <tbody className="text-gray-900">
-                            <tr className="border-b border-gray-100">
-                              <td className="py-1.5 pr-2">Efectivo en caja (base + ventas efectivo)</td>
-                              <td className="py-1.5 text-right tabular-nums">$ {fmtCop(decEfe)}</td>
-                            </tr>
-                            <tr className="border-b border-gray-100">
-                              <td className="py-1.5 pr-2">Tarjeta / datáfono</td>
-                              <td className="py-1.5 text-right tabular-nums">$ {fmtCop(decTar)}</td>
-                            </tr>
-                            <tr className="border-b border-gray-100">
-                              <td className="py-1.5 pr-2">Pagos en línea</td>
-                              <td className="py-1.5 text-right tabular-nums">$ {fmtCop(decLin)}</td>
-                            </tr>
-                            <tr>
-                              <td className="py-1.5 pr-2">Otros medios</td>
-                              <td className="py-1.5 text-right tabular-nums">$ {fmtCop(decOtr)}</td>
-                            </tr>
-                          </tbody>
-                        </table>
-                      </div>
+                      <p className="mt-1 flex justify-between">
+                        <span className="text-gray-600">Pagos en línea</span>
+                        <span className="font-medium">$ {fmtCop(decLin)}</span>
+                      </p>
+                      <p className="mt-1 flex justify-between">
+                        <span className="text-gray-600">Otros medios</span>
+                        <span className="font-medium">$ {fmtCop(decOtr)}</span>
+                      </p>
                     </div>
 
-                    <p className={`mt-3 flex justify-between gap-3 border-t border-gray-200 pt-3 ${claseDiferencia}`}>
-                      <span className="min-w-0">
-                        <span className="block">Diferencia (global)</span>
-                        <span className="mt-0.5 block text-[11px] font-normal normal-case text-gray-600">
-                          Total según tickets (este equipo) − (base + acumulado ventas sistema)
-                        </span>
-                      </span>
-                      <span className="shrink-0 tabular-nums">
-                        $ {fmtCop(diferencia)}
-                      </span>
-                    </p>
-                    <div className="mt-2 rounded-md border border-gray-200 bg-white p-3 text-xs leading-relaxed text-gray-700">
-                      <p className="font-semibold text-gray-900">¿Qué significa este valor?</p>
-                      <p className="mt-1.5">
-                        Es la diferencia entre el <strong>total calculado desde los tickets</strong> de este equipo (base + ventas
-                        por medio) y el <strong>total que el sistema acumuló</strong> para el turno (base + ventas WMS). El cuadro
-                        verde descompone el efectivo esperado en gaveta y el resto de medios según esos mismos tickets.
-                      </p>
-                      {cuadreExacto ? (
-                        <p className="mt-1.5 text-emerald-800">
-                          <strong>Cuadre:</strong> ambos totales coinciden; no hay diferencia entre tickets locales y acumulado del
-                          sistema.
-                        </p>
-                      ) : haySobrante ? (
-                        <p className="mt-1.5 text-amber-900">
-                          <strong>Sobrante (valor positivo):</strong> la suma de tickets en este equipo supera el acumulado del
-                          sistema. Revisá sincronización con el WMS o ventas registradas fuera de esta caja.
-                        </p>
-                      ) : (
-                        <p className="mt-1.5 text-red-800">
-                          <strong>Faltante (valor negativo):</strong> los tickets de este equipo suman menos que el acumulado del
-                          sistema. Revisá que todas las ventas del turno estén en este navegador o que no falte registrar algún
-                          cobro.
-                        </p>
-                      )}
-                    </div>
                     <p className="mt-2 flex justify-between text-gray-600">
-                      <span>Total ventas a crédito</span>
+                      <span>Ventas a crédito (referencia)</span>
                       <span>$ {ventasCredito.toLocaleString("es-CO", { minimumFractionDigits: 2 })}</span>
                     </p>
-                    <p className="mt-1 text-xs text-gray-500">Valor no incluido en el total de las ventas</p>
+                    <p className="mt-1 text-xs text-gray-500">Se muestra como referencia y no se suma al cierre de caja.</p>
                   </div>
                 );
               })()}
@@ -3212,13 +3613,33 @@ export default function CajaPage() {
         onConfirm={() => void confirmarInformeCierreYcerrarTurno()}
         errorMsg={errorInformeCierreCorreo}
       />
+      <TurnoCierreExitoPremiumModal
+        open={modalExitoCierreTurno != null}
+        titulo={modalExitoCierreTurno?.titulo ?? "Turno cerrado con éxito"}
+        lineas={modalExitoCierreTurno?.lineas ?? []}
+        onClose={() => setModalExitoCierreTurno(null)}
+      />
 
       {/* Área central + cuenta a cobrar (en columna en móvil, fila en escritorio) */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pl-52 lg:flex-row">
       <main className="min-h-0 min-w-0 flex-1 overflow-y-auto pt-0">
         <div className="p-4 sm:p-5 lg:p-4">
           <MetasRetosCajaProvider puntoVenta={user.puntoVenta} uid={user.uid}>
-            <PosCajaPremiumHeader puntoVenta={user.puntoVenta} etiquetaModulo={tituloModulo} />
+            <PosCajaPremiumHeader
+              puntoVenta={user.puntoVenta}
+              etiquetaModulo={tituloModulo}
+              mostrarAccesoChatAdmin={!esContador}
+              getIdToken={getIdTokenCajaMensajes}
+            />
+            {!esContador && turnoAbierto ? (
+              <PosLigaTurnoYMotivacion
+                apiBaseUrl={getWmsPublicBaseUrl()}
+                puntoVenta={user.puntoVenta ?? undefined}
+                getToken={getIdTokenCajaMensajes}
+                pollMs={20000}
+                fraseIntervalMs={10000}
+              />
+            ) : null}
             {esContador ? (
             moduloActivo === "ultimosRecibos" ? (
               <UltimosRecibosModule
@@ -3246,6 +3667,7 @@ export default function CajaPage() {
                   uid={user.uid}
                   puntoVenta={user.puntoVenta}
                   mostrarDetalleErrorNube
+                  turnoActivo={null}
                 />
               </div>
             )
@@ -3362,6 +3784,26 @@ export default function CajaPage() {
                 <p className="mb-4 text-sm text-gray-500">
                   Productos disponibles para venta (origen: WMS — Productos POS)
                 </p>
+                {mensajeSolicitudPrecio && (
+                  <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+                    {mensajeSolicitudPrecio}
+                  </div>
+                )}
+                {errorSolicitudPrecio && (
+                  <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+                    {errorSolicitudPrecio}
+                  </div>
+                )}
+                <div className="mb-4 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={cargarCatalogo}
+                    disabled={catalogoLoading}
+                    className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    {catalogoLoading ? "Actualizando..." : "Actualizar precios"}
+                  </button>
+                </div>
                 <input
                   type="text"
                   value={busquedaCatalogo}
@@ -3393,6 +3835,7 @@ export default function CajaPage() {
                       const chorizoConArepa = productoRequiereChorizoYArepa(p);
                       const soloChorizoPan = productoRequiereSoloChorizoPan(p);
                       const soloArepaPetoTipo = productoRequiereSoloTipoArepaPeto(p);
+                      const bebidaConTamano = productoRequiereTamanoBebida(p);
                       const qty = itemsCuentaActiva
                         .filter((i) => i.producto.sku === p.sku)
                         .reduce((s, i) => s + i.cantidad, 0);
@@ -3426,6 +3869,11 @@ export default function CajaPage() {
                             <span className="text-[10px] font-medium uppercase tracking-wide text-gray-500 sm:text-xs">
                               {p.sku}
                             </span>
+                            {p.precioPersonalizado ? (
+                              <span className="mt-1 inline-flex w-fit rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+                                Precio autorizado
+                              </span>
+                            ) : null}
                             <p className="mt-0.5 line-clamp-2 text-[11px] font-medium leading-snug text-gray-900 sm:text-xs">
                               {p.descripcion}
                             </p>
@@ -3436,6 +3884,13 @@ export default function CajaPage() {
                               ${Number(p.precioUnitario).toLocaleString("es-CO")}
                               {p.unidad ? ` / ${p.unidad}` : ""}
                             </p>
+                            {bebidaConTamano && (
+                              <p className="mt-1 text-[10px] font-medium leading-tight text-sky-800 sm:text-[11px]">
+                                {p.variantes?.length === 1
+                                  ? "1 tamano disponible"
+                                  : `${p.variantes?.length ?? 0} tamanos disponibles`}
+                              </p>
+                            )}
                             {chorizoConArepa && (
                               <p className="mt-1 text-[10px] font-medium leading-tight text-amber-800 sm:text-[11px]">
                                 Chorizo + tipo de arepa
@@ -3461,6 +3916,50 @@ export default function CajaPage() {
                   <p className="py-6 text-center text-sm text-gray-500">
                     {busquedaCatalogo.trim() ? "No hay productos que coincidan con la búsqueda." : "No hay productos en el catálogo."}
                   </p>
+                )}
+                {!catalogoLoading && !catalogoError && catalogosFiltrados.length > 0 && (
+                  <div className="mt-6 overflow-x-auto rounded-xl border border-gray-200">
+                    <table className="min-w-full text-left text-sm">
+                      <thead className="border-b border-gray-200 bg-gray-50 text-xs font-semibold uppercase text-gray-600">
+                        <tr>
+                          <th className="px-3 py-2">SKU</th>
+                          <th className="px-3 py-2">Descripcion</th>
+                          <th className="px-3 py-2 text-right">Precio actual</th>
+                          <th className="px-3 py-2">Estado</th>
+                          <th className="px-3 py-2 text-right">Accion</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 bg-white">
+                        {catalogosFiltrados.map((p) => (
+                          <tr key={`sol-${p.sku}`} className="hover:bg-gray-50/80">
+                            <td className="px-3 py-2 font-mono text-xs text-gray-700">{p.sku}</td>
+                            <td className="px-3 py-2 text-gray-900">{p.descripcion}</td>
+                            <td className="px-3 py-2 text-right font-semibold tabular-nums text-gray-900">
+                              ${Number(p.precioUnitario).toLocaleString("es-CO")}
+                            </td>
+                            <td className="px-3 py-2">
+                              {p.precioPersonalizado ? (
+                                <span className="inline-flex rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-xs font-semibold text-emerald-800">
+                                  Precio autorizado
+                                </span>
+                              ) : (
+                                <span className="text-xs text-gray-500">Precio base</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <button
+                                type="button"
+                                onClick={() => abrirModalSolicitudPrecio(p)}
+                                className="rounded-lg border border-primary-300 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-800 hover:bg-primary-100"
+                              >
+                                Solicitar cambio
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </div>
 
@@ -3538,7 +4037,21 @@ export default function CajaPage() {
           ) : moduloActivo === "metasBonificaciones" ? (
             <MetasBonificacionesModule puntoVenta={user.puntoVenta} uid={user.uid} />
           ) : moduloActivo === "reportes" ? (
-            <CajeroReportesDashboard uid={user.uid} puntoVenta={user.puntoVenta} />
+            <CajeroReportesDashboard
+              uid={user.uid}
+              puntoVenta={user.puntoVenta}
+              turnoActivo={{
+                abierto: turnoAbierto,
+                totalIngresoEfectivo,
+                totalRetiroEfectivo,
+                movimientosCaja,
+                onRegistrarMovimiento: registrarMovimientoCaja,
+              }}
+            />
+          ) : moduloActivo === "planMillas" ? (
+            <PlanMillasPosModule />
+          ) : moduloActivo === "domicilios" ? (
+            <PosDomiciliosModule puntoVenta={user.puntoVenta} />
           ) : moduloActivo === "mas" ? (
             <ConfiguracionMasModule puntoVenta={user.puntoVenta} uid={user.uid} role={user.role} />
           ) : (
@@ -3551,6 +4064,85 @@ export default function CajaPage() {
           </MetasRetosCajaProvider>
         </div>
       </main>
+
+      {productoSolicitudPrecio && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/45"
+            aria-label="Cerrar modal"
+            disabled={enviandoSolicitudPrecio}
+            onClick={cerrarModalSolicitudPrecio}
+          />
+          <div className="relative z-[1] w-full max-w-lg rounded-xl border border-gray-200 bg-white p-6 shadow-xl">
+            <h3 className="text-lg font-semibold text-gray-900">Solicitar cambio de precio</h3>
+            <p className="mt-1 text-sm text-gray-600">
+              <span className="font-mono text-xs text-gray-700">{productoSolicitudPrecio.sku}</span> -{" "}
+              {productoSolicitudPrecio.descripcion}
+            </p>
+            <p className="mt-1 text-sm text-gray-700">
+              Precio actual:{" "}
+              <span className="font-semibold tabular-nums">
+                ${Number(productoSolicitudPrecio.precioUnitario).toLocaleString("es-CO")}
+              </span>
+            </p>
+            <div className="mt-4 space-y-3">
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-gray-700">Precio solicitado</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={precioSolicitadoInput}
+                  onChange={(e) => setPrecioSolicitadoInput(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-gray-700">Motivo</span>
+                <input
+                  type="text"
+                  value={motivoSolicitudPrecio}
+                  onChange={(e) => setMotivoSolicitudPrecio(e.target.value)}
+                  placeholder="Ej. Estrategia comercial de la semana"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-gray-700">Descripcion (opcional)</span>
+                <textarea
+                  rows={3}
+                  value={descripcionSolicitudPrecio}
+                  onChange={(e) => setDescripcionSolicitudPrecio(e.target.value)}
+                  placeholder="Contexto adicional para aprobación en WMS..."
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+                />
+              </label>
+            </div>
+            <div className="mt-2 min-h-5">
+              {errorSolicitudPrecio && <p className="text-sm text-red-700">{errorSolicitudPrecio}</p>}
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={enviandoSolicitudPrecio}
+                onClick={cerrarModalSolicitudPrecio}
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={enviandoSolicitudPrecio}
+                onClick={() => void enviarSolicitudCambioPrecio()}
+                className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50"
+              >
+                {enviandoSolicitudPrecio ? "Enviando..." : "Enviar solicitud"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Sidebar derecho — Cuenta a cobrar (solo en Ventas; visible también en móvil debajo del catálogo) */}
       <aside
@@ -3579,7 +4171,7 @@ export default function CajaPage() {
             </select>
             <p className="mt-1 text-[11px] leading-snug text-gray-500">
               {tipoComprobante === "factura_electronica"
-                ? "Al cobrar se envía a la DIAN vía Alegra si habilitaste el punto en Más → Habilitaciones DIAN → Facturación electrónica."
+                ? "Al cobrar se envía a la DIAN vía Alegra si habilitaste el punto en Espacio Franquiciado → Habilitaciones DIAN → Facturación electrónica."
                 : "Doc. interno no reemplaza una factura electrónica."}
             </p>
           </div>
@@ -3746,9 +4338,15 @@ export default function CajaPage() {
                   <tbody>
                     {itemsCuentaActiva.map((it) => {
                       const sub = totalLineaItem(it);
+                      const detalleVariante = detalleVarianteTicketLinea(it);
                       return (
                         <tr key={it.lineId} className="border-b border-gray-50 last:border-0">
-                          <td className="py-2 pl-2 font-medium text-gray-800">{it.producto.descripcion}</td>
+                          <td className="py-2 pl-2 font-medium text-gray-800">
+                            {it.producto.descripcion}
+                            {detalleVariante ? (
+                              <span className="block text-[11px] font-normal text-gray-500">({detalleVariante})</span>
+                            ) : null}
+                          </td>
                           <td className="py-2 text-center tabular-nums text-gray-700">{it.cantidad}</td>
                           <td className="py-2 pr-2 text-right tabular-nums font-medium text-gray-900">
                             $ {sub.toLocaleString("es-CO")}
@@ -3882,6 +4480,21 @@ export default function CajaPage() {
           onConfirmar={handleConfirmarRegistrarPago}
           onAntesActivarClienteFrecuente={antesActivarClienteFrecuente}
           stickerFidelizacionConfigurado={Boolean(skuStickerFidelizacion())}
+          clienteNumeroIdentificacion={clienteActivoPrecuenta.numeroIdentificacion}
+          puntoVentaParaCrearCliente={user?.puntoVenta ?? undefined}
+          uidParaCrearCliente={user?.uid ?? undefined}
+          onClientePosCreadoDesdeRegistrarPago={(doc) => {
+            setClientesPosLista((prev) => [doc, ...prev.filter((x) => x.id !== doc.id)]);
+            setClientePorPrecuenta((prev) => ({
+              ...prev,
+              [activePrecuentaId]: {
+                id: doc.id,
+                nombreDisplay: nombreDisplayCliente(doc),
+                tipoIdentificacion: doc.tipoIdentificacion,
+                numeroIdentificacion: doc.numeroIdentificacion,
+              },
+            }));
+          }}
         />
       )}
 
@@ -3899,7 +4512,12 @@ export default function CajaPage() {
           const pack = previsualizacionCobro;
           if (!pack) return;
           setPrevisualizacionCobro(null);
-          void ejecutarImpresionPostCobro(pack.ticket);
+          void (async () => {
+            if (pack.ensamblePendiente && pack.ensamblePendiente.lineas.length > 0) {
+              await ejecutarAplicarVentaEnsambleWmsDesdeBody(pack.ensamblePendiente);
+            }
+            await ejecutarImpresionPostCobro(pack.ticket);
+          })();
         }}
         onCancelarTransaccion={() => void handleCancelarTransaccionVistaPrevia()}
       />

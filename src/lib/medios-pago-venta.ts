@@ -60,3 +60,38 @@ export function sumarMediosPagoVentas(rows: MediosPagoVentaGuardados[]): MediosP
   acc.otros = Math.round(acc.otros * 100) / 100;
   return acc;
 }
+
+/**
+ * Ajusta medios para que no superen el total de la venta cuando hubo cambio.
+ * Regla: el excedente se descuenta primero de efectivo (cambio entregado).
+ */
+export function normalizarMediosPagoVenta(
+  medios: MediosPagoVentaGuardados,
+  totalVenta: number
+): MediosPagoVentaGuardados {
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const efectivo = round2(medios.efectivo);
+  const tarjeta = round2(medios.tarjeta);
+  const pagosLinea = round2(medios.pagosLinea);
+  const otros = round2(medios.otros);
+  const total = round2(efectivo + tarjeta + pagosLinea + otros);
+  const totalObjetivo = round2(totalVenta);
+  const excedente = round2(total - totalObjetivo);
+  if (excedente <= 0.009) {
+    return {
+      ...medios,
+      efectivo,
+      tarjeta,
+      pagosLinea,
+      otros,
+    };
+  }
+  const efectivoNeto = round2(Math.max(0, efectivo - excedente));
+  return {
+    ...medios,
+    efectivo: efectivoNeto,
+    tarjeta,
+    pagosLinea,
+    otros,
+  };
+}

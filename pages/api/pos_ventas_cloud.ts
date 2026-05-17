@@ -30,6 +30,22 @@ function docToVenta(id: string, data: DocumentData): VentaGuardadaLocal | null {
   const anuladaEnIso = typeof data.anuladaEnIso === "string" ? data.anuladaEnIso.trim() : "";
   const anuladaPorUid = typeof data.anuladaPorUid === "string" ? data.anuladaPorUid.trim() : "";
 
+  const feNum =
+    typeof data.facturaElectronicaNumero === "string" ? data.facturaElectronicaNumero.trim() : "";
+  const feCufe =
+    typeof data.facturaElectronicaCufe === "string" ? data.facturaElectronicaCufe.trim() : "";
+  const feAt =
+    typeof data.facturaElectronicaEnviadoAt === "string" ? data.facturaElectronicaEnviadoAt.trim() : "";
+  const clienteNombreVenta =
+    typeof data.clienteNombreVenta === "string" ? data.clienteNombreVenta.trim() : "";
+  const clienteNitVenta = typeof data.clienteNitVenta === "string" ? data.clienteNitVenta.trim() : "";
+  const clienteEmailVenta =
+    typeof data.clienteEmailVenta === "string" ? data.clienteEmailVenta.trim() : "";
+  const comprobanteEmailEnviadoAt =
+    typeof data.comprobanteEmailEnviadoAt === "string" ? data.comprobanteEmailEnviadoAt.trim() : "";
+  const comprobanteEmailDestino =
+    typeof data.comprobanteEmailDestino === "string" ? data.comprobanteEmailDestino.trim() : "";
+
   return {
     id,
     fechaYmd,
@@ -47,6 +63,14 @@ function docToVenta(id: string, data: DocumentData): VentaGuardadaLocal | null {
     ...(anulada && anuladaMotivo ? { anuladaMotivo } : {}),
     ...(anulada && anuladaEnIso ? { anuladaEnIso } : {}),
     ...(anulada && anuladaPorUid ? { anuladaPorUid } : {}),
+    ...(feNum ? { facturaElectronicaNumero: feNum } : {}),
+    ...(feCufe ? { facturaElectronicaCufe: feCufe } : {}),
+    ...(feAt ? { facturaElectronicaEnviadoAt: feAt } : {}),
+    ...(clienteNombreVenta ? { clienteNombreVenta } : {}),
+    ...(clienteNitVenta ? { clienteNitVenta } : {}),
+    ...(clienteEmailVenta ? { clienteEmailVenta } : {}),
+    ...(comprobanteEmailEnviadoAt ? { comprobanteEmailEnviadoAt } : {}),
+    ...(comprobanteEmailDestino ? { comprobanteEmailDestino } : {}),
   };
 }
 

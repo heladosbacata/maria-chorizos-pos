@@ -11,6 +11,8 @@ import ComprasGastosFranquiciaPanel from "@/components/ComprasGastosFranquiciaPa
 import PygFranquiciaPanel from "@/components/PygFranquiciaPanel";
 import UsuariosPosRegistradosPanel from "@/components/UsuariosPosRegistradosPanel";
 import PosDianFacturacionPanel from "@/components/PosDianFacturacionPanel";
+import ProductosServiciosFranquiciaPanel from "@/components/ProductosServiciosFranquiciaPanel";
+import VentasDocumentosPosPanel from "@/components/VentasDocumentosPosPanel";
 
 /** Id de la herramienta «Perfil de la organización» en CATEGORIAS */
 const PERFIL_ORGANIZACION_ITEM_ID = "gen-org-perfil";
@@ -23,6 +25,7 @@ const ADMIN_USUARIOS_POS_ITEM_ID = "gen-user-admin";
 /** Id de «Invita a tu contador» */
 const INVITAR_CONTADOR_ITEM_ID = "gen-user-contador";
 /** Ventas → documentos (franquiciado): cotizaciones y remisiones con PDF */
+const VEN_DOC_VIS_ITEM_ID = "ven-doc-vis";
 const VEN_DOC_COT_ITEM_ID = "ven-doc-cot";
 const VEN_DOC_REM_ITEM_ID = "ven-doc-rem";
 /** PyG / estado de resultados simplificado para el franquiciado */
@@ -35,6 +38,8 @@ const CP_CENTRO_ITEM_ID = "cp-centro";
 const PS_POLITICA_ITEM_ID = "ps-politica-catalogo";
 /** Facturación electrónica POS → Alegra / DIAN */
 const DIAN_VEN_FACT_ITEM_ID = "dian-ven-fact";
+/** Misma pantalla que facturación electrónica, abriendo en el paso de NIT y número de resolución */
+const DIAN_VEN_RES_ITEM_ID = "dian-ven-res";
 
 const VISTA_DETALLE_ITEM_IDS = new Set<string>([
   PERFIL_ORGANIZACION_ITEM_ID,
@@ -42,6 +47,7 @@ const VISTA_DETALLE_ITEM_IDS = new Set<string>([
   CONFIG_IMPRESION_POS_GEB_ITEM_ID,
   INVITAR_CONTADOR_ITEM_ID,
   ADMIN_USUARIOS_POS_ITEM_ID,
+  VEN_DOC_VIS_ITEM_ID,
   VEN_DOC_COT_ITEM_ID,
   VEN_DOC_REM_ITEM_ID,
   CONT_PYG_ITEM_ID,
@@ -49,6 +55,7 @@ const VISTA_DETALLE_ITEM_IDS = new Set<string>([
   CP_CENTRO_ITEM_ID,
   PS_POLITICA_ITEM_ID,
   DIAN_VEN_FACT_ITEM_ID,
+  DIAN_VEN_RES_ITEM_ID,
 ]);
 
 export type ConfigCategoriaId =
@@ -129,6 +136,7 @@ const CATEGORIAS: ConfigCategoria[] = [
       {
         titulo: "Documentos",
         items: [
+          { id: VEN_DOC_VIS_ITEM_ID, label: "Ventas y comprobantes" },
           { id: VEN_DOC_COT_ITEM_ID, label: "Cotizaciones" },
           { id: VEN_DOC_REM_ITEM_ID, label: "Remisiones" },
         ],
@@ -228,6 +236,7 @@ export default function ConfiguracionMasModule({ puntoVenta, uid, role }: Config
         PS_POLITICA_ITEM_ID,
         VEN_DOC_COT_ITEM_ID,
         VEN_DOC_REM_ITEM_ID,
+        VEN_DOC_VIS_ITEM_ID,
       ])
   );
 
@@ -419,10 +428,21 @@ export default function ConfiguracionMasModule({ puntoVenta, uid, role }: Config
 
       {/* Panel principal */}
       <div className="min-w-0 flex-1 overflow-y-auto p-6">
-        {vistaDetalleItemId === DIAN_VEN_FACT_ITEM_ID ? (
-          <PosDianFacturacionPanel puntoVenta={puntoVenta} onVolver={() => setVistaDetalleItemId(null)} />
+        {vistaDetalleItemId === DIAN_VEN_FACT_ITEM_ID || vistaDetalleItemId === DIAN_VEN_RES_ITEM_ID ? (
+          <PosDianFacturacionPanel
+            key={vistaDetalleItemId}
+            puntoVenta={puntoVenta}
+            initialStep={vistaDetalleItemId === DIAN_VEN_RES_ITEM_ID ? 2 : 1}
+            onVolver={() => setVistaDetalleItemId(null)}
+          />
         ) : vistaDetalleItemId === PERFIL_ORGANIZACION_ITEM_ID ? (
-          <PerfilOrganizacionForm onVolver={() => setVistaDetalleItemId(null)} />
+          uid ? (
+            <PerfilOrganizacionForm uid={uid} onVolver={() => setVistaDetalleItemId(null)} />
+          ) : (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              Iniciá sesión para cargar y guardar el perfil de la organización.
+            </p>
+          )
         ) : vistaDetalleItemId === CONTRATO_POS_GEB_ITEM_ID ? (
           <ContratoPosGebPanel onVolver={() => setVistaDetalleItemId(null)} />
         ) : vistaDetalleItemId === CONFIG_IMPRESION_POS_GEB_ITEM_ID ? (
@@ -431,6 +451,12 @@ export default function ConfiguracionMasModule({ puntoVenta, uid, role }: Config
           <InvitarContadorPanel onVolver={() => setVistaDetalleItemId(null)} />
         ) : vistaDetalleItemId === ADMIN_USUARIOS_POS_ITEM_ID ? (
           <UsuariosPosRegistradosPanel onVolver={() => setVistaDetalleItemId(null)} />
+        ) : vistaDetalleItemId === VEN_DOC_VIS_ITEM_ID ? (
+          <VentasDocumentosPosPanel
+            puntoVenta={puntoVenta}
+            uid={uid}
+            onVolver={() => setVistaDetalleItemId(null)}
+          />
         ) : vistaDetalleItemId === VEN_DOC_COT_ITEM_ID ? (
           <DocumentoComercialFranquiciaPanel tipo="cotizacion" onVolver={() => setVistaDetalleItemId(null)} />
         ) : vistaDetalleItemId === VEN_DOC_REM_ITEM_ID ? (
@@ -473,46 +499,13 @@ export default function ConfiguracionMasModule({ puntoVenta, uid, role }: Config
             }}
           />
         ) : vistaDetalleItemId === PS_POLITICA_ITEM_ID ? (
-          <div className="mx-auto max-w-2xl space-y-6">
-            <button
-              type="button"
-              onClick={() => {
-                setVistaDetalleItemId(null);
-                setCategoriaActiva("general");
-              }}
-              className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900"
-            >
-              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-              </svg>
-              Configuración
-            </button>
-            <div
-              role="alert"
-              className="rounded-2xl border-2 border-amber-300 bg-gradient-to-b from-amber-50 to-orange-50/90 p-6 shadow-sm ring-1 ring-amber-200/60"
-            >
-              <div className="flex gap-4">
-                <span className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-xl bg-amber-500 text-2xl text-white shadow-md" aria-hidden>
-                  ⚠️
-                </span>
-                <div className="min-w-0 flex-1">
-                  <h3 className="text-lg font-bold text-amber-950">Productos y servicios</h3>
-                  <ul className="mt-4 list-disc space-y-3 pl-5 text-sm leading-relaxed text-amber-950/95">
-                    <li>
-                      La <strong className="font-semibold text-amber-950">creación de nuevos productos</strong> no se realiza
-                      desde este POS. Debe solicitarse mediante la <strong className="font-semibold text-amber-950">app del
-                      franquiciado</strong>, presentando un <strong className="font-semibold text-amber-950">PQRS</strong>.
-                    </li>
-                    <li>
-                      Recordá que <strong className="font-semibold text-amber-950">solo está permitida la venta de productos
-                      autorizados por la marca</strong>. El catálogo que ves en caja proviene de los sistemas centrales (WMS /
-                      hoja autorizada); no agregues ítems por fuera de ese proceso.
-                    </li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-          </div>
+          <ProductosServiciosFranquiciaPanel
+            puntoVenta={puntoVenta}
+            onVolver={() => {
+              setVistaDetalleItemId(null);
+              setCategoriaActiva("general");
+            }}
+          />
         ) : (
           <>
             <div className="mb-4 flex flex-wrap items-start justify-between gap-2">

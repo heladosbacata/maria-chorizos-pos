@@ -20,11 +20,12 @@ import {
   etiquetaCuentaParaGuardado,
   leerNombrePerfilCajeroDesdeLocal,
 } from "@/lib/pos-perfil-cajero-display";
-import type { TicketVentaPayload } from "@/types/impresion-pos";
+import { payloadTicketDesdeVenta } from "@/lib/pos-ticket-desde-venta";
 
 const MAX_LISTA = 60;
 const MAX_RECIBOS_TURNO = 10;
 const MIN_MOTIVO = 5;
+const CLAVE_ANULACION_RECIBO = "MC2026";
 
 function formatoPesos(n: number): string {
   return `$ ${n.toLocaleString("es-CO", { maximumFractionDigits: 0 })}`;
@@ -202,41 +203,6 @@ function PanelDetalleRecibo({ v }: { v: VentaGuardadaLocal }) {
   );
 }
 
-function payloadTicketDesdeVenta(v: VentaGuardadaLocal): TicketVentaPayload {
-  const t = new Date(v.isoTimestamp);
-  const fechaHora = Number.isNaN(t.getTime()) ? v.isoTimestamp : fechaHoraColombia(t);
-  const tieneFe = Boolean(v.facturaElectronicaCufe?.trim() || v.facturaElectronicaNumero?.trim());
-  return {
-    titulo: "TICKET DE VENTA (copia)",
-    puntoVenta: v.puntoVenta,
-    precuentaNombre: "Recibo",
-    fechaHora,
-    clienteNombre: "—",
-    tipoComprobanteLabel: tieneFe ? "Factura electrónica (DIAN)" : "Recibo POS",
-    vendedorLabel: v.cajeroNombre?.trim() || "—",
-    lineas: v.lineas.map((l) => ({
-      descripcion: l.descripcion,
-      cantidad: l.cantidad,
-      precioUnitario: l.precioUnitario,
-      subtotal: Math.round(l.precioUnitario * l.cantidad * 100) / 100,
-      ...(l.detalleVariante?.trim() ? { detalleVariante: l.detalleVariante.trim() } : {}),
-    })),
-    total: v.total,
-    ...(tieneFe
-      ? {
-          facturaElectronica: {
-            ...(v.facturaElectronicaNumero?.trim() ? { numero: v.facturaElectronicaNumero.trim() } : {}),
-            ...(v.facturaElectronicaCufe?.trim() ? { cufe: v.facturaElectronicaCufe.trim() } : {}),
-            ...(v.facturaElectronicaEnviadoAt?.trim() ? { enviadoAt: v.facturaElectronicaEnviadoAt.trim() } : {}),
-          },
-        }
-      : {}),
-    notaPie:
-      (v.pagoResumen?.trim() ? `${v.pagoResumen.trim()}\n` : "") +
-      `Copia · ID ${v.id.slice(0, 24)}…`,
-  };
-}
-
 export interface UltimosRecibosModuleProps {
   uid: string;
   email: string | null;
@@ -269,6 +235,7 @@ export default function UltimosRecibosModule({
   const [perfilTick, setPerfilTick] = useState(0);
   const [modalVenta, setModalVenta] = useState<VentaGuardadaLocal | null>(null);
   const [motivoAnulacion, setMotivoAnulacion] = useState("");
+  const [claveAnulacion, setClaveAnulacion] = useState("");
   const [procesando, setProcesando] = useState(false);
   const [errorModal, setErrorModal] = useState<string | null>(null);
   const [accionId, setAccionId] = useState<string | null>(null);
@@ -318,7 +285,7 @@ export default function UltimosRecibosModule({
     async (v: VentaGuardadaLocal) => {
       setAccionId(v.id);
       try {
-        const payload = payloadTicketDesdeVenta(v);
+        const payload = payloadTicketDesdeVenta(v, { copia: true });
         const prefs = loadImpresionPrefs();
         const reservada = prefs.metodo === "directa" ? reservarVentanaTicketNavegador() : null;
         if (prefs.metodo === "directa") {
@@ -345,6 +312,7 @@ export default function UltimosRecibosModule({
     if (v.anulada) return;
     setErrorModal(null);
     setMotivoAnulacion("");
+    setClaveAnulacion("");
     setModalVenta(v);
   };
 
@@ -352,6 +320,7 @@ export default function UltimosRecibosModule({
     if (procesando) return;
     setModalVenta(null);
     setMotivoAnulacion("");
+    setClaveAnulacion("");
     setErrorModal(null);
   };
 
@@ -361,6 +330,10 @@ export default function UltimosRecibosModule({
     const motivo = motivoAnulacion.trim();
     if (motivo.length < MIN_MOTIVO) {
       setErrorModal(`Escribe al menos ${MIN_MOTIVO} caracteres en el motivo.`);
+      return;
+    }
+    if (claveAnulacion.trim() !== CLAVE_ANULACION_RECIBO) {
+      setErrorModal("Clave de anulación incorrecta.");
       return;
     }
     setProcesando(true);
@@ -387,6 +360,7 @@ export default function UltimosRecibosModule({
       setListaTick((t) => t + 1);
       setModalVenta(null);
       setMotivoAnulacion("");
+      setClaveAnulacion("");
       setErrorModal(null);
       if (fallosSku.length > 0) {
         window.alert(
@@ -600,6 +574,18 @@ export default function UltimosRecibosModule({
                 rows={4}
                 className="mt-2 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-900 focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-100"
                 placeholder="Ej.: Cliente se arrepintió, error de cobro, producto defectuoso…"
+                disabled={procesando}
+              />
+            </label>
+            <label className="mt-4 block">
+              <span className="text-sm font-semibold text-gray-800">Clave de autorización</span>
+              <input
+                type="password"
+                value={claveAnulacion}
+                onChange={(e) => setClaveAnulacion(e.target.value)}
+                className="mt-2 w-full rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-900 focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-100"
+                placeholder="Ingresa la clave para confirmar"
+                autoComplete="off"
                 disabled={procesando}
               />
             </label>

@@ -52,6 +52,44 @@ export interface ProductoPOS {
   descripcion: string;
   categoria?: string;
   precioUnitario: number;
+  precioBase?: number;
+  precioOverride?: number | null;
+  precioPersonalizado?: boolean;
   unidad?: string;
   urlImagen: string | null;
+  variantes?: Array<{
+    clave: string;
+    etiqueta: string;
+    precioVenta?: number | null;
+  }>;
+  preciosPorVariante?: Record<string, number>;
+}
+
+export interface SolicitarCambioPrecioRequest {
+  skuBarcode: string;
+  precioSolicitado: number;
+  motivo: string;
+  descripcion?: string;
+}
+
+export interface SolicitarCambioPrecioResponse {
+  ok: boolean;
+  idSolicitud?: string;
+  message?: string;
+}
+
+export interface SolicitarNuevoProductoRequest {
+  skuSugerido: string;
+  nombreProducto: string;
+  categoria: string;
+  precioSugerido: number;
+  unidad: string;
+  descripcion: string;
+  justificacion: string;
+}
+
+export interface SolicitarNuevoProductoResponse {
+  ok: boolean;
+  idSolicitud?: string;
+  message?: string;
 }

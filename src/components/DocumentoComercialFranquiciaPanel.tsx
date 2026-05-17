@@ -169,7 +169,7 @@ export default function DocumentoComercialFranquiciaPanel({
     setCatalogoError(null);
     try {
       const token = auth?.currentUser ? await auth.currentUser.getIdToken() : null;
-      const res = await getCatalogoPOS(token);
+      const res = await getCatalogoPOS(token, puntoVenta);
       if (res.ok && res.productos) setCatalogo(res.productos);
       else setCatalogoError(res.message ?? "No se pudo cargar el catálogo.");
     } catch {

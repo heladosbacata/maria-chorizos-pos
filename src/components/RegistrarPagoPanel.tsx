@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import ClienteFrecuenteAvisoModal from "@/components/ClienteFrecuenteAvisoModal";
+import ClienteFrecuenteDocumentoModal from "@/components/ClienteFrecuenteDocumentoModal";
+import type { PlanMillasClienteResumen } from "@/lib/plan-millas-validar-resumen";
+import type { ClientePosFirestoreDoc } from "@/types/clientes-pos";
 import { formatPesosCop, parsePesosCopInput } from "@/lib/pesos-cop-input";
 
 const TIPO_PAGO_OTRO = "Otro";
@@ -47,6 +50,12 @@ export interface RegistrarPagoPanelProps {
   onAntesActivarClienteFrecuente?: () => Promise<{ ok: true } | { ok: false; message: string }>;
   /** Si false, el despliegue no tiene SKU de sticker: no se descuenta inventario pero el QR de fidelización sigue disponible. */
   stickerFidelizacionConfigurado?: boolean;
+  /** Número de documento del cliente elegido en la venta (prellena la validación del plan de millas). */
+  clienteNumeroIdentificacion?: string;
+  /** Crear cliente POS desde el modal plan de millas (misma base que caja). */
+  puntoVentaParaCrearCliente?: string;
+  uidParaCrearCliente?: string;
+  onClientePosCreadoDesdeRegistrarPago?: (doc: ClientePosFirestoreDoc) => void;
 }
 
 type LineaOnline = { id: string; tipo: string; tipoOtro: string; montoStr: string };
@@ -69,6 +78,10 @@ export default function RegistrarPagoPanel({
   onConfirmar,
   onAntesActivarClienteFrecuente,
   stickerFidelizacionConfigurado = true,
+  clienteNumeroIdentificacion,
+  puntoVentaParaCrearCliente,
+  uidParaCrearCliente,
+  onClientePosCreadoDesdeRegistrarPago,
 }: RegistrarPagoPanelProps) {
   const baseId = useId();
   const [tab, setTab] = useState<"contado">("contado");
@@ -80,6 +93,8 @@ export default function RegistrarPagoPanel({
   const [clienteFrecuenteActivo, setClienteFrecuenteActivo] = useState(false);
   const [avisoClienteFrecuenteOpen, setAvisoClienteFrecuenteOpen] = useState(false);
   const [aplicandoClienteFrecuente, setAplicandoClienteFrecuente] = useState(false);
+  const [modalValidacionDocFrecuente, setModalValidacionDocFrecuente] = useState(false);
+  const [planMillasResumenTrasValidar, setPlanMillasResumenTrasValidar] = useState<PlanMillasClienteResumen | null>(null);
 
   const resetForm = useCallback(() => {
     setTab("contado");
@@ -90,6 +105,8 @@ export default function RegistrarPagoPanel({
     setClienteFrecuenteActivo(false);
     setAvisoClienteFrecuenteOpen(false);
     setAplicandoClienteFrecuente(false);
+    setModalValidacionDocFrecuente(false);
+    setPlanMillasResumenTrasValidar(null);
   }, []);
 
   useEffect(() => {
@@ -116,6 +133,31 @@ export default function RegistrarPagoPanel({
   const cambio = useMemo(() => Math.max(0, Math.round((totalPagado - totalAPagar) * 100) / 100), [totalAPagar, totalPagado]);
 
   const cubreTotal = totalPagado + EPS >= totalAPagar;
+
+  const activarClienteFrecuenteTrasValidarWms = useCallback(
+    async (resumen?: PlanMillasClienteResumen): Promise<boolean> => {
+      setPlanMillasResumenTrasValidar(
+        resumen && Object.keys(resumen).length > 0 ? { ...resumen } : null
+      );
+      if (onAntesActivarClienteFrecuente) {
+        setAplicandoClienteFrecuente(true);
+        try {
+          const r = await onAntesActivarClienteFrecuente();
+          if (!r.ok) {
+            window.alert(r.message);
+            setPlanMillasResumenTrasValidar(null);
+            return false;
+          }
+        } finally {
+          setAplicandoClienteFrecuente(false);
+        }
+      }
+      setClienteFrecuenteActivo(true);
+      setAvisoClienteFrecuenteOpen(true);
+      return true;
+    },
+    [onAntesActivarClienteFrecuente]
+  );
 
   const setNumLineasOnline = (n: number) => {
     const next = Math.max(1, Math.min(8, n));
@@ -490,28 +532,13 @@ export default function RegistrarPagoPanel({
             type="button"
             disabled={cobrando || aplicandoClienteFrecuente}
             onClick={() => {
-              void (async () => {
-                if (cobrando || aplicandoClienteFrecuente) return;
-                if (clienteFrecuenteActivo) {
-                  setAvisoClienteFrecuenteOpen(false);
-                  setClienteFrecuenteActivo(false);
-                  return;
-                }
-                if (onAntesActivarClienteFrecuente) {
-                  setAplicandoClienteFrecuente(true);
-                  try {
-                    const r = await onAntesActivarClienteFrecuente();
-                    if (!r.ok) {
-                      window.alert(r.message);
-                      return;
-                    }
-                  } finally {
-                    setAplicandoClienteFrecuente(false);
-                  }
-                }
-                setClienteFrecuenteActivo(true);
-                setAvisoClienteFrecuenteOpen(true);
-              })();
+              if (cobrando || aplicandoClienteFrecuente) return;
+              if (clienteFrecuenteActivo) {
+                setAvisoClienteFrecuenteOpen(false);
+                setClienteFrecuenteActivo(false);
+                return;
+              }
+              setModalValidacionDocFrecuente(true);
             }}
             aria-pressed={clienteFrecuenteActivo}
             aria-busy={aplicandoClienteFrecuente}
@@ -531,13 +558,13 @@ export default function RegistrarPagoPanel({
               ? stickerFidelizacionConfigurado
                 ? clienteFrecuenteActivo
                   ? "El ticket llevará QR para sumar puntos en la app María Chorizos. Ya se descontó 1 sticker de fidelización en inventario."
-                  : "Activá antes de cobrar: se descuenta 1 sticker de fidelización y el aviso recuerda qué decirle al cliente (app, tarjeta y QR)."
+                  : "Primero validamos el documento en el plan de millas (WMS); si corresponde, se descuenta 1 sticker y el aviso recuerda qué decirle al cliente (app, tarjeta y QR)."
                 : clienteFrecuenteActivo
                   ? "El ticket llevará QR para sumar puntos en la app María Chorizos."
-                  : "Activá antes de cobrar para el QR de fidelización. En este despliegue no está configurado el descuento automático de sticker en inventario."
+                  : "Primero validamos el documento en el plan de millas (WMS). Luego podés activar el QR de fidelización (sin descuento automático de sticker en este despliegue)."
               : clienteFrecuenteActivo
                 ? "El ticket llevará QR para sumar puntos en la app María Chorizos."
-                : "Activá antes de cobrar si el cliente quiere acumular puntos."}
+                : "Primero validamos el documento en el plan de millas (WMS). Activá antes de cobrar si el cliente quiere acumular puntos."}
           </p>
           {!cubreTotal && (
             <p className="mt-2 text-center text-xs text-amber-700">Registra pagos que sumen al menos el total a pagar.</p>
@@ -545,9 +572,19 @@ export default function RegistrarPagoPanel({
         </aside>
       </div>
     </div>
+    <ClienteFrecuenteDocumentoModal
+      open={modalValidacionDocFrecuente}
+      documentoInicial={clienteNumeroIdentificacion?.trim()}
+      onCancel={() => setModalValidacionDocFrecuente(false)}
+      onClienteRegistradoEnPlanMillas={(resumen) => activarClienteFrecuenteTrasValidarWms(resumen)}
+      puntoVentaPos={puntoVentaParaCrearCliente}
+      uidUsuarioPos={uidParaCrearCliente}
+      onClientePosCreado={onClientePosCreadoDesdeRegistrarPago}
+    />
     <ClienteFrecuenteAvisoModal
       open={avisoClienteFrecuenteOpen}
       onCerrar={() => setAvisoClienteFrecuenteOpen(false)}
+      planMillasResumen={planMillasResumenTrasValidar}
     />
     </>
   );

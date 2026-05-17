@@ -19,6 +19,7 @@ import {
   type ResumenDiaCajero,
   type VentaGuardadaLocal,
 } from "@/lib/pos-ventas-local-storage";
+import type { MovimientoCajaTurno, TipoMovimientoCaja } from "@/lib/turno-movimientos-caja";
 
 export interface CajeroReportesDashboardProps {
   /** Firebase uid: sesión y carga de ventas en nube. El reporte agrega por punto de venta (todos los cajeros). */
@@ -26,6 +27,15 @@ export interface CajeroReportesDashboardProps {
   puntoVenta: string | null;
   /** Contador / soporte: muestra el mensaje de error crudo si falla la lista en nube (p. ej. índice Firestore). En caja habitual se omite. */
   mostrarDetalleErrorNube?: boolean;
+  turnoActivo?: {
+    abierto: boolean;
+    totalIngresoEfectivo: number;
+    totalRetiroEfectivo: number;
+    movimientosCaja: MovimientoCajaTurno[];
+    onRegistrarMovimiento?: (input: { tipo: TipoMovimientoCaja; monto: number; motivo: string }) => {
+      ok: true;
+    } | { ok: false; message: string };
+  } | null;
 }
 
 function formatMoney(n: number): string {
@@ -43,6 +53,7 @@ export default function CajeroReportesDashboard({
   uid,
   puntoVenta,
   mostrarDetalleErrorNube = false,
+  turnoActivo = null,
 }: CajeroReportesDashboardProps) {
   const u = (uid ?? "").trim();
   const pv = (puntoVenta ?? "").trim();
@@ -55,6 +66,9 @@ export default function CajeroReportesDashboard({
   const [nubeAviso, setNubeAviso] = useState<string | null>(null);
   /** `null` = cargando o aún no hubo intento con sesión+PV; `true` = GET nube OK; `false` = falló. */
   const [nubeSincronizada, setNubeSincronizada] = useState<boolean | null>(null);
+  const [tipoMovimiento, setTipoMovimiento] = useState<TipoMovimientoCaja>("ingreso");
+  const [montoMovimiento, setMontoMovimiento] = useState("");
+  const [motivoMovimiento, setMotivoMovimiento] = useState("");
 
   useEffect(() => {
     if (!u || !pv) {
@@ -149,6 +163,26 @@ export default function CajeroReportesDashboard({
     day: "numeric",
     month: "long",
   });
+  const netoCajaTurno = (turnoActivo?.totalIngresoEfectivo ?? 0) - (turnoActivo?.totalRetiroEfectivo ?? 0);
+
+  const registrarMovimientoCaja = () => {
+    if (!turnoActivo?.abierto || !turnoActivo.onRegistrarMovimiento) {
+      window.alert("No hay un turno abierto para registrar movimientos de caja.");
+      return;
+    }
+    const montoNormalizado = Number(String(montoMovimiento).replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", "."));
+    const r = turnoActivo.onRegistrarMovimiento({
+      tipo: tipoMovimiento,
+      monto: Number.isFinite(montoNormalizado) ? montoNormalizado : 0,
+      motivo: motivoMovimiento,
+    });
+    if (!r.ok) {
+      window.alert(r.message);
+      return;
+    }
+    setMontoMovimiento("");
+    setMotivoMovimiento("");
+  };
 
   return (
     <div className="mx-auto max-w-4xl space-y-8 pb-10">
@@ -241,6 +275,157 @@ export default function CajeroReportesDashboard({
           <p className="mt-2 text-sm font-medium text-gray-800/80">Tickets del día en el punto de venta</p>
         </div>
       </div>
+
+      <section className="rounded-2xl border-2 border-emerald-100 bg-white p-5 shadow-sm md:p-8">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-xl font-bold text-gray-900">Movimientos de caja</h3>
+            <p className="mt-1 text-sm text-gray-500">
+              Registra ingresos o retiros manuales del turno para que el cierre de caja quede sincronizado.
+            </p>
+          </div>
+          <div className="rounded-xl bg-emerald-50 px-4 py-3 text-sm">
+            <p className="font-semibold text-emerald-900">Neto del turno</p>
+            <p className={`mt-1 text-lg font-bold tabular-nums ${netoCajaTurno >= 0 ? "text-emerald-700" : "text-red-600"}`}>
+              {formatMoney(netoCajaTurno)}
+            </p>
+          </div>
+        </div>
+
+        {!turnoActivo?.abierto ? (
+          <p className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            Debes tener un turno abierto para registrar ingresos y retiros de caja.
+          </p>
+        ) : (
+          <>
+            <div className="mt-5 grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+              <div className="rounded-2xl border border-gray-100 bg-gray-50/70 p-4">
+                <p className="text-sm font-semibold text-gray-900">Registrar movimiento</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTipoMovimiento("ingreso")}
+                    className={`rounded-full px-4 py-2 text-sm font-semibold ${
+                      tipoMovimiento === "ingreso"
+                        ? "bg-emerald-600 text-white"
+                        : "bg-white text-gray-700 ring-1 ring-gray-200"
+                    }`}
+                  >
+                    Ingreso
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTipoMovimiento("retiro")}
+                    className={`rounded-full px-4 py-2 text-sm font-semibold ${
+                      tipoMovimiento === "retiro"
+                        ? "bg-rose-600 text-white"
+                        : "bg-white text-gray-700 ring-1 ring-gray-200"
+                    }`}
+                  >
+                    Retiro
+                  </button>
+                </div>
+                <div className="mt-4 grid gap-3">
+                  <label className="text-sm">
+                    <span className="mb-1 block font-medium text-gray-700">Monto</span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={montoMovimiento}
+                      onChange={(e) => setMontoMovimiento(e.target.value)}
+                      placeholder="20000"
+                      className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none ring-0 focus:border-emerald-400"
+                    />
+                  </label>
+                  <label className="text-sm">
+                    <span className="mb-1 block font-medium text-gray-700">Motivo</span>
+                    <textarea
+                      rows={3}
+                      value={motivoMovimiento}
+                      onChange={(e) => setMotivoMovimiento(e.target.value)}
+                      placeholder={tipoMovimiento === "ingreso" ? "Ej. franquiciado entregó efectivo adicional" : "Ej. compra de aseo"}
+                      className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none ring-0 focus:border-emerald-400"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={registrarMovimientoCaja}
+                    className="rounded-xl bg-emerald-600 px-4 py-3 text-sm font-bold text-white hover:bg-emerald-700"
+                  >
+                    Guardar movimiento
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-gray-100 bg-gray-50/70 p-4">
+                <p className="text-sm font-semibold text-gray-900">Resumen del turno</p>
+                <div className="mt-3 space-y-2 text-sm">
+                  <div className="flex justify-between gap-3">
+                    <span className="text-gray-600">Ingresos acumulados</span>
+                    <span className="font-semibold text-emerald-700">{formatMoney(turnoActivo.totalIngresoEfectivo)}</span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-gray-600">Retiros acumulados</span>
+                    <span className="font-semibold text-rose-700">{formatMoney(turnoActivo.totalRetiroEfectivo)}</span>
+                  </div>
+                  <div className="flex justify-between gap-3 border-t border-gray-200 pt-2">
+                    <span className="text-gray-700">Neto ingresos - retiros</span>
+                    <span className={`font-bold ${netoCajaTurno >= 0 ? "text-emerald-700" : "text-red-600"}`}>
+                      {formatMoney(netoCajaTurno)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-5 rounded-2xl border border-gray-100 bg-white">
+              <div className="border-b border-gray-100 px-4 py-3">
+                <p className="text-sm font-semibold text-gray-900">Historial del turno</p>
+              </div>
+              {turnoActivo.movimientosCaja.length === 0 ? (
+                <p className="px-4 py-6 text-sm text-gray-500">Aún no hay ingresos ni retiros registrados en este turno.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full text-sm">
+                    <thead className="bg-gray-50 text-left text-gray-600">
+                      <tr>
+                        <th className="px-4 py-2.5 font-semibold">Fecha</th>
+                        <th className="px-4 py-2.5 font-semibold">Tipo</th>
+                        <th className="px-4 py-2.5 font-semibold">Motivo</th>
+                        <th className="px-4 py-2.5 font-semibold">Registró</th>
+                        <th className="px-4 py-2.5 text-right font-semibold">Monto</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {turnoActivo.movimientosCaja.map((mov) => (
+                        <tr key={mov.id}>
+                          <td className="px-4 py-2.5 text-gray-700">
+                            {fechaHoraColombia(new Date(mov.creadoEnIso), { dateStyle: "short", timeStyle: "short" })}
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <span
+                              className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                mov.tipo === "ingreso" ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"
+                              }`}
+                            >
+                              {mov.tipo === "ingreso" ? "Ingreso" : "Retiro"}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-gray-800">{mov.motivo}</td>
+                          <td className="px-4 py-2.5 text-gray-600">{mov.creadoPor.nombreDisplay}</td>
+                          <td className="px-4 py-2.5 text-right font-semibold tabular-nums text-gray-900">
+                            {formatMoney(mov.monto)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </section>
 
       {/* Semana visual */}
       <section className="rounded-2xl border-2 border-gray-100 bg-white p-5 shadow-sm">

@@ -14,6 +14,9 @@ function formatCop(n: number): string {
 export interface TicketPrevisualizacionModalProps {
   open: boolean;
   ticket: TicketVentaPayload | null;
+  /** Consulta histórica (ventas y comprobantes): permite cerrar sin imprimir. */
+  modoConsulta?: boolean;
+  onCerrar?: () => void;
   /** Cierra el modal y dispara el flujo de impresión; toda venta debe salir con recibo. */
   onImprimir: () => void;
   /**
@@ -30,6 +33,8 @@ export interface TicketPrevisualizacionModalProps {
 export default function TicketPrevisualizacionModal({
   open,
   ticket,
+  modoConsulta = false,
+  onCerrar,
   onImprimir,
   onCancelarTransaccion,
   cancelandoTransaccion = false,
@@ -74,10 +79,19 @@ export default function TicketPrevisualizacionModal({
       <div className="relative z-[1] flex max-h-[min(92vh,780px)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-slate-200/80 bg-white shadow-2xl">
         <div className="border-b border-slate-100 bg-gradient-to-r from-slate-50 to-amber-50/30 px-5 py-4">
           <h2 id="ticket-prev-titulo" className="text-lg font-bold text-slate-900">
-            Vista previa del comprobante
+            {modoConsulta ? "Comprobante entregado al cliente" : "Vista previa del comprobante"}
           </h2>
           <p className="mt-1 text-sm text-slate-600">
-            Tirilla 58 mm · Tocá <span className="font-semibold text-slate-800">Imprimir</span> para continuar.
+            {modoConsulta ? (
+              <>
+                Tirilla 58 mm tal como se imprimió al cobrar. Podés{" "}
+                <span className="font-semibold text-slate-800">reimprimir</span> o cerrar.
+              </>
+            ) : (
+              <>
+                Tirilla 58 mm · Tocá <span className="font-semibold text-slate-800">Imprimir</span> para continuar.
+              </>
+            )}
             {onCancelarTransaccion ? (
               <>
                 {" "}
@@ -200,6 +214,16 @@ export default function TicketPrevisualizacionModal({
         </div>
 
         <div className="flex flex-shrink-0 flex-col gap-2 border-t border-slate-100 bg-slate-50/90 px-5 py-4 sm:flex-row sm:flex-wrap sm:justify-end">
+          {modoConsulta && onCerrar ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onCerrar}
+              className="w-full rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-800 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:order-1 sm:w-auto"
+            >
+              Cerrar
+            </button>
+          ) : null}
           {onCancelarTransaccion ? (
             <button
               type="button"

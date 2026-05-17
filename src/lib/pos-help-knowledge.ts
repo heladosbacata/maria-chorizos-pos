@@ -14,6 +14,7 @@ export type PosGebHelpArticle = {
     | "inventarios"
     | "metasBonificaciones"
     | "reportes"
+    | "planMillas"
     | "mas";
   dataTutorialTarget?: string;
 };
@@ -103,6 +104,31 @@ const ARTICULOS: PosGebHelpArticle[] = [
     moduloSugerido: "reportes",
   },
   {
+    id: "plan-millas-consulta",
+    title: "Plan de millas — consulta y premios",
+    summary: "Consultá puntos del cliente por cédula y mostrá el catálogo de premios del Club María Chorizos.",
+    pasos: [
+      "En el menú izquierdo, debajo de «Reportes», entrá a «Plan de millas».",
+      "Escribí el número de documento del cliente y tocá «Consultar puntos».",
+      "Revisá los puntos acumulados y qué premios puede reclamar (verde = alcanza).",
+      "El canje lo hace el cliente en el portal club-de-millas con su PIN.",
+    ],
+    keywords: [
+      "millas",
+      "plan de millas",
+      "club",
+      "puntos",
+      "premios",
+      "fidelización",
+      "cliente frecuente",
+      "cédula",
+      "documento",
+      "reclamar",
+    ],
+    moduloSugerido: "planMillas",
+    dataTutorialTarget: "nav-plan-millas",
+  },
+  {
     id: "inventario-cargue",
     title: "Cargue de inventario",
     summary: "Registrar entradas por producto, lote o listas.",
@@ -140,14 +166,14 @@ const ARTICULOS: PosGebHelpArticle[] = [
   },
   {
     id: "mas-config",
-    title: "Menú «Más» y configuración",
-    summary: "Herramientas avanzadas protegidas por clave.",
+    title: "Espacio para franquiciados y configuración",
+    summary: "Herramientas avanzadas protegidas por clave (candado).",
     pasos: [
-      "Tocá «Más» en el menú lateral.",
+      "Tocá «Espacio para franquiciados» (candado) en el menú lateral.",
       "Ingresá la clave maestra que te proporcionó el administrador.",
       "Ahí encontrás cajeros de turno, impresión, contrato POS y más ajustes.",
     ],
-    keywords: ["más", "configuración", "config", "clave", "maestra", "admin", "cajeros de turno", "impresión"],
+    keywords: ["más", "espacio franquiciado", "franquiciado", "candado", "configuración", "config", "clave", "maestra", "admin", "cajeros de turno", "impresión"],
     moduloSugerido: "mas",
     dataTutorialTarget: "nav-mas",
   },

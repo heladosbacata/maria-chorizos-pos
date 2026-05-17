@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { crearClientePos } from "@/lib/clientes-pos-firestore";
 import type { ClientePosFirestoreDoc, TipoClientePos } from "@/types/clientes-pos";
 
@@ -20,9 +20,21 @@ export interface CrearClientePosModalProps {
   puntoVenta: string;
   uid: string;
   onCreado: (doc: ClientePosFirestoreDoc) => void;
+  /** z-index del overlay (p. ej. `z-[115]` encima del modal plan de millas `z-[105]`). */
+  portalZClassName?: string;
+  /** Al abrir (`open` pasa a true), prellena número de identificación una vez. */
+  numeroIdentificacionInicial?: string;
 }
 
-export default function CrearClientePosModal({ open, onClose, puntoVenta, uid, onCreado }: CrearClientePosModalProps) {
+export default function CrearClientePosModal({
+  open,
+  onClose,
+  puntoVenta,
+  uid,
+  onCreado,
+  portalZClassName = "z-[60]",
+  numeroIdentificacionInicial,
+}: CrearClientePosModalProps) {
   const [tipoCliente, setTipoCliente] = useState<TipoClientePos>("persona");
   const [tipoIdentificacion, setTipoIdentificacion] = useState("CC");
   const [numeroIdentificacion, setNumeroIdentificacion] = useState("");
@@ -40,6 +52,15 @@ export default function CrearClientePosModal({ open, onClose, puntoVenta, uid, o
 
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const prevOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (open && !prevOpenRef.current) {
+      const s = numeroIdentificacionInicial?.trim();
+      if (s) setNumeroIdentificacion(s);
+    }
+    prevOpenRef.current = open;
+  }, [open, numeroIdentificacionInicial]);
 
   const mostrarDv = tipoIdentificacion === "NIT";
 
@@ -95,6 +116,11 @@ export default function CrearClientePosModal({ open, onClose, puntoVenta, uid, o
       setError(r.message);
       return;
     }
+    if (r.bienvenidaCorreoError && email.trim()) {
+      window.alert(
+        `Cliente creado, pero no se pudo enviar el correo de bienvenida al plan de millas.\n\n${r.bienvenidaCorreoError}\n\nRevisá en Vercel SMTP, Zoho o Resend (mismo que el informe de cierre).`
+      );
+    }
     const doc: ClientePosFirestoreDoc = {
       id: r.id,
       puntoVenta: puntoVenta.trim(),
@@ -122,7 +148,12 @@ export default function CrearClientePosModal({ open, onClose, puntoVenta, uid, o
   const labelClass = "block text-sm font-medium text-gray-700";
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center p-0 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="crear-cliente-titulo">
+    <div
+      className={`fixed inset-0 ${portalZClassName} flex items-end justify-center p-0 sm:items-center sm:p-4`}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="crear-cliente-titulo"
+    >
       <button type="button" className="absolute inset-0 bg-black/50" aria-label="Cerrar" onClick={handleClose} />
       <div className="relative flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl border border-gray-200 bg-white shadow-2xl sm:rounded-2xl">
         <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 sm:px-5">
@@ -137,8 +168,14 @@ export default function CrearClientePosModal({ open, onClose, puntoVenta, uid, o
         </div>
 
         <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-5">
-          <p className="text-xs text-gray-500">
-            Punto de venta: <span className="font-medium text-gray-700">{puntoVenta}</span>. Los datos quedan guardados en el POS para futuras compras y fidelización.
+          <p className="text-xs leading-relaxed text-gray-500">
+            <span className="font-medium text-gray-700">Mismo formulario y mismos campos</span> que el alta de cliente en el
+            sistema central (WMS): tipo y número de identificación, persona o empresa, nombre o razón social, correo y teléfono
+            (y datos complementarios opcionales). Punto de venta:{" "}
+            <span className="font-medium text-gray-700">{puntoVenta}</span>. Los datos quedan en la base del POS de la
+            franquicia; en el servidor se puede configurar la réplica al WMS para mantener una sola definición de cliente.
+            Si indicás un correo válido, el cliente recibe un e-mail de bienvenida al plan de millas con una clave de 4 dígitos
+            y enlaces para consultar puntos.
           </p>
 
           <fieldset className="mt-4">
@@ -250,6 +287,9 @@ export default function CrearClientePosModal({ open, onClose, puntoVenta, uid, o
             <div className="mt-3">
               <label className={labelClass}>Correo electrónico</label>
               <input className={inputClass} type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+              <p className="mt-1 text-xs text-gray-500">
+                Opcional para facturación. Si es válido, se envía bienvenida al plan de millas (clave de 4 dígitos + enlace a tu plan).
+              </p>
             </div>
 
             <div className="mt-3 flex gap-2">

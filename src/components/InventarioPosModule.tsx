@@ -3,11 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { fetchCatalogoInsumosDesdeSheet } from "@/lib/catalogo-insumos-sheet-client";
+import { getCatalogoPOS } from "@/lib/catalogo-pos";
 import { db } from "@/lib/firebase";
 import {
   escribirMinimoInventarioLocal,
   leerMinimosInventarioLocal,
 } from "@/lib/inventario-minimos-local-storage";
+import { mergeCatalogoInventarioBase, mergeCatalogoInventarioConProductosPos } from "@/lib/inventario-pos-catalogo";
 import type { InsumoKitItem, InventarioMovimientoDoc, TipoMovimientoInventario } from "@/types/inventario-pos";
 import { fechaColombia, fechaHoraColombia, mediodiaColombiaDesdeYmd } from "@/lib/fecha-colombia";
 import { normPuntoVentaCatalogo } from "@/lib/punto-venta-catalogo-norm";
@@ -37,6 +39,96 @@ import {
 } from "@/lib/wms-aplicar-venta-ensamble";
 
 type Pestaña = "stock" | "movimiento" | "historial";
+type FuenteCatalogoInventario = "sheet" | "firestore" | "wms";
+
+const INVENTARIO_CATALOGO_CACHE_PREFIX = "pos_mc_inventario_catalogo_v3";
+const HISTORIAL_LIMITE_STOCK = 80;
+const HISTORIAL_LIMITE_COMPLETO = 150;
+
+type CatalogoInventarioCache = {
+  items: InsumoKitItem[];
+  fuenteCatalogo: FuenteCatalogoInventario | null;
+  incluyeCatalogoPos: boolean;
+  productosPosAgregados: number;
+  savedAtIso: string;
+};
+
+function claveCacheCatalogoInventario(puntoVenta: string): string {
+  return `${INVENTARIO_CATALOGO_CACHE_PREFIX}:${normPuntoVentaCatalogo(puntoVenta) || puntoVenta.trim()}`;
+}
+
+function leerCacheCatalogoInventario(puntoVenta: string): CatalogoInventarioCache | null {
+  if (typeof window === "undefined" || !puntoVenta.trim()) return null;
+  try {
+    const raw = localStorage.getItem(claveCacheCatalogoInventario(puntoVenta));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CatalogoInventarioCache;
+    if (!parsed || !Array.isArray(parsed.items)) return null;
+    return {
+      items: parsed.items,
+      fuenteCatalogo:
+        parsed.fuenteCatalogo === "sheet" || parsed.fuenteCatalogo === "firestore" || parsed.fuenteCatalogo === "wms"
+          ? parsed.fuenteCatalogo
+          : null,
+      incluyeCatalogoPos: parsed.incluyeCatalogoPos === true,
+      productosPosAgregados:
+        typeof parsed.productosPosAgregados === "number" && Number.isFinite(parsed.productosPosAgregados)
+          ? parsed.productosPosAgregados
+          : 0,
+      savedAtIso: typeof parsed.savedAtIso === "string" ? parsed.savedAtIso : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+function guardarCacheCatalogoInventario(puntoVenta: string, payload: Omit<CatalogoInventarioCache, "savedAtIso">) {
+  if (typeof window === "undefined" || !puntoVenta.trim()) return;
+  try {
+    localStorage.setItem(
+      claveCacheCatalogoInventario(puntoVenta),
+      JSON.stringify({
+        ...payload,
+        savedAtIso: new Date().toISOString(),
+      } satisfies CatalogoInventarioCache)
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+function PremiumHourglassIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 64 64" fill="none" aria-hidden>
+      <defs>
+        <linearGradient id="inv-hourglass-frame" x1="12" y1="8" x2="52" y2="56" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#FDE68A" />
+          <stop offset="0.5" stopColor="#F59E0B" />
+          <stop offset="1" stopColor="#B45309" />
+        </linearGradient>
+        <linearGradient id="inv-hourglass-sand" x1="24" y1="16" x2="40" y2="48" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#FFF7CC" />
+          <stop offset="1" stopColor="#F59E0B" />
+        </linearGradient>
+      </defs>
+      <rect x="18" y="8" width="28" height="4" rx="2" fill="url(#inv-hourglass-frame)" />
+      <rect x="18" y="52" width="28" height="4" rx="2" fill="url(#inv-hourglass-frame)" />
+      <path
+        d="M22 12h20c0 9-6.5 12-10 14.5C28.5 24 22 21 22 12Zm0 40h20c0-9-6.5-12-10-14.5C28.5 40 22 43 22 52Z"
+        fill="url(#inv-hourglass-sand)"
+        fillOpacity="0.95"
+      />
+      <path
+        d="M22 12c0 9 6.5 12 10 14.5C35.5 24 42 21 42 12M22 52c0-9 6.5-12 10-14.5C35.5 40 42 43 42 52M24 16h16M24 48h16"
+        stroke="url(#inv-hourglass-frame)"
+        strokeWidth="3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M29 33h6l-3 4-3-4Z" fill="url(#inv-hourglass-frame)" className="origin-center animate-pulse" />
+    </svg>
+  );
+}
 
 /** Tipos disponibles en «Registrar movimiento». El cargue va en el módulo «Cargue inventario». */
 const TIPOS_MOVIMIENTO: { value: TipoMovimientoInventario; label: string; ayuda: string }[] = [
@@ -81,7 +173,9 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     () => new Map()
   );
   const [minimosUsuario, setMinimosUsuario] = useState<Map<string, number>>(new Map());
-  const [fuenteCatalogo, setFuenteCatalogo] = useState<"sheet" | "firestore" | null>(null);
+  const [fuenteCatalogo, setFuenteCatalogo] = useState<FuenteCatalogoInventario | null>(null);
+  const [incluyeCatalogoPos, setIncluyeCatalogoPos] = useState(false);
+  const [productosPosAgregados, setProductosPosAgregados] = useState(0);
   const [avisoCatalogo, setAvisoCatalogo] = useState<string | null>(null);
   const [avisoPvHoja, setAvisoPvHoja] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
@@ -92,6 +186,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
   const [minInputTick, setMinInputTick] = useState(0);
 
   const [busqueda, setBusqueda] = useState("");
+  const [categoriaFiltro, setCategoriaFiltro] = useState("");
   const [movInsumoId, setMovInsumoId] = useState("");
   const [movTipo, setMovTipo] = useState<TipoMovimientoInventario>("salida_danio");
   const [movCantidad, setMovCantidad] = useState("");
@@ -129,6 +224,16 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     return () => window.removeEventListener("pos-ultimo-ensamble-actualizado", onEvt);
   }, [refrescarDiagEnsamble]);
 
+  useEffect(() => {
+    if (!pv) return;
+    const cache = leerCacheCatalogoInventario(pv);
+    if (!cache || cache.items.length === 0) return;
+    setInsumos(cache.items);
+    setFuenteCatalogo(cache.fuenteCatalogo);
+    setIncluyeCatalogoPos(cache.incluyeCatalogoPos);
+    setProductosPosAgregados(cache.productosPosAgregados);
+  }, [pv]);
+
   const cargarTodo = useCallback(async () => {
     if (!pv) {
       setInsumos([]);
@@ -136,6 +241,8 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       setSaldosPorClaveMap(new Map());
       setMinimosUsuario(new Map());
       setFuenteCatalogo(null);
+      setIncluyeCatalogoPos(false);
+      setProductosPosAgregados(0);
       setAvisoCatalogo(null);
       setAvisoPvHoja(null);
       setCargando(false);
@@ -146,18 +253,34 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     setError(null);
     setAvisoCatalogo(null);
     setAvisoPvHoja(null);
+    const cacheExistente = leerCacheCatalogoInventario(pv);
     try {
-      const [sheetRes, saldosPack] = await Promise.all([
+      const [sheetRes, saldosPack, posRes, listaFs] = await Promise.all([
         fetchCatalogoInsumosDesdeSheet(pv),
         listarSaldosInventarioConFuentePorPuntoVenta(pv),
+        getCatalogoPOS(null, pv),
+        listarInsumosKitPorPuntoVenta(pv),
       ]);
+      const productosPos = posRes.ok ? posRes.productos ?? [] : [];
       setSaldoRows(saldosPack.saldoRows);
       setSaldosPorClaveMap(saldosPack.porClave);
       setMinimosUsuario(leerMinimosInventarioLocal(uid, pv));
+      setIncluyeCatalogoPos(productosPos.length > 0);
 
       if (sheetRes.ok && sheetRes.data.length > 0) {
-        setInsumos(sheetRes.data);
+        // La hoja suele listar paquetes/ensambles; Firestore puede tener componentes (p. ej. chorizo suelto).
+        // Unificamos como en caja: hoja preferente + ítems extra desde «DB_Franquicia_Insumos_Kit».
+        const mergedBase = mergeCatalogoInventarioBase(sheetRes.data, listaFs);
+        const merged = mergeCatalogoInventarioConProductosPos(mergedBase, productosPos);
+        setInsumos(merged.items);
         setFuenteCatalogo("sheet");
+        setProductosPosAgregados(merged.agregados);
+        guardarCacheCatalogoInventario(pv, {
+          items: merged.items,
+          fuenteCatalogo: "sheet",
+          incluyeCatalogoPos: productosPos.length > 0,
+          productosPosAgregados: merged.agregados,
+        });
         setError(null);
         if (sheetRes.pvFiltroSinCoincidencias) {
           setAvisoPvHoja(
@@ -165,12 +288,26 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
           );
         }
       } else {
-        const lista = await listarInsumosKitPorPuntoVenta(pv);
-        setInsumos(lista);
-        setFuenteCatalogo("firestore");
-        if (lista.length === 0) {
+        const merged = mergeCatalogoInventarioConProductosPos(listaFs, productosPos);
+        setInsumos(merged.items);
+        setProductosPosAgregados(merged.agregados);
+        const fuenteFinal: FuenteCatalogoInventario = listaFs.length > 0 ? "firestore" : "wms";
+        setFuenteCatalogo(fuenteFinal);
+        if (merged.items.length > 0) {
+          guardarCacheCatalogoInventario(pv, {
+            items: merged.items,
+            fuenteCatalogo: fuenteFinal,
+            incluyeCatalogoPos: productosPos.length > 0,
+            productosPosAgregados: merged.agregados,
+          });
+        }
+        if (merged.items.length === 0) {
           setError(
             `No hay ítems en la hoja ni en «${CATALOGO_INSUMOS_KIT_COLLECTION}» para «${pv}». Revisá la hoja DB_Franquicia_Insumos_Kit (columna PV si aplica) o documentos en Firestore.`
+          );
+        } else if (listaFs.length === 0 && productosPos.length > 0) {
+          setAvisoCatalogo(
+            "No se encontró catálogo base de insumos para este punto. Se muestran también los productos del catálogo POS (DB_POS_Productos / WMS) para que queden reflejados en Inventarios."
           );
         } else if (sheetRes.message) {
           setAvisoCatalogo(
@@ -180,8 +317,14 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       }
     } catch {
       setError("No se pudo cargar el catálogo de insumos.");
-      setInsumos([]);
-      setFuenteCatalogo(null);
+      if (!cacheExistente || cacheExistente.items.length === 0) {
+        setInsumos([]);
+        setFuenteCatalogo(null);
+        setIncluyeCatalogoPos(false);
+        setProductosPosAgregados(0);
+      } else {
+        setAvisoCatalogo("Mostrando el último catálogo guardado mientras se recupera la conexión.");
+      }
     } finally {
       setCargando(false);
       refrescarDiagEnsamble();
@@ -306,11 +449,11 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     };
   }, [pv]);
 
-  const cargarHistorial = useCallback(async () => {
+  const cargarHistorial = useCallback(async (limite = HISTORIAL_LIMITE_COMPLETO) => {
     if (!pv) return;
     setCargandoHist(true);
     try {
-      const rows = await listarMovimientosInventario(pv, 150);
+      const rows = await listarMovimientosInventario(pv, limite);
       setHistorial(rows);
     } catch {
       setHistorial([]);
@@ -320,7 +463,14 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
   }, [pv]);
 
   useEffect(() => {
-    if ((pestaña === "stock" || pestaña === "historial") && pv) void cargarHistorial();
+    if (!pv) return;
+    if (pestaña === "stock") {
+      void cargarHistorial(HISTORIAL_LIMITE_STOCK);
+      return;
+    }
+    if (pestaña === "historial") {
+      void cargarHistorial(HISTORIAL_LIMITE_COMPLETO);
+    }
   }, [pestaña, pv, cargarHistorial]);
 
   const historialAjustesSaldoDesdeStock = useMemo(() => {
@@ -431,7 +581,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     }
     cerrarModalAjusteSaldo();
     setMensajeOk("Ajuste de saldo registrado.");
-    void cargarHistorial();
+    void cargarHistorial(pestaña === "historial" ? HISTORIAL_LIMITE_COMPLETO : HISTORIAL_LIMITE_STOCK);
   }, [
     ajusteSaldoModal,
     pv,
@@ -441,12 +591,14 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     email,
     cerrarModalAjusteSaldo,
     cargarHistorial,
+    pestaña,
   ]);
 
   const filasStock = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
+    const categoriaActiva = categoriaFiltro.trim().toLowerCase();
     const base = insumos.map((i) => {
-      const { saldo, editable: saldoEditableClic } = saldoMostradoYFuenteParaInsumoKit(
+      const { saldo, editable: saldoEditableClic, costoUnitarioReferencia } = saldoMostradoYFuenteParaInsumoKit(
         i,
         saldosPorClaveMap,
         saldoRows
@@ -456,26 +608,52 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       const minSheet = i.minimoSugeridoSheet;
       const minimoEfectivo = minUsuario ?? minSheet ?? null;
       const bajoMinimo = minimoEfectivo != null && saldo < minimoEfectivo;
+      const valorStockAprox =
+        costoUnitarioReferencia != null && Number.isFinite(saldo)
+          ? Math.round(saldo * costoUnitarioReferencia * 100) / 100
+          : null;
       return {
         ...i,
         saldo,
         saldoEditableClic,
+        costoUnitarioReferencia,
+        valorStockAprox,
         minimoEfectivo,
         minimoUsuario: minUsuario,
         minimoSheet: minSheet,
         bajoMinimo,
       };
     });
-    if (!q) return base;
-    return base.filter(
-      (r) =>
+    return base.filter((r) => {
+      const coincideCategoria =
+        !categoriaActiva || (r.categoria?.trim().toLowerCase() ?? "") === categoriaActiva;
+      if (!coincideCategoria) return false;
+      if (!q) return true;
+      return (
         r.sku.toLowerCase().includes(q) ||
         r.descripcion.toLowerCase().includes(q) ||
         (r.categoria && r.categoria.toLowerCase().includes(q))
-    );
-  }, [insumos, saldoRows, saldosPorClaveMap, minimosUsuario, busqueda]);
+      );
+    });
+  }, [insumos, saldoRows, saldosPorClaveMap, minimosUsuario, busqueda, categoriaFiltro]);
+
+  const categoriasDisponibles = useMemo(() => {
+    return Array.from(
+      new Set(insumos.map((i) => i.categoria?.trim()).filter((categoria): categoria is string => Boolean(categoria)))
+    ).sort((a, b) => a.localeCompare(b, "es"));
+  }, [insumos]);
 
   const cantidadBajoMinimo = useMemo(() => filasStock.filter((r) => r.bajoMinimo).length, [filasStock]);
+
+  const totalInventarioValorizado = useMemo(() => {
+    let t = 0;
+    for (const r of filasStock) {
+      if (r.costoUnitarioReferencia != null && Number.isFinite(r.saldo)) {
+        t += r.saldo * r.costoUnitarioReferencia;
+      }
+    }
+    return Math.round(t);
+  }, [filasStock]);
 
   const insumoSeleccionable = useMemo(() => {
     return insumos.find((i) => i.id === movInsumoId) ?? null;
@@ -516,7 +694,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     setMovCantidad("");
     setMovNotas("");
     await cargarTodo();
-    void cargarHistorial();
+    void cargarHistorial(pestaña === "historial" ? HISTORIAL_LIMITE_COMPLETO : HISTORIAL_LIMITE_STOCK);
   };
 
   if (!pv) {
@@ -535,7 +713,13 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
           {fuenteCatalogo && (
             <p className="mt-2 text-xs font-medium text-primary-700">
               Catálogo activo:{" "}
-              {fuenteCatalogo === "sheet" ? "hoja Google (DB_Franquicia_Insumos_Kit)" : `Firestore «${CATALOGO_INSUMOS_KIT_COLLECTION}»`}
+              {fuenteCatalogo === "sheet"
+                ? "hoja Google (DB_Franquicia_Insumos_Kit)"
+                : fuenteCatalogo === "firestore"
+                  ? `Firestore «${CATALOGO_INSUMOS_KIT_COLLECTION}»`
+                  : "catálogo POS (DB_POS_Productos / WMS)"}
+              {incluyeCatalogoPos && fuenteCatalogo !== "wms" ? " + catálogo POS (WMS)" : ""}
+              {productosPosAgregados > 0 ? ` · ${productosPosAgregados} producto(s) POS agregados` : ""}
             </p>
           )}
           <p className="mt-2 text-xs font-medium text-primary-700">Punto de venta: {pv}</p>
@@ -752,13 +936,28 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       {pestaña === "stock" && (
         <div className="rounded-xl border border-gray-200 bg-white shadow-sm">
           <div className="border-b border-gray-100 p-4">
-            <input
-              type="search"
-              placeholder="Buscar por código, nombre o categoría…"
-              value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
-              className="w-full max-w-md rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
-            />
+            <div className="flex flex-col gap-3 md:flex-row md:items-center">
+              <input
+                type="search"
+                placeholder="Buscar por código, nombre o categoría…"
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
+                className="w-full max-w-md rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+              />
+              <select
+                value={categoriaFiltro}
+                onChange={(e) => setCategoriaFiltro(e.target.value)}
+                className="w-full max-w-xs rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+                aria-label="Filtrar por categoría"
+              >
+                <option value="">Todas las categorías</option>
+                {categoriasDisponibles.map((categoria) => (
+                  <option key={categoria} value={categoria}>
+                    {categoria}
+                  </option>
+                ))}
+              </select>
+            </div>
             <p className="mt-2 max-w-2xl text-xs text-gray-600">
               <span className="font-medium text-gray-800">Saldo actual:</span> si el valor viene del inventario POS (cargue),
               podés hacer clic para ajustarlo tras ingresar la clave. Si el saldo lo marca solo el{" "}
@@ -766,6 +965,22 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
               <span className="font-medium">Registrar movimiento</span> o el backoffice del WMS. El ícono de{" "}
               <span className="font-medium">ojo</span> al lado muestra los últimos movimientos de ese producto (POS + WMS).
             </p>
+            {!cargando && filasStock.length > 0 && (
+              <p className="mt-3 text-sm text-gray-800">
+                <span className="font-semibold text-gray-900">Inventario valorizado (costo aprox.):</span>{" "}
+                <span className="tabular-nums font-medium text-primary-800">
+                  {totalInventarioValorizado.toLocaleString("es-CO", {
+                    style: "currency",
+                    currency: "COP",
+                    maximumFractionDigits: 0,
+                  })}
+                </span>
+                <span className="mt-1 block text-xs font-normal text-gray-500">
+                  Suma saldo × costo medio por ítem (desde cargues con precio). Si un producto muestra «—» en costo, no
+                  entra en el total hasta que registres un cargue con precio.
+                </span>
+              </p>
+            )}
             {!cargando && cantidadBajoMinimo > 0 && (
               <div
                 className="mt-4 flex items-start gap-3 rounded-xl border border-amber-400/70 bg-gradient-to-r from-amber-50 to-orange-50/90 px-4 py-3 text-sm text-amber-950 shadow-sm"
@@ -796,8 +1011,18 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                 <tr>
                   <th className="px-4 py-3">Código</th>
                   <th className="px-4 py-3">Descripción</th>
+                  <th className="px-4 py-3">Categoría</th>
                   <th className="px-4 py-3">Unidad</th>
                   <th className="px-4 py-3 text-right">Saldo actual</th>
+                  <th
+                    className="min-w-[7rem] px-4 py-3 text-right"
+                    title="Costo medio ponderado (COP/unidad) según cargues POS."
+                  >
+                    Costo unit. (COP)
+                  </th>
+                  <th className="min-w-[7rem] px-4 py-3 text-right" title="Saldo actual × costo unitario aproximado.">
+                    Valor stock
+                  </th>
                   <th className="min-w-[9rem] px-4 py-3 text-right">Mín. sugerido</th>
                   <th className="w-px whitespace-nowrap px-3 py-3 text-center" title="Icono si conviene pedir">
                     Alerta
@@ -805,15 +1030,29 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {cargando ? (
+                {cargando && filasStock.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center text-gray-500">
-                      Cargando catálogo…
+                    <td colSpan={9} className="px-4 py-10 text-center">
+                      <div className="mx-auto flex max-w-md flex-col items-center gap-4 rounded-2xl border border-amber-200/70 bg-gradient-to-b from-amber-50 via-white to-orange-50/70 px-6 py-7 text-center shadow-[0_14px_40px_-22px_rgba(180,130,40,0.5)]">
+                        <div className="relative">
+                          <div className="absolute inset-0 rounded-full bg-amber-300/35 blur-xl" />
+                          <PremiumHourglassIcon className="relative h-16 w-16 drop-shadow-[0_8px_18px_rgba(180,130,40,0.28)]" />
+                        </div>
+                        <div>
+                          <p className="text-base font-semibold tracking-tight text-amber-950">Cargando inventario</p>
+                          <p className="mt-1 text-sm text-amber-900/80">
+                            Consultando hoja, Firestore y catálogo POS para mostrar el stock más actualizado.
+                          </p>
+                        </div>
+                        <div className="h-1.5 w-full overflow-hidden rounded-full bg-amber-100">
+                          <div className="h-full w-1/2 animate-[pulse_1.4s_ease-in-out_infinite] rounded-full bg-gradient-to-r from-amber-400 via-yellow-500 to-amber-600" />
+                        </div>
+                      </div>
                     </td>
                   </tr>
                 ) : filasStock.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-12 text-center text-gray-500">
+                    <td colSpan={9} className="px-4 py-12 text-center text-gray-500">
                       Sin ítems para mostrar.
                     </td>
                   </tr>
@@ -832,6 +1071,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                       >
                         <td className="px-4 py-2.5 font-mono text-xs text-gray-800">{row.sku}</td>
                         <td className="px-4 py-2.5 text-gray-900">{row.descripcion}</td>
+                        <td className="px-4 py-2.5 text-gray-600">{row.categoria?.trim() || "—"}</td>
                         <td className="px-4 py-2.5 text-gray-600">{row.unidad}</td>
                         <td className="px-4 py-2.5 text-right align-middle">
                           <div className="inline-flex max-w-full items-center justify-end gap-1.5">
@@ -893,6 +1133,24 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                               </svg>
                             </button>
                           </div>
+                        </td>
+                        <td className="px-4 py-2.5 text-right align-middle tabular-nums text-gray-700">
+                          {row.costoUnitarioReferencia != null
+                            ? row.costoUnitarioReferencia.toLocaleString("es-CO", {
+                                style: "currency",
+                                currency: "COP",
+                                maximumFractionDigits: 0,
+                              })
+                            : "—"}
+                        </td>
+                        <td className="px-4 py-2.5 text-right align-middle tabular-nums text-gray-800">
+                          {row.valorStockAprox != null
+                            ? row.valorStockAprox.toLocaleString("es-CO", {
+                                style: "currency",
+                                currency: "COP",
+                                maximumFractionDigits: 0,
+                              })
+                            : "—"}
                         </td>
                         <td className="px-4 py-2 text-right align-middle">
                           <div className="flex flex-col items-end gap-0.5">

@@ -571,12 +571,38 @@ export default function TurnosHistorialModule({
                   <p>Otros: $ {fmtCop(detalle.totalesMediosVentas.otros)}</p>
                 </div>
                 <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Cierre (tickets + base)</p>
-                  <p className="mt-1">Efectivo (base + ventas efectivo): $ {fmtCop(detalle.cierre.efectivoReal)}</p>
-                  <p>Tarjeta: $ {fmtCop(detalle.cierre.tarjeta)}</p>
-                  <p>En línea: $ {fmtCop(detalle.cierre.pagosLinea)}</p>
-                  <p>Otros: $ {fmtCop(detalle.cierre.otrosMedios)}</p>
+                  <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Resumen del cierre</p>
+                  <p className="mt-1">Total cierre calculado: $ {fmtCop(detalle.cierre.totalIngresado)}</p>
+                  <p>Total referencia sistema: $ {fmtCop(detalle.cierre.totalEsperado)}</p>
+                  <p className={Math.abs(detalle.cierre.diferencia) > 0.009 ? "font-medium text-red-600" : "font-medium text-emerald-700"}>
+                    Diferencia: $ {fmtCop(detalle.cierre.diferencia)}
+                  </p>
+                  <p className="mt-2 text-xs text-gray-500">
+                    El efectivo esperado ya incluye base inicial, ventas en efectivo y movimientos netos de caja del turno.
+                  </p>
                 </div>
+              </div>
+              <div className="mt-4 rounded-lg border border-gray-100 bg-gray-50 p-3">
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Movimientos de caja</p>
+                <p className="mt-1 text-gray-700">Ingresos: $ {fmtCop(detalle.totalIngresoEfectivo)}</p>
+                <p className="text-gray-700">Retiros: $ {fmtCop(detalle.totalRetiroEfectivo)}</p>
+                {detalle.movimientosCaja.length === 0 ? (
+                  <p className="mt-2 text-xs text-gray-500">Sin movimientos manuales registrados en este turno.</p>
+                ) : (
+                  <ul className="mt-2 space-y-1 text-xs text-gray-700">
+                    {detalle.movimientosCaja.map((mov) => (
+                      <li key={mov.id} className="rounded border border-gray-100 bg-white px-2 py-1.5">
+                        <span className="font-medium">{mov.tipo === "ingreso" ? "Ingreso" : "Retiro"}</span>
+                        {" · "}
+                        {fmtFechaCorta(mov.creadoEnIso)}
+                        {" · "}
+                        $ {fmtCop(mov.monto)}
+                        {" · "}
+                        {mov.motivo}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
               <h3 className="mt-5 font-semibold text-gray-900">Productos vendidos</h3>
               <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto rounded border border-gray-100 bg-white p-2 text-xs">
