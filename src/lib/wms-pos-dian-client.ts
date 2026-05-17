@@ -10,6 +10,7 @@ export type DianConfigResponse = {
   ok: true;
   emisorNit: string;
   alegraCompanyId: string;
+  dianResolutionNumber: string;
   habilitado: boolean;
 };
 
@@ -22,6 +23,8 @@ export type DianPingOk = {
     minNumber: number;
     maxNumber: number;
   };
+  /** Notas del WMS (sandbox, FAJ43b, etc.) */
+  notasDian?: string[];
 };
 
 export type PosCobroLineaPayload = {
@@ -50,6 +53,7 @@ export async function wmsPosDianConfigGet(
       ok: true,
       emisorNit: String(data.emisorNit ?? ""),
       alegraCompanyId: String(data.alegraCompanyId ?? ""),
+      dianResolutionNumber: String(data.dianResolutionNumber ?? ""),
       habilitado: Boolean(data.habilitado),
     };
   } catch (e) {
@@ -59,7 +63,12 @@ export async function wmsPosDianConfigGet(
 
 export async function wmsPosDianConfigPut(
   idToken: string,
-  body: { emisorNit: string; alegraCompanyId?: string; habilitado: boolean }
+  body: {
+    emisorNit: string;
+    alegraCompanyId?: string;
+    habilitado: boolean;
+    dianResolutionNumber?: string;
+  }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const t = idToken?.trim();
   if (!t) return { ok: false, error: "Sin sesión." };
