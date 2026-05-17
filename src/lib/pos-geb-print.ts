@@ -63,6 +63,12 @@ export function construirTextoTicketPlano(
     rows.push(line(`  $ ${l.subtotal.toLocaleString("es-CO")}`));
   }
   rows.push("-".repeat(W));
+  const dIva = payload.desgloseIvaPreciosIncluidos;
+  if (dIva && (dIva.subtotalSinIva > 0 || dIva.iva > 0)) {
+    rows.push(line(`Subtotal (sin IVA): $ ${dIva.subtotalSinIva.toLocaleString("es-CO")}`));
+    rows.push(line(`IVA ${dIva.tasaPorcentaje}%: $ ${dIva.iva.toLocaleString("es-CO")}`));
+    rows.push("-".repeat(W));
+  }
   rows.push(line(`TOTAL: $ ${payload.total.toLocaleString("es-CO")}`));
   const fe = payload.facturaElectronica;
   if (fe && (fe.cufe?.trim() || fe.numero?.trim())) {
@@ -209,6 +215,15 @@ function construirHtmlTirillaTicket(
     })
     .join("");
 
+  const dIva = p.desgloseIvaPreciosIncluidos;
+  const desgloseIvaHtml =
+    dIva && (dIva.subtotalSinIva > 0 || dIva.iva > 0)
+      ? `<div class="iva-desglose">
+    <div class="iva-row"><span class="iva-k">Subtotal (sin IVA)</span><span class="iva-v">$ ${escapeHtml(formatCopTicket(dIva.subtotalSinIva))}</span></div>
+    <div class="iva-row"><span class="iva-k">IVA ${escapeHtml(String(dIva.tasaPorcentaje))}%</span><span class="iva-v">$ ${escapeHtml(formatCopTicket(dIva.iva))}</span></div>
+  </div>`
+      : "";
+
   const qrBlock =
     payload.fidelizacionQrDataUrl?.trim() != null && payload.fidelizacionQrDataUrl.trim() !== ""
       ? `<div class="qr">
@@ -296,6 +311,17 @@ function construirHtmlTirillaTicket(
   .li-t { flex: 1; min-width: 0; line-height: 1.35; }
   .li-p { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .muted { color: #64748b; font-weight: 400; font-size: 8px; }
+  .iva-desglose {
+    margin-top: 8px;
+    padding: 6px 8px;
+    background: #f1f5f9;
+    border-radius: 6px;
+    font-size: 8px;
+    line-height: 1.45;
+  }
+  .iva-row { display: flex; justify-content: space-between; gap: 8px; margin: 3px 0; }
+  .iva-k { color: #64748b; font-weight: 600; }
+  .iva-v { font-weight: 700; font-variant-numeric: tabular-nums; }
   .total {
     margin-top: 10px;
     padding: 8px 10px;
@@ -384,6 +410,7 @@ function construirHtmlTirillaTicket(
   </div>
   <div class="rule"></div>
   ${lineasHtml}
+  ${desgloseIvaHtml}
   <div class="total"><span>TOTAL</span><span>$ ${escapeHtml(formatCopTicket(p.total))}</span></div>
   ${
     p.facturaElectronica &&

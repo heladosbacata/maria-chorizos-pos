@@ -485,7 +485,7 @@ export default function RegistrarPagoPanel({
             </div>
             <div className="my-3 border-t border-slate-100" />
             <div className="flex justify-between gap-2">
-              <dt className="text-slate-600">Subtotal</dt>
+              <dt className="text-slate-600">Subtotal (sin IVA)</dt>
               <dd className="tabular-nums text-slate-900">${formatPesosCop(subtotal)}</dd>
             </div>
             <div className="flex justify-between gap-2">
@@ -493,14 +493,18 @@ export default function RegistrarPagoPanel({
               <dd className="tabular-nums text-slate-900">${formatPesosCop(descuento)}</dd>
             </div>
             <div className="flex justify-between gap-2">
-              <dt className="text-slate-600">Total IVA</dt>
+              <dt className="text-slate-600">IVA discriminado</dt>
               <dd className="tabular-nums text-slate-900">${formatPesosCop(iva)}</dd>
             </div>
             <div className="flex justify-between gap-2">
-              <dt className="text-slate-600">Total bruto</dt>
+              <dt className="text-slate-600">Total (IVA incluido)</dt>
               <dd className="tabular-nums font-medium text-slate-900">${formatPesosCop(totalBruto)}</dd>
             </div>
           </dl>
+          <p className="mt-2 text-[11px] leading-snug text-slate-500">
+            Los precios de venta incluyen IVA; el desglose usa la tasa configurada para facturación electrónica (por
+            defecto 19 %).
+          </p>
 
           <div className="mt-5 rounded-xl border border-sky-200 bg-sky-50/90 px-4 py-4 text-center">
             <p className="text-xs font-medium uppercase tracking-wide text-sky-800">Total a pagar</p>

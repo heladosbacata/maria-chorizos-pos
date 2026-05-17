@@ -82,6 +82,7 @@ import {
   montoDescuentoLinea,
   subtotalNetoLinea,
 } from "@/lib/item-cuenta-linea";
+import { resumenIvaDesdeTotalConIvaIncluido } from "@/lib/iva-precios-incluidos";
 import {
   mediosPagoDesdeDetalle,
   normalizarMediosPagoVenta,
@@ -1377,6 +1378,10 @@ export default function CajaPage() {
 
   const itemsCuentaActiva = itemsPorPrecuenta[activePrecuentaId] ?? [];
   const totalCuentaActiva = itemsCuentaActiva.reduce((sum, i) => sum + totalLineaItem(i), 0);
+  const resumenIvaCobro = useMemo(
+    () => resumenIvaDesdeTotalConIvaIncluido(totalCuentaActiva),
+    [totalCuentaActiva]
+  );
 
   const construirPayloadTicket = useCallback(
     (titulo: string, items: ItemCuenta[], notaPie?: string): TicketVentaPayload | null => {
@@ -1386,6 +1391,14 @@ export default function CajaPage() {
       const nombrePrecuenta = precuentas.find((p) => p.id === activePrecuentaId)?.nombre ?? "Cuenta";
       const vendedorTicket =
         cajeroTurnoActivo?.nombreDisplay?.trim() || user?.email?.split("@")[0]?.trim() || "—";
+      const rIva =
+        tipoComprobante === "factura_electronica" && total > 0
+          ? resumenIvaDesdeTotalConIvaIncluido(total)
+          : null;
+      const desgloseIvaPreciosIncluidos =
+        rIva && rIva.total > 0
+          ? { subtotalSinIva: rIva.subtotalSinIva, iva: rIva.iva, tasaPorcentaje: rIva.tasaPorcentaje }
+          : undefined;
       return {
         titulo,
         puntoVenta: pv,
@@ -1396,6 +1409,7 @@ export default function CajaPage() {
         vendedorLabel: vendedorTicket,
         lineas: lineasTicketDesdeItemsCuenta(items),
         total,
+        ...(desgloseIvaPreciosIncluidos ? { desgloseIvaPreciosIncluidos } : {}),
         ...(notaPie ? { notaPie } : {}),
       };
     },
@@ -4471,11 +4485,11 @@ export default function CajaPage() {
           }}
           numProductos={itemsCuentaActiva.reduce((s, i) => s + i.cantidad, 0)}
           clienteNombre={clienteActivoPrecuenta.nombreDisplay}
-          subtotal={totalCuentaActiva}
+          subtotal={resumenIvaCobro.subtotalSinIva}
           descuento={0}
-          iva={0}
-          totalBruto={totalCuentaActiva}
-          totalAPagar={totalCuentaActiva}
+          iva={resumenIvaCobro.iva}
+          totalBruto={resumenIvaCobro.total}
+          totalAPagar={resumenIvaCobro.total}
           cobrando={cobrando}
           onConfirmar={handleConfirmarRegistrarPago}
           onAntesActivarClienteFrecuente={antesActivarClienteFrecuente}

@@ -182,6 +182,21 @@ export default function TicketPrevisualizacionModal({
               ))}
             </ul>
 
+            {ticket.desgloseIvaPreciosIncluidos &&
+            (ticket.desgloseIvaPreciosIncluidos.subtotalSinIva > 0 ||
+              ticket.desgloseIvaPreciosIncluidos.iva > 0) ? (
+              <div className="mt-2 space-y-1 rounded-md bg-slate-100 px-2 py-2 text-[8px] text-slate-700">
+                <div className="flex justify-between gap-2 font-medium">
+                  <span>Subtotal (sin IVA)</span>
+                  <span className="tabular-nums">$ {formatCop(ticket.desgloseIvaPreciosIncluidos.subtotalSinIva)}</span>
+                </div>
+                <div className="flex justify-between gap-2 font-medium">
+                  <span>IVA {ticket.desgloseIvaPreciosIncluidos.tasaPorcentaje}%</span>
+                  <span className="tabular-nums">$ {formatCop(ticket.desgloseIvaPreciosIncluidos.iva)}</span>
+                </div>
+              </div>
+            ) : null}
+
             <div className="mt-3 flex items-center justify-between rounded-md bg-slate-900 px-2.5 py-2 text-[11px] font-extrabold tracking-wide text-white">
               <span>TOTAL</span>
               <span className="tabular-nums">$ {formatCop(ticket.total)}</span>

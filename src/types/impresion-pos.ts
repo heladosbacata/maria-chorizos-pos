@@ -36,6 +36,15 @@ export interface TicketVentaPayload {
   vendedorLabel: string;
   lineas: TicketVentaLinea[];
   total: number;
+  /**
+   * Desglose cuando los precios incluyen IVA (p. ej. factura electrónica / referencia DIAN).
+   * No sustituye el detalle legal del PDF DIAN; es resumen en tirilla.
+   */
+  desgloseIvaPreciosIncluidos?: {
+    subtotalSinIva: number;
+    iva: number;
+    tasaPorcentaje: number;
+  };
   /** Pie del ticket (pre-cuenta vs venta cobrada). */
   notaPie?: string;
   /** PNG data URL para impresión en navegador (programa cliente frecuente). */
