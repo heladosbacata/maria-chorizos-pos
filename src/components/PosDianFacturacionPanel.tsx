@@ -6,6 +6,7 @@ import { auth } from "@/lib/firebase";
 import type { DianPingOk, DianPingResult } from "@/lib/wms-pos-dian-client";
 import {
   wmsPosAlegraPingPos,
+  wmsPosAlegraSyncResoluciones,
   wmsPosDianConfigGet,
   wmsPosDianConfigPut,
 } from "@/lib/wms-pos-dian-client";
@@ -70,6 +71,8 @@ export default function PosDianFacturacionPanel({
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [probando, setProbando] = useState(false);
+  const [confirmandoPaso3, setConfirmandoPaso3] = useState(false);
+  const [mensajeSheetGuardado, setMensajeSheetGuardado] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [pingOk, setPingOk] = useState<string | null>(null);
   /** Sincronización automática al editar NIT / id empresa (pasos 2 y 3). */
@@ -105,6 +108,10 @@ export default function PosDianFacturacionPanel({
       setCargando(false);
     }
   }, [user]);
+
+  useEffect(() => {
+    if (step !== 4) setMensajeSheetGuardado(null);
+  }, [step]);
 
   useEffect(() => {
     void cargar();
@@ -321,12 +328,66 @@ export default function PosDianFacturacionPanel({
     }
   };
 
-  const confirmarPaso3 = useCallback(() => {
+  const confirmarPaso3 = async () => {
     if (sincAuto || syncPreview?.kind !== "ok") return;
+    if (!user) {
+      setError("No hay sesión.");
+      return;
+    }
+    setConfirmandoPaso3(true);
     setError(null);
-    setPingOk(textoPingDesdeOk(syncPreview.data));
-    setStep(4);
-  }, [sincAuto, syncPreview]);
+    try {
+      const token = await auth?.currentUser?.getIdToken();
+      if (!token) {
+        setError("No hay sesión.");
+        return;
+      }
+      const nit = nitSoloDigitos(emisorNit) || emisorNit.trim();
+      const put = await wmsPosDianConfigPut(token, {
+        emisorNit: nit,
+        alegraCompanyId: alegraCompanyId.trim(),
+        dianResolutionNumber: dianResolutionNumber.trim(),
+        habilitado: false,
+      });
+      if (!put.ok) {
+        setError(put.error);
+        return;
+      }
+      const sync = await wmsPosAlegraSyncResoluciones(token, {
+        nitEmisor: nit,
+        alegraCompanyId: alegraCompanyId.trim() || undefined,
+      });
+      if (!sync.ok) {
+        setError(sync.error);
+        return;
+      }
+      const detalleServidor = [sync.message, sync.sandboxMetaResolucion].filter(Boolean).join("\n\n");
+      const alerta = [
+        "Confirmación",
+        "",
+        "La información de tu punto (resolución DIAN y empresa Alegra) ya se guardó en la base de datos del centro María Chorizos:",
+        "hoja Google Sheets «DB_ResolucionesDian» en el servidor WMS.",
+        "",
+        detalleServidor ? `Detalle del servidor:\n${detalleServidor}` : "",
+      ]
+        .filter((l) => l !== "")
+        .join("\n");
+      window.alert(alerta);
+      const banner = [
+        "Listo: los datos ya están en la base del WMS (Google Sheets «DB_ResolucionesDian»).",
+        sync.message ? ` ${sync.message}` : "",
+      ]
+        .join("")
+        .trim();
+      setMensajeSheetGuardado(banner);
+      setPingOk(textoPingDesdeOk(syncPreview.data));
+      setStep(4);
+    } catch {
+      setError("No se pudo sincronizar con el servidor. Reintentá en unos segundos.");
+    } finally {
+      setConfirmandoPaso3(false);
+    }
+  };
 
   const deshabilitar = async () => {
     if (!user) return;
@@ -489,6 +550,10 @@ export default function PosDianFacturacionPanel({
                 Si la verificación muestra error, no actives la facturación todavía: escribinos a administración con tu
                 NIT y número de resolución para que lo revisemos en el sistema.
               </p>
+              <p className="text-xs text-sky-900/80">
+                Al pulsar «Confirmar y continuar», además de avanzar, el POS envía tu NIT y empresa Alegra al WMS para
+                registrar o actualizar la fila en la hoja <strong>DB_ResolucionesDian</strong> (Google Sheets).
+              </p>
               <div className="flex flex-wrap gap-2 border-t border-gray-100 pt-4">
                 <button
                   type="button"
@@ -502,11 +567,11 @@ export default function PosDianFacturacionPanel({
                 </button>
                 <button
                   type="button"
-                  disabled={sincAuto || syncPreview?.kind !== "ok"}
-                  onClick={() => confirmarPaso3()}
+                  disabled={sincAuto || syncPreview?.kind !== "ok" || confirmandoPaso3}
+                  onClick={() => void confirmarPaso3()}
                   className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-gray-900 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Confirmar y continuar
+                  {confirmandoPaso3 ? "Guardando en base de datos…" : "Confirmar y continuar"}
                 </button>
               </div>
               {!sincAuto && syncPreview?.kind !== "ok" && nitSoloDigitos(emisorNit).length >= 8 ? (
@@ -522,6 +587,14 @@ export default function PosDianFacturacionPanel({
               <p className="text-sm text-gray-600">
                 Hacé una prueba completa: el sistema confirma que tu punto puede emitir facturas electrónicas con la DIAN.
               </p>
+              {mensajeSheetGuardado ? (
+                <div
+                  className="rounded-xl border border-emerald-300 bg-emerald-100 px-4 py-3 text-sm font-medium text-emerald-950"
+                  role="status"
+                >
+                  {mensajeSheetGuardado}
+                </div>
+              ) : null}
               <button
                 type="button"
                 disabled={probando || nitSoloDigitos(emisorNit).length < 8}

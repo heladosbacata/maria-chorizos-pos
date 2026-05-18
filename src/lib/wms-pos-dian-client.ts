@@ -4,6 +4,7 @@
 
 const PATH_DIAN_CONFIG = "/api/pos_dian_config";
 const PATH_PING = "/api/pos_alegra_ping_pos";
+const PATH_SYNC_RESOLUCIONES = "/api/pos_alegra_sync_resoluciones";
 const PATH_EMITIR = "/api/pos_alegra_emitir_cobro";
 
 export type DianConfigResponse = {
@@ -113,6 +114,75 @@ function parseEmpresaAlegra(raw: unknown): DianPingOk["empresaAlegra"] | undefin
     name,
     identification: String(o.identification ?? "").trim(),
   };
+}
+
+export type DianSyncResolucionesResult =
+  | {
+      ok: true;
+      synced: number;
+      message: string;
+      sandboxMetaResolucion?: string;
+      resolucionLista?: boolean;
+      resolucion?: DianPingOk["resolucion"];
+      resolutionError?: string;
+    }
+  | { ok: false; error: string; synced?: number };
+
+/** POST: sincroniza resolución / fila meta en Google Sheets (DB_ResolucionesDian) vía WMS. */
+export async function wmsPosAlegraSyncResoluciones(
+  idToken: string,
+  body?: { nitEmisor?: string; alegraCompanyId?: string }
+): Promise<DianSyncResolucionesResult> {
+  const t = idToken?.trim();
+  if (!t) return { ok: false, error: "Sin sesión." };
+  try {
+    const res = await fetch(PATH_SYNC_RESOLUCIONES, {
+      method: "POST",
+      cache: "no-store",
+      headers: {
+        Authorization: `Bearer ${t}`,
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body ?? {}),
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (data.ok === true) {
+      const resol =
+        data.resolucion && typeof data.resolucion === "object" && !Array.isArray(data.resolucion)
+          ? (data.resolucion as Record<string, unknown>)
+          : null;
+      return {
+        ok: true,
+        synced: Number(data.synced ?? 0) || 0,
+        message: String(data.message ?? "").trim() || "Sincronización completada.",
+        ...(typeof data.sandboxMetaResolucion === "string" && data.sandboxMetaResolucion.trim()
+          ? { sandboxMetaResolucion: data.sandboxMetaResolucion.trim() }
+          : {}),
+        ...(typeof data.resolucionLista === "boolean" ? { resolucionLista: data.resolucionLista } : {}),
+        ...(resol
+          ? {
+              resolucion: {
+                prefix: String(resol.prefix ?? ""),
+                resolutionNumber: String(resol.resolutionNumber ?? ""),
+                minNumber: Number(resol.minNumber ?? 0) || 0,
+                maxNumber: Number(resol.maxNumber ?? 0) || 0,
+              },
+            }
+          : {}),
+        ...(typeof data.resolutionError === "string" && data.resolutionError.trim()
+          ? { resolutionError: data.resolutionError.trim() }
+          : {}),
+      };
+    }
+    return {
+      ok: false,
+      error: String(data.error ?? `Error ${res.status}`),
+      ...(typeof data.synced === "number" ? { synced: data.synced } : {}),
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Red" };
+  }
 }
 
 export async function wmsPosAlegraPingPos(idToken: string): Promise<DianPingResult> {
