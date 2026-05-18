@@ -1919,6 +1919,8 @@ export default function CajaPage() {
           isoTimestamp: isoVenta,
           puntoVenta: pv,
           total,
+          tipoComprobanteAlCobro:
+            tipoComprobante === "factura_electronica" ? "factura_electronica" : "documento_interno",
           ...(sid ? { turnoSesionId: sid } : {}),
           lineas: lineasVenta,
           ...(ct
@@ -2005,6 +2007,8 @@ export default function CajaPage() {
                 ...(notaPieTicket ? { pagoResumen: notaPieTicket } : {}),
                 ...(mediosPago ? { mediosPago } : {}),
                 wmsSincronizado: !ventaSoloEnPos,
+                tipoComprobanteAlCobro:
+                  tipoComprobante === "factura_electronica" ? "factura_electronica" : "documento_interno",
               });
               if (!sync.ok) {
                 console.warn("Venta guardada en el equipo; nube POS:", sync.message ?? sync);

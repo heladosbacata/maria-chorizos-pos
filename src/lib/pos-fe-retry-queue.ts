@@ -77,6 +77,21 @@ export function contarFeEmitirPendientes(): number {
   return leer().length;
 }
 
+/** Payload guardado al fallar emitir-cobro (misma forma que envía el reintento). */
+export function buscarPayloadPendientePorVenta(uid: string, ventaLocalId: string): EmitirCobroPayload | null {
+  const u = uid.trim();
+  const vid = ventaLocalId.trim();
+  if (!u || !vid) return null;
+  const coinciden = leer().filter((x) => x.uid === u && x.ventaLocalId === vid);
+  if (coinciden.length === 0) return null;
+  const last = coinciden[coinciden.length - 1];
+  try {
+    return JSON.parse(JSON.stringify(last.payload)) as EmitirCobroPayload;
+  } catch {
+    return null;
+  }
+}
+
 let inflight = false;
 
 /** Procesa la cola en orden; ante el primer fallo deja el resto intacto. */

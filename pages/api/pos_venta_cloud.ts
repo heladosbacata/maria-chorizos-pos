@@ -167,6 +167,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (b?.mediosPago && typeof b.mediosPago === "object") {
     doc.mediosPago = b.mediosPago;
   }
+  const tc = b?.tipoComprobanteAlCobro;
+  if (tc === "factura_electronica" || tc === "documento_interno") {
+    doc.tipoComprobanteAlCobro = tc;
+  }
 
   try {
     await db.collection(COLLECTION).doc(ventaLocalId).set(doc, { merge: true });

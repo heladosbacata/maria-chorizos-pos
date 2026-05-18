@@ -49,6 +49,8 @@ export interface VentaGuardadaLocal {
   pagoResumen?: string;
   /** Desglose estructurado por ticket (si el cobro usó el panel de pagos). */
   mediosPago?: MediosPagoVentaGuardados;
+  /** Factura electrónica vs recibo interno, según lo elegido al cobrar (persiste aunque falle Alegra). */
+  tipoComprobanteAlCobro?: "factura_electronica" | "documento_interno";
   /** Venta anulada en caja; no cuenta en totales de reporte ni en cierre. */
   anulada?: boolean;
   anuladaMotivo?: string;

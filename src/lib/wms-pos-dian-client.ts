@@ -298,3 +298,123 @@ export async function wmsPosAlegraEmitirCobro(
     return { ok: false, error: e instanceof Error ? e.message : "Red" };
   }
 }
+
+/** Igual que emitir-cobro con `soloPayload: true` en el WMS: no reserva consecutivo ni llama a Alegra. */
+export async function wmsPosAlegraEmitirCobroSoloPayload(
+  idToken: string,
+  body: EmitirCobroPayload
+): Promise<
+  | { ok: true; payload: unknown; numeroFacturaSimulado?: string }
+  | { ok: false; error: string }
+> {
+  const t = idToken?.trim();
+  if (!t) return { ok: false, error: "Sin sesión." };
+  try {
+    const res = await fetch(PATH_EMITIR, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${t}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ ...body, soloPayload: true }),
+    });
+    const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok || !data.ok) {
+      return { ok: false, error: String(data.error ?? `Error ${res.status}`) };
+    }
+    return {
+      ok: true,
+      payload: data.payload,
+      numeroFacturaSimulado:
+        data.numeroFacturaSimulado != null ? String(data.numeroFacturaSimulado) : undefined,
+    };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Red" };
+  }
+}
+
+function descargarBlobArchivo(filename: string, content: string, mimeType: string) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+const sleepMs = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+/**
+ * Tres archivos como en GEB/WMS: JSON del payload a Alegra, JSON de contexto (ping POS),
+ * y texto con instrucciones (no se vuelve a emitir factura real).
+ */
+export async function descargarPaqueteDebugEmitirFePos(
+  idToken: string,
+  payload: EmitirCobroPayload,
+  meta: { slug: string; ventaLocalId?: string }
+): Promise<void> {
+  const slug = (meta.slug || "venta").replace(/[^\w.-]+/g, "_").slice(0, 96);
+  const solo = await wmsPosAlegraEmitirCobroSoloPayload(idToken, payload);
+  if (!solo.ok) throw new Error(solo.error);
+  descargarBlobArchivo(
+    `request_payload-${slug}.json`,
+    JSON.stringify(
+      {
+        generatedAt: new Date().toISOString(),
+        ventaLocalId: meta.ventaLocalId,
+        numeroFacturaSimulado: solo.numeroFacturaSimulado,
+        payload: solo.payload,
+      },
+      null,
+      2
+    ),
+    "application/json;charset=utf-8"
+  );
+  await sleepMs(200);
+
+  const pingRes = await fetch(PATH_PING, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${idToken.trim()}`, Accept: "application/json" },
+    cache: "no-store",
+  });
+  const pingBody = await pingRes.json().catch(() => ({}));
+  descargarBlobArchivo(
+    `response_contexto_pos-${slug}.json`,
+    JSON.stringify(
+      {
+        generatedAt: new Date().toISOString(),
+        nota:
+          "No es la respuesta de Alegra al emitir; evita duplicar facturas. Incluye ping POS (empresa, resolución, ambiente).",
+        ventaLocalId: meta.ventaLocalId,
+        endpoint: PATH_PING,
+        httpStatus: pingRes.status,
+        body: pingBody,
+      },
+      null,
+      2
+    ),
+    "application/json;charset=utf-8"
+  );
+  await sleepMs(200);
+
+  const contexto = [
+    "Depuración POS → WMS → Alegra (emitir-cobro)",
+    `Generado: ${new Date().toISOString()}`,
+    meta.ventaLocalId ? `ventaLocalId: ${meta.ventaLocalId}` : "",
+    "",
+    "Archivos:",
+    "- request_payload-*.json: cuerpo que el WMS armaría para Alanube/Alegra (soloPayload; no consume consecutivo ni POST /invoices).",
+    "- response_contexto_pos-*.json: GET pos_alegra_ping_pos (conexión, resolución, ambiente).",
+    "",
+    "La columna «Correo» (Sin enviar) es solo el comprobante por email al cliente, no el estado DIAN ni Alegra.",
+    "Si request_payload falla, leé el campo error en la respuesta del WMS en red (F12 → Network → emitir-cobro).",
+    "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  descargarBlobArchivo(`contexto_prueba-${slug}.txt`, contexto, "text/plain;charset=utf-8");
+}

@@ -24,8 +24,12 @@ export type FilaDocumentoPosVenta = {
   dianLabel: string;
   estadoLabel: string;
   anulada: boolean;
-  /** «Sin enviar» o «Enviado» (correo transaccional). */
+  /** «Sin enviar» o «Enviado» (solo correo transaccional al cliente; no indica estado DIAN). */
   emailLabel: string;
+  /** Texto corto para badge de correo. */
+  correoClienteCorto: string;
+  /** FE vs documento interno (según lo elegido al cobrar o inferencia en ventas antiguas). */
+  tipoComprobanteBadge: string;
   emailEnviado: boolean;
   emailDestino?: string;
   emailSugerido?: string;
@@ -44,8 +48,25 @@ function msDesdeIso(iso: string): number {
 }
 
 function ventaAFila(v: VentaGuardadaLocal): FilaDocumentoPosVenta {
+  const alCobro = v.tipoComprobanteAlCobro;
   const tieneFe = Boolean(v.facturaElectronicaCufe?.trim() || v.facturaElectronicaNumero?.trim());
-  const tipo = tieneFe ? "factura_electronica" : "recibo_pos";
+  let tipo: FilaDocumentoPosVenta["tipo"];
+  if (alCobro === "factura_electronica") tipo = "factura_electronica";
+  else if (alCobro === "documento_interno") tipo = "recibo_pos";
+  else tipo = tieneFe ? "factura_electronica" : "recibo_pos";
+
+  const tipoComprobanteBadge = tipo === "factura_electronica" ? "FE" : "Interno";
+  const tipoLabel =
+    alCobro === "factura_electronica"
+      ? tieneFe
+        ? "Factura electrónica (DIAN)"
+        : "Factura electrónica — pendiente o error en Alegra"
+      : alCobro === "documento_interno"
+        ? "Doc. interno (recibo POS)"
+        : tieneFe
+          ? "Factura electrónica (DIAN)"
+          : "Doc. interno (recibo POS)";
+
   const comprobante = tieneFe
     ? v.facturaElectronicaNumero?.trim() || `POS-${v.id.slice(0, 8)}`
     : `POS-${v.id.slice(0, 12)}`;
@@ -58,6 +79,12 @@ function ventaAFila(v: VentaGuardadaLocal): FilaDocumentoPosVenta {
       ? `Cajero: ${v.cajeroNombre.trim()}`
       : "Consumidor final";
   const clienteDocumento = v.clienteNitVenta?.trim() ?? "";
+  const dianLabel =
+    tipo === "factura_electronica"
+      ? v.facturaElectronicaCufe?.trim()
+        ? "Con CUFE"
+        : "Sin CUFE"
+      : "—";
   return {
     id: `venta:${v.id}`,
     fuente: "venta",
@@ -65,15 +92,17 @@ function ventaAFila(v: VentaGuardadaLocal): FilaDocumentoPosVenta {
     fechaYmd: v.fechaYmd,
     fechaMs: msDesdeIso(v.isoTimestamp),
     comprobante,
-    tipoLabel: tieneFe ? "Factura electrónica de venta" : "Recibo POS",
+    tipoLabel,
+    tipoComprobanteBadge,
     clienteNombre,
     clienteDocumento,
     total: v.total,
     saldoLabel: anulada ? "Anulada" : "Pagada",
-    dianLabel: tieneFe ? (v.facturaElectronicaCufe?.trim() ? "Con CUFE" : "Emitida") : "—",
+    dianLabel,
     estadoLabel: anulada ? "Anulada" : "Vigente",
     anulada,
-    emailLabel: emailEnviado ? "Enviado" : "Sin enviar",
+    emailLabel: emailEnviado ? "Enviado al cliente" : "Correo: sin enviar",
+    correoClienteCorto: emailEnviado ? "Enviado" : "Sin enviar",
     emailEnviado,
     ...(emailDestino ? { emailDestino } : {}),
     ...(v.clienteEmailVenta?.trim() ? { emailSugerido: v.clienteEmailVenta.trim() } : {}),
@@ -92,6 +121,7 @@ function documentoAFila(d: DocumentoComercialFirestoreDoc): FilaDocumentoPosVent
     fechaMs: msDesdeIso(d.fechaIso),
     comprobante: d.numeroDocumento.trim() || d.id.slice(0, 10),
     tipoLabel: d.tipo === "cotizacion" ? "Cotización" : "Remisión",
+    tipoComprobanteBadge: d.tipo === "cotizacion" ? "Cotiz." : "Rem.",
     clienteNombre: d.clienteNombre.trim() || "—",
     clienteDocumento: d.clienteDocumento?.trim() ?? "",
     total: Math.round(totalDocumento(d) * 100) / 100,
@@ -99,7 +129,8 @@ function documentoAFila(d: DocumentoComercialFirestoreDoc): FilaDocumentoPosVent
     dianLabel: "—",
     estadoLabel: "Guardado",
     anulada: false,
-    emailLabel: "Sin enviar",
+    emailLabel: "Correo: sin enviar",
+    correoClienteCorto: "Sin enviar",
     emailEnviado: false,
     puedeEnviarCorreo: true,
     documento: d,
@@ -192,7 +223,8 @@ export function filtrarFilasDocumentosPos(
       f.comprobante.toLowerCase().includes(q) ||
       f.clienteNombre.toLowerCase().includes(q) ||
       f.clienteDocumento.toLowerCase().includes(q) ||
-      f.tipoLabel.toLowerCase().includes(q);
+      f.tipoLabel.toLowerCase().includes(q) ||
+      f.tipoComprobanteBadge.toLowerCase().includes(q);
     return hay;
   });
 }

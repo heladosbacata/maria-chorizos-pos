@@ -10,6 +10,15 @@ export function payloadTicketDesdeVenta(
   const t = new Date(v.isoTimestamp);
   const fechaHora = Number.isNaN(t.getTime()) ? v.isoTimestamp : fechaHoraColombia(t);
   const tieneFe = Boolean(v.facturaElectronicaCufe?.trim() || v.facturaElectronicaNumero?.trim());
+  const alCobro = v.tipoComprobanteAlCobro;
+  let tipoComprobanteLabel: string;
+  if (alCobro === "factura_electronica") {
+    tipoComprobanteLabel = tieneFe ? "Factura electrónica (DIAN)" : "Factura electrónica — pendiente DIAN";
+  } else if (alCobro === "documento_interno") {
+    tipoComprobanteLabel = "Doc. interno (recibo POS)";
+  } else {
+    tipoComprobanteLabel = tieneFe ? "Factura electrónica (DIAN)" : "Recibo POS";
+  }
   const copia = opts?.copia === true;
   const cliente =
     v.clienteNombreVenta?.trim() ||
@@ -26,7 +35,7 @@ export function payloadTicketDesdeVenta(
     precuentaNombre: "Recibo",
     fechaHora,
     clienteNombre: cliente,
-    tipoComprobanteLabel: tieneFe ? "Factura electrónica (DIAN)" : "Recibo POS",
+    tipoComprobanteLabel,
     vendedorLabel: v.cajeroNombre?.trim() || "—",
     lineas: v.lineas.map((l) => ({
       descripcion: l.descripcion,

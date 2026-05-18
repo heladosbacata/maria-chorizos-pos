@@ -45,6 +45,11 @@ function docToVenta(id: string, data: DocumentData): VentaGuardadaLocal | null {
     typeof data.comprobanteEmailEnviadoAt === "string" ? data.comprobanteEmailEnviadoAt.trim() : "";
   const comprobanteEmailDestino =
     typeof data.comprobanteEmailDestino === "string" ? data.comprobanteEmailDestino.trim() : "";
+  const tipoComprobanteRaw = data.tipoComprobanteAlCobro;
+  const tipoComprobanteAlCobro =
+    tipoComprobanteRaw === "factura_electronica" || tipoComprobanteRaw === "documento_interno"
+      ? tipoComprobanteRaw
+      : undefined;
 
   return {
     id,
@@ -71,6 +76,7 @@ function docToVenta(id: string, data: DocumentData): VentaGuardadaLocal | null {
     ...(clienteEmailVenta ? { clienteEmailVenta } : {}),
     ...(comprobanteEmailEnviadoAt ? { comprobanteEmailEnviadoAt } : {}),
     ...(comprobanteEmailDestino ? { comprobanteEmailDestino } : {}),
+    ...(tipoComprobanteAlCobro ? { tipoComprobanteAlCobro } : {}),
   };
 }
 

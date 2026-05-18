@@ -16,6 +16,7 @@ export type PosVentaCloudBody = {
   mediosPago?: MediosPagoVentaGuardados;
   /** `true` si el WMS aceptó el reporte; `false` si quedó solo POS / red. */
   wmsSincronizado: boolean;
+  tipoComprobanteAlCobro?: "factura_electronica" | "documento_interno";
 };
 
 export async function registrarVentaPosCloud(

@@ -36,6 +36,9 @@ import {
   type FilaDocumentoPosVenta,
   type TabDocumentoPosVenta,
 } from "@/lib/ventas-documentos-pos";
+import { buscarPayloadPendientePorVenta } from "@/lib/pos-fe-retry-queue";
+import { emitirCobroPayloadDesdeVentaLocal } from "@/lib/pos-emitir-payload-desde-venta";
+import { descargarPaqueteDebugEmitirFePos } from "@/lib/wms-pos-dian-client";
 
 const TABS: { id: TabDocumentoPosVenta; label: string }[] = [
   { id: "todos", label: "Todos" },
@@ -77,6 +80,16 @@ function DetalleFila({ f }: { f: FilaDocumentoPosVenta }) {
               <dd className="mt-0.5 font-mono">{v.facturaElectronicaNumero}</dd>
             </div>
           ) : null}
+          <div>
+            <dt className="font-semibold text-gray-600">Tipo al cobrar</dt>
+            <dd className="mt-0.5">
+              {v.tipoComprobanteAlCobro === "factura_electronica"
+                ? "Factura electrónica"
+                : v.tipoComprobanteAlCobro === "documento_interno"
+                  ? "Doc. interno (recibo POS)"
+                  : "Venta anterior (inferido por CUFE / número)"}
+            </dd>
+          </div>
           {v.facturaElectronicaCufe ? (
             <div className="sm:col-span-2">
               <dt className="font-semibold text-gray-600">CUFE</dt>
@@ -303,8 +316,35 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
   const [emailsDocsEnviados, setEmailsDocsEnviados] = useState<Record<string, EmailDocEnviado>>({});
   const [ticketConsulta, setTicketConsulta] = useState<TicketVentaPayload | null>(null);
   const [reimprimiendoTicket, setReimprimiendoTicket] = useState(false);
+  const [jsonDebugBusyId, setJsonDebugBusyId] = useState<string | null>(null);
 
   const refrescar = useCallback(() => setTick((t) => t + 1), []);
+
+  const puedeDepurarAlegra = useCallback((f: FilaDocumentoPosVenta) => {
+    const v = f.venta;
+    if (!v) return false;
+    return v.tipoComprobanteAlCobro === "factura_electronica" || f.tipo === "factura_electronica";
+  }, []);
+
+  const descargarJsonDebugAlegra = useCallback(
+    async (f: FilaDocumentoPosVenta) => {
+      const v = f.venta;
+      if (!v || !puedeDepurarAlegra(f)) return;
+      setJsonDebugBusyId(f.id);
+      try {
+        const token = await auth?.currentUser?.getIdToken();
+        if (!token) throw new Error("Sesión expirada. Volvé a iniciar sesión.");
+        const payload = buscarPayloadPendientePorVenta(u, v.id) ?? emitirCobroPayloadDesdeVentaLocal(v);
+        const slug = (v.facturaElectronicaNumero?.trim() || v.id).replace(/[^\w.-]+/g, "_").slice(0, 48);
+        await descargarPaqueteDebugEmitirFePos(token, payload, { slug, ventaLocalId: v.id });
+      } catch (e) {
+        window.alert(e instanceof Error ? e.message : "No se pudieron generar los archivos de depuración.");
+      } finally {
+        setJsonDebugBusyId(null);
+      }
+    },
+    [u, puedeDepurarAlegra]
+  );
 
   const abrirTicketVenta = useCallback((v: VentaGuardadaLocal) => {
     setTicketConsulta(payloadTicketDesdeVenta(v));
@@ -411,7 +451,8 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
       return {
         ...f,
         emailEnviado: true,
-        emailLabel: "Enviado",
+        emailLabel: "Enviado al cliente",
+        correoClienteCorto: "Enviado",
         emailDestino: st.destino,
       };
     });
@@ -604,12 +645,13 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
               <thead>
                 <tr className="border-b border-gray-200 bg-white text-[11px] font-bold uppercase tracking-wide text-gray-500">
                   <th className="px-4 py-3">Fecha</th>
+                  <th className="px-4 py-3">Tipo</th>
                   <th className="px-4 py-3">Comprobante</th>
                   <th className="px-4 py-3">Cliente</th>
                   <th className="px-4 py-3 text-right">Total</th>
                   <th className="px-4 py-3">Saldo</th>
                   <th className="px-4 py-3">DIAN</th>
-                  <th className="px-4 py-3">Correo</th>
+                  <th className="px-4 py-3">Correo (cliente)</th>
                   <th className="px-4 py-3">Acciones</th>
                 </tr>
               </thead>
@@ -618,11 +660,25 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
                   const abierto = expandidoId === f.id;
                   return (
                     <tr key={f.id} className={f.anulada ? "bg-rose-50/40" : "bg-white hover:bg-gray-50/80"}>
-                      <td colSpan={8} className="p-0">
+                      <td colSpan={9} className="p-0">
                         <div className="grid grid-cols-[minmax(0,1fr)]">
-                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-3 md:grid md:grid-cols-[7rem_1fr_1fr_6rem_5rem_5rem_6rem_7rem] md:items-center">
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 md:grid md:grid-cols-[6.5rem_4.25rem_minmax(0,1fr)_minmax(0,1fr)_5.5rem_4.5rem_4.75rem_5.5rem_8rem] md:items-center md:gap-x-2">
                             <span className="text-gray-800 tabular-nums">
                               {formatoFechaTabla(f.fechaYmd, f.fechaMs)}
+                            </span>
+                            <span className="flex items-center">
+                              <span
+                                className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+                                  f.tipoComprobanteBadge === "FE"
+                                    ? "bg-sky-100 text-sky-900"
+                                    : f.tipoComprobanteBadge === "Interno"
+                                      ? "bg-stone-200/90 text-stone-800"
+                                      : "bg-violet-100 text-violet-900"
+                                }`}
+                                title={f.tipoLabel}
+                              >
+                                {f.tipoComprobanteBadge}
+                              </span>
                             </span>
                             <span>
                               {f.venta ? (
@@ -637,7 +693,6 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
                               ) : (
                                 <span className="font-semibold text-emerald-800">{f.comprobante}</span>
                               )}
-                              <span className="mt-0.5 block text-[11px] text-gray-500">{f.tipoLabel}</span>
                             </span>
                             <span className="min-w-0">
                               <span className="block truncate font-medium text-gray-900">{f.clienteNombre}</span>
@@ -665,7 +720,9 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
                                 {f.saldoLabel}
                               </span>
                             </span>
-                            <span className="text-xs text-gray-600">{f.dianLabel}</span>
+                            <span className="text-xs text-gray-600" title={f.tipoLabel}>
+                              {f.dianLabel}
+                            </span>
                             <span>
                               <span
                                 className={`inline-flex rounded-full px-2 py-0.5 text-[11px] font-semibold ${
@@ -673,12 +730,23 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
                                     ? "bg-emerald-100 text-emerald-800"
                                     : "bg-amber-100 text-amber-900"
                                 }`}
-                                title={f.emailDestino}
+                                title={f.emailLabel}
                               >
-                                {f.emailLabel}
+                                {f.correoClienteCorto}
                               </span>
                             </span>
                             <span className="flex flex-col items-end gap-1 text-right">
+                              {puedeDepurarAlegra(f) ? (
+                                <button
+                                  type="button"
+                                  disabled={jsonDebugBusyId === f.id}
+                                  onClick={() => void descargarJsonDebugAlegra(f)}
+                                  className="text-[11px] font-medium text-violet-700 hover:underline disabled:opacity-50"
+                                  title="Descarga JSON de payload Alegra, contexto ping y texto (sin emitir otra factura)"
+                                >
+                                  {jsonDebugBusyId === f.id ? "Generando…" : "JSON Alegra"}
+                                </button>
+                              ) : null}
                               {f.puedeEnviarCorreo ? (
                                 <button
                                   type="button"
@@ -711,8 +779,9 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
 
       <p className="text-xs text-gray-500">
         Las cotizaciones y remisiones se gestionan en sus herramientas; los cobros de caja aparecen como recibo o factura
-        electrónica según el tipo de comprobante al cobrar. El envío por correo usa el mismo SMTP o Resend del informe de
-        cierre de turno.
+        electrónica según el tipo de comprobante al cobrar. La columna «Correo (cliente)» indica si enviaste el
+        comprobante por email al comprador (no es el estado DIAN ni Alegra). El botón «JSON Alegra» descarga el payload
+        que el WMS enviaría a Alanube y el ping del POS, sin consumir consecutivo ni duplicar facturas.
       </p>
 
       <TicketPrevisualizacionModal
