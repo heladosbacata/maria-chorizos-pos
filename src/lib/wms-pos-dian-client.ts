@@ -137,6 +137,8 @@ export type DianSyncResolucionesResult =
       /** Pestaña del libro Google donde escribe el WMS (no es la primera hoja del archivo por defecto). */
       pestanaGoogleSheet?: string;
       sandboxMetaResolucion?: string;
+      /** Detalle de la fila matriz SETT (NIT vacío) creada en sandbox. */
+      sandboxMatrizResolucion?: string;
       resolucionLista?: boolean;
       resolucion?: DianPingOk["resolucion"];
       resolutionError?: string;
@@ -176,6 +178,9 @@ export async function wmsPosAlegraSyncResoluciones(
           : {}),
         ...(typeof data.sandboxMetaResolucion === "string" && data.sandboxMetaResolucion.trim()
           ? { sandboxMetaResolucion: data.sandboxMetaResolucion.trim() }
+          : {}),
+        ...(typeof data.sandboxMatrizResolucion === "string" && data.sandboxMatrizResolucion.trim()
+          ? { sandboxMatrizResolucion: data.sandboxMatrizResolucion.trim() }
           : {}),
         ...(typeof data.resolucionLista === "boolean" ? { resolucionLista: data.resolucionLista } : {}),
         ...(resol
