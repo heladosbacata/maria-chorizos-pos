@@ -38,6 +38,31 @@ export async function registrarVentaPosCloud(
   return { ok: true };
 }
 
+/** Tras emitir FE: actualiza CUFE/número en Firestore (mismo doc que POST inicial). */
+export async function actualizarFeVentaPosCloud(
+  idToken: string,
+  body: {
+    ventaLocalId: string;
+    facturaElectronicaNumero?: string;
+    facturaElectronicaCufe?: string;
+    facturaElectronicaEnviadoAt?: string;
+  }
+): Promise<{ ok: boolean; message?: string }> {
+  const r = await fetch("/api/pos_venta_cloud", {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${idToken}`,
+    },
+    body: JSON.stringify({ intent: "actualizar_fe", ...body }),
+  });
+  const data = (await r.json().catch(() => ({}))) as { ok?: boolean; message?: string };
+  if (!r.ok || !data.ok) {
+    return { ok: false, message: data.message ?? `Error ${r.status}` };
+  }
+  return { ok: true };
+}
+
 export async function anularVentaPosCloud(
   idToken: string,
   body: { ventaLocalId: string; motivo: string; anuladaEnIso: string }

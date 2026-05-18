@@ -24,9 +24,9 @@ export type FilaDocumentoPosVenta = {
   dianLabel: string;
   estadoLabel: string;
   anulada: boolean;
-  /** «Sin enviar» o «Enviado» (solo correo transaccional al cliente; no indica estado DIAN). */
+  /** Texto largo para tooltip (email al comprador; no es estado DIAN). */
   emailLabel: string;
-  /** Texto corto para badge de correo. */
+  /** Texto corto del badge de email (ej. «Sin correo» / «Correo ok»). */
   correoClienteCorto: string;
   /** FE vs documento interno (según lo elegido al cobrar o inferencia en ventas antiguas). */
   tipoComprobanteBadge: string;
@@ -101,8 +101,10 @@ function ventaAFila(v: VentaGuardadaLocal): FilaDocumentoPosVenta {
     dianLabel,
     estadoLabel: anulada ? "Anulada" : "Vigente",
     anulada,
-    emailLabel: emailEnviado ? "Enviado al cliente" : "Correo: sin enviar",
-    correoClienteCorto: emailEnviado ? "Enviado" : "Sin enviar",
+    emailLabel: emailEnviado
+      ? "Correo al comprador: ya enviado"
+      : "Correo al comprador: pendiente (no indica si la DIAN recibió la factura)",
+    correoClienteCorto: emailEnviado ? "Correo ok" : "Sin correo",
     emailEnviado,
     ...(emailDestino ? { emailDestino } : {}),
     ...(v.clienteEmailVenta?.trim() ? { emailSugerido: v.clienteEmailVenta.trim() } : {}),
@@ -129,8 +131,8 @@ function documentoAFila(d: DocumentoComercialFirestoreDoc): FilaDocumentoPosVent
     dianLabel: "—",
     estadoLabel: "Guardado",
     anulada: false,
-    emailLabel: "Correo: sin enviar",
-    correoClienteCorto: "Sin enviar",
+    emailLabel: "Correo al comprador: pendiente",
+    correoClienteCorto: "Sin correo",
     emailEnviado: false,
     puedeEnviarCorreo: true,
     documento: d,

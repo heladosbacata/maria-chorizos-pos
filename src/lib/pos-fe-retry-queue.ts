@@ -92,6 +92,16 @@ export function buscarPayloadPendientePorVenta(uid: string, ventaLocalId: string
   }
 }
 
+/** Tras emitir FE con éxito, evita que la cola vuelva a POSTear el mismo cobro. */
+export function removerFeEmitirPendientePorVenta(uid: string, ventaLocalId: string): void {
+  const u = uid.trim();
+  const vid = ventaLocalId.trim();
+  if (!u || !vid || typeof window === "undefined") return;
+  const prev = leer();
+  const next = prev.filter((x) => !(x.uid === u && x.ventaLocalId === vid));
+  if (next.length !== prev.length) escribir(next);
+}
+
 let inflight = false;
 
 /** Procesa la cola en orden; ante el primer fallo deja el resto intacto. */

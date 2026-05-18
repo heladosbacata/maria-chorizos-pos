@@ -7,10 +7,12 @@ import {
   type DocumentoComercialFirestoreDoc,
 } from "@/lib/documentos-comerciales-firestore";
 import { fechaHoraColombia, ymdColombia, ymdColombiaMenosDias } from "@/lib/fecha-colombia";
-import { listarVentasPosCloud } from "@/lib/pos-ventas-cloud-client";
+import { listarVentasPosCloud, actualizarFeVentaPosCloud } from "@/lib/pos-ventas-cloud-client";
 import {
   listarVentasPuntoVentaEnEsteEquipo,
   mergeVentasReporteNubeLocal,
+  actualizarVentaLocalComprobanteEmail,
+  actualizarVentaLocalFacturaElectronica,
   type VentaGuardadaLocal,
 } from "@/lib/pos-ventas-local-storage";
 import TicketPrevisualizacionModal from "@/components/TicketPrevisualizacionModal";
@@ -25,9 +27,6 @@ import {
 import { payloadTicketDesdeVenta } from "@/lib/pos-ticket-desde-venta";
 import type { TicketVentaPayload } from "@/types/impresion-pos";
 import {
-  actualizarVentaLocalComprobanteEmail,
-} from "@/lib/pos-ventas-local-storage";
-import {
   construirFilasDocumentosPos,
   filaComprobanteCorreoBody,
   filtrarFilasDocumentosPos,
@@ -36,9 +35,13 @@ import {
   type FilaDocumentoPosVenta,
   type TabDocumentoPosVenta,
 } from "@/lib/ventas-documentos-pos";
-import { buscarPayloadPendientePorVenta } from "@/lib/pos-fe-retry-queue";
+import {
+  buscarPayloadPendientePorVenta,
+  encolarFeEmitirPendiente,
+  removerFeEmitirPendientePorVenta,
+} from "@/lib/pos-fe-retry-queue";
 import { emitirCobroPayloadDesdeVentaLocal } from "@/lib/pos-emitir-payload-desde-venta";
-import { descargarPaqueteDebugEmitirFePos } from "@/lib/wms-pos-dian-client";
+import { descargarPaqueteDebugEmitirFePos, wmsPosAlegraEmitirCobro } from "@/lib/wms-pos-dian-client";
 
 const TABS: { id: TabDocumentoPosVenta; label: string }[] = [
   { id: "todos", label: "Todos" },
@@ -317,8 +320,58 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
   const [ticketConsulta, setTicketConsulta] = useState<TicketVentaPayload | null>(null);
   const [reimprimiendoTicket, setReimprimiendoTicket] = useState(false);
   const [jsonDebugBusyId, setJsonDebugBusyId] = useState<string | null>(null);
+  const [emitirFeBusyId, setEmitirFeBusyId] = useState<string | null>(null);
 
   const refrescar = useCallback(() => setTick((t) => t + 1), []);
+
+  const puedeEmitirFeDian = useCallback((f: FilaDocumentoPosVenta) => {
+    const v = f.venta;
+    if (!v || v.anulada) return false;
+    if (v.facturaElectronicaCufe?.trim()) return false;
+    return v.tipoComprobanteAlCobro === "factura_electronica" || f.tipo === "factura_electronica";
+  }, []);
+
+  const emitirFeDianManual = useCallback(
+    async (f: FilaDocumentoPosVenta) => {
+      const v = f.venta;
+      if (!v || !puedeEmitirFeDian(f)) return;
+      setEmitirFeBusyId(f.id);
+      try {
+        const token = await auth?.currentUser?.getIdToken();
+        if (!token) throw new Error("Sesión expirada. Volvé a iniciar sesión.");
+        const payload = buscarPayloadPendientePorVenta(u, v.id) ?? emitirCobroPayloadDesdeVentaLocal(v);
+        const r = await wmsPosAlegraEmitirCobro(token, payload);
+        if (!r.ok) {
+          encolarFeEmitirPendiente(u, v.id, payload);
+          throw new Error(r.error);
+        }
+        actualizarVentaLocalFacturaElectronica(u, v.id, {
+          numero: r.numeroFactura,
+          cufe: r.alegraCufe,
+          enviadoAt: r.enviadoAt,
+        });
+        removerFeEmitirPendientePorVenta(u, v.id);
+        void actualizarFeVentaPosCloud(token, {
+          ventaLocalId: v.id,
+          facturaElectronicaNumero: r.numeroFactura,
+          facturaElectronicaCufe: r.alegraCufe,
+          facturaElectronicaEnviadoAt: r.enviadoAt,
+        }).catch(() => {
+          /* nube opcional */
+        });
+        refrescar();
+      } catch (e) {
+        window.alert(
+          e instanceof Error
+            ? `${e.message}\n\nSi falló la red, quedó en cola de reintento al volver conexión.`
+            : "No se pudo emitir la factura electrónica."
+        );
+      } finally {
+        setEmitirFeBusyId(null);
+      }
+    },
+    [u, puedeEmitirFeDian, refrescar]
+  );
 
   const puedeDepurarAlegra = useCallback((f: FilaDocumentoPosVenta) => {
     const v = f.venta;
@@ -451,8 +504,8 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
       return {
         ...f,
         emailEnviado: true,
-        emailLabel: "Enviado al cliente",
-        correoClienteCorto: "Enviado",
+        emailLabel: "Correo al comprador: ya enviado",
+        correoClienteCorto: "Correo ok",
         emailDestino: st.destino,
       };
     });
@@ -651,7 +704,7 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
                   <th className="px-4 py-3 text-right">Total</th>
                   <th className="px-4 py-3">Saldo</th>
                   <th className="px-4 py-3">DIAN</th>
-                  <th className="px-4 py-3">Correo (cliente)</th>
+                  <th className="px-4 py-3">Email comprador</th>
                   <th className="px-4 py-3">Acciones</th>
                 </tr>
               </thead>
@@ -662,7 +715,7 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
                     <tr key={f.id} className={f.anulada ? "bg-rose-50/40" : "bg-white hover:bg-gray-50/80"}>
                       <td colSpan={9} className="p-0">
                         <div className="grid grid-cols-[minmax(0,1fr)]">
-                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 md:grid md:grid-cols-[6.5rem_4.25rem_minmax(0,1fr)_minmax(0,1fr)_5.5rem_4.5rem_4.75rem_5.5rem_8rem] md:items-center md:gap-x-2">
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 md:grid md:grid-cols-[6.5rem_4.25rem_minmax(0,1fr)_minmax(0,1fr)_5.5rem_4.5rem_4.75rem_5.5rem_9.5rem] md:items-center md:gap-x-2">
                             <span className="text-gray-800 tabular-nums">
                               {formatoFechaTabla(f.fechaYmd, f.fechaMs)}
                             </span>
@@ -736,6 +789,17 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
                               </span>
                             </span>
                             <span className="flex flex-col items-end gap-1 text-right">
+                              {puedeEmitirFeDian(f) ? (
+                                <button
+                                  type="button"
+                                  disabled={emitirFeBusyId === f.id}
+                                  onClick={() => void emitirFeDianManual(f)}
+                                  className="text-[11px] font-semibold text-sky-800 hover:underline disabled:opacity-50"
+                                  title="Envía esta venta a Alegra/DIAN (consume consecutivo). Si ya existe CUFE, no aparece este botón."
+                                >
+                                  {emitirFeBusyId === f.id ? "Enviando…" : "Enviar a DIAN"}
+                                </button>
+                              ) : null}
                               {puedeDepurarAlegra(f) ? (
                                 <button
                                   type="button"
@@ -778,10 +842,10 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
       </div>
 
       <p className="text-xs text-gray-500">
-        Las cotizaciones y remisiones se gestionan en sus herramientas; los cobros de caja aparecen como recibo o factura
-        electrónica según el tipo de comprobante al cobrar. La columna «Correo (cliente)» indica si enviaste el
-        comprobante por email al comprador (no es el estado DIAN ni Alegra). El botón «JSON Alegra» descarga el payload
-        que el WMS enviaría a Alanube y el ping del POS, sin consumir consecutivo ni duplicar facturas.
+        La columna «Email comprador» solo indica si mandaste el comprobante por correo al cliente; no tiene que ver con
+        la DIAN. El estado de la factura electrónica está en la columna «DIAN» (Con CUFE / Sin CUFE). «Enviar a DIAN»
+        aparece solo si aún no hay CUFE y vuelve a llamar a Alegra (igual que al cobrar). «JSON Alegra» descarga archivos
+        de depuración sin emitir otra factura.
       </p>
 
       <TicketPrevisualizacionModal

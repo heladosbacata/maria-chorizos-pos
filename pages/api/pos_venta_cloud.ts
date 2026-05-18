@@ -68,6 +68,43 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (ventaLocalId.length < 8 || ventaLocalId.length > 120) {
       return res.status(400).json({ ok: false, message: "ventaLocalId inválido." });
     }
+
+    const intent = typeof b?.intent === "string" ? b.intent.trim() : "";
+    if (intent === "actualizar_fe") {
+      const feNum =
+        typeof b?.facturaElectronicaNumero === "string" ? b.facturaElectronicaNumero.trim().slice(0, 120) : "";
+      const feCufe =
+        typeof b?.facturaElectronicaCufe === "string" ? b.facturaElectronicaCufe.trim().slice(0, 520) : "";
+      const feAt =
+        typeof b?.facturaElectronicaEnviadoAt === "string"
+          ? b.facturaElectronicaEnviadoAt.trim().slice(0, 80)
+          : "";
+      if (!feNum && !feCufe) {
+        return res.status(400).json({ ok: false, message: "Falta número o CUFE de la factura electrónica." });
+      }
+      try {
+        const ref = db.collection(COLLECTION).doc(ventaLocalId);
+        const snap = await ref.get();
+        if (!snap.exists) {
+          return res.status(404).json({ ok: false, message: "Venta no encontrada en nube." });
+        }
+        const dataSnap = snap.data();
+        const pvDoc = typeof dataSnap?.puntoVenta === "string" ? dataSnap.puntoVenta.trim() : "";
+        if (pvDoc !== ctx.puntoVenta) {
+          return res.status(403).json({ ok: false, message: "El ticket no pertenece a tu punto de venta." });
+        }
+        const patch: Record<string, unknown> = { serverFeActualizadoAt: FieldValue.serverTimestamp() };
+        if (feNum) patch.facturaElectronicaNumero = feNum;
+        if (feCufe) patch.facturaElectronicaCufe = feCufe;
+        if (feAt) patch.facturaElectronicaEnviadoAt = feAt;
+        await ref.set(patch, { merge: true });
+        return res.status(200).json({ ok: true });
+      } catch (e) {
+        console.error("pos_venta_cloud PATCH actualizar_fe", e);
+        return res.status(500).json({ ok: false, message: "No se pudo actualizar la factura en nube." });
+      }
+    }
+
     const motivo = typeof b?.motivo === "string" ? b.motivo.trim().slice(0, 500) : "";
     if (motivo.length < 3) {
       return res.status(400).json({ ok: false, message: "motivo demasiado corto." });
