@@ -30,6 +30,10 @@ export type FilaDocumentoPosVenta = {
   correoClienteCorto: string;
   /** FE vs documento interno (según lo elegido al cobrar o inferencia en ventas antiguas). */
   tipoComprobanteBadge: string;
+  /** Texto corto del estado envío a Alegra (e-provider / POST invoices). */
+  alegraEstadoCorto: string;
+  /** Tooltip detallado Alegra. */
+  alegraEstadoLabel: string;
   emailEnviado: boolean;
   emailDestino?: string;
   emailSugerido?: string;
@@ -85,6 +89,25 @@ function ventaAFila(v: VentaGuardadaLocal): FilaDocumentoPosVenta {
         ? "Con CUFE"
         : "Sin CUFE"
       : "—";
+
+  const cufeOk = Boolean(v.facturaElectronicaCufe?.trim());
+  let alegraEstadoCorto: string;
+  let alegraEstadoLabel: string;
+  if (tipo === "factura_electronica") {
+    if (cufeOk) {
+      alegraEstadoCorto = "OK";
+      alegraEstadoLabel =
+        "Factura enviada a Alegra (e-provider) y aceptada: hay CUFE. Debería verse en Alanube Reseller bajo la empresa del NIT emisor.";
+    } else {
+      alegraEstadoCorto = "Pend.";
+      alegraEstadoLabel =
+        "Sin CUFE: Alegra aún no selló o rechazó la emisión. Reintentá con «Enviar a DIAN», revisá ping o el JSON de depuración.";
+    }
+  } else {
+    alegraEstadoCorto = "—";
+    alegraEstadoLabel = "Documento interno: no se envía a Alegra como factura electrónica.";
+  }
+
   return {
     id: `venta:${v.id}`,
     fuente: "venta",
@@ -99,6 +122,8 @@ function ventaAFila(v: VentaGuardadaLocal): FilaDocumentoPosVenta {
     total: v.total,
     saldoLabel: anulada ? "Anulada" : "Pagada",
     dianLabel,
+    alegraEstadoCorto,
+    alegraEstadoLabel,
     estadoLabel: anulada ? "Anulada" : "Vigente",
     anulada,
     emailLabel: emailEnviado
@@ -129,6 +154,8 @@ function documentoAFila(d: DocumentoComercialFirestoreDoc): FilaDocumentoPosVent
     total: Math.round(totalDocumento(d) * 100) / 100,
     saldoLabel: "Borrador",
     dianLabel: "—",
+    alegraEstadoCorto: "—",
+    alegraEstadoLabel: "Cotización o remisión: no usa emisión Alegra POS.",
     estadoLabel: "Guardado",
     anulada: false,
     emailLabel: "Correo al comprador: pendiente",
@@ -226,7 +253,9 @@ export function filtrarFilasDocumentosPos(
       f.clienteNombre.toLowerCase().includes(q) ||
       f.clienteDocumento.toLowerCase().includes(q) ||
       f.tipoLabel.toLowerCase().includes(q) ||
-      f.tipoComprobanteBadge.toLowerCase().includes(q);
+      f.tipoComprobanteBadge.toLowerCase().includes(q) ||
+      f.alegraEstadoCorto.toLowerCase().includes(q) ||
+      f.alegraEstadoLabel.toLowerCase().includes(q);
     return hay;
   });
 }

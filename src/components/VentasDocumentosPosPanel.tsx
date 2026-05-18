@@ -57,6 +57,18 @@ type Props = {
   onVolver: () => void;
 };
 
+function textoBadgeAlegraTabla(corto: string): string {
+  if (corto === "OK") return "Enviada";
+  if (corto === "Pend.") return "Pendiente";
+  return "N/A";
+}
+
+function clasesBadgeAlegra(corto: string): string {
+  if (corto === "OK") return "bg-emerald-100 text-emerald-800";
+  if (corto === "Pend.") return "bg-amber-100 text-amber-900";
+  return "bg-gray-100 text-gray-600";
+}
+
 function DetalleFila({ f }: { f: FilaDocumentoPosVenta }) {
   if (f.venta) {
     const v = f.venta;
@@ -91,6 +103,20 @@ function DetalleFila({ f }: { f: FilaDocumentoPosVenta }) {
                 : v.tipoComprobanteAlCobro === "documento_interno"
                   ? "Doc. interno (recibo POS)"
                   : "Venta anterior (inferido por CUFE / número)"}
+            </dd>
+          </div>
+          <div>
+            <dt className="font-semibold text-gray-600">Alegra (emisión FE)</dt>
+            <dd className="mt-0.5 text-xs text-gray-800">
+              <span
+                className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${clasesBadgeAlegra(f.alegraEstadoCorto)}`}
+                title={f.alegraEstadoLabel}
+              >
+                {textoBadgeAlegraTabla(f.alegraEstadoCorto)}
+              </span>
+              <span className="mt-1 block text-[11px] font-normal normal-case tracking-normal text-gray-600">
+                {f.alegraEstadoLabel}
+              </span>
             </dd>
           </div>
           {v.facturaElectronicaCufe ? (
@@ -148,6 +174,9 @@ function DetalleFila({ f }: { f: FilaDocumentoPosVenta }) {
         {d.observaciones?.trim() ? (
           <p className="mt-2 text-xs text-gray-700">{d.observaciones.trim()}</p>
         ) : null}
+        <p className="mt-2 text-xs text-gray-600">
+          <span className="font-semibold text-gray-700">Alegra:</span> {f.alegraEstadoLabel}
+        </p>
         <div className="mt-2 overflow-x-auto rounded-lg border border-gray-200 bg-white">
           <table className="min-w-full text-left text-xs">
             <thead>
@@ -704,6 +733,7 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
                   <th className="px-4 py-3 text-right">Total</th>
                   <th className="px-4 py-3">Saldo</th>
                   <th className="px-4 py-3">DIAN</th>
+                  <th className="px-4 py-3">Alegra</th>
                   <th className="px-4 py-3">Email comprador</th>
                   <th className="px-4 py-3">Acciones</th>
                 </tr>
@@ -713,9 +743,9 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
                   const abierto = expandidoId === f.id;
                   return (
                     <tr key={f.id} className={f.anulada ? "bg-rose-50/40" : "bg-white hover:bg-gray-50/80"}>
-                      <td colSpan={9} className="p-0">
+                      <td colSpan={10} className="p-0">
                         <div className="grid grid-cols-[minmax(0,1fr)]">
-                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 md:grid md:grid-cols-[6.5rem_4.25rem_minmax(0,1fr)_minmax(0,1fr)_5.5rem_4.5rem_4.75rem_5.5rem_9.5rem] md:items-center md:gap-x-2">
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 md:grid md:grid-cols-[6.5rem_4.25rem_minmax(0,1fr)_minmax(0,1fr)_5.5rem_4.5rem_4.75rem_5rem_5.5rem_9.5rem] md:items-center md:gap-x-2">
                             <span className="text-gray-800 tabular-nums">
                               {formatoFechaTabla(f.fechaYmd, f.fechaMs)}
                             </span>
@@ -775,6 +805,13 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
                             </span>
                             <span className="text-xs text-gray-600" title={f.tipoLabel}>
                               {f.dianLabel}
+                            </span>
+                            <span title={f.alegraEstadoLabel}>
+                              <span
+                                className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${clasesBadgeAlegra(f.alegraEstadoCorto)}`}
+                              >
+                                {textoBadgeAlegraTabla(f.alegraEstadoCorto)}
+                              </span>
                             </span>
                             <span>
                               <span
@@ -842,10 +879,11 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
       </div>
 
       <p className="text-xs text-gray-500">
-        La columna «Email comprador» solo indica si mandaste el comprobante por correo al cliente; no tiene que ver con
-        la DIAN. El estado de la factura electrónica está en la columna «DIAN» (Con CUFE / Sin CUFE). «Enviar a DIAN»
-        aparece solo si aún no hay CUFE y vuelve a llamar a Alegra (igual que al cobrar). «JSON Alegra» descarga archivos
-        de depuración sin emitir otra factura.
+        «Alegra» resume si la factura electrónica quedó aceptada en Alegra (emisión con CUFE) o sigue pendiente o sin
+        sellar (sin CUFE). «Email comprador» solo indica si mandaste el comprobante por correo al cliente; no tiene que ver
+        con la DIAN. El detalle de sellado DIAN está en «DIAN» (Con CUFE / Sin CUFE). «Enviar a DIAN» aparece solo si aún
+        no hay CUFE y vuelve a llamar a Alegra (igual que al cobrar). «JSON Alegra» descarga archivos de depuración sin
+        emitir otra factura.
       </p>
 
       <TicketPrevisualizacionModal
