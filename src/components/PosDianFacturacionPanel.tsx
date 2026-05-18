@@ -67,6 +67,10 @@ export default function PosDianFacturacionPanel({
   const [alegraCompanyId, setAlegraCompanyId] = useState("");
   /** Número de resolución DIAN (coincide con la numeración en hoja / WMS). */
   const [dianResolutionNumber, setDianResolutionNumber] = useState("");
+  /** Razón social del emisor = RUT / FAJ43b (Firestore + hoja en sandbox). */
+  const [razonSocialDian, setRazonSocialDian] = useState("");
+  /** Prefijo en DB_ResolucionesDian; vacío = SETT en sandbox. */
+  const [prefijoFactura, setPrefijoFactura] = useState("");
   const [habilitado, setHabilitado] = useState(false);
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
@@ -84,6 +88,15 @@ export default function PosDianFacturacionPanel({
   >(null);
   const [syncAutoMensaje, setSyncAutoMensaje] = useState<string | null>(null);
   const debounceSyncRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const payloadDian = (habilitadoFlag: boolean) => ({
+    emisorNit: nitSoloDigitos(emisorNit) || emisorNit.trim(),
+    alegraCompanyId: alegraCompanyId.trim(),
+    dianResolutionNumber: dianResolutionNumber.trim(),
+    razonSocialDian: razonSocialDian.trim(),
+    prefijoFactura: prefijoFactura.trim(),
+    habilitado: habilitadoFlag,
+  });
 
   const cargar = useCallback(async () => {
     if (!user) return;
@@ -103,6 +116,8 @@ export default function PosDianFacturacionPanel({
       setEmisorNit(nitSoloDigitos(r.emisorNit) || r.emisorNit.trim());
       setAlegraCompanyId(r.alegraCompanyId);
       setDianResolutionNumber(r.dianResolutionNumber);
+      setRazonSocialDian(r.razonSocialDian);
+      setPrefijoFactura(r.prefijoFactura);
       setHabilitado(r.habilitado);
     } finally {
       setCargando(false);
@@ -138,12 +153,7 @@ export default function PosDianFacturacionPanel({
         try {
           const token = await auth?.currentUser?.getIdToken();
           if (!token) return;
-          const put = await wmsPosDianConfigPut(token, {
-            emisorNit: nit,
-            alegraCompanyId: alegraCompanyId.trim(),
-            dianResolutionNumber: dianResolutionNumber.trim(),
-            habilitado: false,
-          });
+          const put = await wmsPosDianConfigPut(token, payloadDian(false));
           if (!put.ok) {
             setSyncPreview(null);
             setSyncAutoMensaje(put.error);
@@ -172,7 +182,7 @@ export default function PosDianFacturacionPanel({
         debounceSyncRef.current = null;
       }
     };
-  }, [user, cargando, step, emisorNit, alegraCompanyId, dianResolutionNumber]);
+  }, [user, cargando, step, emisorNit, alegraCompanyId, dianResolutionNumber, razonSocialDian, prefijoFactura]);
 
   useEffect(() => {
     if (step !== 4) return;
@@ -207,6 +217,11 @@ export default function PosDianFacturacionPanel({
           <div className="whitespace-pre-line rounded-lg border border-emerald-200 bg-white px-3 py-2 text-xs text-emerald-950">
             {textoPingDesdeOk(syncPreview.data)}
           </div>
+          <p className="text-[11px] leading-snug text-sky-900/85">
+            Lo anterior es <strong>referencia</strong> desde Alegra. Para el XML (FAJ43b) y la hoja{" "}
+            <strong>DB_ResolucionesDian</strong> se usan los datos del formulario del paso 2: razón social, ID de empresa,
+            número de resolución y prefijo.
+          </p>
         </div>
       ) : null}
       {syncPreview?.kind === "partial" ? (
@@ -238,12 +253,7 @@ export default function PosDianFacturacionPanel({
         setError("No hay sesión.");
         return;
       }
-      const r = await wmsPosDianConfigPut(token, {
-        emisorNit: nitSoloDigitos(emisorNit) || emisorNit.trim(),
-        alegraCompanyId: alegraCompanyId.trim(),
-        dianResolutionNumber: dianResolutionNumber.trim(),
-        habilitado: false,
-      });
+      const r = await wmsPosDianConfigPut(token, payloadDian(false));
       if (!r.ok) {
         setError(r.error);
         return;
@@ -281,12 +291,7 @@ export default function PosDianFacturacionPanel({
         setError("No hay sesión.");
         return;
       }
-      await wmsPosDianConfigPut(token, {
-        emisorNit: nitSoloDigitos(emisorNit) || emisorNit.trim(),
-        alegraCompanyId: alegraCompanyId.trim(),
-        dianResolutionNumber: dianResolutionNumber.trim(),
-        habilitado: false,
-      });
+      await wmsPosDianConfigPut(token, payloadDian(false));
       const r = await wmsPosAlegraPingPos(token);
       if (!r.ok) {
         setError(r.error);
@@ -312,12 +317,7 @@ export default function PosDianFacturacionPanel({
         setError("No hay sesión.");
         return;
       }
-      const r = await wmsPosDianConfigPut(token, {
-        emisorNit: nitSoloDigitos(emisorNit) || emisorNit.trim(),
-        alegraCompanyId: alegraCompanyId.trim(),
-        dianResolutionNumber: dianResolutionNumber.trim(),
-        habilitado: true,
-      });
+      const r = await wmsPosDianConfigPut(token, payloadDian(true));
       if (!r.ok) {
         setError(r.error);
         return;
@@ -330,6 +330,10 @@ export default function PosDianFacturacionPanel({
 
   const confirmarPaso3 = async () => {
     if (sincAuto || syncPreview?.kind !== "ok") return;
+    if (razonSocialDian.trim().length < 3) {
+      setError("Completá la razón social tal como figura en el RUT (obligatoria para guardar en base de datos y en DB_ResolucionesDian).");
+      return;
+    }
     if (!user) {
       setError("No hay sesión.");
       return;
@@ -343,12 +347,7 @@ export default function PosDianFacturacionPanel({
         return;
       }
       const nit = nitSoloDigitos(emisorNit) || emisorNit.trim();
-      const put = await wmsPosDianConfigPut(token, {
-        emisorNit: nit,
-        alegraCompanyId: alegraCompanyId.trim(),
-        dianResolutionNumber: dianResolutionNumber.trim(),
-        habilitado: false,
-      });
+      const put = await wmsPosDianConfigPut(token, payloadDian(false));
       if (!put.ok) {
         setError(put.error);
         return;
@@ -362,11 +361,14 @@ export default function PosDianFacturacionPanel({
         return;
       }
       const detalleServidor = [sync.message, sync.sandboxMetaResolucion].filter(Boolean).join("\n\n");
+      const pestana = sync.pestanaGoogleSheet?.trim() || "DB_ResolucionesDian";
       const alerta = [
         "Confirmación",
         "",
-        "La información de tu punto (resolución DIAN y empresa Alegra) ya se guardó en la base de datos del centro María Chorizos:",
-        "hoja Google Sheets «DB_ResolucionesDian» en el servidor WMS.",
+        "La información de tu punto (resolución DIAN y empresa Alegra) ya se guardó en la base de datos del centro María Chorizos.",
+        "",
+        `IMPORTANTE: abrí el archivo de Google del WMS (el mismo ID que usa SHEET_ID en Vercel) y la PESTAÑA «${pestana}».`,
+        "Ahí se agrega o actualiza la fila SETT de pruebas con tu NIT. Si solo mirás otra pestaña (ej. datos FV-5), no vas a ver el cambio.",
         "",
         detalleServidor ? `Detalle del servidor:\n${detalleServidor}` : "",
       ]
@@ -374,8 +376,8 @@ export default function PosDianFacturacionPanel({
         .join("\n");
       window.alert(alerta);
       const banner = [
-        "Listo: los datos ya están en la base del WMS (Google Sheets «DB_ResolucionesDian»).",
-        sync.message ? ` ${sync.message}` : "",
+        `Listo: revisá la pestaña «${pestana}» en el Google Sheet del WMS (SHEET_ID). `,
+        sync.message ? sync.message : "",
       ]
         .join("")
         .trim();
@@ -396,12 +398,7 @@ export default function PosDianFacturacionPanel({
     try {
       const token = await auth?.currentUser?.getIdToken();
       if (!token) return;
-      const r = await wmsPosDianConfigPut(token, {
-        emisorNit: nitSoloDigitos(emisorNit) || emisorNit.trim(),
-        alegraCompanyId: alegraCompanyId.trim(),
-        dianResolutionNumber: dianResolutionNumber.trim(),
-        habilitado: false,
-      });
+      const r = await wmsPosDianConfigPut(token, payloadDian(false));
       if (r.ok) {
         setHabilitado(false);
         setPingOk(null);
@@ -495,9 +492,9 @@ export default function PosDianFacturacionPanel({
           {step === 2 && (
             <div className="space-y-4">
               <p className="text-sm text-gray-600">
-                Ingresá el <strong>NIT o cédula</strong> con el que factura este punto y el{" "}
-                <strong>número de resolución DIAN</strong> de tus facturas de venta. Escribí el NIT solo con números, sin
-                puntos ni guiones.
+                Completá los datos <strong>exactos</strong> de tu punto: son los que quedan en la base de datos
+                (Firestore) y en la hoja <strong>DB_ResolucionesDian</strong> del WMS al confirmar. El NIT escribilo
+                solo con números, sin puntos ni guiones.
               </p>
               <label className="block">
                 <span className="text-sm font-medium text-gray-700">NIT o cédula del emisor (este punto)</span>
@@ -510,19 +507,77 @@ export default function PosDianFacturacionPanel({
                   autoComplete="off"
                 />
               </label>
+              <label className="block">
+                <span className="text-sm font-medium text-gray-700">
+                  Razón social DIAN (como en el RUT / certificado)
+                </span>
+                <span className="mt-0.5 block text-xs text-gray-500">
+                  Debe coincidir con la razón social del emisor ante la DIAN (no el nombre comercial del local). Obligatoria
+                  para guardar en base de datos.
+                </span>
+                <input
+                  type="text"
+                  value={razonSocialDian}
+                  onChange={(e) => setRazonSocialDian(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                  placeholder="Ej. Alba Lucía Castaño Vargas"
+                  autoComplete="organization"
+                />
+                {syncPreview?.kind === "ok" ? (
+                  <button
+                    type="button"
+                    className="mt-1.5 text-xs font-medium text-amber-700 underline decoration-amber-600/60 hover:text-amber-900"
+                    onClick={() => setRazonSocialDian(syncPreview.data.empresaAlegra.name)}
+                  >
+                    Usar nombre sugerido por Alegra: {syncPreview.data.empresaAlegra.name}
+                  </button>
+                ) : null}
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-gray-700">ID de empresa en Alegra (e-provider)</span>
+                <span className="mt-0.5 block text-xs text-gray-500">
+                  Si la verificación lo encontró solo, se rellena solo; podés pegar el ID correcto desde Alegra si hace
+                  falta.
+                </span>
+                <input
+                  type="text"
+                  value={alegraCompanyId}
+                  onChange={(e) => setAlegraCompanyId(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 font-mono text-xs"
+                  placeholder="Ej. 01KREDP264B…"
+                  spellCheck={false}
+                  autoComplete="off"
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-gray-700">Prefijo de factura en base de datos</span>
+                <span className="mt-0.5 block text-xs text-gray-500">
+                  En pruebas Alanube suele ser <strong>SETT</strong>. Dejalo vacío para que el WMS use el valor por defecto
+                  de sandbox.
+                </span>
+                <input
+                  type="text"
+                  value={prefijoFactura}
+                  onChange={(e) => setPrefijoFactura(e.target.value.toUpperCase())}
+                  className="mt-1 w-full max-w-xs rounded-lg border border-gray-300 px-3 py-2 text-sm uppercase tracking-wide"
+                  placeholder="SETT"
+                  maxLength={8}
+                  autoComplete="off"
+                />
+              </label>
               <div className="space-y-2 rounded-xl border-2 border-amber-400 bg-amber-50 p-4 shadow-sm">
                 <p className="text-sm font-semibold text-amber-950">Número de resolución DIAN</p>
                 <p className="text-xs text-amber-950/90 leading-relaxed">
                   Es el número que aparece en tu resolución de facturación ante la DIAN (no el prefijo de la factura ni el
-                  rango de consecutivos). Si tenés varias resoluciones, usá la de facturas de venta. Si no lo sabés,
-                  consultá con administración.
+                  rango de consecutivos). En sandbox Alanube el número de pruebas es <strong>18760000001</strong> (11
+                  dígitos). Si no lo escribís, el WMS puede usar el valor por defecto de pruebas.
                 </p>
                 <input
                   type="text"
                   value={dianResolutionNumber}
                   onChange={(e) => setDianResolutionNumber(e.target.value)}
                   className="w-full rounded-lg border-2 border-amber-500/70 bg-white px-3 py-2.5 text-sm text-gray-900 shadow-inner"
-                  placeholder="Escribí aquí el número de resolución (ej. 18760000001)"
+                  placeholder="Ej. 18760000001"
                   autoComplete="off"
                   aria-label="Número de resolución DIAN"
                 />
@@ -551,8 +606,9 @@ export default function PosDianFacturacionPanel({
                 NIT y número de resolución para que lo revisemos en el sistema.
               </p>
               <p className="text-xs text-sky-900/80">
-                Al pulsar «Confirmar y continuar», además de avanzar, el POS envía tu NIT y empresa Alegra al WMS para
-                registrar o actualizar la fila en la hoja <strong>DB_ResolucionesDian</strong> (Google Sheets).
+                Al pulsar «Confirmar y continuar», el POS guarda en el WMS tu NIT, razón social, ID Alegra, prefijo y
+                número de resolución, y actualiza la fila correspondiente en la hoja <strong>DB_ResolucionesDian</strong>{" "}
+                (Google Sheets).
               </p>
               <div className="flex flex-wrap gap-2 border-t border-gray-100 pt-4">
                 <button
@@ -567,7 +623,12 @@ export default function PosDianFacturacionPanel({
                 </button>
                 <button
                   type="button"
-                  disabled={sincAuto || syncPreview?.kind !== "ok" || confirmandoPaso3}
+                  disabled={
+                    sincAuto ||
+                    syncPreview?.kind !== "ok" ||
+                    confirmandoPaso3 ||
+                    razonSocialDian.trim().length < 3
+                  }
                   onClick={() => void confirmarPaso3()}
                   className="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-gray-900 disabled:cursor-not-allowed disabled:opacity-50"
                 >
@@ -576,7 +637,12 @@ export default function PosDianFacturacionPanel({
               </div>
               {!sincAuto && syncPreview?.kind !== "ok" && nitSoloDigitos(emisorNit).length >= 8 ? (
                 <p className="text-xs text-gray-500">
-                  «Confirmar y continuar» se habilita cuando la verificación automática esté en verde (sin errores).
+                  «Confirmar y continuar» se habilita cuando la verificación automática esté en verde y hayas cargado la
+                  razón social DIAN (paso 2).
+                </p>
+              ) : !sincAuto && syncPreview?.kind === "ok" && razonSocialDian.trim().length < 3 ? (
+                <p className="text-xs text-amber-800">
+                  Falta la razón social DIAN del paso 2 (como en el RUT) para poder guardar en base de datos.
                 </p>
               ) : null}
             </div>

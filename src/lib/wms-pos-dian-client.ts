@@ -13,6 +13,10 @@ export type DianConfigResponse = {
   alegraCompanyId: string;
   /** Número de resolución DIAN (texto); el WMS puede usarlo para elegir la fila en DB_ResolucionesDian. */
   dianResolutionNumber: string;
+  /** Razón social exacta (RUT / FAJ43b) guardada en Firestore y volcada a la hoja en sandbox. */
+  razonSocialDian: string;
+  /** Prefijo en hoja; vacío = SETT u omisión según WMS. */
+  prefijoFactura: string;
   habilitado: boolean;
 };
 
@@ -70,6 +74,8 @@ export async function wmsPosDianConfigGet(
       emisorNit: String(data.emisorNit ?? ""),
       alegraCompanyId: String(data.alegraCompanyId ?? ""),
       dianResolutionNumber: String(data.dianResolutionNumber ?? "").trim(),
+      razonSocialDian: String(data.razonSocialDian ?? "").trim(),
+      prefijoFactura: String(data.prefijoFactura ?? "").trim(),
       habilitado: Boolean(data.habilitado),
     };
   } catch (e) {
@@ -79,7 +85,14 @@ export async function wmsPosDianConfigGet(
 
 export async function wmsPosDianConfigPut(
   idToken: string,
-  body: { emisorNit: string; alegraCompanyId?: string; dianResolutionNumber?: string; habilitado: boolean }
+  body: {
+    emisorNit: string;
+    alegraCompanyId?: string;
+    dianResolutionNumber?: string;
+    razonSocialDian?: string;
+    prefijoFactura?: string;
+    habilitado: boolean;
+  }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const t = idToken?.trim();
   if (!t) return { ok: false, error: "Sin sesión." };
@@ -121,6 +134,8 @@ export type DianSyncResolucionesResult =
       ok: true;
       synced: number;
       message: string;
+      /** Pestaña del libro Google donde escribe el WMS (no es la primera hoja del archivo por defecto). */
+      pestanaGoogleSheet?: string;
       sandboxMetaResolucion?: string;
       resolucionLista?: boolean;
       resolucion?: DianPingOk["resolucion"];
@@ -156,6 +171,9 @@ export async function wmsPosAlegraSyncResoluciones(
         ok: true,
         synced: Number(data.synced ?? 0) || 0,
         message: String(data.message ?? "").trim() || "Sincronización completada.",
+        ...(typeof data.pestanaGoogleSheet === "string" && data.pestanaGoogleSheet.trim()
+          ? { pestanaGoogleSheet: data.pestanaGoogleSheet.trim() }
+          : {}),
         ...(typeof data.sandboxMetaResolucion === "string" && data.sandboxMetaResolucion.trim()
           ? { sandboxMetaResolucion: data.sandboxMetaResolucion.trim() }
           : {}),
