@@ -26,9 +26,16 @@ Campos (constantes en WMS `POS_DIAN_FIRESTORE`):
 |-----------------|-----|
 | `posDianEmisorNit` | NIT/cédula emisor del punto (prioritario). |
 | `nitEmisor` | Fallback si no hay `posDianEmisorNit` (NIT perfil GEB del cajero). |
-| `posDianAlegraCompanyId` | Id empresa en Alegra (`GET /companies`); **opcional**. Al emitir, el WMS usa primero el `ALEGRA_COMPANY_ID` de la fila **`DB_ResolucionesDian`** que coincide con el NIT/resolución (igual que GEB); solo si la hoja no trae id, usa este campo de Firestore. Así se evita emitir con otra empresa del mismo tenant (error AEP6008 en sandbox). |
+| `posDianAlegraCompanyId` | Id empresa en Alegra (`GET /companies`); **opcional**. Al emitir, el WMS usa el `ALEGRA_COMPANY_ID` de **`DB_ResolucionesDian`** (igual que GEB); si la fila SETT de **tu NIT** no tiene id, en **sandbox** el WMS puede reutilizar otra fila SETT de la hoja con el mismo prefijo/`NUMERO_RESOLUCION` de prueba (p. ej. la de casa matriz que ya lista facturas en Alanube). Luego variable `ALEGRA_COMPANY_ID` en Vercel y por último este campo Firestore. |
 | `posDianResolutionNumber` | Número de resolución DIAN (texto); opcional. El POS lo envía como `dianResolutionNumber` en `PUT /api/pos/dian-config`. El WMS debe persistirlo (p. ej. Firestore) y usarlo al resolver la fila en `DB_ResolucionesDian` (p. ej. filtrar por columna de número de resolución). |
 | `posDianFacturacionHabilitada` | `true` para permitir emitir; si `false`, el WMS responde `403`. |
+
+### Sandbox Alanube (misma cuenta que GEB)
+
+1. **Vercel WMS:** URL API sandbox (o default `sandbox-api.alegra.com`) y token **de pruebas**.
+2. **`DB_ResolucionesDian`:** al menos una fila **SETT** con **`ALEGRA_COMPANY_ID`** de la empresa que en **sandbox-reseller.alanube.co** ya muestra facturas (p. ej. **901153770**). Así el POS puede emitir con ese id aunque el cajero tenga otra fila SETT sin id.
+3. **AEP6008:** la empresa elegida en Alegra **no** está autorizada para e-factura en ese ambiente; es trámite en Alanube/DIAN, no bug del código.
+4. En el POS, el **ping** debe indicar **SANDBOX**; si dice **producción**, no busques documentos en `sandbox-reseller.alanube.co`.
 
 **API WMS**
 
