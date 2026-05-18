@@ -26,7 +26,7 @@ Campos (constantes en WMS `POS_DIAN_FIRESTORE`):
 |-----------------|-----|
 | `posDianEmisorNit` | NIT/cédula emisor del punto (prioritario). |
 | `nitEmisor` | Fallback si no hay `posDianEmisorNit` (NIT perfil GEB del cajero). |
-| `posDianAlegraCompanyId` | Id empresa en Alegra (`GET /companies`); opcional si una sola empresa con ese NIT. |
+| `posDianAlegraCompanyId` | Id empresa en Alegra (`GET /companies`); **opcional**. Al emitir, el WMS usa primero el `ALEGRA_COMPANY_ID` de la fila **`DB_ResolucionesDian`** que coincide con el NIT/resolución (igual que GEB); solo si la hoja no trae id, usa este campo de Firestore. Así se evita emitir con otra empresa del mismo tenant (error AEP6008 en sandbox). |
 | `posDianResolutionNumber` | Número de resolución DIAN (texto); opcional. El POS lo envía como `dianResolutionNumber` en `PUT /api/pos/dian-config`. El WMS debe persistirlo (p. ej. Firestore) y usarlo al resolver la fila en `DB_ResolucionesDian` (p. ej. filtrar por columna de número de resolución). |
 | `posDianFacturacionHabilitada` | `true` para permitir emitir; si `false`, el WMS responde `403`. |
 
