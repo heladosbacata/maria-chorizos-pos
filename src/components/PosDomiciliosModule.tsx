@@ -5,7 +5,7 @@ import QRCode from "qrcode";
 import { auth } from "@/lib/firebase";
 import { domicilioCambiarEstado, domicilioCrear, domiciliosListar } from "@/lib/pos-domicilios-api";
 import { enviarMensajeChatDomicilio, listarMensajesChatDomicilio } from "@/lib/pos-domicilios-chat-api";
-import { DEFAULT_COSTO_DOMICILIO_COP, DEFAULT_UMBRAL_GRATIS_COP } from "@/lib/pos-domicilios-config-store";
+import { DEFAULT_COSTO_DOMICILIO_COP, DEFAULT_UMBRAL_GRATIS_COP } from "@/lib/pos-domicilios-tarifa-defaults";
 import { PosDomiciliosChatBurbuja } from "@/components/PosDomiciliosChatBurbuja";
 import type { EstadoDomicilio, PedidoDomicilio } from "@/types/pos-domicilios";
 import type { MensajeChatDomicilio } from "@/types/pos-domicilios-chat";

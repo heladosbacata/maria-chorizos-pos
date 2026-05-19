@@ -4,7 +4,7 @@ import Image from "next/image";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { getCatalogoPOS } from "@/lib/catalogo-pos";
-import { DEFAULT_COSTO_DOMICILIO_COP, DEFAULT_UMBRAL_GRATIS_COP } from "@/lib/pos-domicilios-config-store";
+import { DEFAULT_COSTO_DOMICILIO_COP, DEFAULT_UMBRAL_GRATIS_COP } from "@/lib/pos-domicilios-tarifa-defaults";
 import { comprimirComprobanteTransferenciaParaChat } from "@/lib/pos-domicilios-chat-imagen";
 import { enviarMensajeChatDomicilio, listarMensajesChatDomicilio } from "@/lib/pos-domicilios-chat-api";
 import { LOGO_ORG_URL } from "@/lib/brand";

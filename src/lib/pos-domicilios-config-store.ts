@@ -1,11 +1,13 @@
 import { getFirestore } from "firebase-admin/firestore";
 import { getFirebaseAdminApp } from "@/lib/firebase-admin-server";
+import {
+  DEFAULT_COSTO_DOMICILIO_COP,
+  DEFAULT_UMBRAL_GRATIS_COP,
+} from "@/lib/pos-domicilios-tarifa-defaults";
+
+export { DEFAULT_COSTO_DOMICILIO_COP, DEFAULT_UMBRAL_GRATIS_COP } from "@/lib/pos-domicilios-tarifa-defaults";
 
 const COLL = "posDomiciliosConfig";
-
-/** Valor por defecto alineado con la política comercial del landing de pedidos. */
-export const DEFAULT_COSTO_DOMICILIO_COP = 4000;
-export const DEFAULT_UMBRAL_GRATIS_COP = 35000;
 
 function normPv(puntoVenta: string): string {
   return puntoVenta.trim().toLowerCase();
