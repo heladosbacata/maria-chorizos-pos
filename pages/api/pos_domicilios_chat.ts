@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { enviarMensajeChatPersistente, listarMensajesChatPersistente } from "@/lib/pos-domicilios-firestore-store";
+import { notificarNuevoMensajeChatPedidoDomicilioWebPush } from "@/lib/pos-domicilios-push-notify";
 import type {
   ChatDomicilioEnviarPayload,
   ChatDomicilioEnviarResponse,
@@ -96,6 +97,17 @@ export default async function handler(
     });
     if (!mensaje) {
       return res.status(400).json({ ok: false, message: "No fue posible enviar el mensaje." });
+    }
+    if (payload.autor === "pos") {
+      const preview =
+        mensaje.tipoMensaje === "imagen" || mensaje.tipoMensaje === "comprobante"
+          ? "Te enviaron una imagen en el chat del pedido."
+          : mensaje.texto;
+      void notificarNuevoMensajeChatPedidoDomicilioWebPush({
+        puntoVenta: payload.puntoVenta,
+        pedidoId: payload.pedidoId,
+        preview,
+      });
     }
     return res.status(200).json({ ok: true, mensaje, message: "Mensaje enviado." });
   }

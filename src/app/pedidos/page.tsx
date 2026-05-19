@@ -76,9 +76,74 @@ function textoNormalizado(v: string): string {
     .trim();
 }
 
+/** Etiqueta única de categoría (evita duplicados tipo Basicos / Básicos). */
+const ETIQUETA_CATEGORIA_BEBIDAS = "Bebidas";
+const ETIQUETA_CATEGORIA_COMPLEMENTOS = "Complementos";
+
+type GrupoCatalogoColapsableDef = {
+  id: string;
+  etiqueta: string;
+  matcher: (p: ProductoPOS) => boolean;
+  bordeClass: string;
+  fondoClass: string;
+  acentoClass: string;
+};
+
+function canonizarEtiquetaCategoria(c: string): string {
+  const raw = c.trim();
+  if (!raw) return "";
+  const n = textoNormalizado(raw);
+  if (n === "basicos") return "Básicos";
+  if (n === "bebidas" || n === "bebida") return ETIQUETA_CATEGORIA_BEBIDAS;
+  if (n === "complementos" || n === "complemento" || n === "adicionales" || n === "extras") {
+    return ETIQUETA_CATEGORIA_COMPLEMENTOS;
+  }
+  return raw;
+}
+
 function categoriaProducto(p: ProductoPOS): string {
-  const c = (p.categoria ?? "").trim();
-  return c || "Especialidades";
+  return canonizarEtiquetaCategoria(p.categoria ?? "") || "Especialidades";
+}
+
+function productoEsBebidas(p: ProductoPOS): boolean {
+  const cat = categoriaProducto(p);
+  if (cat === ETIQUETA_CATEGORIA_BEBIDAS) return true;
+  const t = textoNormalizado(`${p.descripcion} ${p.categoria ?? ""}`);
+  return /gaseosa|limonada|jugo|bebida|agua|soda|malteada/.test(t);
+}
+
+function productoEsComplemento(p: ProductoPOS): boolean {
+  if (productoEsBebidas(p)) return false;
+  const cat = categoriaProducto(p);
+  if (cat === ETIQUETA_CATEGORIA_COMPLEMENTOS) return true;
+  const t = textoNormalizado(`${p.descripcion} ${p.categoria ?? ""}`);
+  return /arepa|papa|salsa|chimichurri|aji|ajo|ensalada|extra|postre|acompañamiento|acompanamiento/.test(t);
+}
+
+const GRUPOS_CATALOGO_COLAPSABLE: GrupoCatalogoColapsableDef[] = [
+  {
+    id: "bebidas",
+    etiqueta: ETIQUETA_CATEGORIA_BEBIDAS,
+    matcher: (p) => productoEsBebidas(p),
+    bordeClass: "border-sky-200",
+    fondoClass: "from-sky-50 to-cyan-50",
+    acentoClass: "text-cyan-700",
+  },
+  {
+    id: "complementos",
+    etiqueta: ETIQUETA_CATEGORIA_COMPLEMENTOS,
+    matcher: (p) => productoEsComplemento(p),
+    bordeClass: "border-amber-200",
+    fondoClass: "from-amber-50 to-orange-50",
+    acentoClass: "text-amber-800",
+  },
+];
+
+function matcherGrupoColapsableProducto(p: ProductoPOS): GrupoCatalogoColapsableDef | null {
+  for (const g of GRUPOS_CATALOGO_COLAPSABLE) {
+    if (g.matcher(p)) return g;
+  }
+  return null;
 }
 
 function primeraImagenProducto(p: ProductoPOS): string | null {
@@ -415,6 +480,7 @@ function PedidosLandingClient() {
   const [ahoraMs, setAhoraMs] = useState(Date.now());
   const [busqueda, setBusqueda] = useState("");
   const [categoriaActiva, setCategoriaActiva] = useState("Todo");
+  const [desplegablesCatalogo, setDesplegablesCatalogo] = useState<Record<string, boolean>>({});
   const [chatVista, setChatVista] = useState<"cerrado" | "minimizado" | "expandido">("cerrado");
   const [chatEstadoVisible, setChatEstadoVisible] = useState(false);
   const [chatMensajes, setChatMensajes] = useState<MensajeChatDomicilio[]>([]);
@@ -435,8 +501,12 @@ function PedidosLandingClient() {
   const [pushPedidosMensaje, setPushPedidosMensaje] = useState<string | null>(null);
   const [pushPedidosExito, setPushPedidosExito] = useState(false);
   const [pushPedidosNavOk, setPushPedidosNavOk] = useState(false);
+  const [modalPushPedidoAbierto, setModalPushPedidoAbierto] = useState(false);
+  const [carritoModalAbierto, setCarritoModalAbierto] = useState(false);
+  const [chatMensajesNoLeidos, setChatMensajesNoLeidos] = useState(0);
   const [pedidoResumenChat, setPedidoResumenChat] = useState<ResumenPedidoChatCliente | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const ultimoMensajePosIdRef = useRef<string | null>(null);
   const chatComprobanteInputRef = useRef<HTMLInputElement | null>(null);
   const chatFotoCamaraInputRef = useRef<HTMLInputElement | null>(null);
   const chatFotoGaleriaInputRef = useRef<HTMLInputElement | null>(null);
@@ -595,6 +665,45 @@ function PedidosLandingClient() {
       return texto.includes(q);
     });
   }, [catalogo, busqueda, categoriaActiva]);
+
+  const { productosGrid, gruposColapsables } = useMemo(() => {
+    const grid: ProductoPOS[] = [];
+    const buckets = new Map<string, ProductoPOS[]>(
+      GRUPOS_CATALOGO_COLAPSABLE.map((g) => [g.id, [] as ProductoPOS[]])
+    );
+    for (const p of productosFiltrados) {
+      const grupo = matcherGrupoColapsableProducto(p);
+      if (grupo) buckets.get(grupo.id)!.push(p);
+      else grid.push(p);
+    }
+    const grupos = GRUPOS_CATALOGO_COLAPSABLE.map((def) => ({
+      ...def,
+      productos: buckets.get(def.id) ?? [],
+    })).filter((g) => g.productos.length > 0);
+    return { productosGrid: grid, gruposColapsables: grupos };
+  }, [productosFiltrados]);
+
+  const totalProductosColapsables = useMemo(
+    () => gruposColapsables.reduce((acc, g) => acc + g.productos.length, 0),
+    [gruposColapsables]
+  );
+
+  const abrirDesplegableCatalogo = useCallback((id: string) => {
+    setDesplegablesCatalogo((prev) => ({ ...prev, [id]: true }));
+  }, []);
+
+  useEffect(() => {
+    const grupo = GRUPOS_CATALOGO_COLAPSABLE.find((g) => g.etiqueta === categoriaActiva);
+    if (grupo) abrirDesplegableCatalogo(grupo.id);
+  }, [categoriaActiva, abrirDesplegableCatalogo]);
+
+  useEffect(() => {
+    const q = textoNormalizado(busqueda);
+    if (!q) return;
+    for (const g of gruposColapsables) {
+      if (g.productos.length > 0) abrirDesplegableCatalogo(g.id);
+    }
+  }, [busqueda, gruposColapsables, abrirDesplegableCatalogo]);
 
   const itemsCarrito = useMemo<CarritoLinea[]>(() => {
     const porSku = new Map(catalogo.map((p) => [p.sku, p]));
@@ -843,6 +952,16 @@ function PedidosLandingClient() {
       setPedidoCreadoEnIso(new Date().toISOString());
       setEtiquetaClienteChat(cliente.trim() || "Cliente");
       setChatVista("expandido");
+      ultimoMensajePosIdRef.current = null;
+      setChatMensajesNoLeidos(0);
+      if (
+        pedidosPushSoportadoEnEsteNavegador() &&
+        vapidPublicPedidos &&
+        typeof Notification !== "undefined" &&
+        Notification.permission === "default"
+      ) {
+        setModalPushPedidoAbierto(true);
+      }
       setMensaje("Tu pedido fue recibido. Muy pronto te contactamos para confirmar.");
       setCantidades({});
       setCliente("");
@@ -868,6 +987,9 @@ function PedidosLandingClient() {
       setChatEstadoVisible(false);
       setChatVista("cerrado");
       estadoPedidoAnteriorRef.current = null;
+      ultimoMensajePosIdRef.current = null;
+      setChatMensajesNoLeidos(0);
+      setModalPushPedidoAbierto(false);
       setAnimacionCambioEstadoPedido(null);
       setResaltarTarjetaEstadoPedido(false);
       setPushPedidosMensaje(null);
@@ -876,6 +998,36 @@ function PedidosLandingClient() {
       return;
     }
     let activo = true;
+    const procesarMensajes = (data: MensajeChatDomicilio[]) => {
+      const mensajesPos = data.filter((m) => m.autor === "pos");
+      const ultimoPos = mensajesPos.length > 0 ? mensajesPos[mensajesPos.length - 1]! : null;
+      if (ultimoPos) {
+        if (ultimoMensajePosIdRef.current === null) {
+          ultimoMensajePosIdRef.current = ultimoPos.id;
+        } else if (ultimoPos.id !== ultimoMensajePosIdRef.current) {
+          ultimoMensajePosIdRef.current = ultimoPos.id;
+          if (chatVista !== "expandido") {
+            setChatMensajesNoLeidos((n) => n + 1);
+          }
+          if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+            const cuerpo =
+              ultimoPos.tipoMensaje === "imagen" || ultimoPos.tipoMensaje === "comprobante"
+                ? "Te enviaron una imagen en el chat."
+                : ultimoPos.texto.slice(0, 120);
+            try {
+              new Notification("Maria Chorizos — mensaje del local", {
+                body: cuerpo,
+                tag: `chat-pedido-${pedidoCreadoId}`,
+              });
+            } catch {
+              /* navegador sin permiso activo */
+            }
+          }
+        }
+      }
+      setChatMensajes(data);
+      setChatError(null);
+    };
     const cargar = async (silencioso = false) => {
       if (!silencioso) setChatCargando(true);
       const res = await listarMensajesChatDomicilio(puntoVenta, pedidoCreadoId);
@@ -883,20 +1035,19 @@ function PedidosLandingClient() {
       if (!res.ok) {
         if (!silencioso) setChatError(res.message ?? "No fue posible cargar el chat.");
       } else {
-        setChatMensajes(res.data);
-        setChatError(null);
+        procesarMensajes(res.data);
       }
       if (!silencioso) setChatCargando(false);
     };
     void cargar(false);
     const timer = window.setInterval(() => {
       void cargar(true);
-    }, 5000);
+    }, 2500);
     return () => {
       activo = false;
       window.clearInterval(timer);
     };
-  }, [pedidoCreadoId, puntoVenta]);
+  }, [pedidoCreadoId, puntoVenta, chatVista]);
 
   useEffect(() => {
     setPushPedidosExito(false);
@@ -1104,7 +1255,200 @@ function PedidosLandingClient() {
     setPushPedidosActivando(false);
     setPushPedidosMensaje(r.message ?? (r.ok ? "Listo." : "No se pudo activar."));
     setPushPedidosExito(r.ok);
+    if (r.ok) setModalPushPedidoAbierto(false);
   };
+
+  const toggleChatCliente = () => {
+    setChatVista((v) => {
+      if (v === "expandido") return "minimizado";
+      setChatMensajesNoLeidos(0);
+      return "expandido";
+    });
+  };
+
+  useEffect(() => {
+    if (chatVista === "expandido") setChatMensajesNoLeidos(0);
+  }, [chatVista]);
+
+  const bloqueActivarPushPedido = pedidoCreadoId ? (
+    <div className="rounded-xl border border-indigo-200 bg-indigo-50/80 p-3">
+      <p className="text-sm font-bold text-indigo-950">Avisos en tu celular</p>
+      <p className="mt-1 text-xs text-indigo-900/90">
+        Activá las notificaciones para enterarte cuando el local te escriba o cambie el estado del pedido.
+      </p>
+      {!vapidPublicPedidos ? (
+        <p className="mt-2 text-xs text-slate-600">Las notificaciones no están disponibles en este momento.</p>
+      ) : !pushPedidosNavOk ? (
+        <p className="mt-2 text-xs text-amber-900/90">
+          En iPhone agregá esta página a la pantalla de inicio y abrila desde el ícono (iOS 16.4+). En Android usá Chrome.
+        </p>
+      ) : pushPedidosExito ? (
+        <p className="mt-2 text-xs font-semibold text-emerald-800">Avisos activados correctamente.</p>
+      ) : (
+        <div className="mt-3 space-y-2">
+          <button
+            type="button"
+            disabled={pushPedidosActivando}
+            onClick={() => void activarNotificacionesPedidoCelular()}
+            className="w-full rounded-xl bg-indigo-700 px-3 py-2.5 text-sm font-bold text-white shadow-md transition hover:bg-indigo-800 disabled:opacity-60"
+          >
+            {pushPedidosActivando ? "Activando…" : "Permitir notificaciones"}
+          </button>
+          {pushPedidosMensaje ? (
+            <p className={`text-xs font-medium ${pushPedidosExito ? "text-emerald-800" : "text-rose-700"}`}>
+              {pushPedidosMensaje}
+            </p>
+          ) : null}
+        </div>
+      )}
+    </div>
+  ) : null;
+
+  const renderContenidoCarrito = (listaMaxH = "max-h-64 sm:max-h-72") => (
+    <>
+      <div className="flex items-center justify-between">
+        <h3 className="text-base font-bold text-gray-900">Tu pedido</h3>
+        <span className="rounded-full bg-cyan-100 px-2 py-0.5 text-[11px] font-semibold text-cyan-800">{totalItems} item(s)</span>
+      </div>
+      <ul className={`mt-3 space-y-3 overflow-auto pr-0.5 text-sm text-gray-700 ${listaMaxH}`}>
+        {itemsCarrito.length === 0 ? (
+          <li className="text-gray-500">No has agregado productos.</li>
+        ) : (
+          itemsCarrito.map(({ lineKey, p, cantidad, varianteLabel, precioUnitarioLinea, varianteKey }) => (
+            <li key={lineKey} className="rounded-xl border border-gray-100 bg-gray-50/80 p-2.5">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="line-clamp-2 font-semibold text-gray-900">
+                    {p.descripcion}
+                    {varianteLabel ? <span className="font-normal text-gray-600"> ({varianteLabel})</span> : null}
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-gray-500">{formatoMoneda(precioUnitarioLinea)} c/u</p>
+                </div>
+                <div className="flex shrink-0 flex-col items-end gap-1.5">
+                  <strong className="text-sm text-cyan-800">{formatoMoneda(cantidad * precioUnitarioLinea)}</strong>
+                  <div className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-1 py-0.5">
+                    <button
+                      type="button"
+                      aria-label="Quitar una unidad"
+                      onClick={() => bajarCantidad(p.sku, varianteKey)}
+                      className="flex h-7 w-7 items-center justify-center rounded-md border border-gray-200 bg-white text-sm font-bold text-gray-700 transition hover:bg-gray-100 active:scale-95"
+                    >
+                      -
+                    </button>
+                    <span className="min-w-[1.5rem] text-center text-sm font-bold">{cantidad}</span>
+                    <button
+                      type="button"
+                      aria-label="Agregar una unidad"
+                      onClick={() => subirCantidad(p.sku, varianteKey)}
+                      className="flex h-7 w-7 items-center justify-center rounded-md bg-cyan-700 text-sm font-bold text-white transition hover:bg-cyan-800 active:scale-95"
+                    >
+                      +
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => eliminarLineaCarrito(lineKey)}
+                    className="text-[11px] font-semibold text-rose-600 underline-offset-2 hover:text-rose-700 hover:underline"
+                  >
+                    Quitar del carrito
+                  </button>
+                </div>
+              </div>
+            </li>
+          ))
+        )}
+      </ul>
+      <div className="mt-3 space-y-1 rounded-xl bg-gray-50 p-3 text-xs text-gray-700">
+        <div className="flex items-center justify-between">
+          <span>Subtotal</span>
+          <strong>{formatoMoneda(subtotal)}</strong>
+        </div>
+        <div className="flex items-center justify-between">
+          <span>{tipoEntrega === "recogida" ? "Envío a domicilio" : "Domicilio"}</span>
+          <strong>
+            {tipoEntrega === "recogida"
+              ? "No aplica"
+              : costoDomicilio === 0
+                ? "Gratis"
+                : formatoMoneda(costoDomicilio)}
+          </strong>
+        </div>
+        <div className="my-1 border-t border-gray-200" />
+        <div className="flex items-center justify-between text-sm">
+          <span className="font-semibold text-gray-900">Total</span>
+          <strong className="text-cyan-700">{formatoMoneda(total)}</strong>
+        </div>
+      </div>
+    </>
+  );
+
+  const renderListaCompactaCatalogo = (productos: ProductoPOS[], keyPrefix: string) => (
+    <ul className="mt-3 max-h-[min(60vh,520px)] space-y-2 overflow-y-auto rounded-2xl border border-gray-200 bg-white p-2 shadow-inner">
+      {productos.map((prod) => {
+        const variantes = opcionesVariantesProducto(prod);
+        const varianteActivaKey = varianteSeleccionadaPorSku[prod.sku] ?? (variantes[0]?.key ?? null);
+        const varianteActiva = varianteActivaKey ? variantes.find((v) => v.key === varianteActivaKey) : null;
+        const precioMostrar = varianteActiva?.precio ?? prod.precioUnitario;
+        const lineKey = keyLineaPedido(prod.sku, varianteActivaKey);
+        const cant = cantidades[lineKey] ?? 0;
+        return (
+          <li key={prod.sku} className="rounded-xl border border-gray-100 bg-gray-50/80 px-3 py-2.5">
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-gray-900">{prod.descripcion}</p>
+                <p className="mt-0.5 text-sm font-bold text-cyan-700">{formatoMoneda(precioMostrar)}</p>
+                {variantes.length > 1 ? (
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {variantes.map((v) => {
+                      const activo = v.key === varianteActivaKey;
+                      return (
+                        <button
+                          key={`${keyPrefix}-${prod.sku}-var-${v.key}`}
+                          type="button"
+                          onClick={() =>
+                            setVarianteSeleccionadaPorSku((prev) => ({
+                              ...prev,
+                              [prod.sku]: v.key,
+                            }))
+                          }
+                          className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                            activo
+                              ? "border-cyan-500 bg-cyan-600 text-white"
+                              : "border-gray-300 bg-white text-gray-700"
+                          }`}
+                        >
+                          {v.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+              <div className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-gray-200 bg-white px-1 py-0.5">
+                <button
+                  type="button"
+                  aria-label="Quitar una"
+                  onClick={() => bajarCantidad(prod.sku, varianteActivaKey)}
+                  className="flex h-7 w-7 items-center justify-center rounded-md border border-gray-200 text-sm font-bold text-gray-700"
+                >
+                  -
+                </button>
+                <span className="min-w-[1.25rem] text-center text-sm font-bold">{cant}</span>
+                <button
+                  type="button"
+                  aria-label="Agregar una"
+                  onClick={() => subirCantidad(prod.sku, varianteActivaKey)}
+                  className="flex h-7 w-7 items-center justify-center rounded-md bg-cyan-700 text-sm font-bold text-white"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
 
   return (
     <main className="min-h-screen w-full overflow-x-hidden bg-slate-50 pb-28 lg:pb-0">
@@ -1181,12 +1525,12 @@ function PedidosLandingClient() {
           </article>
           <article className="rounded-xl border border-cyan-200 bg-cyan-50 p-3 shadow-sm">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-cyan-700">Beneficio</p>
-            <p className="mt-1 text-lg font-extrabold text-cyan-900">
+            <p className="mt-1 text-base font-extrabold leading-snug text-cyan-900 sm:text-lg">
               {tipoEntrega === "recogida"
                 ? "Recogida en tienda: sin costo de envío"
                 : subtotal >= tarifaDomicilio.umbralGratisCop
                   ? "Domicilio gratis aplicado"
-                  : `Gratis desde ${formatoMoneda(tarifaDomicilio.umbralGratisCop)}`}
+                  : `Domicilio gratis por pedidos desde ${formatoMoneda(tarifaDomicilio.umbralGratisCop)}`}
             </p>
           </article>
         </section>
@@ -1213,7 +1557,11 @@ function PedidosLandingClient() {
                   <button
                     key={cat}
                     type="button"
-                    onClick={() => setCategoriaActiva(cat)}
+                    onClick={() => {
+                      setCategoriaActiva(cat);
+                      const grupo = GRUPOS_CATALOGO_COLAPSABLE.find((g) => g.etiqueta === cat);
+                      if (grupo) abrirDesplegableCatalogo(grupo.id);
+                    }}
                     className={`snap-start whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
                       categoriaActiva === cat
                         ? "border-cyan-500 bg-cyan-600 text-white"
@@ -1248,8 +1596,9 @@ function PedidosLandingClient() {
                 {errorCatalogo}
               </div>
             ) : (
+              <div className="space-y-3">
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {productosFiltrados.map((prod, idx) => {
+                {productosGrid.map((prod, idx) => {
                   const variantes = opcionesVariantesProducto(prod);
                   const varianteActivaKey = varianteSeleccionadaPorSku[prod.sku] ?? (variantes[0]?.key ?? null);
                   const varianteActiva = varianteActivaKey ? variantes.find((v) => v.key === varianteActivaKey) : null;
@@ -1345,90 +1694,59 @@ function PedidosLandingClient() {
                     </article>
                   );
                 })}
-                {productosFiltrados.length === 0 ? (
+                {productosGrid.length === 0 && totalProductosColapsables === 0 ? (
                   <article className="rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500 sm:col-span-2 xl:col-span-3">
                     No encontramos productos con ese filtro. Prueba otra busqueda o categoria.
                   </article>
                 ) : null}
               </div>
+              {gruposColapsables.map((grupo) => {
+                if (grupo.productos.length === 0) return null;
+                const vistaSoloGrupo = categoriaActiva === grupo.etiqueta;
+                const abierto = desplegablesCatalogo[grupo.id] ?? false;
+                return (
+                  <div key={grupo.id}>
+                    {!vistaSoloGrupo ? (
+                      <button
+                        type="button"
+                        aria-expanded={abierto}
+                        onClick={() =>
+                          setDesplegablesCatalogo((prev) => ({ ...prev, [grupo.id]: !prev[grupo.id] }))
+                        }
+                        className={`flex w-full items-center justify-between gap-3 rounded-2xl border bg-gradient-to-r px-4 py-3.5 text-left shadow-sm transition hover:shadow-md ${grupo.bordeClass} ${grupo.fondoClass}`}
+                      >
+                        <div>
+                          <p className="text-sm font-bold text-gray-900">{grupo.etiqueta}</p>
+                          <p className="text-xs text-gray-600">
+                            {grupo.productos.length} opciones · tocá para ver y agregar
+                          </p>
+                        </div>
+                        <svg
+                          className={`h-5 w-5 shrink-0 transition-transform ${grupo.acentoClass} ${abierto ? "rotate-180" : ""}`}
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          aria-hidden
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+                    ) : (
+                      <p className="px-1 text-sm font-bold text-gray-900">{grupo.etiqueta}</p>
+                    )}
+                    {abierto || vistaSoloGrupo
+                      ? renderListaCompactaCatalogo(grupo.productos, grupo.id)
+                      : null}
+                  </div>
+                );
+              })}
+              </div>
             )}
           </section>
 
           <aside ref={checkoutRef} className="min-w-0 space-y-3 lg:sticky lg:top-4 lg:h-fit lg:space-y-4">
-            <section className="scroll-mt-20 overflow-hidden rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm sm:p-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-base font-bold text-gray-900">Tu pedido</h3>
-                <span className="rounded-full bg-cyan-100 px-2 py-0.5 text-[11px] font-semibold text-cyan-800">{totalItems} item(s)</span>
-              </div>
-              <ul className="mt-3 max-h-64 space-y-3 overflow-auto pr-0.5 text-sm text-gray-700 sm:max-h-72">
-                {itemsCarrito.length === 0 ? (
-                  <li className="text-gray-500">No has agregado productos.</li>
-                ) : (
-                  itemsCarrito.map(({ lineKey, p, cantidad, varianteLabel, precioUnitarioLinea, varianteKey }) => (
-                    <li key={lineKey} className="rounded-xl border border-gray-100 bg-gray-50/80 p-2.5">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                          <p className="line-clamp-2 font-semibold text-gray-900">
-                            {p.descripcion}
-                            {varianteLabel ? <span className="font-normal text-gray-600"> ({varianteLabel})</span> : null}
-                          </p>
-                          <p className="mt-0.5 text-[11px] text-gray-500">{formatoMoneda(precioUnitarioLinea)} c/u</p>
-                        </div>
-                        <div className="flex shrink-0 flex-col items-end gap-1.5">
-                          <strong className="text-sm text-cyan-800">{formatoMoneda(cantidad * precioUnitarioLinea)}</strong>
-                          <div className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-1 py-0.5">
-                            <button
-                              type="button"
-                              aria-label="Quitar una unidad"
-                              onClick={() => bajarCantidad(p.sku, varianteKey)}
-                              className="flex h-7 w-7 items-center justify-center rounded-md border border-gray-200 bg-white text-sm font-bold text-gray-700 transition hover:bg-gray-100 active:scale-95"
-                            >
-                              -
-                            </button>
-                            <span className="min-w-[1.5rem] text-center text-sm font-bold">{cantidad}</span>
-                            <button
-                              type="button"
-                              aria-label="Agregar una unidad"
-                              onClick={() => subirCantidad(p.sku, varianteKey)}
-                              className="flex h-7 w-7 items-center justify-center rounded-md bg-cyan-700 text-sm font-bold text-white transition hover:bg-cyan-800 active:scale-95"
-                            >
-                              +
-                            </button>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => eliminarLineaCarrito(lineKey)}
-                            className="text-[11px] font-semibold text-rose-600 underline-offset-2 hover:text-rose-700 hover:underline"
-                          >
-                            Quitar del carrito
-                          </button>
-                        </div>
-                      </div>
-                    </li>
-                  ))
-                )}
-              </ul>
-              <div className="mt-3 space-y-1 rounded-xl bg-gray-50 p-3 text-xs text-gray-700">
-                <div className="flex items-center justify-between">
-                  <span>Subtotal</span>
-                  <strong>{formatoMoneda(subtotal)}</strong>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span>{tipoEntrega === "recogida" ? "Envío a domicilio" : "Domicilio"}</span>
-                  <strong>
-                    {tipoEntrega === "recogida"
-                      ? "No aplica"
-                      : costoDomicilio === 0
-                        ? "Gratis"
-                        : formatoMoneda(costoDomicilio)}
-                  </strong>
-                </div>
-                <div className="my-1 border-t border-gray-200" />
-                <div className="flex items-center justify-between text-sm">
-                  <span className="font-semibold text-gray-900">Total</span>
-                  <strong className="text-cyan-700">{formatoMoneda(total)}</strong>
-                </div>
-              </div>
+            <section className="scroll-mt-20 hidden overflow-hidden rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm sm:p-4 lg:block">
+              {renderContenidoCarrito()}
             </section>
 
             <section className="overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/70 p-3.5 shadow-sm sm:p-4">
@@ -1723,38 +2041,98 @@ function PedidosLandingClient() {
       <div className="fixed inset-x-3 bottom-3 z-40 flex gap-2 lg:hidden">
         <button
           type="button"
-          onClick={() => checkoutRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-          className="flex-1 rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-black active:scale-[0.98]"
+          onClick={() => setCarritoModalAbierto(true)}
+          className="relative flex-1 rounded-xl bg-slate-900 px-3 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-black active:scale-[0.98]"
         >
           Ver carrito ({totalItems})
         </button>
         <button
           type="button"
-          onClick={() =>
-            setChatVista((v) => {
-              if (v === "cerrado") return "expandido";
-              if (v === "minimizado") return "expandido";
-              return "minimizado";
-            })
-          }
-          className="flex-1 rounded-xl bg-cyan-700 px-3 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-cyan-800 active:scale-[0.98]"
+          onClick={toggleChatCliente}
+          className="relative flex-1 rounded-xl bg-cyan-700 px-3 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-cyan-800 active:scale-[0.98]"
         >
           {chatVista === "expandido" ? "Minimizar chat" : chatVista === "minimizado" ? "Abrir chat" : "Chat POS"}
+          {chatMensajesNoLeidos > 0 && chatVista !== "expandido" ? (
+            <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
+              {chatMensajesNoLeidos > 9 ? "9+" : chatMensajesNoLeidos}
+            </span>
+          ) : null}
         </button>
       </div>
       <button
         type="button"
-        onClick={() =>
-          setChatVista((v) => {
-            if (v === "cerrado") return "expandido";
-            if (v === "minimizado") return "expandido";
-            return "minimizado";
-          })
-        }
+        onClick={toggleChatCliente}
         className="fixed bottom-5 right-5 z-40 hidden rounded-full bg-cyan-700 px-4 py-2 text-sm font-semibold text-white shadow-lg transition hover:bg-cyan-800 active:scale-[0.98] lg:inline-flex"
       >
         {chatVista === "expandido" ? "Minimizar chat" : chatVista === "minimizado" ? "Abrir chat" : "Chat con el punto"}
+        {chatMensajesNoLeidos > 0 && chatVista !== "expandido" ? (
+          <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold">
+            {chatMensajesNoLeidos > 9 ? "9+" : chatMensajesNoLeidos}
+          </span>
+        ) : null}
       </button>
+      {carritoModalAbierto ? (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center p-4 lg:hidden">
+          <button
+            type="button"
+            aria-label="Cerrar carrito"
+            className="absolute inset-0 bg-slate-950/55 backdrop-blur-[1px]"
+            onClick={() => setCarritoModalAbierto(false)}
+          />
+          <div className="relative z-10 flex w-full max-w-md max-h-[min(88dvh,720px)] flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl">
+            <div className="flex shrink-0 items-center justify-between border-b border-gray-100 px-4 py-3">
+              <h3 className="text-lg font-bold text-gray-900">Tu carrito</h3>
+              <button
+                type="button"
+                aria-label="Cerrar"
+                onClick={() => setCarritoModalAbierto(false)}
+                className="rounded-lg border border-gray-200 px-2.5 py-1 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              >
+                Cerrar
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto p-4">{renderContenidoCarrito("max-h-none")}</div>
+            <div className="shrink-0 border-t border-gray-100 p-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setCarritoModalAbierto(false);
+                  checkoutRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+                className="w-full rounded-xl bg-cyan-700 px-4 py-3 text-sm font-bold text-white shadow-md transition hover:bg-cyan-800 active:scale-[0.98]"
+              >
+                Continuar con mi pedido
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {modalPushPedidoAbierto && pedidoCreadoId ? (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label="Cerrar aviso de notificaciones"
+            className="absolute inset-0 bg-slate-950/60 backdrop-blur-[1px]"
+            onClick={() => setModalPushPedidoAbierto(false)}
+          />
+          <div className="relative z-10 w-full max-w-sm space-y-4 rounded-2xl border border-indigo-200 bg-white p-5 shadow-2xl">
+            <div>
+              <p className="text-lg font-bold text-gray-900">Activá avisos en tu celular</p>
+              <p className="mt-1 text-sm text-gray-600">
+                Así te enterás cuando el local te escriba en el chat o cambie el estado de tu pedido, aunque no tengas esta página abierta.
+              </p>
+            </div>
+            {bloqueActivarPushPedido}
+            <button
+              type="button"
+              onClick={() => setModalPushPedidoAbierto(false)}
+              className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+            >
+              Ahora no
+            </button>
+          </div>
+        </div>
+      ) : null}
       {chatVista === "expandido" ? (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4">
           <button
@@ -1853,6 +2231,9 @@ function PedidosLandingClient() {
                   </div>
                 ) : null}
               </div>
+            ) : null}
+            {pedidoCreadoId && !pushPedidosExito ? (
+              <div className="shrink-0 border-b border-cyan-100 px-3 py-2">{bloqueActivarPushPedido}</div>
             ) : null}
             <div
               ref={chatScrollRef}

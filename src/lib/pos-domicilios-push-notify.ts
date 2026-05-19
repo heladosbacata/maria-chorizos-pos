@@ -74,3 +74,49 @@ export async function notificarCambioEstadoPedidoDomicilioWebPush(params: {
     })
   );
 }
+
+/** Aviso al cliente cuando el POS escribe en el chat del pedido. */
+export async function notificarNuevoMensajeChatPedidoDomicilioWebPush(params: {
+  puntoVenta: string;
+  pedidoId: string;
+  preview: string;
+}): Promise<void> {
+  if (!isWebPushDomiciliosConfigurado()) return;
+
+  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!.trim();
+  const privateKey = process.env.VAPID_PRIVATE_KEY!.trim();
+  const subject = process.env.VAPID_SUBJECT?.trim() || "mailto:notificaciones@mariachorizos.com";
+
+  webpush.setVapidDetails(subject, publicKey, privateKey);
+
+  const titulo = "Maria Chorizos — mensaje del local";
+  const body =
+    params.preview.trim().slice(0, 180) || "Tenés un mensaje nuevo sobre tu pedido. Abrí el chat para leerlo.";
+  const qs = new URLSearchParams({ puntoVenta: params.puntoVenta.trim() }).toString();
+  const url = `/pedidos?${qs}`;
+  const payload = JSON.stringify({
+    title: titulo,
+    body,
+    url,
+    tag: `maria-chorizos-chat-${params.pedidoId.trim().toUpperCase()}`,
+  });
+
+  const registros = await listarSuscripcionesPushPorPedido(params.puntoVenta, params.pedidoId);
+  if (registros.length === 0) return;
+
+  await Promise.allSettled(
+    registros.map(async (rec) => {
+      try {
+        await webpush.sendNotification(rec.subscription, payload, {
+          TTL: 86_400,
+          urgency: "high",
+        });
+      } catch (err: unknown) {
+        const status = (err as { statusCode?: number })?.statusCode;
+        if (status === 404 || status === 410) {
+          await eliminarSuscripcionPushPorDocId(rec.id);
+        }
+      }
+    })
+  );
+}
