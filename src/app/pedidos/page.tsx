@@ -13,6 +13,18 @@ export const dynamic = "force-dynamic";
 
 type MetodoPago = "efectivo" | "transferencia" | "datafono";
 type CanalPedido = "web" | "qr";
+type TipoEntregaPedido = "domicilio" | "recogida";
+
+const CLUB_MILLAS_URL = "https://maria-chorizos-wms.vercel.app/club-de-millas/mi-plan";
+
+function abrirClubMillasEnVentanaEmergente(): void {
+  if (typeof window === "undefined") return;
+  window.open(
+    CLUB_MILLAS_URL,
+    "club_millas_maria_chorizos",
+    "noopener,noreferrer,width=1120,height=820,scrollbars=yes,resizable=yes"
+  );
+}
 type EstadoPedidoDomicilio =
   | "NUEVO"
   | "ACEPTADO"
@@ -209,6 +221,7 @@ function PedidosLandingClient() {
   const [direccion, setDireccion] = useState("");
   const [referencia, setReferencia] = useState("");
   const [metodoPago, setMetodoPago] = useState<MetodoPago>("efectivo");
+  const [tipoEntrega, setTipoEntrega] = useState<TipoEntregaPedido>("domicilio");
   const [enviando, setEnviando] = useState(false);
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [pedidoCreadoId, setPedidoCreadoId] = useState<string | null>(null);
@@ -313,10 +326,11 @@ function PedidosLandingClient() {
   const faltanteDomicilioGratis = useMemo(() => Math.max(0, 35000 - subtotal), [subtotal]);
   const progresoDomicilioGratis = useMemo(() => porcentajeProgresoDomicilioGratis(subtotal), [subtotal]);
   const costoDomicilio = useMemo(() => {
+    if (tipoEntrega === "recogida") return 0;
     if (subtotal <= 0) return 0;
     if (subtotal >= 35000) return 0;
     return 4000;
-  }, [subtotal]);
+  }, [subtotal, tipoEntrega]);
   const total = subtotal + costoDomicilio;
 
   const totalItems = useMemo(() => itemsCarrito.reduce((acc, x) => acc + x.cantidad, 0), [itemsCarrito]);
@@ -409,6 +423,13 @@ function PedidosLandingClient() {
     });
   };
 
+  const eliminarLineaCarrito = (lineKey: string) => {
+    setCantidades((prev) => {
+      const { [lineKey]: _, ...rest } = prev;
+      return rest;
+    });
+  };
+
   const agregarComboSugerido = (skus: string[]) => {
     if (!Array.isArray(skus) || skus.length === 0) return;
     setCantidades((prev) => {
@@ -431,19 +452,32 @@ function PedidosLandingClient() {
       setMensaje("Agrega al menos un producto al carrito.");
       return;
     }
-    if (!cliente.trim() || !telefono.trim() || !direccion.trim()) {
-      setMensaje("Completa cliente, teléfono y dirección para continuar.");
+    if (!cliente.trim() || !telefono.trim()) {
+      setMensaje("Completa nombre y teléfono para continuar.");
+      return;
+    }
+    if (tipoEntrega === "domicilio" && !direccion.trim()) {
+      setMensaje("Indica la dirección de entrega o elige recoger en la tienda.");
       return;
     }
     setEnviando(true);
     setMensaje(null);
     setPedidoCreadoId(null);
+    const direccionFinal =
+      tipoEntrega === "recogida"
+        ? `Recoger en tienda — ${puntoVenta}`
+        : direccion.trim();
+    const refUsuario = referencia.trim();
+    const partesRef: string[] = [];
+    if (tipoEntrega === "recogida") partesRef.push("Entrega: recogida en tienda");
+    if (refUsuario) partesRef.push(refUsuario);
+    const referenciaFinal = partesRef.length > 0 ? partesRef.join(" · ") : undefined;
     const body = {
       puntoVenta,
       cliente: cliente.trim(),
       telefono: telefono.trim(),
-      direccion: direccion.trim(),
-      referencia: referencia.trim() || undefined,
+      direccion: direccionFinal,
+      referencia: referenciaFinal,
       total: Math.round(total),
       metodoPago,
       canal,
@@ -475,6 +509,7 @@ function PedidosLandingClient() {
       setDireccion("");
       setReferencia("");
       setMetodoPago("efectivo");
+      setTipoEntrega("domicilio");
       setEnviando(false);
     } catch {
       setMensaje("No se pudo enviar el pedido. Intenta nuevamente.");
@@ -606,6 +641,40 @@ function PedidosLandingClient() {
               </div>
             </div>
           </div>
+
+          <div
+            role="region"
+            aria-label="Club de millas Maria Chorizos"
+            className="relative mt-5 overflow-hidden rounded-2xl border border-amber-300/40 shadow-lg animate-pedidos-club-border-glow"
+          >
+            <div
+              className="pointer-events-none absolute inset-0 bg-gradient-to-r from-indigo-950 via-fuchsia-900 to-amber-700 bg-[length:220%_100%] opacity-95 animate-pedidos-club-gradient"
+              aria-hidden
+            />
+            <div
+              className="pointer-events-none absolute inset-y-0 left-0 w-[42%] bg-gradient-to-r from-transparent via-white/25 to-transparent animate-pedidos-club-shimmer mix-blend-overlay"
+              aria-hidden
+            />
+            <div className="relative z-10 flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-5">
+              <div className="min-w-0 space-y-1.5">
+                <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-amber-200/90">Club de millas · experiencia premium</p>
+                <p className="text-base font-extrabold leading-snug text-white drop-shadow-sm sm:text-lg">
+                  ¿Ya perteneces a nuestro club de millas? No olvides registrarte y acumular millas con cada factura.
+                </p>
+                <p className="text-xs text-fuchsia-100/90">Beneficios exclusivos, seguimiento de tu plan y recompensas pensadas para clientes fieles.</p>
+              </div>
+              <div className="flex shrink-0 flex-col gap-2 sm:items-end">
+                <button
+                  type="button"
+                  onClick={abrirClubMillasEnVentanaEmergente}
+                  className="inline-flex w-full items-center justify-center rounded-xl bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-400 px-4 py-3 text-sm font-black text-indigo-950 shadow-md transition hover:brightness-110 active:scale-[0.98] sm:w-auto sm:px-5"
+                >
+                  Registrarme y ver mi plan
+                </button>
+                <p className="text-center text-[10px] text-white/70 sm:text-right">Se abre en una ventana emergente</p>
+              </div>
+            </div>
+          </div>
         </header>
 
         <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -624,7 +693,11 @@ function PedidosLandingClient() {
           <article className="rounded-xl border border-cyan-200 bg-cyan-50 p-3 shadow-sm">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-cyan-700">Beneficio</p>
             <p className="mt-1 text-lg font-extrabold text-cyan-900">
-              {subtotal >= 35000 ? "Domicilio gratis aplicado" : "Gratis desde $35.000"}
+              {tipoEntrega === "recogida"
+                ? "Recogida en tienda: sin costo de envío"
+                : subtotal >= 35000
+                  ? "Domicilio gratis aplicado"
+                  : "Gratis desde $35.000"}
             </p>
           </article>
         </section>
@@ -798,17 +871,50 @@ function PedidosLandingClient() {
                 <h3 className="text-base font-bold text-gray-900">Tu pedido</h3>
                 <span className="rounded-full bg-cyan-100 px-2 py-0.5 text-[11px] font-semibold text-cyan-800">{totalItems} item(s)</span>
               </div>
-              <ul className="mt-3 max-h-48 space-y-2 overflow-auto text-sm text-gray-700 sm:max-h-56">
+              <ul className="mt-3 max-h-64 space-y-3 overflow-auto pr-0.5 text-sm text-gray-700 sm:max-h-72">
                 {itemsCarrito.length === 0 ? (
                   <li className="text-gray-500">No has agregado productos.</li>
                 ) : (
-                  itemsCarrito.map(({ lineKey, p, cantidad, varianteLabel, precioUnitarioLinea }) => (
-                    <li key={lineKey} className="flex items-center justify-between gap-2">
-                      <span className="line-clamp-2">
-                        {cantidad}x {p.descripcion}
-                        {varianteLabel ? ` (${varianteLabel})` : ""}
-                      </span>
-                      <strong>{formatoMoneda(cantidad * precioUnitarioLinea)}</strong>
+                  itemsCarrito.map(({ lineKey, p, cantidad, varianteLabel, precioUnitarioLinea, varianteKey }) => (
+                    <li key={lineKey} className="rounded-xl border border-gray-100 bg-gray-50/80 p-2.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="line-clamp-2 font-semibold text-gray-900">
+                            {p.descripcion}
+                            {varianteLabel ? <span className="font-normal text-gray-600"> ({varianteLabel})</span> : null}
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-gray-500">{formatoMoneda(precioUnitarioLinea)} c/u</p>
+                        </div>
+                        <div className="flex shrink-0 flex-col items-end gap-1.5">
+                          <strong className="text-sm text-cyan-800">{formatoMoneda(cantidad * precioUnitarioLinea)}</strong>
+                          <div className="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white px-1 py-0.5">
+                            <button
+                              type="button"
+                              aria-label="Quitar una unidad"
+                              onClick={() => bajarCantidad(p.sku, varianteKey)}
+                              className="flex h-7 w-7 items-center justify-center rounded-md border border-gray-200 bg-white text-sm font-bold text-gray-700 transition hover:bg-gray-100 active:scale-95"
+                            >
+                              -
+                            </button>
+                            <span className="min-w-[1.5rem] text-center text-sm font-bold">{cantidad}</span>
+                            <button
+                              type="button"
+                              aria-label="Agregar una unidad"
+                              onClick={() => subirCantidad(p.sku, varianteKey)}
+                              className="flex h-7 w-7 items-center justify-center rounded-md bg-cyan-700 text-sm font-bold text-white transition hover:bg-cyan-800 active:scale-95"
+                            >
+                              +
+                            </button>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => eliminarLineaCarrito(lineKey)}
+                            className="text-[11px] font-semibold text-rose-600 underline-offset-2 hover:text-rose-700 hover:underline"
+                          >
+                            Quitar del carrito
+                          </button>
+                        </div>
+                      </div>
                     </li>
                   ))
                 )}
@@ -819,8 +925,14 @@ function PedidosLandingClient() {
                   <strong>{formatoMoneda(subtotal)}</strong>
                 </div>
                 <div className="flex items-center justify-between">
-                  <span>Domicilio</span>
-                  <strong>{costoDomicilio === 0 ? "Gratis" : formatoMoneda(costoDomicilio)}</strong>
+                  <span>{tipoEntrega === "recogida" ? "Envío a domicilio" : "Domicilio"}</span>
+                  <strong>
+                    {tipoEntrega === "recogida"
+                      ? "No aplica"
+                      : costoDomicilio === 0
+                        ? "Gratis"
+                        : formatoMoneda(costoDomicilio)}
+                  </strong>
                 </div>
                 <div className="my-1 border-t border-gray-200" />
                 <div className="flex items-center justify-between text-sm">
@@ -832,10 +944,16 @@ function PedidosLandingClient() {
 
             <section className="overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/70 p-3.5 shadow-sm sm:p-4">
               <h3 className="text-sm font-bold text-amber-900">Promociones inteligentes</h3>
+              {tipoEntrega === "recogida" ? (
+                <p className="mt-2 text-xs font-medium text-amber-900">
+                  Elegiste recoger en tienda: sin costo de envío en este pedido.
+                </p>
+              ) : null}
               {subtotal <= 0 ? (
                 <p className="mt-2 text-xs text-amber-800">Agrega productos para activar beneficios personalizados.</p>
               ) : (
                 <div className="mt-2 space-y-3">
+                  {tipoEntrega === "domicilio" ? (
                   <div className="space-y-1">
                     <div className="flex items-center justify-between text-xs text-amber-900">
                       <span>Domicilio gratis desde $35.000</span>
@@ -853,6 +971,7 @@ function PedidosLandingClient() {
                         : "Ya tienes domicilio gratis en este pedido."}
                     </p>
                   </div>
+                  ) : null}
 
                   {combosSugeridos.length > 0 ? (
                     <div className="space-y-2">
@@ -882,6 +1001,33 @@ function PedidosLandingClient() {
 
             <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm sm:p-4">
               <h3 className="text-base font-bold text-gray-900">Datos de entrega</h3>
+              <p className="mt-1 text-xs text-gray-500">Elige cómo quieres recibir tu pedido.</p>
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => setTipoEntrega("domicilio")}
+                  className={`rounded-xl border-2 px-3 py-2.5 text-left text-sm font-semibold transition ${
+                    tipoEntrega === "domicilio"
+                      ? "border-cyan-600 bg-cyan-50 text-cyan-950 shadow-sm"
+                      : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
+                  }`}
+                >
+                  Envío a domicilio
+                  <span className="mt-0.5 block text-[11px] font-normal text-gray-600">Te llevamos el pedido a tu dirección.</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTipoEntrega("recogida")}
+                  className={`rounded-xl border-2 px-3 py-2.5 text-left text-sm font-semibold transition ${
+                    tipoEntrega === "recogida"
+                      ? "border-cyan-600 bg-cyan-50 text-cyan-950 shadow-sm"
+                      : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
+                  }`}
+                >
+                  Recoger en la tienda
+                  <span className="mt-0.5 block text-[11px] font-normal text-gray-600">Pasas por el punto: {puntoVenta}</span>
+                </button>
+              </div>
               <div className="mt-3 min-w-0 space-y-2">
                 <input
                   value={cliente}
@@ -895,16 +1041,22 @@ function PedidosLandingClient() {
                   placeholder="Teléfono"
                   className="block w-full max-w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
                 />
-                <input
-                  value={direccion}
-                  onChange={(e) => setDireccion(e.target.value)}
-                  placeholder="Dirección"
-                  className="block w-full max-w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
-                />
+                {tipoEntrega === "domicilio" ? (
+                  <input
+                    value={direccion}
+                    onChange={(e) => setDireccion(e.target.value)}
+                    placeholder="Dirección de entrega"
+                    className="block w-full max-w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
+                  />
+                ) : (
+                  <div className="rounded-lg border border-dashed border-cyan-300 bg-cyan-50/60 px-3 py-2.5 text-xs text-cyan-900">
+                    <strong className="font-semibold">Recogida en tienda.</strong> Indica en referencia si vienes en un vehículo o nombre de quien recoge, si lo deseas.
+                  </div>
+                )}
                 <input
                   value={referencia}
                   onChange={(e) => setReferencia(e.target.value)}
-                  placeholder="Referencia (opcional)"
+                  placeholder={tipoEntrega === "domicilio" ? "Referencia de dirección (opcional)" : "Notas para recogida (opcional)"}
                   className="block w-full max-w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
                 />
                 <select

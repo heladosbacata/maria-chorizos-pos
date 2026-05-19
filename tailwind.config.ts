@@ -89,6 +89,20 @@ const config: Config = {
           "0%": { transform: "scale(0.35)", opacity: "0.85" },
           "100%": { transform: "scale(1.75)", opacity: "0" },
         },
+        /** Banner premium landing pedidos (club de millas) */
+        "pedidos-club-gradient": {
+          "0%, 100%": { backgroundPosition: "0% 50%" },
+          "50%": { backgroundPosition: "100% 50%" },
+        },
+        "pedidos-club-shimmer": {
+          "0%": { transform: "translateX(-130%) skewX(-14deg)", opacity: "0" },
+          "12%": { opacity: "0.55" },
+          "100%": { transform: "translateX(200%) skewX(-14deg)", opacity: "0" },
+        },
+        "pedidos-club-border-glow": {
+          "0%, 100%": { boxShadow: "0 0 0 1px rgba(250, 204, 21, 0.35), 0 0 28px rgba(168, 85, 247, 0.25)" },
+          "50%": { boxShadow: "0 0 0 1px rgba(253, 224, 71, 0.65), 0 0 40px rgba(236, 72, 153, 0.35)" },
+        },
       },
       animation: {
         "metas-shimmer": "metas-shimmer 2.4s ease-in-out infinite",
@@ -111,6 +125,9 @@ const config: Config = {
         "posgeb-orb-c": "posgeb-orb-c 5s ease-in-out infinite",
         "posgeb-demo-tap": "posgeb-demo-tap 1.35s ease-in-out infinite",
         "posgeb-demo-ripple": "posgeb-demo-ripple 1.35s ease-out infinite",
+        "pedidos-club-gradient": "pedidos-club-gradient 10s ease-in-out infinite",
+        "pedidos-club-shimmer": "pedidos-club-shimmer 4.2s ease-in-out infinite",
+        "pedidos-club-border-glow": "pedidos-club-border-glow 3.5s ease-in-out infinite",
       },
       colors: {
         brand: {
