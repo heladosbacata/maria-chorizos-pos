@@ -11,8 +11,7 @@ import { LOGO_ORG_URL } from "@/lib/brand";
 import { PosDomiciliosChatBurbuja } from "@/components/PosDomiciliosChatBurbuja";
 import { activarNotificacionesPedidoDomicilio, pedidosPushSoportadoEnEsteNavegador } from "@/lib/pedidos-push-client";
 import type { ProductoPOS } from "@/types";
-import type { MensajeChatDomicilio, RespuestaRapidaDomicilioId } from "@/types/pos-domicilios-chat";
-import { RESPUESTAS_RAPIDAS_CLIENTE_DOMICILIO } from "@/types/pos-domicilios-chat";
+import type { MensajeChatDomicilio } from "@/types/pos-domicilios-chat";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +29,17 @@ function abrirClubMillasEnVentanaEmergente(): void {
     "noopener,noreferrer,width=1120,height=820,scrollbars=yes,resizable=yes"
   );
 }
+/** Resumen fijado al confirmar el pedido (para el chat y reglas de comprobante). */
+type ResumenPedidoChatCliente = {
+  lineasItems: string[];
+  total: number;
+  metodoPago: MetodoPago;
+  direccion: string;
+  referencia?: string;
+  tipoEntrega: TipoEntregaPedido;
+  puntoVenta: string;
+};
+
 type EstadoPedidoDomicilio =
   | "NUEVO"
   | "ACEPTADO"
@@ -43,6 +53,12 @@ function formatoMoneda(valor: number): string {
   return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(
     valor
   );
+}
+
+function etiquetaMetodoPagoCliente(m: MetodoPago): string {
+  if (m === "transferencia") return "Transferencia";
+  if (m === "datafono") return "Datáfono";
+  return "Efectivo";
 }
 
 function formatoHora(iso: string): string {
@@ -418,6 +434,7 @@ function PedidosLandingClient() {
   const [pushPedidosMensaje, setPushPedidosMensaje] = useState<string | null>(null);
   const [pushPedidosExito, setPushPedidosExito] = useState(false);
   const [pushPedidosNavOk, setPushPedidosNavOk] = useState(false);
+  const [pedidoResumenChat, setPedidoResumenChat] = useState<ResumenPedidoChatCliente | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const chatComprobanteInputRef = useRef<HTMLInputElement | null>(null);
   const chatFotoCamaraInputRef = useRef<HTMLInputElement | null>(null);
@@ -738,6 +755,20 @@ function PedidosLandingClient() {
         setEnviando(false);
         return;
       }
+      const lineasResumen = itemsCarrito.map((x) =>
+        x.varianteLabel
+          ? `${x.cantidad}× ${x.p.descripcion} (${x.varianteLabel})`
+          : `${x.cantidad}× ${x.p.descripcion}`
+      );
+      setPedidoResumenChat({
+        lineasItems: lineasResumen,
+        total: Math.round(total),
+        metodoPago,
+        direccion: direccionFinal,
+        referencia: referenciaFinal,
+        tipoEntrega,
+        puntoVenta,
+      });
       setPedidoCreadoId(json.pedido?.id ?? null);
       setPedidoCreadoEnIso(new Date().toISOString());
       setEtiquetaClienteChat(cliente.trim() || "Cliente");
@@ -763,6 +794,7 @@ function PedidosLandingClient() {
       setChatError(null);
       setEstadoPedido(null);
       setEtiquetaClienteChat("");
+      setPedidoResumenChat(null);
       setChatEstadoVisible(false);
       setChatVista("cerrado");
       estadoPedidoAnteriorRef.current = null;
@@ -934,33 +966,12 @@ function PedidosLandingClient() {
     setChatEnviando(false);
   };
 
-  const enviarRespuestaRapidaCliente = async (id: RespuestaRapidaDomicilioId) => {
-    if (!pedidoCreadoId || chatEnviando) return;
-    const row = RESPUESTAS_RAPIDAS_CLIENTE_DOMICILIO.find((x) => x.id === id);
-    if (!row) return;
-    setChatEnviando(true);
-    setChatError(null);
-    const resp = await enviarMensajeChatDomicilio({
-      puntoVenta,
-      pedidoId: pedidoCreadoId,
-      autor: "cliente",
-      autorLabel: etiquetaClienteChat.trim() || "Cliente",
-      texto: row.texto,
-      tipoMensaje: "respuesta_rapida",
-      respuestaRapidaId: row.id,
-    });
-    if (!resp.ok) {
-      setChatError(resp.message ?? "No se pudo enviar la respuesta rápida.");
-      setChatEnviando(false);
-      return;
-    }
-    const refresh = await listarMensajesChatDomicilio(puntoVenta, pedidoCreadoId);
-    if (refresh.ok) setChatMensajes(refresh.data);
-    setChatEnviando(false);
-  };
-
   const enviarAdjuntoImagenCliente = async (file: File, tipoMensaje: "comprobante" | "imagen") => {
     if (!pedidoCreadoId || chatEnviando) return;
+    if (tipoMensaje === "comprobante" && pedidoResumenChat?.metodoPago !== "transferencia") {
+      setChatError("El comprobante solo aplica cuando el pedido fue con pago por transferencia.");
+      return;
+    }
     setChatEnviando(true);
     setChatError(null);
     const comp = await comprimirComprobanteTransferenciaParaChat(file);
@@ -997,6 +1008,10 @@ function PedidosLandingClient() {
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
+    if (pedidoResumenChat?.metodoPago !== "transferencia") {
+      setChatError("El comprobante de transferencia solo está disponible si elegiste pago por transferencia.");
+      return;
+    }
     await enviarAdjuntoImagenCliente(file, "comprobante");
   };
 
@@ -1670,7 +1685,7 @@ function PedidosLandingClient() {
             className="absolute inset-0 bg-slate-950/55 backdrop-blur-[1px]"
             onClick={() => setChatVista("minimizado")}
           />
-          <section className="relative z-10 flex max-h-[min(92dvh,720px)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-2xl ring-1 ring-cyan-500/20">
+          <section className="relative z-10 flex h-[min(92dvh,860px)] max-h-[96dvh] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-2xl ring-1 ring-cyan-500/20">
             <header className="flex shrink-0 items-start justify-between gap-2 rounded-t-2xl bg-cyan-700 px-4 py-3 text-white">
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-bold">Chat de pedido</p>
@@ -1704,11 +1719,11 @@ function PedidosLandingClient() {
               </div>
             </header>
             {pedidoCreadoId ? (
-              <div className="shrink-0 border-b border-cyan-100 bg-gradient-to-b from-cyan-50 to-white px-3 py-2">
+              <div className="shrink-0 border-b border-cyan-100 bg-gradient-to-b from-cyan-50 to-white px-3 py-1.5">
                 <button
                   type="button"
                   onClick={toggleEstadoPedidoEnChat}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-300 bg-white px-3 py-2.5 text-xs font-bold text-cyan-900 shadow-sm transition hover:border-cyan-500 hover:bg-cyan-50/80 active:scale-[0.99]"
+                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-cyan-300 bg-white px-2 py-2 text-[11px] font-bold text-cyan-900 shadow-sm transition hover:border-cyan-500 hover:bg-cyan-50/80 active:scale-[0.99]"
                 >
                   <svg className="h-5 w-5 shrink-0 text-cyan-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
                     <path
@@ -1763,46 +1778,97 @@ function PedidosLandingClient() {
             ) : null}
             <div
               ref={chatScrollRef}
-              className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain bg-slate-50 p-3"
+              className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[#e5ddd5] scroll-smooth"
             >
-              {!pedidoCreadoId ? (
-                <p className="text-xs text-slate-500">Cuando confirmes el pedido, este chat quedará activo.</p>
-              ) : chatCargando ? (
-                <p className="text-xs text-slate-500">Cargando mensajes...</p>
-              ) : chatMensajes.length === 0 ? (
-                <p className="text-xs text-slate-500">Sin mensajes aún. Escribe para hablar con el punto POS.</p>
-              ) : (
-                chatMensajes.map((m) => {
-                  const esCliente = m.autor === "cliente";
-                  return (
-                    <PosDomiciliosChatBurbuja
-                      key={m.id}
-                      mensaje={m}
-                      esPropio={esCliente}
-                      horaFormateada={formatoHora(m.creadoEnIso)}
-                    />
-                  );
-                })
-              )}
-            </div>
-            <div className="shrink-0 space-y-2 border-t border-gray-200 bg-white p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-              {pedidoCreadoId ? (
-                <div className="space-y-2">
-                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Respuestas rápidas</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {RESPUESTAS_RAPIDAS_CLIENTE_DOMICILIO.map((r) => (
-                      <button
-                        key={r.id}
-                        type="button"
-                        title={r.texto}
-                        disabled={chatEnviando}
-                        onClick={() => void enviarRespuestaRapidaCliente(r.id)}
-                        className="rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-[11px] font-semibold text-cyan-950 shadow-sm transition hover:border-cyan-400 hover:bg-cyan-100 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {r.etiqueta}
-                      </button>
-                    ))}
+              {pedidoResumenChat && pedidoCreadoId ? (
+                <div className="sticky top-0 z-[1] border-b border-emerald-200/80 bg-gradient-to-b from-emerald-50 via-white to-[#e5ddd5] px-3 pb-3 pt-2.5 shadow-sm">
+                  <p className="text-center text-[10px] font-semibold uppercase tracking-wide text-emerald-800/80">
+                    Tu pedido · {pedidoCreadoId}
+                  </p>
+                  <div className="mt-2 rounded-xl border border-white/80 bg-white/95 p-2.5 shadow-sm">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Resumen</p>
+                    <ul className="mt-1.5 space-y-0.5 text-[12px] leading-snug text-slate-800">
+                      {pedidoResumenChat.lineasItems.map((linea, i) => (
+                        <li key={`resumen-item-${i}`} className="flex gap-1.5">
+                          <span className="text-emerald-600" aria-hidden>
+                            •
+                          </span>
+                          <span>{linea}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-2 border-t border-slate-100 pt-2 text-[12px] font-bold text-slate-900">
+                      Total: {formatoMoneda(pedidoResumenChat.total)}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-slate-600">
+                      Pago: {etiquetaMetodoPagoCliente(pedidoResumenChat.metodoPago)} ·{" "}
+                      {pedidoResumenChat.tipoEntrega === "recogida" ? "Recogida en tienda" : "Envío a domicilio"}
+                    </p>
+                    <p className="mt-1 text-[11px] text-slate-700">
+                      <span className="font-semibold text-slate-800">Entrega: </span>
+                      {pedidoResumenChat.direccion}
+                    </p>
+                    {pedidoResumenChat.referencia ? (
+                      <p className="mt-0.5 text-[11px] text-slate-600">
+                        <span className="font-semibold">Referencia: </span>
+                        {pedidoResumenChat.referencia}
+                      </p>
+                    ) : null}
+                    <p className="mt-0.5 text-[10px] text-slate-500">Punto: {pedidoResumenChat.puntoVenta}</p>
                   </div>
+                  <div className="mt-2 rounded-xl border border-cyan-200/80 bg-cyan-50/90 p-2.5 text-[11px] leading-relaxed text-cyan-950">
+                    <p className="font-extrabold text-cyan-900">Instrucciones</p>
+                    <ul className="mt-1.5 list-disc space-y-1 pl-4 marker:text-cyan-600">
+                      <li>Este chat es tu canal con el punto de venta. Te escribirán para confirmar horario, total y entrega.</li>
+                      <li>Mantené este pedido abierto en el navegador para ver las respuestas al instante.</li>
+                      {pedidoResumenChat.metodoPago === "transferencia" ? (
+                        <li>
+                          Elegiste <strong>transferencia</strong>: cuando hagas el pago, tocá el ícono de{" "}
+                          <strong>comprobante</strong> (recibo) y adjuntá la captura, o escribí banco y referencia en el
+                          mensaje.
+                        </li>
+                      ) : (
+                        <li>
+                          Pago en {etiquetaMetodoPagoCliente(pedidoResumenChat.metodoPago).toLowerCase()}: el repartidor o
+                          el punto te indicará cómo abonar al recibir o en la tienda.
+                        </li>
+                      )}
+                      <li>Si necesitás cambiar algo, escribí un mensaje abajo y el punto te responderá por aquí.</li>
+                    </ul>
+                  </div>
+                </div>
+              ) : null}
+              <div className="space-y-2 px-3 py-2 pb-3">
+                {!pedidoCreadoId ? (
+                  <p className="text-xs text-slate-600">Cuando confirmes el pedido, este chat quedará activo.</p>
+                ) : chatCargando ? (
+                  <p className="text-xs text-slate-600">Cargando mensajes...</p>
+                ) : (
+                  <>
+                    {chatMensajes.length === 0 ? (
+                      <p className="rounded-lg bg-white/90 px-3 py-2 text-center text-[11px] text-slate-600 shadow-sm">
+                        Aún no hay mensajes del punto. Cuando respondan, aparecerán aquí debajo del resumen.
+                      </p>
+                    ) : (
+                      chatMensajes.map((m) => {
+                        const esCliente = m.autor === "cliente";
+                        return (
+                          <PosDomiciliosChatBurbuja
+                            key={m.id}
+                            mensaje={m}
+                            esPropio={esCliente}
+                            horaFormateada={formatoHora(m.creadoEnIso)}
+                          />
+                        );
+                      })
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="shrink-0 border-t border-slate-200/90 bg-[#f0f2f5] px-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2">
+              {pedidoCreadoId ? (
+                <>
                   <input
                     ref={chatComprobanteInputRef}
                     type="file"
@@ -1825,55 +1891,103 @@ function PedidosLandingClient() {
                     className="hidden"
                     onChange={(ev) => void onArchivoFotoChatCliente(ev)}
                   />
-                  <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
+                  <div className="flex items-end gap-1.5">
+                    <div className="flex shrink-0 items-center gap-0.5 pb-0.5">
+                      <button
+                        type="button"
+                        title="Tomar foto"
+                        aria-label="Tomar foto"
+                        disabled={chatEnviando}
+                        onClick={() => chatFotoCamaraInputRef.current?.click()}
+                        className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 active:scale-95 disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
+                          />
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"
+                          />
+                        </svg>
+                      </button>
+                      <button
+                        type="button"
+                        title="Galería"
+                        aria-label="Adjuntar desde galería"
+                        disabled={chatEnviando}
+                        onClick={() => chatFotoGaleriaInputRef.current?.click()}
+                        className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 active:scale-95 disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                          />
+                        </svg>
+                      </button>
+                      {pedidoResumenChat?.metodoPago === "transferencia" ? (
+                        <button
+                          type="button"
+                          title="Adjuntar comprobante de transferencia"
+                          aria-label="Comprobante de transferencia"
+                          disabled={chatEnviando}
+                          onClick={() => chatComprobanteInputRef.current?.click()}
+                          className="flex h-10 w-10 items-center justify-center rounded-full border border-amber-300 bg-amber-50 text-amber-900 shadow-sm transition hover:bg-amber-100 active:scale-95 disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                          <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
+                            <path
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              strokeWidth={2}
+                              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                            />
+                          </svg>
+                        </button>
+                      ) : null}
+                    </div>
+                    <textarea
+                      value={chatTexto}
+                      onChange={(e) => setChatTexto(e.target.value)}
+                      placeholder="Mensaje"
+                      disabled={!pedidoCreadoId}
+                      rows={1}
+                      className="max-h-36 min-h-[44px] flex-1 resize-y rounded-3xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm leading-snug text-slate-900 shadow-inner outline-none ring-emerald-500/30 placeholder:text-slate-400 focus:border-emerald-500 focus:ring-2 disabled:cursor-not-allowed disabled:bg-slate-100"
+                    />
                     <button
                       type="button"
-                      disabled={chatEnviando}
-                      onClick={() => chatFotoCamaraInputRef.current?.click()}
-                      className="rounded-lg border border-cyan-300 bg-cyan-50 px-2 py-2 text-[11px] font-semibold text-cyan-950 transition hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      title="Enviar"
+                      aria-label="Enviar mensaje"
+                      onClick={() => void enviarMensajeCliente()}
+                      disabled={!pedidoCreadoId || chatEnviando || !chatTexto.trim()}
+                      className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-white shadow-md transition hover:bg-emerald-700 active:scale-95 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
                     >
-                      {chatEnviando ? "…" : "Tomar foto"}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={chatEnviando}
-                      onClick={() => chatFotoGaleriaInputRef.current?.click()}
-                      className="rounded-lg border border-cyan-300 bg-white px-2 py-2 text-[11px] font-semibold text-cyan-900 transition hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      Galería
-                    </button>
-                    <button
-                      type="button"
-                      disabled={chatEnviando}
-                      onClick={() => chatComprobanteInputRef.current?.click()}
-                      className="rounded-lg border border-dashed border-amber-300 bg-amber-50/80 px-2 py-2 text-[11px] font-semibold text-amber-950 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      Comprobante
+                      {chatEnviando ? (
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                      ) : (
+                        <svg className="h-5 w-5 translate-x-px" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                          <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
+                        </svg>
+                      )}
                     </button>
                   </div>
-                  <p className="text-[10px] text-slate-500">
-                    Podés escribir una nota debajo y adjuntar foto o comprobante; si no escribís nada, se envía un texto
-                    corto con la imagen.
+                  <p className="mt-1 px-1 text-center text-[10px] text-slate-500">
+                    {pedidoResumenChat?.metodoPago === "transferencia"
+                      ? "Foto o galería para cualquier imagen · recibo solo si pagás por transferencia."
+                      : "Podés enviar fotos con la cámara o la galería."}
                   </p>
-                </div>
-              ) : null}
-              <textarea
-                value={chatTexto}
-                onChange={(e) => setChatTexto(e.target.value)}
-                placeholder={pedidoCreadoId ? "Escribe tu mensaje…" : "Confirma el pedido para habilitar chat"}
-                disabled={!pedidoCreadoId}
-                rows={3}
-                className="w-full resize-y rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2 disabled:cursor-not-allowed disabled:bg-gray-100"
-              />
-              <button
-                type="button"
-                onClick={() => void enviarMensajeCliente()}
-                disabled={!pedidoCreadoId || chatEnviando || !chatTexto.trim()}
-                className="w-full rounded-lg bg-cyan-700 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {chatEnviando ? "Enviando..." : "Enviar mensaje"}
-              </button>
-              {chatError ? <p className="text-xs text-rose-600">{chatError}</p> : null}
+                </>
+              ) : (
+                <p className="px-2 pb-2 text-center text-[11px] text-slate-500">Confirmá el pedido para escribir.</p>
+              )}
+              {chatError ? <p className="mt-1 px-2 text-center text-xs text-rose-600">{chatError}</p> : null}
             </div>
           </section>
         </div>
