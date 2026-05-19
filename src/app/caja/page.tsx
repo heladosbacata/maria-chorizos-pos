@@ -2365,6 +2365,15 @@ export default function CajaPage() {
       setTurnoSesionId(nuevoTurnoSesionId());
       setShowModalAbrirTurno(false);
       setBaseInicialCajaInput("");
+      try {
+        await fetch("/api/pos_domicilios_config", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ puntoVenta: pv, domiciliosHabilitados: true }),
+        });
+      } catch {
+        /* no bloquea apertura de turno */
+      }
       await wmsTurnosSincronizarSilent(token, 0);
     } finally {
       setAbriendoTurnoWms(false);

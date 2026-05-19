@@ -1,5 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { crearPedidoDomicilioPersistente, listarPedidosDomiciliosPersistente } from "@/lib/pos-domicilios-firestore-store";
+import { getDomicilioTarifaConfig } from "@/lib/pos-domicilios-config-store";
+import { estaEnVentanaHoraria, textoHorarioAtencionCliente } from "@/lib/pos-domicilios-horario";
 import type {
   DomicilioCrearPayload,
   DomicilioCrearResponse,
@@ -57,6 +59,20 @@ export default async function handler(
     return res.status(200).json({ ok: true, data });
   }
   const payload = asBody(req.body);
+  const cfg = await getDomicilioTarifaConfig(payload.puntoVenta);
+  if (!cfg.domiciliosHabilitados) {
+    return res.status(400).json({
+      ok: false,
+      message:
+        "En este momento el punto no está recibiendo pedidos por domicilio. Volvé a intentar más tarde o contactá directamente al local.",
+    });
+  }
+  if (!estaEnVentanaHoraria(cfg.domiciliosHoraInicio, cfg.domiciliosHoraFin)) {
+    return res.status(400).json({
+      ok: false,
+      message: `Estamos fuera del horario de domicilios. ${textoHorarioAtencionCliente(cfg.domiciliosHoraInicio, cfg.domiciliosHoraFin)}`,
+    });
+  }
   const pedido = await crearPedidoDomicilioPersistente(payload);
   if (!pedido) {
     return res.status(400).json({ ok: false, message: "Datos inválidos para crear pedido." });

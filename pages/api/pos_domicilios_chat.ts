@@ -55,6 +55,7 @@ export default async function handler(
     if (!puntoVenta || !pedidoId) {
       return res.status(400).json({ ok: false, data: [], message: "puntoVenta y pedidoId son obligatorios." });
     }
+    res.setHeader("Cache-Control", "no-store, must-revalidate");
     const data = await listarMensajesChatPersistente(puntoVenta, pedidoId);
     return res.status(200).json({ ok: true, data });
   }

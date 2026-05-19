@@ -8,6 +8,9 @@ type GetOk = {
   ok: true;
   costoDomicilioCop: number;
   umbralGratisCop: number;
+  domiciliosHabilitados: boolean;
+  domiciliosHoraInicio: string;
+  domiciliosHoraFin: string;
 };
 
 type Err = { ok: false; message: string };
@@ -64,19 +67,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const body = (typeof req.body === "object" && req.body !== null ? req.body : {}) as Record<string, unknown>;
   const puntoVenta = typeof body.puntoVenta === "string" ? body.puntoVenta.trim() : "";
-  const costoRaw = body.costoDomicilioCop;
-  const costo =
-    typeof costoRaw === "number" && Number.isFinite(costoRaw)
-      ? Math.round(costoRaw)
-      : typeof costoRaw === "string"
-        ? Math.round(Number(costoRaw.replace(/\D/g, "")) || NaN)
-        : NaN;
-
   if (!puntoVenta) {
     return res.status(400).json({ ok: false, message: "puntoVenta es obligatorio en el cuerpo JSON." });
-  }
-  if (!Number.isFinite(costo)) {
-    return res.status(400).json({ ok: false, message: "costoDomicilioCop inválido." });
   }
 
   const pvUsuario = await leerPuntoVentaUsuario(app, uid);
@@ -84,21 +76,50 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(403).json({ ok: false, message: "Tu usuario no tiene punto de venta asignado en Firestore." });
   }
   if (normPv(pvUsuario) !== normPv(puntoVenta)) {
-    return res.status(403).json({ ok: false, message: "No podés editar la tarifa de otro punto de venta." });
+    return res.status(403).json({ ok: false, message: "No podés editar la configuración de otro punto de venta." });
   }
+
+  const costoRaw = body.costoDomicilioCop;
+  const costoParsed =
+    costoRaw === undefined
+      ? undefined
+      : typeof costoRaw === "number" && Number.isFinite(costoRaw)
+        ? Math.round(costoRaw)
+        : typeof costoRaw === "string"
+          ? Math.round(Number(costoRaw.replace(/\D/g, "")) || NaN)
+          : NaN;
 
   const umbralBody = body.umbralGratisCop;
   const umbralParsed =
-    typeof umbralBody === "number" && Number.isFinite(umbralBody)
-      ? Math.round(umbralBody)
-      : typeof umbralBody === "string"
-        ? Math.round(Number(String(umbralBody).replace(/\D/g, "")) || NaN)
-        : undefined;
+    umbralBody === undefined
+      ? undefined
+      : typeof umbralBody === "number" && Number.isFinite(umbralBody)
+        ? Math.round(umbralBody)
+        : typeof umbralBody === "string"
+          ? Math.round(Number(String(umbralBody).replace(/\D/g, "")) || NaN)
+          : undefined;
+
+  const domHab = body.domiciliosHabilitados;
+  const domiciliosHabilitados = typeof domHab === "boolean" ? domHab : undefined;
+
+  const hi = typeof body.domiciliosHoraInicio === "string" ? body.domiciliosHoraInicio : undefined;
+  const hf = typeof body.domiciliosHoraFin === "string" ? body.domiciliosHoraFin : undefined;
+
+  const tieneTarifa = costoParsed !== undefined;
+  const tieneOperacion =
+    domiciliosHabilitados !== undefined || hi !== undefined || hf !== undefined || umbralParsed !== undefined;
+
+  if (!tieneTarifa && !tieneOperacion) {
+    return res.status(400).json({ ok: false, message: "Indicá costo, umbral u operación de domicilios para guardar." });
+  }
 
   const result = await setDomicilioTarifaConfig({
     puntoVenta,
-    costoDomicilioCop: costo,
+    ...(Number.isFinite(costoParsed) ? { costoDomicilioCop: costoParsed as number } : {}),
     ...(Number.isFinite(umbralParsed) ? { umbralGratisCop: umbralParsed } : {}),
+    ...(domiciliosHabilitados !== undefined ? { domiciliosHabilitados } : {}),
+    ...(hi !== undefined ? { domiciliosHoraInicio: hi } : {}),
+    ...(hf !== undefined ? { domiciliosHoraFin: hf } : {}),
   });
   if (!result.ok) {
     return res.status(400).json({ ok: false, message: result.message ?? "No se pudo guardar." });

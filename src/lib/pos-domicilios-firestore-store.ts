@@ -117,7 +117,8 @@ function toChat(raw: Record<string, unknown>): MensajeChatDomicilio | null {
   const id = typeof raw.id === "string" ? raw.id.trim() : "";
   const puntoVenta = typeof raw.puntoVenta === "string" ? raw.puntoVenta.trim() : "";
   const pedidoId = typeof raw.pedidoId === "string" ? raw.pedidoId.trim() : "";
-  const autor = raw.autor === "pos" ? "pos" : raw.autor === "cliente" ? "cliente" : null;
+  const autorRaw = typeof raw.autor === "string" ? raw.autor.trim().toLowerCase() : "";
+  const autor = autorRaw === "pos" ? "pos" : autorRaw === "cliente" ? "cliente" : null;
   const autorLabel = typeof raw.autorLabel === "string" ? raw.autorLabel.trim() : "";
   const textoBruto = typeof raw.texto === "string" ? raw.texto.trim() : "";
   const adjuntoRaw = typeof raw.adjuntoDataUrl === "string" ? raw.adjuntoDataUrl.trim() : "";
@@ -150,9 +151,14 @@ function toChat(raw: Record<string, unknown>): MensajeChatDomicilio | null {
     ? tipoAdjuntoGuardado ?? "comprobante"
     : respuestaRapidaId
       ? "respuesta_rapida"
-      : raw.tipoMensaje === "texto"
-        ? "texto"
-        : undefined;
+      : raw.tipoMensaje === "texto" ||
+          raw.tipoMensaje === "comprobante" ||
+          raw.tipoMensaje === "imagen" ||
+          raw.tipoMensaje === "respuesta_rapida"
+        ? (raw.tipoMensaje as TipoMensajeChatDomicilio)
+        : textoBruto
+          ? "texto"
+          : undefined;
   if (!id || !puntoVenta || !pedidoId || !autor || !autorLabel || !texto) return null;
   const base: MensajeChatDomicilio = {
     id,

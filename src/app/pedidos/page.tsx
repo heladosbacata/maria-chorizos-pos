@@ -5,6 +5,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type Chang
 import { useSearchParams } from "next/navigation";
 import { getCatalogoPOS } from "@/lib/catalogo-pos";
 import { DEFAULT_COSTO_DOMICILIO_COP, DEFAULT_UMBRAL_GRATIS_COP } from "@/lib/pos-domicilios-tarifa-defaults";
+import { estaEnVentanaHoraria, textoHorarioAtencionCliente } from "@/lib/pos-domicilios-horario";
 import { comprimirComprobanteTransferenciaParaChat } from "@/lib/pos-domicilios-chat-imagen";
 import { enviarMensajeChatDomicilio, listarMensajesChatDomicilio } from "@/lib/pos-domicilios-chat-api";
 import { LOGO_ORG_URL } from "@/lib/brand";
@@ -444,7 +445,12 @@ function PedidosLandingClient() {
   const [tarifaDomicilio, setTarifaDomicilio] = useState({
     costoDomicilioCop: DEFAULT_COSTO_DOMICILIO_COP,
     umbralGratisCop: DEFAULT_UMBRAL_GRATIS_COP,
+    domiciliosHabilitados: true,
+    domiciliosHoraInicio: "07:00",
+    domiciliosHoraFin: "22:00",
   });
+  /** Fuerza reevaluación del horario local (Colombia) sin depender solo del fetch periódico. */
+  const [tickHorarioRecepcion, setTickHorarioRecepcion] = useState(0);
 
   const vapidPublicPedidos = useMemo(() => process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim() ?? "", []);
 
@@ -460,6 +466,9 @@ function PedidosLandingClient() {
         ok?: boolean;
         costoDomicilioCop?: number;
         umbralGratisCop?: number;
+        domiciliosHabilitados?: boolean;
+        domiciliosHoraInicio?: string;
+        domiciliosHoraFin?: string;
       };
       if (!res.ok || json.ok === false) return;
       const costo =
@@ -470,7 +479,18 @@ function PedidosLandingClient() {
         typeof json.umbralGratisCop === "number" && Number.isFinite(json.umbralGratisCop) && json.umbralGratisCop > 0
           ? Math.round(json.umbralGratisCop)
           : DEFAULT_UMBRAL_GRATIS_COP;
-      setTarifaDomicilio({ costoDomicilioCop: costo, umbralGratisCop: umbral });
+      const domiciliosHabilitados = typeof json.domiciliosHabilitados === "boolean" ? json.domiciliosHabilitados : true;
+      const domiciliosHoraInicio =
+        typeof json.domiciliosHoraInicio === "string" && json.domiciliosHoraInicio.trim() ? json.domiciliosHoraInicio.trim() : "07:00";
+      const domiciliosHoraFin =
+        typeof json.domiciliosHoraFin === "string" && json.domiciliosHoraFin.trim() ? json.domiciliosHoraFin.trim() : "22:00";
+      setTarifaDomicilio({
+        costoDomicilioCop: costo,
+        umbralGratisCop: umbral,
+        domiciliosHabilitados,
+        domiciliosHoraInicio,
+        domiciliosHoraFin,
+      });
     } catch {
       /* se mantienen defaults */
     }
@@ -483,6 +503,42 @@ function PedidosLandingClient() {
     }, 45000);
     return () => window.clearInterval(t);
   }, [refrescarTarifaDomicilio]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setTickHorarioRecepcion((n) => n + 1);
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const recepcionPedidosWebOk = useMemo(() => {
+    void tickHorarioRecepcion;
+    if (!tarifaDomicilio.domiciliosHabilitados) return false;
+    return estaEnVentanaHoraria(tarifaDomicilio.domiciliosHoraInicio, tarifaDomicilio.domiciliosHoraFin);
+  }, [
+    tickHorarioRecepcion,
+    tarifaDomicilio.domiciliosHabilitados,
+    tarifaDomicilio.domiciliosHoraInicio,
+    tarifaDomicilio.domiciliosHoraFin,
+  ]);
+
+  const avisoBloqueoRecepcion = useMemo(() => {
+    void tickHorarioRecepcion;
+    if (recepcionPedidosWebOk) return null;
+    if (!tarifaDomicilio.domiciliosHabilitados) {
+      return "En este momento no estamos recibiendo pedidos por web ni QR. Podés intentar más tarde o contactar directamente al local.";
+    }
+    return `Estamos fuera del horario de atención para pedidos en línea. ${textoHorarioAtencionCliente(
+      tarifaDomicilio.domiciliosHoraInicio,
+      tarifaDomicilio.domiciliosHoraFin
+    )}`;
+  }, [
+    tickHorarioRecepcion,
+    recepcionPedidosWebOk,
+    tarifaDomicilio.domiciliosHabilitados,
+    tarifaDomicilio.domiciliosHoraInicio,
+    tarifaDomicilio.domiciliosHoraFin,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -698,6 +754,10 @@ function PedidosLandingClient() {
 
   const enviarPedido = async () => {
     if (enviando) return;
+    if (!recepcionPedidosWebOk) {
+      setMensaje(avisoBloqueoRecepcion ?? "En este momento no podemos recibir tu pedido.");
+      return;
+    }
     if (!itemsCarrito.length) {
       setMensaje("Agrega al menos un producto al carrito.");
       return;
@@ -1421,6 +1481,14 @@ function PedidosLandingClient() {
             <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm sm:p-4">
               <h3 className="text-base font-bold text-gray-900">Datos de entrega</h3>
               <p className="mt-1 text-xs text-gray-500">Elige cómo quieres recibir tu pedido.</p>
+              {avisoBloqueoRecepcion ? (
+                <div
+                  role="alert"
+                  className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs font-medium text-amber-950"
+                >
+                  {avisoBloqueoRecepcion}
+                </div>
+              ) : null}
               <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <button
                   type="button"
@@ -1494,7 +1562,7 @@ function PedidosLandingClient() {
                 <button
                   type="button"
                   onClick={enviarPedido}
-                  disabled={enviando}
+                  disabled={enviando || !recepcionPedidosWebOk}
                   className="block w-full max-w-full rounded-lg bg-cyan-700 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-cyan-800 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {enviando ? "Enviando pedido..." : "Confirmar pedido"}

@@ -18,7 +18,7 @@ export async function listarMensajesChatDomicilio(
   if (!pv || !pid) return { ok: false, data: [], message: "puntoVenta y pedidoId son obligatorios." };
   try {
     const url = `/api/pos_domicilios_chat?${new URLSearchParams({ puntoVenta: pv, pedidoId: pid }).toString()}`;
-    const res = await fetch(url, { method: "GET" });
+    const res = await fetch(url, { method: "GET", cache: "no-store" });
     const json = await parseJsonSafe(res);
     const data =
       json && typeof json === "object" && "data" in json && Array.isArray((json as { data: unknown }).data)

@@ -289,6 +289,10 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
   const [tarifaUmbralInfo, setTarifaUmbralInfo] = useState(DEFAULT_UMBRAL_GRATIS_COP);
   const [tarifaCargando, setTarifaCargando] = useState(false);
   const [tarifaGuardando, setTarifaGuardando] = useState(false);
+  const [domiciliosHabilitadosUi, setDomiciliosHabilitadosUi] = useState(true);
+  const [domiciliosHoraIni, setDomiciliosHoraIni] = useState("07:00");
+  const [domiciliosHoraFin, setDomiciliosHoraFin] = useState("22:00");
+  const [operacionGuardando, setOperacionGuardando] = useState(false);
   const [unreadPorPedido, setUnreadPorPedido] = useState<UnreadPorPedido>({});
   const [nuevoPedido, setNuevoPedido] = useState<FormNuevoPedido>({
     cliente: "",
@@ -398,6 +402,9 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
           ok?: boolean;
           costoDomicilioCop?: number;
           umbralGratisCop?: number;
+          domiciliosHabilitados?: boolean;
+          domiciliosHoraInicio?: string;
+          domiciliosHoraFin?: string;
         };
         if (cancelled) return;
         if (res.ok && typeof j.costoDomicilioCop === "number" && Number.isFinite(j.costoDomicilioCop)) {
@@ -405,6 +412,15 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
         }
         if (res.ok && typeof j.umbralGratisCop === "number" && Number.isFinite(j.umbralGratisCop)) {
           setTarifaUmbralInfo(Math.max(5000, Math.round(j.umbralGratisCop)));
+        }
+        if (res.ok && typeof j.domiciliosHabilitados === "boolean") {
+          setDomiciliosHabilitadosUi(j.domiciliosHabilitados);
+        }
+        if (res.ok && typeof j.domiciliosHoraInicio === "string" && j.domiciliosHoraInicio.trim()) {
+          setDomiciliosHoraIni(j.domiciliosHoraInicio.trim());
+        }
+        if (res.ok && typeof j.domiciliosHoraFin === "string" && j.domiciliosHoraFin.trim()) {
+          setDomiciliosHoraFin(j.domiciliosHoraFin.trim());
         }
       } catch {
         /* ignore */
@@ -499,6 +515,57 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
       setTarifaGuardando(false);
     }
   }, [puntoVentaActivo, tarifaCostoInput, sonidosActivos, volumenSonido]);
+
+  const guardarOperacionDomicilios = useCallback(async () => {
+    if (!puntoVentaActivo) return;
+    const token = await auth?.currentUser?.getIdToken().catch(() => null);
+    if (!token) {
+      setSyncInfo("Inicia sesión en el POS para guardar horario y estado de domicilios.");
+      return;
+    }
+    setOperacionGuardando(true);
+    setSyncInfo(null);
+    try {
+      const res = await fetch("/api/pos_domicilios_config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          puntoVenta: puntoVentaActivo,
+          domiciliosHabilitados: domiciliosHabilitadosUi,
+          domiciliosHoraInicio: domiciliosHoraIni,
+          domiciliosHoraFin: domiciliosHoraFin,
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        message?: string;
+        domiciliosHabilitados?: boolean;
+        domiciliosHoraInicio?: string;
+        domiciliosHoraFin?: string;
+      };
+      if (!res.ok || j.ok === false) {
+        setSyncInfo(j.message ?? "No se pudo guardar la operación de domicilios.");
+        setOperacionGuardando(false);
+        return;
+      }
+      if (typeof j.domiciliosHabilitados === "boolean") setDomiciliosHabilitadosUi(j.domiciliosHabilitados);
+      if (typeof j.domiciliosHoraInicio === "string") setDomiciliosHoraIni(j.domiciliosHoraInicio);
+      if (typeof j.domiciliosHoraFin === "string") setDomiciliosHoraFin(j.domiciliosHoraFin);
+      setSyncInfo("Horario y estado de domicilios actualizados. El landing aplicará los cambios en segundos.");
+      if (sonidosActivos) reproducirTonoPos("crear", volumenSonido);
+    } catch {
+      setSyncInfo("Error de red al guardar horario de domicilios.");
+    } finally {
+      setOperacionGuardando(false);
+    }
+  }, [
+    puntoVentaActivo,
+    domiciliosHabilitadosUi,
+    domiciliosHoraIni,
+    domiciliosHoraFin,
+    sonidosActivos,
+    volumenSonido,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -984,6 +1051,77 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
           </div>
         </article>
       </div>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Horario y recepción</p>
+            <h3 className="mt-1 text-base font-bold text-slate-900">Domicilios en el landing (web / QR)</h3>
+            <p className="mt-1 max-w-2xl text-xs text-slate-600">
+              Definí el rango horario en hora Colombia. El interruptor permite cortar pedidos sin cambiar el horario.
+              Al abrir turno en caja, los domicilios se habilitan solos (podés volver a pausarlos acá).
+            </p>
+          </div>
+          <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <span className="text-xs font-semibold text-slate-700">Recibir pedidos</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={domiciliosHabilitadosUi}
+              disabled={operacionGuardando || tarifaCargando || !puntoVentaActivo}
+              onClick={() => setDomiciliosHabilitadosUi((v) => !v)}
+              className={`relative h-8 w-14 shrink-0 rounded-full transition-colors ${
+                domiciliosHabilitadosUi ? "bg-emerald-600" : "bg-slate-300"
+              } disabled:cursor-not-allowed disabled:opacity-50`}
+            >
+              <span
+                className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition-transform ${
+                  domiciliosHabilitadosUi ? "left-7" : "left-1"
+                }`}
+              />
+            </button>
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="block text-[11px] font-semibold text-slate-600" htmlFor="dom-hora-ini">
+            Desde (HH:mm)
+          </label>
+          <label className="block text-[11px] font-semibold text-slate-600 sm:col-start-2" htmlFor="dom-hora-fin">
+            Hasta (HH:mm)
+          </label>
+          <div className="lg:col-span-2" />
+          <input
+            id="dom-hora-ini"
+            type="time"
+            disabled={tarifaCargando || !puntoVentaActivo}
+            value={domiciliosHoraIni.length === 5 ? domiciliosHoraIni : "07:00"}
+            onChange={(e) => setDomiciliosHoraIni(e.target.value || "07:00")}
+            className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm font-semibold outline-none ring-cyan-200 focus:border-cyan-600 focus:ring-2 disabled:opacity-60"
+          />
+          <input
+            id="dom-hora-fin"
+            type="time"
+            disabled={tarifaCargando || !puntoVentaActivo}
+            value={domiciliosHoraFin.length === 5 ? domiciliosHoraFin : "22:00"}
+            onChange={(e) => setDomiciliosHoraFin(e.target.value || "22:00")}
+            className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm font-semibold outline-none ring-cyan-200 focus:border-cyan-600 focus:ring-2 disabled:opacity-60"
+          />
+          <div className="flex items-end lg:col-span-2">
+            <button
+              type="button"
+              disabled={operacionGuardando || tarifaCargando || !puntoVentaActivo}
+              onClick={() => void guardarOperacionDomicilios()}
+              className="w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+            >
+              {operacionGuardando ? "Guardando..." : "Guardar horario y estado"}
+            </button>
+          </div>
+        </div>
+        <p className="mt-3 text-[10px] text-slate-500">
+          Horario en zona <strong>America/Bogota</strong>. Fuera de rango o con recepción apagada, el cliente verá un
+          aviso y no podrá confirmar el pedido.
+        </p>
+      </section>
 
       <form onSubmit={crearPedido} className="rounded-2xl border border-cyan-200 bg-cyan-50/40 p-4 shadow-sm">
         <div className="mb-3 flex items-center justify-between gap-2">
