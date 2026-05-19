@@ -1,13 +1,18 @@
 "use client";
 
 import Image from "next/image";
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { getCatalogoPOS } from "@/lib/catalogo-pos";
+import { DEFAULT_COSTO_DOMICILIO_COP, DEFAULT_UMBRAL_GRATIS_COP } from "@/lib/pos-domicilios-config-store";
+import { comprimirComprobanteTransferenciaParaChat } from "@/lib/pos-domicilios-chat-imagen";
 import { enviarMensajeChatDomicilio, listarMensajesChatDomicilio } from "@/lib/pos-domicilios-chat-api";
 import { LOGO_ORG_URL } from "@/lib/brand";
+import { PosDomiciliosChatBurbuja } from "@/components/PosDomiciliosChatBurbuja";
+import { activarNotificacionesPedidoDomicilio, pedidosPushSoportadoEnEsteNavegador } from "@/lib/pedidos-push-client";
 import type { ProductoPOS } from "@/types";
-import type { MensajeChatDomicilio } from "@/types/pos-domicilios-chat";
+import type { MensajeChatDomicilio, RespuestaRapidaDomicilioId } from "@/types/pos-domicilios-chat";
+import { RESPUESTAS_RAPIDAS_CLIENTE_DOMICILIO } from "@/types/pos-domicilios-chat";
 
 export const dynamic = "force-dynamic";
 
@@ -167,6 +172,168 @@ function rangoEtaEstado(estado: EstadoPedidoDomicilio | null, minutosTranscurrid
   return `${desde} - ${hasta} min`;
 }
 
+type VarianteMotivacionEstado = "exito" | "entrega" | "rechazo";
+
+function textoMotivacionCambioEstado(estado: EstadoPedidoDomicilio): {
+  titulo: string;
+  subtitulo: string;
+  variante: VarianteMotivacionEstado;
+  confeti: boolean;
+} | null {
+  switch (estado) {
+    case "NUEVO":
+      return null;
+    case "ACEPTADO":
+      return {
+        titulo: "¡Tu pedido fue aceptado!",
+        subtitulo: "El equipo ya está trabajando en tu orden.",
+        variante: "exito",
+        confeti: true,
+      };
+    case "EN_PREPARACION":
+      return {
+        titulo: "¡En la cocina!",
+        subtitulo: "Estamos preparando tu pedido con esmero.",
+        variante: "exito",
+        confeti: true,
+      };
+    case "LISTO_PARA_DESPACHO":
+      return {
+        titulo: "¡Listo para salir!",
+        subtitulo: "Tu pedido está listo para despacho.",
+        variante: "exito",
+        confeti: true,
+      };
+    case "EN_ENTREGA":
+      return {
+        titulo: "¡Va en camino!",
+        subtitulo: "Preparate para disfrutar algo rico.",
+        variante: "entrega",
+        confeti: true,
+      };
+    case "ENTREGADO":
+      return {
+        titulo: "¡Pedido entregado!",
+        subtitulo: "Gracias por elegir Maria Chorizos.",
+        variante: "entrega",
+        confeti: true,
+      };
+    case "RECHAZADO":
+      return {
+        titulo: "Pedido no disponible",
+        subtitulo: "Si tenés dudas, escribinos por el chat.",
+        variante: "rechazo",
+        confeti: false,
+      };
+    default:
+      return null;
+  }
+}
+
+function PedidosConfetiCambioEstado({ burstKey }: { burstKey: number }) {
+  const pieces = useMemo(
+    () =>
+      Array.from({ length: 28 }, (_, i) => ({
+        id: i,
+        leftPct: ((i * 37 + burstKey) % 100) / 100,
+        delayS: ((i % 9) * 0.035).toFixed(3),
+        durationS: (2.1 + (i % 6) * 0.12).toFixed(2),
+        driftPx: -55 + ((i * 23 + burstKey) % 110),
+        hue: (i * 47 + (burstKey % 360)) % 360,
+        sizePx: 6 + (i % 4),
+      })),
+    [burstKey]
+  );
+  return (
+    <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+      {pieces.map((p) => (
+        <span
+          key={p.id}
+          className="pedidos-estado-confetti-piece absolute top-0 rounded-sm"
+          style={{
+            left: `${p.leftPct * 100}%`,
+            width: p.sizePx,
+            height: Math.round(p.sizePx * 1.1),
+            animationDelay: `${p.delayS}s`,
+            animationDuration: `${p.durationS}s`,
+            backgroundColor: `hsl(${p.hue} 82% 58%)`,
+            ["--pde-drift" as string]: `${p.driftPx}px`,
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function PedidosOverlayMotivacionEstado({
+  titulo,
+  subtitulo,
+  variante,
+  mostrarConfeti,
+  burstKey,
+}: {
+  titulo: string;
+  subtitulo: string;
+  variante: VarianteMotivacionEstado;
+  mostrarConfeti: boolean;
+  burstKey: number;
+}) {
+  const cardClass =
+    variante === "rechazo"
+      ? "border-rose-200 bg-gradient-to-br from-rose-50 to-white text-rose-950"
+      : variante === "entrega"
+        ? "border-emerald-200 bg-gradient-to-br from-emerald-50 via-cyan-50 to-white text-emerald-950"
+        : "border-amber-200 bg-gradient-to-br from-amber-50 via-white to-cyan-50 text-cyan-950";
+
+  const iconWrap =
+    variante === "rechazo"
+      ? "bg-rose-100 text-rose-700"
+      : variante === "entrega"
+        ? "bg-emerald-100 text-emerald-700"
+        : "bg-amber-100 text-amber-700";
+
+  return (
+    <div
+      className="pointer-events-none fixed inset-0 z-[100] flex items-center justify-center p-5 sm:p-8"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-[2px]" aria-hidden />
+      {mostrarConfeti ? <PedidosConfetiCambioEstado burstKey={burstKey} /> : null}
+      <div
+        className={`relative z-10 w-full max-w-sm rounded-3xl border-2 px-5 py-7 shadow-2xl sm:px-7 sm:py-8 ${cardClass} animate-pedidos-estado-motiv-pop`}
+      >
+        <div
+          className={`mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl ${iconWrap} ${variante !== "rechazo" ? "animate-pedidos-estado-motiv-halo" : ""}`}
+          aria-hidden
+        >
+          {variante === "rechazo" ? (
+            <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+            </svg>
+          ) : variante === "entrega" ? (
+            <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+          ) : (
+            <svg className="h-8 w-8" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+            </svg>
+          )}
+        </div>
+        <h2 className="text-center text-xl font-black leading-tight sm:text-2xl">{titulo}</h2>
+        <p className="mt-2 text-center text-sm font-semibold leading-snug opacity-90">{subtitulo}</p>
+      </div>
+    </div>
+  );
+}
+
 function sugerenciaScore(
   p: ProductoPOS,
   carritoSkus: Set<string>,
@@ -199,8 +366,8 @@ function esComplementoProducto(p: ProductoPOS): boolean {
   return /arepa|papa|salsa|chimichurri|aji|ajo|ensalada/.test(t);
 }
 
-function porcentajeProgresoDomicilioGratis(subtotal: number): number {
-  const meta = 35000;
+function porcentajeProgresoDomicilioGratis(subtotal: number, metaGratisCop: number): number {
+  const meta = metaGratisCop > 0 ? metaGratisCop : DEFAULT_UMBRAL_GRATIS_COP;
   if (subtotal <= 0) return 0;
   return Math.max(0, Math.min(100, Math.round((subtotal / meta) * 100)));
 }
@@ -231,14 +398,72 @@ function PedidosLandingClient() {
   const [ahoraMs, setAhoraMs] = useState(Date.now());
   const [busqueda, setBusqueda] = useState("");
   const [categoriaActiva, setCategoriaActiva] = useState("Todo");
-  const [chatAbierto, setChatAbierto] = useState(false);
+  const [chatVista, setChatVista] = useState<"cerrado" | "minimizado" | "expandido">("cerrado");
+  const [chatEstadoVisible, setChatEstadoVisible] = useState(false);
   const [chatMensajes, setChatMensajes] = useState<MensajeChatDomicilio[]>([]);
   const [chatTexto, setChatTexto] = useState("");
   const [chatCargando, setChatCargando] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const [chatEnviando, setChatEnviando] = useState(false);
+  const [etiquetaClienteChat, setEtiquetaClienteChat] = useState("");
+  const [animacionCambioEstadoPedido, setAnimacionCambioEstadoPedido] = useState<{
+    key: number;
+    titulo: string;
+    subtitulo: string;
+    variante: VarianteMotivacionEstado;
+    confeti: boolean;
+  } | null>(null);
+  const [resaltarTarjetaEstadoPedido, setResaltarTarjetaEstadoPedido] = useState(false);
+  const [pushPedidosActivando, setPushPedidosActivando] = useState(false);
+  const [pushPedidosMensaje, setPushPedidosMensaje] = useState<string | null>(null);
+  const [pushPedidosExito, setPushPedidosExito] = useState(false);
+  const [pushPedidosNavOk, setPushPedidosNavOk] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const chatComprobanteInputRef = useRef<HTMLInputElement | null>(null);
   const checkoutRef = useRef<HTMLDivElement | null>(null);
+  const estadoPedidoAnteriorRef = useRef<EstadoPedidoDomicilio | null>(null);
+  const [tarifaDomicilio, setTarifaDomicilio] = useState({
+    costoDomicilioCop: DEFAULT_COSTO_DOMICILIO_COP,
+    umbralGratisCop: DEFAULT_UMBRAL_GRATIS_COP,
+  });
+
+  const vapidPublicPedidos = useMemo(() => process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim() ?? "", []);
+
+  useEffect(() => {
+    setPushPedidosNavOk(pedidosPushSoportadoEnEsteNavegador());
+  }, []);
+
+  const refrescarTarifaDomicilio = useCallback(async () => {
+    try {
+      const url = `/api/pos_domicilios_config?${new URLSearchParams({ puntoVenta }).toString()}`;
+      const res = await fetch(url, { method: "GET", cache: "no-store" });
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        costoDomicilioCop?: number;
+        umbralGratisCop?: number;
+      };
+      if (!res.ok || json.ok === false) return;
+      const costo =
+        typeof json.costoDomicilioCop === "number" && Number.isFinite(json.costoDomicilioCop) && json.costoDomicilioCop >= 0
+          ? Math.round(json.costoDomicilioCop)
+          : DEFAULT_COSTO_DOMICILIO_COP;
+      const umbral =
+        typeof json.umbralGratisCop === "number" && Number.isFinite(json.umbralGratisCop) && json.umbralGratisCop > 0
+          ? Math.round(json.umbralGratisCop)
+          : DEFAULT_UMBRAL_GRATIS_COP;
+      setTarifaDomicilio({ costoDomicilioCop: costo, umbralGratisCop: umbral });
+    } catch {
+      /* se mantienen defaults */
+    }
+  }, [puntoVenta]);
+
+  useEffect(() => {
+    void refrescarTarifaDomicilio();
+    const t = window.setInterval(() => {
+      void refrescarTarifaDomicilio();
+    }, 45000);
+    return () => window.clearInterval(t);
+  }, [refrescarTarifaDomicilio]);
 
   useEffect(() => {
     let cancelled = false;
@@ -323,14 +548,20 @@ function PedidosLandingClient() {
     () => itemsCarrito.reduce((acc, x) => acc + x.cantidad * x.precioUnitarioLinea, 0),
     [itemsCarrito]
   );
-  const faltanteDomicilioGratis = useMemo(() => Math.max(0, 35000 - subtotal), [subtotal]);
-  const progresoDomicilioGratis = useMemo(() => porcentajeProgresoDomicilioGratis(subtotal), [subtotal]);
+  const faltanteDomicilioGratis = useMemo(
+    () => Math.max(0, tarifaDomicilio.umbralGratisCop - subtotal),
+    [subtotal, tarifaDomicilio.umbralGratisCop]
+  );
+  const progresoDomicilioGratis = useMemo(
+    () => porcentajeProgresoDomicilioGratis(subtotal, tarifaDomicilio.umbralGratisCop),
+    [subtotal, tarifaDomicilio.umbralGratisCop]
+  );
   const costoDomicilio = useMemo(() => {
     if (tipoEntrega === "recogida") return 0;
     if (subtotal <= 0) return 0;
-    if (subtotal >= 35000) return 0;
-    return 4000;
-  }, [subtotal, tipoEntrega]);
+    if (subtotal >= tarifaDomicilio.umbralGratisCop) return 0;
+    return tarifaDomicilio.costoDomicilioCop;
+  }, [subtotal, tipoEntrega, tarifaDomicilio.umbralGratisCop, tarifaDomicilio.costoDomicilioCop]);
   const total = subtotal + costoDomicilio;
 
   const totalItems = useMemo(() => itemsCarrito.reduce((acc, x) => acc + x.cantidad, 0), [itemsCarrito]);
@@ -502,6 +733,7 @@ function PedidosLandingClient() {
       }
       setPedidoCreadoId(json.pedido?.id ?? null);
       setPedidoCreadoEnIso(new Date().toISOString());
+      setEtiquetaClienteChat(cliente.trim() || "Cliente");
       setMensaje("Tu pedido fue recibido. Muy pronto te contactamos para confirmar.");
       setCantidades({});
       setCliente("");
@@ -522,6 +754,15 @@ function PedidosLandingClient() {
       setChatMensajes([]);
       setChatError(null);
       setEstadoPedido(null);
+      setEtiquetaClienteChat("");
+      setChatEstadoVisible(false);
+      setChatVista("cerrado");
+      estadoPedidoAnteriorRef.current = null;
+      setAnimacionCambioEstadoPedido(null);
+      setResaltarTarjetaEstadoPedido(false);
+      setPushPedidosMensaje(null);
+      setPushPedidosExito(false);
+      setPushPedidosActivando(false);
       return;
     }
     let activo = true;
@@ -548,6 +789,11 @@ function PedidosLandingClient() {
   }, [pedidoCreadoId, puntoVenta]);
 
   useEffect(() => {
+    setPushPedidosExito(false);
+    setPushPedidosMensaje(null);
+  }, [pedidoCreadoId]);
+
+  useEffect(() => {
     if (!pedidoCreadoId) return;
     const timer = window.setInterval(() => {
       setAhoraMs(Date.now());
@@ -556,6 +802,37 @@ function PedidosLandingClient() {
       window.clearInterval(timer);
     };
   }, [pedidoCreadoId]);
+
+  const refrescarEstadoPedidoConSpinner = useCallback(async () => {
+    const pid = pedidoCreadoId;
+    if (!pid) return;
+    setEstadoPedidoLoading(true);
+    try {
+      const url = `/api/pos_domicilios?${new URLSearchParams({ puntoVenta }).toString()}`;
+      const res = await fetch(url, { method: "GET" });
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        data?: Array<{ id?: string; estado?: EstadoPedidoDomicilio; creadoEnIso?: string }>;
+      };
+      const row = (json.data ?? []).find((x) => x.id === pid);
+      const estado = row?.estado ?? null;
+      if (estado) setEstadoPedido(estado);
+      if (row?.creadoEnIso) setPedidoCreadoEnIso(row.creadoEnIso);
+    } finally {
+      setEstadoPedidoLoading(false);
+    }
+  }, [pedidoCreadoId, puntoVenta]);
+
+  const toggleEstadoPedidoEnChat = useCallback(() => {
+    if (!pedidoCreadoId) return;
+    if (chatEstadoVisible) {
+      setChatEstadoVisible(false);
+      return;
+    }
+    setChatEstadoVisible(true);
+    setAhoraMs(Date.now());
+    void refrescarEstadoPedidoConSpinner();
+  }, [pedidoCreadoId, chatEstadoVisible, refrescarEstadoPedidoConSpinner]);
 
   useEffect(() => {
     if (!pedidoCreadoId) return;
@@ -589,9 +866,40 @@ function PedidosLandingClient() {
   }, [pedidoCreadoId, puntoVenta]);
 
   useEffect(() => {
-    if (!chatAbierto) return;
+    if (!pedidoCreadoId || !estadoPedido) return;
+    const prev = estadoPedidoAnteriorRef.current;
+    if (prev === estadoPedido) return;
+    if (prev === null) {
+      estadoPedidoAnteriorRef.current = estadoPedido;
+      return;
+    }
+    estadoPedidoAnteriorRef.current = estadoPedido;
+    setResaltarTarjetaEstadoPedido(true);
+    const tPulse = window.setTimeout(() => setResaltarTarjetaEstadoPedido(false), 1400);
+    const copy = textoMotivacionCambioEstado(estadoPedido);
+    let tOverlay: number | undefined;
+    if (copy) {
+      const reduceMotion =
+        typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      setAnimacionCambioEstadoPedido({
+        key: Date.now(),
+        titulo: copy.titulo,
+        subtitulo: copy.subtitulo,
+        variante: copy.variante,
+        confeti: copy.confeti && !reduceMotion,
+      });
+      tOverlay = window.setTimeout(() => setAnimacionCambioEstadoPedido(null), reduceMotion ? 2200 : 3600);
+    }
+    return () => {
+      window.clearTimeout(tPulse);
+      if (tOverlay) window.clearTimeout(tOverlay);
+    };
+  }, [estadoPedido, pedidoCreadoId]);
+
+  useEffect(() => {
+    if (chatVista !== "expandido") return;
     chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [chatMensajes, chatAbierto]);
+  }, [chatMensajes, chatVista]);
 
   const enviarMensajeCliente = async () => {
     if (!pedidoCreadoId || chatEnviando) return;
@@ -603,8 +911,9 @@ function PedidosLandingClient() {
       puntoVenta,
       pedidoId: pedidoCreadoId,
       autor: "cliente",
-      autorLabel: cliente.trim() || "Cliente",
+      autorLabel: etiquetaClienteChat.trim() || "Cliente",
       texto,
+      tipoMensaje: "texto",
     });
     if (!resp.ok) {
       setChatError(resp.message ?? "No se pudo enviar el mensaje.");
@@ -615,6 +924,80 @@ function PedidosLandingClient() {
     const refresh = await listarMensajesChatDomicilio(puntoVenta, pedidoCreadoId);
     if (refresh.ok) setChatMensajes(refresh.data);
     setChatEnviando(false);
+  };
+
+  const enviarRespuestaRapidaCliente = async (id: RespuestaRapidaDomicilioId) => {
+    if (!pedidoCreadoId || chatEnviando) return;
+    const row = RESPUESTAS_RAPIDAS_CLIENTE_DOMICILIO.find((x) => x.id === id);
+    if (!row) return;
+    setChatEnviando(true);
+    setChatError(null);
+    const resp = await enviarMensajeChatDomicilio({
+      puntoVenta,
+      pedidoId: pedidoCreadoId,
+      autor: "cliente",
+      autorLabel: etiquetaClienteChat.trim() || "Cliente",
+      texto: row.texto,
+      tipoMensaje: "respuesta_rapida",
+      respuestaRapidaId: row.id,
+    });
+    if (!resp.ok) {
+      setChatError(resp.message ?? "No se pudo enviar la respuesta rápida.");
+      setChatEnviando(false);
+      return;
+    }
+    const refresh = await listarMensajesChatDomicilio(puntoVenta, pedidoCreadoId);
+    if (refresh.ok) setChatMensajes(refresh.data);
+    setChatEnviando(false);
+  };
+
+  const onArchivoComprobanteChat = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file || !pedidoCreadoId || chatEnviando) return;
+    setChatEnviando(true);
+    setChatError(null);
+    const comp = await comprimirComprobanteTransferenciaParaChat(file);
+    if (!comp) {
+      setChatError("No se pudo usar esa imagen. Probá con JPG o PNG, o una foto más chica.");
+      setChatEnviando(false);
+      return;
+    }
+    const nota = chatTexto.trim();
+    const texto = nota || "Comprobante de pago (transferencia).";
+    const resp = await enviarMensajeChatDomicilio({
+      puntoVenta,
+      pedidoId: pedidoCreadoId,
+      autor: "cliente",
+      autorLabel: etiquetaClienteChat.trim() || "Cliente",
+      texto,
+      tipoMensaje: "comprobante",
+      adjuntoDataUrl: comp.dataUrl,
+      adjuntoNombre: comp.nombre,
+    });
+    if (!resp.ok) {
+      setChatError(resp.message ?? "No se pudo enviar el comprobante.");
+      setChatEnviando(false);
+      return;
+    }
+    setChatTexto("");
+    const refresh = await listarMensajesChatDomicilio(puntoVenta, pedidoCreadoId);
+    if (refresh.ok) setChatMensajes(refresh.data);
+    setChatEnviando(false);
+  };
+
+  const activarNotificacionesPedidoCelular = async () => {
+    if (!pedidoCreadoId || pushPedidosActivando) return;
+    setPushPedidosActivando(true);
+    setPushPedidosMensaje(null);
+    const r = await activarNotificacionesPedidoDomicilio({
+      vapidPublicKey: vapidPublicPedidos,
+      puntoVenta,
+      pedidoId: pedidoCreadoId,
+    });
+    setPushPedidosActivando(false);
+    setPushPedidosMensaje(r.message ?? (r.ok ? "Listo." : "No se pudo activar."));
+    setPushPedidosExito(r.ok);
   };
 
   return (
@@ -695,9 +1078,9 @@ function PedidosLandingClient() {
             <p className="mt-1 text-lg font-extrabold text-cyan-900">
               {tipoEntrega === "recogida"
                 ? "Recogida en tienda: sin costo de envío"
-                : subtotal >= 35000
+                : subtotal >= tarifaDomicilio.umbralGratisCop
                   ? "Domicilio gratis aplicado"
-                  : "Gratis desde $35.000"}
+                  : `Gratis desde ${formatoMoneda(tarifaDomicilio.umbralGratisCop)}`}
             </p>
           </article>
         </section>
@@ -956,7 +1339,7 @@ function PedidosLandingClient() {
                   {tipoEntrega === "domicilio" ? (
                   <div className="space-y-1">
                     <div className="flex items-center justify-between text-xs text-amber-900">
-                      <span>Domicilio gratis desde $35.000</span>
+                      <span>Domicilio gratis desde {formatoMoneda(tarifaDomicilio.umbralGratisCop)}</span>
                       <strong>{progresoDomicilioGratis}%</strong>
                     </div>
                     <div className="h-2 overflow-hidden rounded-full bg-amber-100">
@@ -1085,33 +1468,74 @@ function PedidosLandingClient() {
             </section>
 
             {pedidoCreadoId ? (
-              <section className="rounded-2xl border border-cyan-200 bg-cyan-50/50 p-3.5 shadow-sm sm:p-4">
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="text-base font-bold text-cyan-900">Estado de tu pedido</h3>
-                  <span className="rounded-full bg-cyan-100 px-2 py-0.5 text-[11px] font-semibold text-cyan-800">
-                    {estadoPedidoLoading ? "Actualizando..." : estadoEtiqueta(estadoPedido)}
-                  </span>
-                </div>
-                <p className="mt-1 text-xs text-cyan-700">Pedido {pedidoCreadoId}</p>
-                <p className="mt-1 text-xs font-semibold text-cyan-800">ETA estimada: {etaPedido}</p>
-                <div className="mt-3 grid grid-cols-6 gap-1">
-                  {Array.from({ length: 6 }).map((_, idx) => {
-                    const paso = idx + 1;
-                    const activo = estadoPaso(estadoPedido) >= paso;
-                    return (
-                      <span
-                        key={`paso-${paso}`}
-                        className={`h-2 rounded-full transition ${activo ? "bg-cyan-600" : "bg-cyan-100"}`}
-                      />
-                    );
-                  })}
-                </div>
-                <div className="mt-2 grid grid-cols-3 gap-2 text-[10px] text-cyan-700">
-                  <span>Recibido</span>
-                  <span className="text-center">Preparacion</span>
-                  <span className="text-right">En camino</span>
-                </div>
-              </section>
+              <>
+                <section
+                  className={`rounded-2xl border border-cyan-200 bg-cyan-50/50 p-3.5 shadow-sm transition-shadow sm:p-4 ${
+                    resaltarTarjetaEstadoPedido ? "animate-pedidos-estado-tarjeta-pulse ring-2 ring-cyan-400/70" : ""
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-base font-bold text-cyan-900">Estado de tu pedido</h3>
+                    <span className="rounded-full bg-cyan-100 px-2 py-0.5 text-[11px] font-semibold text-cyan-800">
+                      {estadoPedidoLoading ? "Actualizando..." : estadoEtiqueta(estadoPedido)}
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-cyan-700">Pedido {pedidoCreadoId}</p>
+                  <p className="mt-1 text-xs font-semibold text-cyan-800">ETA estimada: {etaPedido}</p>
+                  <div className="mt-3 grid grid-cols-6 gap-1">
+                    {Array.from({ length: 6 }).map((_, idx) => {
+                      const paso = idx + 1;
+                      const activo = estadoPaso(estadoPedido) >= paso;
+                      return (
+                        <span
+                          key={`paso-${paso}`}
+                          className={`h-2 rounded-full transition ${activo ? "bg-cyan-600" : "bg-cyan-100"}`}
+                        />
+                      );
+                    })}
+                  </div>
+                  <div className="mt-2 grid grid-cols-3 gap-2 text-[10px] text-cyan-700">
+                    <span>Recibido</span>
+                    <span className="text-center">Preparacion</span>
+                    <span className="text-right">En camino</span>
+                  </div>
+                </section>
+                <section className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-3.5 shadow-sm sm:p-4">
+                  <h3 className="text-base font-bold text-indigo-950">Avisos en tu celular</h3>
+                  <p className="mt-1 text-xs text-indigo-900/90">
+                    Recibí una notificación cuando cambie el estado de tu pedido, aunque cambies de app o bloquees la pantalla (según tu navegador).
+                  </p>
+                  {!vapidPublicPedidos ? (
+                    <p className="mt-2 text-xs text-slate-600">
+                      Las notificaciones push requieren configuración en el servidor (claves VAPID). Consultá con el equipo del POS.
+                    </p>
+                  ) : !pushPedidosNavOk ? (
+                    <p className="mt-2 text-xs text-amber-900/90">
+                      Este navegador no permite notificaciones web aquí, o están desactivadas. En iPhone/iPad suele funcionar mejor si agregás el sitio a la pantalla de inicio y lo abrís desde el ícono (iOS 16.4+).
+                    </p>
+                  ) : (
+                    <div className="mt-3 space-y-2">
+                      <button
+                        type="button"
+                        disabled={pushPedidosActivando || pushPedidosExito}
+                        onClick={() => void activarNotificacionesPedidoCelular()}
+                        className="w-full rounded-xl bg-indigo-700 px-3 py-2.5 text-sm font-bold text-white shadow-md transition hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {pushPedidosActivando
+                          ? "Activando..."
+                          : pushPedidosExito
+                            ? "Avisos activados"
+                            : "Permitir avisos de mi pedido"}
+                      </button>
+                      {pushPedidosMensaje ? (
+                        <p className={`text-xs font-medium ${pushPedidosExito ? "text-emerald-800" : "text-rose-700"}`}>
+                          {pushPedidosMensaje}
+                        </p>
+                      ) : null}
+                    </div>
+                  )}
+                </section>
+              </>
             ) : null}
           </aside>
         </div>
@@ -1188,27 +1612,123 @@ function PedidosLandingClient() {
         </button>
         <button
           type="button"
-          onClick={() => setChatAbierto((v) => !v)}
+          onClick={() =>
+            setChatVista((v) => {
+              if (v === "cerrado") return "expandido";
+              if (v === "minimizado") return "expandido";
+              return "minimizado";
+            })
+          }
           className="flex-1 rounded-xl bg-cyan-700 px-3 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-cyan-800 active:scale-[0.98]"
         >
-          {chatAbierto ? "Cerrar chat" : "Chat POS"}
+          {chatVista === "expandido" ? "Minimizar chat" : chatVista === "minimizado" ? "Abrir chat" : "Chat POS"}
         </button>
       </div>
       <button
         type="button"
-        onClick={() => setChatAbierto((v) => !v)}
+        onClick={() =>
+          setChatVista((v) => {
+            if (v === "cerrado") return "expandido";
+            if (v === "minimizado") return "expandido";
+            return "minimizado";
+          })
+        }
         className="fixed bottom-5 right-5 z-40 hidden rounded-full bg-cyan-700 px-4 py-2 text-sm font-semibold text-white shadow-lg transition hover:bg-cyan-800 active:scale-[0.98] lg:inline-flex"
       >
-        {chatAbierto ? "Cerrar chat" : "Chat con el punto"}
+        {chatVista === "expandido" ? "Minimizar chat" : chatVista === "minimizado" ? "Abrir chat" : "Chat con el punto"}
       </button>
-      {chatAbierto ? (
+      {chatVista === "expandido" ? (
         <section className="fixed inset-x-0 bottom-0 z-50 max-h-[82vh] rounded-t-2xl border border-cyan-200 bg-white shadow-2xl md:bottom-20 md:right-5 md:inset-x-auto md:w-[340px] md:max-w-[calc(100vw-2rem)] md:rounded-2xl">
-          <header className="rounded-t-2xl bg-cyan-700 px-4 py-3 text-white md:rounded-t-2xl">
-            <p className="text-sm font-bold">Chat de pedido</p>
-            <p className="text-[11px] text-cyan-100">
-              {pedidoCreadoId ? `Pedido ${pedidoCreadoId}` : "Primero confirma tu pedido para chatear"}
-            </p>
+          <header className="flex items-start justify-between gap-2 rounded-t-2xl bg-cyan-700 px-4 py-3 text-white md:rounded-t-2xl">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold">Chat de pedido</p>
+              <p className="text-[11px] text-cyan-100">
+                {pedidoCreadoId ? `Pedido ${pedidoCreadoId}` : "Primero confirma tu pedido para chatear"}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-1">
+              <button
+                type="button"
+                title="Minimizar chat y seguir viendo el menú"
+                onClick={() => setChatVista("minimizado")}
+                className="rounded-lg border border-white/35 bg-white/10 px-2 py-1.5 text-xs font-semibold text-white transition hover:bg-white/20"
+              >
+                <span className="sr-only">Minimizar chat</span>
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                title="Cerrar chat"
+                onClick={() => setChatVista("cerrado")}
+                className="rounded-lg border border-white/35 bg-white/10 px-2 py-1.5 text-xs font-semibold text-white transition hover:bg-white/20"
+              >
+                <span className="sr-only">Cerrar chat</span>
+                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
           </header>
+          {pedidoCreadoId ? (
+            <div className="border-b border-cyan-100 bg-gradient-to-b from-cyan-50 to-white px-3 py-2">
+              <button
+                type="button"
+                onClick={toggleEstadoPedidoEnChat}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-300 bg-white px-3 py-2.5 text-xs font-bold text-cyan-900 shadow-sm transition hover:border-cyan-500 hover:bg-cyan-50/80 active:scale-[0.99]"
+              >
+                <svg className="h-5 w-5 shrink-0 text-cyan-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                  />
+                </svg>
+                {chatEstadoVisible ? "Ocultar estado del pedido" : "Ver estado del pedido"}
+              </button>
+              {chatEstadoVisible ? (
+                <div className="mt-2 space-y-2 rounded-xl border border-cyan-200 bg-white p-3 text-xs text-cyan-950 shadow-inner">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-wide text-cyan-600">Estado actual</p>
+                      <p className="mt-0.5 text-sm font-extrabold">
+                        {estadoPedidoLoading ? "Consultando..." : estadoEtiqueta(estadoPedido)}
+                      </p>
+                      <p className="mt-1 text-[11px] font-semibold text-cyan-800">ETA: {etaPedido}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAhoraMs(Date.now());
+                        void refrescarEstadoPedidoConSpinner();
+                      }}
+                      disabled={estadoPedidoLoading}
+                      className="shrink-0 rounded-lg border border-cyan-200 bg-cyan-50 px-2 py-1 text-[10px] font-semibold text-cyan-900 hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Actualizar
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-6 gap-0.5">
+                    {Array.from({ length: 6 }).map((_, idx) => {
+                      const paso = idx + 1;
+                      const activo = estadoPaso(estadoPedido) >= paso;
+                      return (
+                        <span
+                          key={`chat-estado-paso-${paso}`}
+                          className={`h-2 rounded-full transition ${activo ? "bg-cyan-600" : "bg-cyan-100"}`}
+                        />
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    El estado también se actualiza solo cada pocos segundos mientras tenés el pedido abierto.
+                  </p>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           <div ref={chatScrollRef} className="max-h-[48vh] min-h-52 space-y-2 overflow-auto bg-slate-50 p-3 md:max-h-72">
             {!pedidoCreadoId ? (
               <p className="text-xs text-slate-500">Cuando confirmes el pedido, este chat quedará activo.</p>
@@ -1220,19 +1740,54 @@ function PedidosLandingClient() {
               chatMensajes.map((m) => {
                 const esCliente = m.autor === "cliente";
                 return (
-                  <article
+                  <PosDomiciliosChatBurbuja
                     key={m.id}
-                    className={`max-w-[85%] rounded-xl px-3 py-2 text-xs shadow-sm ${esCliente ? "ml-auto bg-cyan-600 text-white" : "bg-white text-slate-800"}`}
-                  >
-                    <p className={`font-semibold ${esCliente ? "text-cyan-50" : "text-slate-700"}`}>{m.autorLabel}</p>
-                    <p className="mt-1 whitespace-pre-wrap">{m.texto}</p>
-                    <p className={`mt-1 text-[10px] ${esCliente ? "text-cyan-100" : "text-slate-500"}`}>{formatoHora(m.creadoEnIso)}</p>
-                  </article>
+                    mensaje={m}
+                    esPropio={esCliente}
+                    horaFormateada={formatoHora(m.creadoEnIso)}
+                  />
                 );
               })
             )}
           </div>
           <div className="space-y-2 border-t border-gray-200 p-3">
+            {pedidoCreadoId ? (
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Respuestas rápidas</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {RESPUESTAS_RAPIDAS_CLIENTE_DOMICILIO.map((r) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      title={r.texto}
+                      disabled={chatEnviando}
+                      onClick={() => void enviarRespuestaRapidaCliente(r.id)}
+                      className="rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-[11px] font-semibold text-cyan-950 shadow-sm transition hover:border-cyan-400 hover:bg-cyan-100 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {r.etiqueta}
+                    </button>
+                  ))}
+                </div>
+                <input
+                  ref={chatComprobanteInputRef}
+                  type="file"
+                  accept="image/jpeg,image/jpg,image/png,image/webp"
+                  className="hidden"
+                  onChange={(ev) => void onArchivoComprobanteChat(ev)}
+                />
+                <button
+                  type="button"
+                  disabled={chatEnviando}
+                  onClick={() => chatComprobanteInputRef.current?.click()}
+                  className="w-full rounded-lg border border-dashed border-amber-300 bg-amber-50/80 px-3 py-2 text-[11px] font-semibold text-amber-950 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {chatEnviando ? "Enviando..." : "Adjuntar comprobante de transferencia (foto)"}
+                </button>
+                <p className="text-[10px] text-slate-500">
+                  Podés escribir una nota arriba (banco, referencia) y luego adjuntar; si no, se envía solo la imagen.
+                </p>
+              </div>
+            ) : null}
             <textarea
               value={chatTexto}
               onChange={(e) => setChatTexto(e.target.value)}
@@ -1252,6 +1807,42 @@ function PedidosLandingClient() {
             {chatError ? <p className="text-xs text-rose-600">{chatError}</p> : null}
           </div>
         </section>
+      ) : null}
+      {chatVista === "minimizado" ? (
+        <div className="fixed inset-x-3 bottom-24 z-50 md:inset-x-auto md:bottom-20 md:right-5 md:w-[340px] md:max-w-[calc(100vw-2rem)]">
+          <div className="flex overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-2xl ring-1 ring-cyan-500/15">
+            <button
+              type="button"
+              onClick={() => setChatVista("expandido")}
+              className="min-w-0 flex-1 px-4 py-3 text-left transition hover:bg-cyan-50/90 active:bg-cyan-100/80"
+            >
+              <p className="text-xs font-extrabold uppercase tracking-wide text-cyan-800">Chat minimizado</p>
+              <p className="mt-0.5 truncate text-sm font-bold text-slate-900">
+                {pedidoCreadoId ? `Pedido ${pedidoCreadoId}` : "Pedidos"}
+              </p>
+              <p className="mt-0.5 text-[11px] text-slate-600">Tocá para volver al chat con el punto</p>
+            </button>
+            <button
+              type="button"
+              aria-label="Cerrar chat"
+              title="Cerrar chat"
+              onClick={() => setChatVista("cerrado")}
+              className="shrink-0 border-l border-cyan-100 px-3.5 text-lg font-light leading-none text-slate-500 transition hover:bg-slate-50 hover:text-slate-800"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {animacionCambioEstadoPedido ? (
+        <PedidosOverlayMotivacionEstado
+          key={animacionCambioEstadoPedido.key}
+          titulo={animacionCambioEstadoPedido.titulo}
+          subtitulo={animacionCambioEstadoPedido.subtitulo}
+          variante={animacionCambioEstadoPedido.variante}
+          mostrarConfeti={animacionCambioEstadoPedido.confeti}
+          burstKey={animacionCambioEstadoPedido.key}
+        />
       ) : null}
     </main>
   );

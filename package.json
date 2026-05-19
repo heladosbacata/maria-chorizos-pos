@@ -32,7 +32,8 @@
     "qrcode": "^1.5.4",
     "qz-tray": "^2.2.5",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",

@@ -103,6 +103,20 @@ const config: Config = {
           "0%, 100%": { boxShadow: "0 0 0 1px rgba(250, 204, 21, 0.35), 0 0 28px rgba(168, 85, 247, 0.25)" },
           "50%": { boxShadow: "0 0 0 1px rgba(253, 224, 71, 0.65), 0 0 40px rgba(236, 72, 153, 0.35)" },
         },
+        /** Overlay motivación — cambio de estado pedido (landing /pedidos) */
+        "pedidos-estado-motiv-pop": {
+          "0%": { opacity: "0", transform: "scale(0.88) translateY(28px)" },
+          "58%": { opacity: "1", transform: "scale(1.06) translateY(0)" },
+          "100%": { opacity: "1", transform: "scale(1) translateY(0)" },
+        },
+        "pedidos-estado-motiv-halo": {
+          "0%, 100%": { opacity: "0.35", transform: "scale(1)" },
+          "50%": { opacity: "0.75", transform: "scale(1.12)" },
+        },
+        "pedidos-estado-tarjeta-pulse": {
+          "0%, 100%": { boxShadow: "0 0 0 0 rgba(6, 182, 212, 0)" },
+          "40%": { boxShadow: "0 0 0 6px rgba(6, 182, 212, 0.35)" },
+        },
       },
       animation: {
         "metas-shimmer": "metas-shimmer 2.4s ease-in-out infinite",
@@ -128,6 +142,9 @@ const config: Config = {
         "pedidos-club-gradient": "pedidos-club-gradient 10s ease-in-out infinite",
         "pedidos-club-shimmer": "pedidos-club-shimmer 4.2s ease-in-out infinite",
         "pedidos-club-border-glow": "pedidos-club-border-glow 3.5s ease-in-out infinite",
+        "pedidos-estado-motiv-pop": "pedidos-estado-motiv-pop 0.75s cubic-bezier(0.22, 1, 0.36, 1) both",
+        "pedidos-estado-motiv-halo": "pedidos-estado-motiv-halo 2.2s ease-in-out infinite",
+        "pedidos-estado-tarjeta-pulse": "pedidos-estado-tarjeta-pulse 1.15s ease-out 1",
       },
       colors: {
         brand: {

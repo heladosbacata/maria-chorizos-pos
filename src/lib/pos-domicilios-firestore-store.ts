@@ -4,7 +4,12 @@ import { buildPedidosSemillaDomicilios } from "@/lib/pos-domicilios-seed";
 import { getMensajesChatMemory, appendMensajeChatMemory } from "@/lib/pos-domicilios-chat-memory-store";
 import { getPedidosMemory, setPedidosMemory } from "@/lib/pos-domicilios-memory-store";
 import type { DomicilioCrearPayload, EstadoDomicilio, PedidoDomicilio } from "@/types/pos-domicilios";
-import type { ChatDomicilioEnviarPayload, MensajeChatDomicilio } from "@/types/pos-domicilios-chat";
+import type {
+  ChatDomicilioEnviarPayload,
+  MensajeChatDomicilio,
+  RespuestaRapidaDomicilioId,
+  TipoMensajeChatDomicilio,
+} from "@/types/pos-domicilios-chat";
 
 const COLL_PEDIDOS = "posDomiciliosPedidos";
 const COLL_CHAT = "posDomiciliosChats";
@@ -106,16 +111,53 @@ function pedidoFromPayload(payload: DomicilioCrearPayload, id: string): PedidoDo
   };
 }
 
+const MAX_ADJUNTO_CHAT_CHARS = 290_000;
+
 function toChat(raw: Record<string, unknown>): MensajeChatDomicilio | null {
   const id = typeof raw.id === "string" ? raw.id.trim() : "";
   const puntoVenta = typeof raw.puntoVenta === "string" ? raw.puntoVenta.trim() : "";
   const pedidoId = typeof raw.pedidoId === "string" ? raw.pedidoId.trim() : "";
   const autor = raw.autor === "pos" ? "pos" : raw.autor === "cliente" ? "cliente" : null;
   const autorLabel = typeof raw.autorLabel === "string" ? raw.autorLabel.trim() : "";
-  const texto = typeof raw.texto === "string" ? raw.texto.trim() : "";
+  const textoBruto = typeof raw.texto === "string" ? raw.texto.trim() : "";
+  const adjuntoRaw = typeof raw.adjuntoDataUrl === "string" ? raw.adjuntoDataUrl.trim() : "";
+  const adjuntoDataUrl =
+    adjuntoRaw &&
+    adjuntoRaw.length <= MAX_ADJUNTO_CHAT_CHARS &&
+    /^data:image\//i.test(adjuntoRaw) &&
+    adjuntoRaw.startsWith("data:image")
+      ? adjuntoRaw.slice(0, MAX_ADJUNTO_CHAT_CHARS)
+      : undefined;
+  const texto = textoBruto || (adjuntoDataUrl ? "Comprobante de pago (transferencia)." : "");
   const creadoEnIso = maybeIso(raw.creadoEnIso) ?? new Date().toISOString();
+  const rr = raw.respuestaRapidaId;
+  const respuestaRapidaId: RespuestaRapidaDomicilioId | undefined =
+    rr === "confirmado" || rr === "modificar" || rr === "anular" ? rr : undefined;
+  const adjuntoNombre =
+    typeof raw.adjuntoNombre === "string" && raw.adjuntoNombre.trim()
+      ? raw.adjuntoNombre.trim().slice(0, 120)
+      : undefined;
+  const tipoMensaje: TipoMensajeChatDomicilio | undefined = adjuntoDataUrl
+    ? "comprobante"
+    : respuestaRapidaId
+      ? "respuesta_rapida"
+      : raw.tipoMensaje === "texto"
+        ? "texto"
+        : undefined;
   if (!id || !puntoVenta || !pedidoId || !autor || !autorLabel || !texto) return null;
-  return { id, puntoVenta, pedidoId, autor, autorLabel, texto, creadoEnIso };
+  const base: MensajeChatDomicilio = {
+    id,
+    puntoVenta,
+    pedidoId,
+    autor,
+    autorLabel,
+    texto,
+    creadoEnIso,
+    ...(tipoMensaje ? { tipoMensaje } : {}),
+    ...(respuestaRapidaId ? { respuestaRapidaId } : {}),
+    ...(adjuntoDataUrl ? { adjuntoDataUrl, adjuntoNombre } : {}),
+  };
+  return base;
 }
 
 export async function listarPedidosDomiciliosPersistente(puntoVenta: string): Promise<PedidoDomicilio[]> {
@@ -230,10 +272,32 @@ export async function listarMensajesChatPersistente(puntoVenta: string, pedidoId
 export async function enviarMensajeChatPersistente(payload: ChatDomicilioEnviarPayload): Promise<MensajeChatDomicilio | null> {
   const pv = payload.puntoVenta.trim();
   const pid = payload.pedidoId.trim();
-  const texto = payload.texto.trim().slice(0, 800);
-  if (!pv || !pid || !texto) return null;
+  const adjuntoRaw = typeof payload.adjuntoDataUrl === "string" ? payload.adjuntoDataUrl.trim() : "";
+  const adjuntoDataUrl =
+    adjuntoRaw &&
+    adjuntoRaw.length <= MAX_ADJUNTO_CHAT_CHARS &&
+    /^data:image\/(jpeg|jpg|png|webp);base64,/i.test(adjuntoRaw)
+      ? adjuntoRaw.slice(0, MAX_ADJUNTO_CHAT_CHARS)
+      : undefined;
+  let texto = payload.texto.trim().slice(0, 800);
+  if (!texto && adjuntoDataUrl) texto = "Comprobante de pago (transferencia).";
+  const rr = payload.respuestaRapidaId;
+  const respuestaRapidaId: RespuestaRapidaDomicilioId | undefined =
+    rr === "confirmado" || rr === "modificar" || rr === "anular" ? rr : undefined;
+  if (!pv || !pid || (!texto && !adjuntoDataUrl)) return null;
   const autor = payload.autor === "pos" ? "pos" : "cliente";
   const autorLabel = payload.autorLabel?.trim() || (autor === "cliente" ? "Cliente" : "POS");
+  const tipoMensaje: TipoMensajeChatDomicilio = adjuntoDataUrl
+    ? "comprobante"
+    : respuestaRapidaId
+      ? "respuesta_rapida"
+      : "texto";
+  const adjuntoNombre =
+    adjuntoDataUrl && payload.adjuntoNombre?.trim()
+      ? payload.adjuntoNombre.trim().slice(0, 120)
+      : adjuntoDataUrl
+        ? "comprobante.jpg"
+        : undefined;
   const mensaje: MensajeChatDomicilio = {
     id: buildIdPrefijo("chat"),
     puntoVenta: pv,
@@ -242,6 +306,9 @@ export async function enviarMensajeChatPersistente(payload: ChatDomicilioEnviarP
     autorLabel,
     texto,
     creadoEnIso: new Date().toISOString(),
+    tipoMensaje,
+    ...(respuestaRapidaId ? { respuestaRapidaId } : {}),
+    ...(adjuntoDataUrl ? { adjuntoDataUrl, adjuntoNombre } : {}),
   };
   const app = getFirebaseAdminApp();
   if (!app) {

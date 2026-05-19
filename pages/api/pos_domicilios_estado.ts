@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { actualizarEstadoPedidoPersistente } from "@/lib/pos-domicilios-firestore-store";
+import { notificarCambioEstadoPedidoDomicilioWebPush } from "@/lib/pos-domicilios-push-notify";
 import type {
   DomicilioCambioEstadoPayload,
   DomicilioCambioEstadoResponse,
@@ -54,5 +55,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   if (!pedido) {
     return res.status(404).json({ ok: false, message: "Pedido no encontrado." });
   }
+  void notificarCambioEstadoPedidoDomicilioWebPush({
+    puntoVenta: pv,
+    pedidoId,
+    estado: pedido.estado,
+  }).catch(() => undefined);
   return res.status(200).json({ ok: true, pedido, message: "Estado actualizado." });
 }

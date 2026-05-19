@@ -31,9 +31,19 @@ export async function listarMensajesChatDomicilio(
   }
 }
 
+const MAX_ADJUNTO_CHARS = 290_000;
+
 export async function enviarMensajeChatDomicilio(payload: ChatDomicilioEnviarPayload): Promise<ChatDomicilioEnviarResponse> {
-  if (!payload.puntoVenta.trim() || !payload.pedidoId.trim() || !payload.texto.trim()) {
+  const adj = payload.adjuntoDataUrl?.trim() ?? "";
+  const textoTrim = payload.texto.trim();
+  if (!payload.puntoVenta.trim() || !payload.pedidoId.trim()) {
     return { ok: false, message: "Mensaje inválido." };
+  }
+  if (!textoTrim && !adj) {
+    return { ok: false, message: "Escribí un mensaje o adjuntá el comprobante." };
+  }
+  if (adj.length > MAX_ADJUNTO_CHARS) {
+    return { ok: false, message: "La imagen es demasiado grande para enviarla por el chat." };
   }
   try {
     const res = await fetch("/api/pos_domicilios_chat", {

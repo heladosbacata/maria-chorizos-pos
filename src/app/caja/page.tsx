@@ -26,6 +26,7 @@ import PosCajaMensajesBell from "@/components/PosCajaMensajesBell";
 import PosBroadcastBell from "@/components/PosBroadcastBell";
 import PlanMillasPosModule from "@/components/PlanMillasPosModule";
 import PosDomiciliosModule from "@/components/PosDomiciliosModule";
+import { domiciliosListar } from "@/lib/pos-domicilios-api";
 import RegistrarPagoPanel, { type DetallePagoConfirmado } from "@/components/RegistrarPagoPanel";
 import TurnoCierreExitoPremiumModal from "@/components/TurnoCierreExitoPremiumModal";
 import TurnosHistorialModule from "@/components/TurnosHistorialModule";
@@ -152,6 +153,7 @@ import type { TicketVentaLinea, TicketVentaPayload } from "@/types/impresion-pos
 import type { ClientePosFirestoreDoc } from "@/types/clientes-pos";
 import { CONSUMIDOR_FINAL_ID, type ClienteVentaRef } from "@/types/clientes-pos";
 import type { ProductoPOS, TipoComprobanteVenta, VentaReporte } from "@/types";
+import type { PedidoDomicilio } from "@/types/pos-domicilios";
 import type { ItemCuenta } from "@/types/pos-caja-item";
 import {
   comprimirDataUrlFotoCajero,
@@ -350,6 +352,66 @@ export default function CajaPage() {
   }, [user]);
 
   const [moduloActivo, setModuloActivo] = useState<ModuloActivo>("ventas");
+  const moduloActivoRef = useRef<ModuloActivo>("ventas");
+  moduloActivoRef.current = moduloActivo;
+
+  /** Pedidos en estado NUEVO (pendientes de aceptar) — badge menú + alerta. */
+  const [badgeDomiciliosPendientes, setBadgeDomiciliosPendientes] = useState(0);
+  const [alertaNuevosDomicilios, setAlertaNuevosDomicilios] = useState<PedidoDomicilio[] | null>(null);
+  const domiciliosNuevoIdsPrevRef = useRef<string[]>([]);
+  const domiciliosPollInicialListoRef = useRef(false);
+
+  useEffect(() => {
+    const pv = user?.puntoVenta?.trim();
+    if (!pv) {
+      setBadgeDomiciliosPendientes(0);
+      domiciliosNuevoIdsPrevRef.current = [];
+      domiciliosPollInicialListoRef.current = false;
+      return;
+    }
+
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await domiciliosListar(pv);
+        if (cancelled) return;
+        const nuevos = res.data.filter((p) => p.estado === "NUEVO");
+        setBadgeDomiciliosPendientes(nuevos.length);
+        const idsActual = nuevos.map((p) => p.id);
+        const prev = domiciliosNuevoIdsPrevRef.current;
+
+        if (domiciliosPollInicialListoRef.current) {
+          const llegados = nuevos.filter((p) => !prev.includes(p.id));
+          if (llegados.length > 0 && moduloActivoRef.current !== "domicilios") {
+            setAlertaNuevosDomicilios((cur) => {
+              const map = new Map<string, PedidoDomicilio>();
+              for (const p of [...(cur ?? []), ...llegados]) {
+                map.set(p.id, p);
+              }
+              return Array.from(map.values());
+            });
+          }
+        }
+        domiciliosPollInicialListoRef.current = true;
+        domiciliosNuevoIdsPrevRef.current = idsActual;
+      } catch {
+        /* sin conexión: no actualizamos badge */
+      }
+    };
+
+    void poll();
+    const timer = window.setInterval(poll, 12_000);
+    const onVis = () => {
+      if (document.visibilityState === "visible") void poll();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [user?.puntoVenta]);
+
   const [posGebBienvenidaAbierta, setPosGebBienvenidaAbierta] = useState(false);
   const [posGebTutorialAbierto, setPosGebTutorialAbierto] = useState(false);
   const [posGebTutorialPaso, setPosGebTutorialPaso] = useState(0);
@@ -2701,6 +2763,16 @@ export default function CajaPage() {
                 Premium
               </span>
             </span>
+            {badgeDomiciliosPendientes > 0 ? (
+              <span
+                className={`pointer-events-none absolute right-2 top-2 flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-[11px] font-black leading-none shadow-md ring-2 ${
+                  moduloActivo === "domicilios" ? "bg-rose-500 text-white ring-cyan-200" : "bg-rose-600 text-white ring-white"
+                }`}
+                aria-label={`${badgeDomiciliosPendientes} pedidos pendientes de aceptar`}
+              >
+                {badgeDomiciliosPendientes > 99 ? "99+" : badgeDomiciliosPendientes}
+              </span>
+            ) : null}
           </button>
           {!esContador && (
             <button
@@ -3637,6 +3709,65 @@ export default function CajaPage() {
         lineas={modalExitoCierreTurno?.lineas ?? []}
         onClose={() => setModalExitoCierreTurno(null)}
       />
+
+      {alertaNuevosDomicilios != null && alertaNuevosDomicilios.length > 0 ? (
+        <div
+          className="fixed inset-0 z-[85] flex items-center justify-center bg-slate-950/85 p-4 backdrop-blur-[2px]"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="domicilio-alerta-titulo"
+          aria-describedby="domicilio-alerta-desc"
+        >
+          <div className="pointer-events-none absolute inset-0 animate-pulse bg-rose-500/10" aria-hidden />
+          <div className="relative w-full max-w-md overflow-hidden rounded-2xl border-2 border-rose-500 bg-white shadow-[0_0_48px_rgba(244,63,94,0.35)] ring-4 ring-rose-400/50">
+            <div className="bg-gradient-to-r from-rose-600 to-amber-500 px-4 py-3 text-white">
+              <p id="domicilio-alerta-titulo" className="flex items-center gap-2 text-lg font-black tracking-tight">
+                <span className="relative flex h-3 w-3">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" />
+                  <span className="relative inline-flex h-3 w-3 rounded-full bg-amber-200" />
+                </span>
+                ¡Nuevo pedido de domicilio!
+              </p>
+              <p id="domicilio-alerta-desc" className="mt-1 text-sm font-medium text-rose-50">
+                Hay {alertaNuevosDomicilios.length} pedido(s) recién ingresado(s). Revisá la bandeja para aceptarlo(s).
+              </p>
+            </div>
+            <div className="max-h-[min(52vh,22rem)] space-y-2 overflow-y-auto px-4 py-3">
+              {alertaNuevosDomicilios.map((p) => (
+                <div key={p.id} className="rounded-xl border border-rose-100 bg-rose-50/50 px-3 py-2 text-sm">
+                  <p className="font-bold text-slate-900">{p.id}</p>
+                  <p className="text-slate-700">
+                    {p.cliente} · {p.telefono}
+                  </p>
+                  <p className="text-xs text-slate-600 line-clamp-2">{p.items.join(", ")}</p>
+                  <p className="mt-1 font-semibold text-rose-800 tabular-nums">
+                    {new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(p.total)}
+                  </p>
+                </div>
+              ))}
+            </div>
+            <div className="flex flex-col gap-2 border-t border-rose-100 bg-rose-50/40 px-4 py-3 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => {
+                  setModuloActivo("domicilios");
+                  setAlertaNuevosDomicilios(null);
+                }}
+                className="flex-1 rounded-xl bg-gradient-to-r from-cyan-600 to-sky-600 py-3 text-sm font-bold text-white shadow-md transition hover:brightness-110 active:scale-[0.99]"
+              >
+                Ir a Domicilios
+              </button>
+              <button
+                type="button"
+                onClick={() => setAlertaNuevosDomicilios(null)}
+                className="flex-1 rounded-xl border-2 border-slate-300 bg-white py-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50 active:scale-[0.99]"
+              >
+                Entendido
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* Área central + cuenta a cobrar (en columna en móvil, fila en escritorio) */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pl-52 lg:flex-row">

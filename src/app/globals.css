@@ -254,3 +254,30 @@ body {
     animation: none;
   }
 }
+
+/* Landing pedidos — celebración al avanzar estado del pedido */
+@keyframes pedidos-estado-confetti-fall {
+  0% {
+    transform: translate3d(0, -8vh, 0) rotate(0deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translate3d(var(--pde-drift, 0px), 105vh, 0) rotate(540deg);
+    opacity: 0.06;
+  }
+}
+
+.pedidos-estado-confetti-piece {
+  animation-name: pedidos-estado-confetti-fall;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pedidos-estado-confetti-piece {
+    animation: none !important;
+    opacity: 0 !important;
+    transform: none !important;
+  }
+}
