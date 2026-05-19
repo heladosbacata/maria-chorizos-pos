@@ -1,12 +1,9 @@
 import { createHash } from "crypto";
 import { getFirestore } from "firebase-admin/firestore";
 import { getFirebaseAdminApp } from "@/lib/firebase-admin-server";
+import { puntoVentaFirestoreClave as normPv } from "@/lib/pos-domicilios-pv-clave";
 
 const COLL_PUSH = "posDomiciliosPushSubs";
-
-function normPv(puntoVenta: string): string {
-  return puntoVenta.trim().toLowerCase();
-}
 
 export function domicilioPushChatKey(puntoVenta: string, pedidoId: string): string {
   return `${normPv(puntoVenta)}::${pedidoId.trim().toUpperCase()}`;

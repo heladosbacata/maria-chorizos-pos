@@ -3,6 +3,7 @@ import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 import { getFirebaseAdminApp } from "@/lib/firebase-admin-server";
 import { getDomicilioTarifaConfig, setDomicilioTarifaConfig } from "@/lib/pos-domicilios-config-store";
+import { puntoVentaFirestoreClave as normPv } from "@/lib/pos-domicilios-pv-clave";
 
 type GetOk = {
   ok: true;
@@ -14,10 +15,6 @@ type GetOk = {
 };
 
 type Err = { ok: false; message: string };
-
-function normPv(puntoVenta: string): string {
-  return puntoVenta.trim().toLowerCase();
-}
 
 async function leerPuntoVentaUsuario(app: NonNullable<ReturnType<typeof getFirebaseAdminApp>>, uid: string): Promise<string | null> {
   const db = getFirestore(app);

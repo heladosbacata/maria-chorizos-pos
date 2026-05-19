@@ -809,9 +809,19 @@ function PedidosLandingClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string; pedido?: { id?: string } };
+      const raw = await res.text();
+      let json = {} as { ok?: boolean; message?: string; pedido?: { id?: string }; error?: string };
+      try {
+        if (raw) json = JSON.parse(raw) as typeof json;
+      } catch {
+        /* cuerpo no JSON */
+      }
       if (!res.ok || json.ok === false) {
-        setMensaje(json.message ?? "No se pudo registrar el pedido.");
+        const detalle =
+          (typeof json.message === "string" && json.message.trim()) ||
+          (typeof json.error === "string" && json.error.trim()) ||
+          (!res.ok ? `Respuesta del servidor (${res.status}).` : "");
+        setMensaje(detalle || "No se pudo registrar el pedido.");
         setEnviando(false);
         return;
       }

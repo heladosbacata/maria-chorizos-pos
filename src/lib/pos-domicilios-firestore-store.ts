@@ -1,5 +1,6 @@
 import { getFirestore } from "firebase-admin/firestore";
 import { getFirebaseAdminApp } from "@/lib/firebase-admin-server";
+import { puntoVentaFirestoreClave as normPv } from "@/lib/pos-domicilios-pv-clave";
 import { buildPedidosSemillaDomicilios } from "@/lib/pos-domicilios-seed";
 import { getMensajesChatMemory, appendMensajeChatMemory } from "@/lib/pos-domicilios-chat-memory-store";
 import { getPedidosMemory, setPedidosMemory } from "@/lib/pos-domicilios-memory-store";
@@ -13,10 +14,6 @@ import type {
 
 const COLL_PEDIDOS = "posDomiciliosPedidos";
 const COLL_CHAT = "posDomiciliosChats";
-
-function normPv(puntoVenta: string): string {
-  return puntoVenta.trim().toLowerCase();
-}
 
 function pedidoDocId(puntoVenta: string, pedidoId: string): string {
   return `${normPv(puntoVenta)}__${pedidoId.trim().toUpperCase()}`;
@@ -91,13 +88,14 @@ function pedidoFromPayload(payload: DomicilioCrearPayload, id: string): PedidoDo
   if (!pv || !cliente || !telefono || !direccion || items.length === 0 || !Number.isFinite(payload.total) || payload.total <= 0) {
     return null;
   }
+  const ref = payload.referencia?.trim();
   return {
     id,
     puntoVenta: pv,
     cliente,
     telefono,
     direccion,
-    referencia: payload.referencia?.trim() || undefined,
+    ...(ref ? { referencia: ref } : {}),
     total: Math.round(payload.total),
     metodoPago: payload.metodoPago,
     canal: payload.canal,
@@ -214,10 +212,9 @@ export async function crearPedidoDomicilioPersistente(payload: DomicilioCrearPay
     return pedido;
   }
   const db = getFirestore(app);
-  await db
-    .collection(COLL_PEDIDOS)
-    .doc(pedidoDocId(pv, pedido.id))
-    .set({ ...pedido, puntoVentaNorm: normPv(pv) }, { merge: true });
+  const docData = { ...pedido, puntoVentaNorm: normPv(pv) };
+  const limpio = Object.fromEntries(Object.entries(docData).filter(([, v]) => v !== undefined));
+  await db.collection(COLL_PEDIDOS).doc(pedidoDocId(pv, pedido.id)).set(limpio, { merge: true });
   return pedido;
 }
 
@@ -262,7 +259,10 @@ export async function actualizarEstadoPedidoPersistente(params: {
     delete next.rechazoMotivo;
     delete next.rechazadoEnIso;
   }
-  await ref.set({ ...next, puntoVentaNorm: normPv(pv) }, { merge: true });
+  await ref.set(
+    Object.fromEntries(Object.entries({ ...next, puntoVentaNorm: normPv(pv) }).filter(([, v]) => v !== undefined)),
+    { merge: true }
+  );
   return next;
 }
 
@@ -336,10 +336,14 @@ export async function enviarMensajeChatPersistente(payload: ChatDomicilioEnviarP
     return mensaje;
   }
   const db = getFirestore(app);
-  await db.collection(COLL_CHAT).doc(mensaje.id).set({
+  const chatDoc = {
     ...mensaje,
     chatKey: chatKey(pv, pid),
     puntoVentaNorm: normPv(pv),
-  });
+  };
+  await db
+    .collection(COLL_CHAT)
+    .doc(mensaje.id)
+    .set(Object.fromEntries(Object.entries(chatDoc).filter(([, v]) => v !== undefined)));
   return mensaje;
 }

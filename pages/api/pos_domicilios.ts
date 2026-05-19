@@ -12,6 +12,18 @@ function normalizarPv(input: string | string[] | undefined): string {
   return (Array.isArray(input) ? input[0] : input ?? "").trim();
 }
 
+function totalDesdeBody(v: unknown): number {
+  if (typeof v === "number" && Number.isFinite(v)) return Math.round(v);
+  if (typeof v === "string" && v.trim()) {
+    const normalizado = v.trim().replace(/\s/g, "").replace(",", ".");
+    const n = Number(normalizado);
+    if (Number.isFinite(n)) return Math.round(n);
+    const soloDigitos = Number(v.replace(/\D/g, ""));
+    if (Number.isFinite(soloDigitos)) return Math.round(soloDigitos);
+  }
+  return 0;
+}
+
 function asBody(body: unknown): DomicilioCrearPayload {
   if (body && typeof body === "object") {
     const o = body as Record<string, unknown>;
@@ -21,7 +33,7 @@ function asBody(body: unknown): DomicilioCrearPayload {
       telefono: typeof o.telefono === "string" ? o.telefono : "",
       direccion: typeof o.direccion === "string" ? o.direccion : "",
       referencia: typeof o.referencia === "string" ? o.referencia : undefined,
-      total: typeof o.total === "number" ? o.total : 0,
+      total: totalDesdeBody(o.total),
       metodoPago:
         o.metodoPago === "efectivo" || o.metodoPago === "transferencia" || o.metodoPago === "datafono"
           ? o.metodoPago
@@ -58,24 +70,32 @@ export default async function handler(
     const data = await listarPedidosDomiciliosPersistente(puntoVenta);
     return res.status(200).json({ ok: true, data });
   }
-  const payload = asBody(req.body);
-  const cfg = await getDomicilioTarifaConfig(payload.puntoVenta);
-  if (!cfg.domiciliosHabilitados) {
-    return res.status(400).json({
+  try {
+    const payload = asBody(req.body);
+    const cfg = await getDomicilioTarifaConfig(payload.puntoVenta);
+    if (!cfg.domiciliosHabilitados) {
+      return res.status(400).json({
+        ok: false,
+        message:
+          "En este momento el punto no está recibiendo pedidos por domicilio. Volvé a intentar más tarde o contactá directamente al local.",
+      });
+    }
+    if (!estaEnVentanaHoraria(cfg.domiciliosHoraInicio, cfg.domiciliosHoraFin)) {
+      return res.status(400).json({
+        ok: false,
+        message: `Estamos fuera del horario de domicilios. ${textoHorarioAtencionCliente(cfg.domiciliosHoraInicio, cfg.domiciliosHoraFin)}`,
+      });
+    }
+    const pedido = await crearPedidoDomicilioPersistente(payload);
+    if (!pedido) {
+      return res.status(400).json({ ok: false, message: "Datos inválidos para crear pedido." });
+    }
+    return res.status(200).json({ ok: true, pedido, message: "Pedido creado." });
+  } catch (e) {
+    console.error("[pos_domicilios] POST error", e);
+    return res.status(500).json({
       ok: false,
-      message:
-        "En este momento el punto no está recibiendo pedidos por domicilio. Volvé a intentar más tarde o contactá directamente al local.",
+      message: "Error interno al guardar el pedido. Intentá de nuevo o contactá al local.",
     });
   }
-  if (!estaEnVentanaHoraria(cfg.domiciliosHoraInicio, cfg.domiciliosHoraFin)) {
-    return res.status(400).json({
-      ok: false,
-      message: `Estamos fuera del horario de domicilios. ${textoHorarioAtencionCliente(cfg.domiciliosHoraInicio, cfg.domiciliosHoraFin)}`,
-    });
-  }
-  const pedido = await crearPedidoDomicilioPersistente(payload);
-  if (!pedido) {
-    return res.status(400).json({ ok: false, message: "Datos inválidos para crear pedido." });
-  }
-  return res.status(200).json({ ok: true, pedido, message: "Pedido creado." });
 }

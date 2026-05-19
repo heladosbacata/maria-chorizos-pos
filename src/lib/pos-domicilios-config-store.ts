@@ -1,5 +1,6 @@
 import { getFirestore } from "firebase-admin/firestore";
 import { getFirebaseAdminApp } from "@/lib/firebase-admin-server";
+import { puntoVentaFirestoreClave as normPv } from "@/lib/pos-domicilios-pv-clave";
 import {
   DEFAULT_COSTO_DOMICILIO_COP,
   DEFAULT_UMBRAL_GRATIS_COP,
@@ -12,10 +13,6 @@ const COLL = "posDomiciliosConfig";
 
 const DEFAULT_HORA_INICIO = "07:00";
 const DEFAULT_HORA_FIN = "22:00";
-
-function normPv(puntoVenta: string): string {
-  return puntoVenta.trim().toLowerCase();
-}
 
 type MemVal = {
   costoDomicilioCop: number;
