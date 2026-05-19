@@ -120,6 +120,7 @@ function productoEsComplemento(p: ProductoPOS): boolean {
   return /arepa|papa|salsa|chimichurri|aji|ajo|ensalada|extra|postre|acompañamiento|acompanamiento/.test(t);
 }
 
+/** Solo bebidas van en lista compacta colapsable; complementos usan tarjetas con foto. */
 const GRUPOS_CATALOGO_COLAPSABLE: GrupoCatalogoColapsableDef[] = [
   {
     id: "bebidas",
@@ -128,14 +129,6 @@ const GRUPOS_CATALOGO_COLAPSABLE: GrupoCatalogoColapsableDef[] = [
     bordeClass: "border-sky-200",
     fondoClass: "from-sky-50 to-cyan-50",
     acentoClass: "text-cyan-700",
-  },
-  {
-    id: "complementos",
-    etiqueta: ETIQUETA_CATEGORIA_COMPLEMENTOS,
-    matcher: (p) => productoEsComplemento(p),
-    bordeClass: "border-amber-200",
-    fondoClass: "from-amber-50 to-orange-50",
-    acentoClass: "text-amber-800",
   },
 ];
 
@@ -666,22 +659,25 @@ function PedidosLandingClient() {
     });
   }, [catalogo, busqueda, categoriaActiva]);
 
-  const { productosGrid, gruposColapsables } = useMemo(() => {
+  const { productosGrid, productosComplementos, gruposColapsables } = useMemo(() => {
     const grid: ProductoPOS[] = [];
+    const complementos: ProductoPOS[] = [];
     const buckets = new Map<string, ProductoPOS[]>(
       GRUPOS_CATALOGO_COLAPSABLE.map((g) => [g.id, [] as ProductoPOS[]])
     );
+    const vistaTodo = categoriaActiva === "Todo";
     for (const p of productosFiltrados) {
       const grupo = matcherGrupoColapsableProducto(p);
       if (grupo) buckets.get(grupo.id)!.push(p);
+      else if (productoEsComplemento(p) && vistaTodo) complementos.push(p);
       else grid.push(p);
     }
     const grupos = GRUPOS_CATALOGO_COLAPSABLE.map((def) => ({
       ...def,
       productos: buckets.get(def.id) ?? [],
     })).filter((g) => g.productos.length > 0);
-    return { productosGrid: grid, gruposColapsables: grupos };
-  }, [productosFiltrados]);
+    return { productosGrid: grid, productosComplementos: complementos, gruposColapsables: grupos };
+  }, [productosFiltrados, categoriaActiva]);
 
   const totalProductosColapsables = useMemo(
     () => gruposColapsables.reduce((acc, g) => acc + g.productos.length, 0),
@@ -1382,6 +1378,106 @@ function PedidosLandingClient() {
     </>
   );
 
+  const renderTarjetaProductoCatalogo = (prod: ProductoPOS, idx: number) => {
+    const variantes = opcionesVariantesProducto(prod);
+    const varianteActivaKey = varianteSeleccionadaPorSku[prod.sku] ?? (variantes[0]?.key ?? null);
+    const varianteActiva = varianteActivaKey ? variantes.find((v) => v.key === varianteActivaKey) : null;
+    const precioMostrar = varianteActiva?.precio ?? prod.precioUnitario;
+    const lineKey = keyLineaPedido(prod.sku, varianteActivaKey);
+    const cant = cantidades[lineKey] ?? 0;
+    const img = primeraImagenProducto(prod);
+    const usarImageOptimizada = img ? imagenProductoOptimizable(img) : false;
+    return (
+      <article
+        key={prod.sku}
+        className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md sm:rounded-2xl"
+      >
+        <div className="relative flex h-48 items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 sm:h-56 md:aspect-[4/3] md:h-auto">
+          {img && usarImageOptimizada ? (
+            <Image
+              src={img}
+              alt={prod.descripcion}
+              fill
+              sizes="(max-width: 640px) calc(100vw - 2rem), (max-width: 1280px) calc(50vw - 1.5rem), 360px"
+              quality={68}
+              priority={idx < 2}
+              className="block bg-white object-contain object-center p-2 sm:p-3 md:bg-transparent md:object-cover md:p-0"
+            />
+          ) : img ? (
+            <img
+              src={img}
+              alt={prod.descripcion}
+              className="block max-h-full max-w-full bg-white object-contain object-center p-2 sm:p-3 md:h-full md:w-full md:max-h-none md:max-w-none md:bg-transparent md:object-cover md:p-0"
+              loading="lazy"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center">
+              <Image src={LOGO_ORG_URL} alt="Maria Chorizos" width={108} height={40} className="h-9 w-auto opacity-75" />
+            </div>
+          )}
+          <span className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-semibold text-white">
+            {categoriaProducto(prod)}
+          </span>
+        </div>
+        <div className="space-y-3 p-3 sm:p-3.5">
+          <div>
+            <p className="line-clamp-2 text-sm font-bold text-gray-900">{prod.descripcion}</p>
+            <p className="text-[11px] text-gray-500">Producto fresco, preparado al momento.</p>
+          </div>
+          {variantes.length > 0 ? (
+            <div className="space-y-1">
+              <p className="text-[11px] font-semibold text-gray-600">Elige variante</p>
+              <div className="flex flex-wrap gap-1">
+                {variantes.map((v) => {
+                  const activo = v.key === varianteActivaKey;
+                  return (
+                    <button
+                      key={`${prod.sku}-var-${v.key}`}
+                      type="button"
+                      onClick={() =>
+                        setVarianteSeleccionadaPorSku((prev) => ({
+                          ...prev,
+                          [prod.sku]: v.key,
+                        }))
+                      }
+                      className={`rounded-full border px-2 py-1 text-[11px] font-semibold transition ${
+                        activo
+                          ? "border-cyan-500 bg-cyan-600 text-white"
+                          : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                      }`}
+                    >
+                      {v.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-lg font-extrabold text-cyan-700">{formatoMoneda(precioMostrar)}</p>
+            <div className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1">
+              <button
+                type="button"
+                onClick={() => bajarCantidad(prod.sku, varianteActivaKey)}
+                className="h-8 w-8 rounded-md border border-gray-200 bg-white text-base font-bold text-gray-700 transition hover:bg-gray-100 active:scale-95"
+              >
+                -
+              </button>
+              <span className="w-7 text-center text-base font-semibold">{cant}</span>
+              <button
+                type="button"
+                onClick={() => subirCantidad(prod.sku, varianteActivaKey)}
+                className="h-8 w-8 rounded-md bg-cyan-700 text-base font-bold text-white transition hover:bg-cyan-800 active:scale-95"
+              >
+                +
+              </button>
+            </div>
+          </div>
+        </div>
+      </article>
+    );
+  };
+
   const renderListaCompactaCatalogo = (productos: ProductoPOS[], keyPrefix: string) => (
     <ul className="mt-3 max-h-[min(60vh,520px)] space-y-2 overflow-y-auto rounded-2xl border border-gray-200 bg-white p-2 shadow-inner">
       {productos.map((prod) => {
@@ -1598,108 +1694,25 @@ function PedidosLandingClient() {
             ) : (
               <div className="space-y-3">
               <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {productosGrid.map((prod, idx) => {
-                  const variantes = opcionesVariantesProducto(prod);
-                  const varianteActivaKey = varianteSeleccionadaPorSku[prod.sku] ?? (variantes[0]?.key ?? null);
-                  const varianteActiva = varianteActivaKey ? variantes.find((v) => v.key === varianteActivaKey) : null;
-                  const precioMostrar = varianteActiva?.precio ?? prod.precioUnitario;
-                  const lineKey = keyLineaPedido(prod.sku, varianteActivaKey);
-                  const cant = cantidades[lineKey] ?? 0;
-                  const img = primeraImagenProducto(prod);
-                  const usarImageOptimizada = img ? imagenProductoOptimizable(img) : false;
-                  return (
-                    <article key={prod.sku} className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md sm:rounded-2xl">
-                      <div className="relative flex h-48 items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 sm:h-56 md:aspect-[4/3] md:h-auto">
-                        {img && usarImageOptimizada ? (
-                          <Image
-                            src={img}
-                            alt={prod.descripcion}
-                            fill
-                            sizes="(max-width: 640px) calc(100vw - 2rem), (max-width: 1280px) calc(50vw - 1.5rem), 360px"
-                            quality={68}
-                            priority={idx < 2}
-                            className="block bg-white object-contain object-center p-2 sm:p-3 md:bg-transparent md:object-cover md:p-0"
-                          />
-                        ) : img ? (
-                          <img
-                            src={img}
-                            alt={prod.descripcion}
-                            className="block max-h-full max-w-full bg-white object-contain object-center p-2 sm:p-3 md:h-full md:w-full md:max-h-none md:max-w-none md:bg-transparent md:object-cover md:p-0"
-                            loading="lazy"
-                          />
-                        ) : (
-                          <div className="flex h-full w-full items-center justify-center">
-                            <Image src={LOGO_ORG_URL} alt="Maria Chorizos" width={108} height={40} className="h-9 w-auto opacity-75" />
-                          </div>
-                        )}
-                        <span className="absolute left-2 top-2 rounded-full bg-black/70 px-2 py-0.5 text-[10px] font-semibold text-white">
-                          {categoriaProducto(prod)}
-                        </span>
-                      </div>
-                      <div className="space-y-3 p-3 sm:p-3.5">
-                        <div>
-                          <p className="line-clamp-2 text-sm font-bold text-gray-900">{prod.descripcion}</p>
-                          <p className="text-[11px] text-gray-500">Producto fresco, preparado al momento.</p>
-                        </div>
-                        {variantes.length > 0 ? (
-                          <div className="space-y-1">
-                            <p className="text-[11px] font-semibold text-gray-600">Elige variante</p>
-                            <div className="flex flex-wrap gap-1">
-                              {variantes.map((v) => {
-                                const activo = v.key === varianteActivaKey;
-                                return (
-                                  <button
-                                    key={`${prod.sku}-var-${v.key}`}
-                                    type="button"
-                                    onClick={() =>
-                                      setVarianteSeleccionadaPorSku((prev) => ({
-                                        ...prev,
-                                        [prod.sku]: v.key,
-                                      }))
-                                    }
-                                    className={`rounded-full border px-2 py-1 text-[11px] font-semibold transition ${
-                                      activo
-                                        ? "border-cyan-500 bg-cyan-600 text-white"
-                                        : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-                                    }`}
-                                  >
-                                    {v.label}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ) : null}
-                        <div className="flex items-center justify-between gap-3">
-                          <p className="text-lg font-extrabold text-cyan-700">{formatoMoneda(precioMostrar)}</p>
-                          <div className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1">
-                            <button
-                              type="button"
-                              onClick={() => bajarCantidad(prod.sku, varianteActivaKey)}
-                              className="h-8 w-8 rounded-md border border-gray-200 bg-white text-base font-bold text-gray-700 transition hover:bg-gray-100 active:scale-95"
-                            >
-                              -
-                            </button>
-                            <span className="w-7 text-center text-base font-semibold">{cant}</span>
-                            <button
-                              type="button"
-                              onClick={() => subirCantidad(prod.sku, varianteActivaKey)}
-                              className="h-8 w-8 rounded-md bg-cyan-700 text-base font-bold text-white transition hover:bg-cyan-800 active:scale-95"
-                            >
-                              +
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    </article>
-                  );
-                })}
-                {productosGrid.length === 0 && totalProductosColapsables === 0 ? (
+                {productosGrid.map((prod, idx) => renderTarjetaProductoCatalogo(prod, idx))}
+                {productosGrid.length === 0 &&
+                productosComplementos.length === 0 &&
+                totalProductosColapsables === 0 ? (
                   <article className="rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500 sm:col-span-2 xl:col-span-3">
                     No encontramos productos con ese filtro. Prueba otra busqueda o categoria.
                   </article>
                 ) : null}
               </div>
+              {productosComplementos.length > 0 ? (
+                <div className="space-y-3">
+                  <p className="px-1 text-sm font-bold text-gray-900">{ETIQUETA_CATEGORIA_COMPLEMENTOS}</p>
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {productosComplementos.map((prod, idx) =>
+                      renderTarjetaProductoCatalogo(prod, productosGrid.length + idx)
+                    )}
+                  </div>
+                </div>
+              ) : null}
               {gruposColapsables.map((grupo) => {
                 if (grupo.productos.length === 0) return null;
                 const vistaSoloGrupo = categoriaActiva === grupo.etiqueta;
