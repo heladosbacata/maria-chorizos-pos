@@ -1,6 +1,6 @@
 export type AutorChatDomicilio = "cliente" | "pos";
 
-export type TipoMensajeChatDomicilio = "texto" | "respuesta_rapida" | "comprobante";
+export type TipoMensajeChatDomicilio = "texto" | "respuesta_rapida" | "comprobante" | "imagen";
 
 export type RespuestaRapidaDomicilioId = "confirmado" | "modificar" | "anular";
 

@@ -1,6 +1,7 @@
 "use client";
 
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { motion } from "framer-motion";
 import QRCode from "qrcode";
 import { auth } from "@/lib/firebase";
 import { domicilioCambiarEstado, domicilioCrear, domiciliosListar } from "@/lib/pos-domicilios-api";
@@ -301,7 +302,11 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
   });
   const columnaNuevoRef = useRef<HTMLElement | null>(null);
   const pedidosNuevosPrevRef = useRef<string[]>([]);
+  const pedidosResumenAutoPendienteRef = useRef<Set<string>>(new Set());
+  const resumenBienvenidaEnProcesoRef = useRef<Set<string>>(new Set());
+  const resumenBienvenidaOkRef = useRef<Set<string>>(new Set());
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const [marcoEntradaNuevoPedido, setMarcoEntradaNuevoPedido] = useState(false);
 
   const puntoVentaActivo = (puntoVenta ?? "").trim();
   const totalNoLeidos = useMemo(
@@ -434,6 +439,17 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
         if (prev.length > 0 && llegados.length > 0) {
           setSyncInfo(`Llegaron ${llegados.length} pedido(s) nuevo(s) desde el landing.`);
           if (sonidosActivos) reproducirTonoPos("crear", volumenSonido);
+          const pedidosRecien = res.data.filter((p) => llegados.includes(p.id));
+          if (pedidosRecien.length > 0) {
+            const masReciente = [...pedidosRecien].sort(
+              (a, b) => new Date(b.creadoEnIso).getTime() - new Date(a.creadoEnIso).getTime()
+            )[0];
+            pedidosResumenAutoPendienteRef.current.add(masReciente.id);
+            setChatPedidoAbierto(masReciente);
+            setChatTextoPos("");
+            setMarcoEntradaNuevoPedido(true);
+            window.setTimeout(() => setMarcoEntradaNuevoPedido(false), 8000);
+          }
         }
         pedidosNuevosPrevRef.current = nuevosActuales;
       }
@@ -587,6 +603,43 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
     if (!chatPedidoAbierto) return;
     chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: "smooth" });
   }, [chatMensajes, chatPedidoAbierto]);
+
+  /** Al detectar pedido nuevo: envía un único mensaje POS con resumen para confirmación (no repetir si ya se envió). */
+  useEffect(() => {
+    const p = chatPedidoAbierto;
+    if (!p) return;
+    if (!pedidosResumenAutoPendienteRef.current.has(p.id)) return;
+    if (resumenBienvenidaOkRef.current.has(p.id)) {
+      pedidosResumenAutoPendienteRef.current.delete(p.id);
+      return;
+    }
+    if (resumenBienvenidaEnProcesoRef.current.has(p.id)) return;
+    resumenBienvenidaEnProcesoRef.current.add(p.id);
+    pedidosResumenAutoPendienteRef.current.delete(p.id);
+    const pid = p.id;
+    const pv = p.puntoVenta;
+    void (async () => {
+      try {
+        if (resumenBienvenidaOkRef.current.has(pid)) return;
+        const texto = textoResumenPedidoParaConfirmacion(p);
+        const resp = await enviarMensajeChatDomicilio({
+          puntoVenta: pv,
+          pedidoId: pid,
+          autor: "pos",
+          autorLabel: "POS",
+          texto,
+          tipoMensaje: "texto",
+        });
+        if (resp.ok) {
+          resumenBienvenidaOkRef.current.add(pid);
+          const refresh = await listarMensajesChatDomicilio(pv, pid);
+          if (refresh.ok) setChatMensajes(refresh.data);
+        }
+      } finally {
+        resumenBienvenidaEnProcesoRef.current.delete(pid);
+      }
+    })();
+  }, [chatPedidoAbierto]);
 
   const pedidosFiltrados = useMemo(() => {
     const q = filtro.trim().toLowerCase();
@@ -1199,82 +1252,114 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
 
       {chatPedidoAbierto ? (
         <div className="fixed inset-0 z-[72] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-[1px]">
-          <div className="w-full max-w-lg rounded-2xl border border-cyan-200 bg-white shadow-2xl">
-            <header className="flex items-start justify-between gap-3 rounded-t-2xl bg-cyan-700 px-4 py-3 text-white">
-              <div>
-                <p className="text-sm font-extrabold">Chat pedido {chatPedidoAbierto.id}</p>
-                <p className="text-xs text-cyan-100">{chatPedidoAbierto.cliente} · {chatPedidoAbierto.telefono}</p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setChatPedidoAbierto(null)}
-                className="rounded-lg border border-white/30 px-2.5 py-1 text-xs font-semibold hover:bg-white/15"
-              >
-                Cerrar
-              </button>
-            </header>
-            <div ref={chatScrollRef} className="max-h-80 min-h-60 space-y-2 overflow-auto bg-slate-50 p-3">
-              {chatCargando ? (
-                <p className="text-xs text-slate-500">Cargando mensajes...</p>
-              ) : chatMensajes.length === 0 ? (
-                <p className="text-xs text-slate-500">Sin mensajes aún. El cliente puede escribir desde el landing.</p>
-              ) : (
-                chatMensajes.map((m) => {
-                  const esPos = m.autor === "pos";
-                  return (
-                    <PosDomiciliosChatBurbuja
-                      key={m.id}
-                      mensaje={m}
-                      esPropio={esPos}
-                      horaFormateada={formatoHora(m.creadoEnIso)}
-                    />
-                  );
-                })
-              )}
-            </div>
-            <div className="border-t border-cyan-100 bg-gradient-to-b from-cyan-50/90 to-slate-50/80 px-3 py-2">
-              <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-cyan-900">Respuestas rápidas</p>
-              <p className="mb-2 text-[10px] text-cyan-800/90">Tocá una opción para cargar el mensaje; podés editarlo antes de enviar.</p>
-              <div className="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto pr-0.5">
-                {RESPUESTAS_RAPIDAS_CHAT_DOMICILIO.map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    title={r.texto}
-                    disabled={chatEnviando}
-                    onClick={() => aplicarRespuestaRapidaChat(r.texto)}
-                    className="rounded-full border border-cyan-200/80 bg-white px-2.5 py-1 text-[11px] font-semibold text-cyan-950 shadow-sm transition hover:border-cyan-400 hover:bg-cyan-100/80 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {r.etiqueta}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="space-y-2 border-t border-gray-200 p-3">
-              <textarea
-                value={chatTextoPos}
-                onChange={(e) => setChatTextoPos(e.target.value)}
-                rows={2}
-                placeholder="Podés editar el resumen antes de enviarlo..."
-                className="w-full resize-none rounded-lg border border-gray-300 px-3 py-2 text-xs outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
-              />
-              <button
-                type="button"
-                onClick={enviarMensajePos}
-                disabled={chatEnviando || !chatTextoPos.trim()}
-                className="w-full rounded-lg bg-cyan-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {chatEnviando ? "Enviando..." : "Enviar mensaje"}
-              </button>
-              {chatError ? <p className="text-xs text-rose-600">{chatError}</p> : null}
-            </div>
-          </div>
           <button
             type="button"
             aria-label="Cerrar chat de pedido"
+            className="absolute inset-0 z-0 cursor-default bg-transparent"
             onClick={() => setChatPedidoAbierto(null)}
-            className="absolute inset-0 -z-10"
           />
+          <motion.div
+            initial={{ opacity: 0, scale: 0.93, y: 20 }}
+            animate={{
+              opacity: 1,
+              scale: 1,
+              y: 0,
+              boxShadow: marcoEntradaNuevoPedido
+                ? "0 0 0 3px rgba(251,191,36,0.85), 0 0 28px rgba(34,211,238,0.35), 0 25px 50px -12px rgba(15,23,42,0.35)"
+                : "0 25px 50px -12px rgba(15,23,42,0.25)",
+            }}
+            transition={{
+              type: "spring",
+              stiffness: 300,
+              damping: 32,
+              mass: 0.92,
+              boxShadow: { duration: 0.55, ease: [0.22, 1, 0.36, 1] },
+            }}
+            className={`relative z-10 w-full max-w-lg ${marcoEntradaNuevoPedido ? "rounded-2xl bg-gradient-to-br from-amber-200 via-cyan-400 to-indigo-500 p-[3px] shadow-lg" : ""}`}
+          >
+            <div className="w-full overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-2xl">
+              <header className="flex items-start justify-between gap-3 rounded-t-2xl bg-gradient-to-r from-cyan-800 via-cyan-700 to-sky-700 px-4 py-3 text-white">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-100/90">
+                    {marcoEntradaNuevoPedido ? "Recién ingresado · premium" : "Domicilios premium"}
+                  </p>
+                  <p className="text-sm font-extrabold">Chat · pedido {chatPedidoAbierto.id}</p>
+                  <p className="text-xs text-cyan-100">{chatPedidoAbierto.cliente} · {chatPedidoAbierto.telefono}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setChatPedidoAbierto(null)}
+                  className="shrink-0 rounded-lg border border-white/30 px-2.5 py-1 text-xs font-semibold hover:bg-white/15"
+                >
+                  Cerrar
+                </button>
+              </header>
+              {marcoEntradaNuevoPedido ? (
+                <div className="border-b border-amber-200/90 bg-gradient-to-r from-amber-50 via-white to-cyan-50 px-3 py-2.5 text-center">
+                  <p className="text-[11px] font-extrabold text-amber-950">Pedido nuevo en bandeja</p>
+                  <p className="mt-0.5 text-[10px] font-medium leading-snug text-amber-900/90">
+                    Ya enviamos al cliente el resumen en este chat para que lo confirme. Revisá el hilo y respondé si hace
+                    falta aclarar algo antes de aceptar el pedido.
+                  </p>
+                </div>
+              ) : null}
+              <div ref={chatScrollRef} className="max-h-80 min-h-60 space-y-2 overflow-auto bg-slate-50 p-3">
+                {chatCargando ? (
+                  <p className="text-xs text-slate-500">Cargando mensajes...</p>
+                ) : chatMensajes.length === 0 ? (
+                  <p className="text-xs text-slate-500">Sin mensajes aún. El cliente puede escribir desde el landing.</p>
+                ) : (
+                  chatMensajes.map((m) => {
+                    const esPos = m.autor === "pos";
+                    return (
+                      <PosDomiciliosChatBurbuja
+                        key={m.id}
+                        mensaje={m}
+                        esPropio={esPos}
+                        horaFormateada={formatoHora(m.creadoEnIso)}
+                      />
+                    );
+                  })
+                )}
+              </div>
+              <div className="border-t border-cyan-100 bg-gradient-to-b from-cyan-50/90 to-slate-50/80 px-3 py-2">
+                <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-cyan-900">Respuestas rápidas</p>
+                <p className="mb-2 text-[10px] text-cyan-800/90">Tocá una opción para cargar el mensaje; podés editarlo antes de enviar.</p>
+                <div className="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto pr-0.5">
+                  {RESPUESTAS_RAPIDAS_CHAT_DOMICILIO.map((r) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      title={r.texto}
+                      disabled={chatEnviando}
+                      onClick={() => aplicarRespuestaRapidaChat(r.texto)}
+                      className="rounded-full border border-cyan-200/80 bg-white px-2.5 py-1 text-[11px] font-semibold text-cyan-950 shadow-sm transition hover:border-cyan-400 hover:bg-cyan-100/80 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {r.etiqueta}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-2 border-t border-gray-200 p-3">
+                <textarea
+                  value={chatTextoPos}
+                  onChange={(e) => setChatTextoPos(e.target.value)}
+                  rows={3}
+                  placeholder="Escribí tu respuesta al cliente…"
+                  className="w-full resize-y rounded-lg border border-gray-300 px-3 py-2 text-xs outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
+                />
+                <button
+                  type="button"
+                  onClick={enviarMensajePos}
+                  disabled={chatEnviando || !chatTextoPos.trim()}
+                  className="w-full rounded-lg bg-cyan-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {chatEnviando ? "Enviando..." : "Enviar mensaje"}
+                </button>
+                {chatError ? <p className="text-xs text-rose-600">{chatError}</p> : null}
+              </div>
+            </div>
+          </motion.div>
         </div>
       ) : null}
 

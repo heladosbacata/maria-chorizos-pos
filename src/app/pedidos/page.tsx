@@ -420,6 +420,8 @@ function PedidosLandingClient() {
   const [pushPedidosNavOk, setPushPedidosNavOk] = useState(false);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const chatComprobanteInputRef = useRef<HTMLInputElement | null>(null);
+  const chatFotoCamaraInputRef = useRef<HTMLInputElement | null>(null);
+  const chatFotoGaleriaInputRef = useRef<HTMLInputElement | null>(null);
   const checkoutRef = useRef<HTMLDivElement | null>(null);
   const estadoPedidoAnteriorRef = useRef<EstadoPedidoDomicilio | null>(null);
   const [tarifaDomicilio, setTarifaDomicilio] = useState({
@@ -687,6 +689,11 @@ function PedidosLandingClient() {
       setMensaje("Completa nombre y teléfono para continuar.");
       return;
     }
+    const telefonoDigitos = telefono.replace(/\D/g, "");
+    if (telefonoDigitos.length !== 10) {
+      setMensaje("El teléfono debe tener 10 dígitos (ej. celular en Colombia).");
+      return;
+    }
     if (tipoEntrega === "domicilio" && !direccion.trim()) {
       setMensaje("Indica la dirección de entrega o elige recoger en la tienda.");
       return;
@@ -706,7 +713,7 @@ function PedidosLandingClient() {
     const body = {
       puntoVenta,
       cliente: cliente.trim(),
-      telefono: telefono.trim(),
+      telefono: telefonoDigitos,
       direccion: direccionFinal,
       referencia: referenciaFinal,
       total: Math.round(total),
@@ -734,6 +741,7 @@ function PedidosLandingClient() {
       setPedidoCreadoId(json.pedido?.id ?? null);
       setPedidoCreadoEnIso(new Date().toISOString());
       setEtiquetaClienteChat(cliente.trim() || "Cliente");
+      setChatVista("expandido");
       setMensaje("Tu pedido fue recibido. Muy pronto te contactamos para confirmar.");
       setCantidades({});
       setCliente("");
@@ -951,10 +959,8 @@ function PedidosLandingClient() {
     setChatEnviando(false);
   };
 
-  const onArchivoComprobanteChat = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file || !pedidoCreadoId || chatEnviando) return;
+  const enviarAdjuntoImagenCliente = async (file: File, tipoMensaje: "comprobante" | "imagen") => {
+    if (!pedidoCreadoId || chatEnviando) return;
     setChatEnviando(true);
     setChatError(null);
     const comp = await comprimirComprobanteTransferenciaParaChat(file);
@@ -964,19 +970,20 @@ function PedidosLandingClient() {
       return;
     }
     const nota = chatTexto.trim();
-    const texto = nota || "Comprobante de pago (transferencia).";
+    const textoPorDefecto = tipoMensaje === "imagen" ? "Foto adjunta." : "Comprobante de pago (transferencia).";
+    const texto = nota || textoPorDefecto;
     const resp = await enviarMensajeChatDomicilio({
       puntoVenta,
       pedidoId: pedidoCreadoId,
       autor: "cliente",
       autorLabel: etiquetaClienteChat.trim() || "Cliente",
       texto,
-      tipoMensaje: "comprobante",
+      tipoMensaje,
       adjuntoDataUrl: comp.dataUrl,
       adjuntoNombre: comp.nombre,
     });
     if (!resp.ok) {
-      setChatError(resp.message ?? "No se pudo enviar el comprobante.");
+      setChatError(resp.message ?? "No se pudo enviar la imagen.");
       setChatEnviando(false);
       return;
     }
@@ -984,6 +991,20 @@ function PedidosLandingClient() {
     const refresh = await listarMensajesChatDomicilio(puntoVenta, pedidoCreadoId);
     if (refresh.ok) setChatMensajes(refresh.data);
     setChatEnviando(false);
+  };
+
+  const onArchivoComprobanteChat = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    await enviarAdjuntoImagenCliente(file, "comprobante");
+  };
+
+  const onArchivoFotoChatCliente = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    await enviarAdjuntoImagenCliente(file, "imagen");
   };
 
   const activarNotificacionesPedidoCelular = async () => {
@@ -1420,10 +1441,14 @@ function PedidosLandingClient() {
                 />
                 <input
                   value={telefono}
-                  onChange={(e) => setTelefono(e.target.value)}
-                  placeholder="Teléfono"
+                  onChange={(e) => setTelefono(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                  placeholder="10 dígitos, ej. 3112345678"
+                  inputMode="numeric"
+                  autoComplete="tel"
+                  maxLength={10}
                   className="block w-full max-w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
                 />
+                <p className="text-[11px] text-gray-500">Ingresá exactamente 10 dígitos del número de contacto.</p>
                 {tipoEntrega === "domicilio" ? (
                   <input
                     value={direccion}
@@ -1638,175 +1663,220 @@ function PedidosLandingClient() {
         {chatVista === "expandido" ? "Minimizar chat" : chatVista === "minimizado" ? "Abrir chat" : "Chat con el punto"}
       </button>
       {chatVista === "expandido" ? (
-        <section className="fixed inset-x-0 bottom-0 z-50 max-h-[82vh] rounded-t-2xl border border-cyan-200 bg-white shadow-2xl md:bottom-20 md:right-5 md:inset-x-auto md:w-[340px] md:max-w-[calc(100vw-2rem)] md:rounded-2xl">
-          <header className="flex items-start justify-between gap-2 rounded-t-2xl bg-cyan-700 px-4 py-3 text-white md:rounded-t-2xl">
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-bold">Chat de pedido</p>
-              <p className="text-[11px] text-cyan-100">
-                {pedidoCreadoId ? `Pedido ${pedidoCreadoId}` : "Primero confirma tu pedido para chatear"}
-              </p>
-            </div>
-            <div className="flex shrink-0 items-center gap-1">
-              <button
-                type="button"
-                title="Minimizar chat y seguir viendo el menú"
-                onClick={() => setChatVista("minimizado")}
-                className="rounded-lg border border-white/35 bg-white/10 px-2 py-1.5 text-xs font-semibold text-white transition hover:bg-white/20"
-              >
-                <span className="sr-only">Minimizar chat</span>
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                </svg>
-              </button>
-              <button
-                type="button"
-                title="Cerrar chat"
-                onClick={() => setChatVista("cerrado")}
-                className="rounded-lg border border-white/35 bg-white/10 px-2 py-1.5 text-xs font-semibold text-white transition hover:bg-white/20"
-              >
-                <span className="sr-only">Cerrar chat</span>
-                <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-          </header>
-          {pedidoCreadoId ? (
-            <div className="border-b border-cyan-100 bg-gradient-to-b from-cyan-50 to-white px-3 py-2">
-              <button
-                type="button"
-                onClick={toggleEstadoPedidoEnChat}
-                className="flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-300 bg-white px-3 py-2.5 text-xs font-bold text-cyan-900 shadow-sm transition hover:border-cyan-500 hover:bg-cyan-50/80 active:scale-[0.99]"
-              >
-                <svg className="h-5 w-5 shrink-0 text-cyan-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-                {chatEstadoVisible ? "Ocultar estado del pedido" : "Ver estado del pedido"}
-              </button>
-              {chatEstadoVisible ? (
-                <div className="mt-2 space-y-2 rounded-xl border border-cyan-200 bg-white p-3 text-xs text-cyan-950 shadow-inner">
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <p className="text-[10px] font-bold uppercase tracking-wide text-cyan-600">Estado actual</p>
-                      <p className="mt-0.5 text-sm font-extrabold">
-                        {estadoPedidoLoading ? "Consultando..." : estadoEtiqueta(estadoPedido)}
-                      </p>
-                      <p className="mt-1 text-[11px] font-semibold text-cyan-800">ETA: {etaPedido}</p>
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4">
+          <button
+            type="button"
+            aria-label="Minimizar chat"
+            className="absolute inset-0 bg-slate-950/55 backdrop-blur-[1px]"
+            onClick={() => setChatVista("minimizado")}
+          />
+          <section className="relative z-10 flex max-h-[min(92dvh,720px)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-2xl ring-1 ring-cyan-500/20">
+            <header className="flex shrink-0 items-start justify-between gap-2 rounded-t-2xl bg-cyan-700 px-4 py-3 text-white">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-bold">Chat de pedido</p>
+                <p className="text-[11px] text-cyan-100">
+                  {pedidoCreadoId ? `Pedido ${pedidoCreadoId}` : "Primero confirma tu pedido para chatear"}
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-1">
+                <button
+                  type="button"
+                  title="Minimizar chat y seguir viendo el menú"
+                  onClick={() => setChatVista("minimizado")}
+                  className="rounded-lg border border-white/35 bg-white/10 px-2 py-1.5 text-xs font-semibold text-white transition hover:bg-white/20"
+                >
+                  <span className="sr-only">Minimizar chat</span>
+                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  title="Cerrar chat"
+                  onClick={() => setChatVista("cerrado")}
+                  className="rounded-lg border border-white/35 bg-white/10 px-2 py-1.5 text-xs font-semibold text-white transition hover:bg-white/20"
+                >
+                  <span className="sr-only">Cerrar chat</span>
+                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </header>
+            {pedidoCreadoId ? (
+              <div className="shrink-0 border-b border-cyan-100 bg-gradient-to-b from-cyan-50 to-white px-3 py-2">
+                <button
+                  type="button"
+                  onClick={toggleEstadoPedidoEnChat}
+                  className="flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-300 bg-white px-3 py-2.5 text-xs font-bold text-cyan-900 shadow-sm transition hover:border-cyan-500 hover:bg-cyan-50/80 active:scale-[0.99]"
+                >
+                  <svg className="h-5 w-5 shrink-0 text-cyan-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                    />
+                  </svg>
+                  {chatEstadoVisible ? "Ocultar estado del pedido" : "Ver estado del pedido"}
+                </button>
+                {chatEstadoVisible ? (
+                  <div className="mt-2 space-y-2 rounded-xl border border-cyan-200 bg-white p-3 text-xs text-cyan-950 shadow-inner">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-cyan-600">Estado actual</p>
+                        <p className="mt-0.5 text-sm font-extrabold">
+                          {estadoPedidoLoading ? "Consultando..." : estadoEtiqueta(estadoPedido)}
+                        </p>
+                        <p className="mt-1 text-[11px] font-semibold text-cyan-800">ETA: {etaPedido}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAhoraMs(Date.now());
+                          void refrescarEstadoPedidoConSpinner();
+                        }}
+                        disabled={estadoPedidoLoading}
+                        className="shrink-0 rounded-lg border border-cyan-200 bg-cyan-50 px-2 py-1 text-[10px] font-semibold text-cyan-900 hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Actualizar
+                      </button>
                     </div>
+                    <div className="grid grid-cols-6 gap-0.5">
+                      {Array.from({ length: 6 }).map((_, idx) => {
+                        const paso = idx + 1;
+                        const activo = estadoPaso(estadoPedido) >= paso;
+                        return (
+                          <span
+                            key={`chat-estado-paso-${paso}`}
+                            className={`h-2 rounded-full transition ${activo ? "bg-cyan-600" : "bg-cyan-100"}`}
+                          />
+                        );
+                      })}
+                    </div>
+                    <p className="text-[10px] text-slate-500">
+                      El estado también se actualiza solo cada pocos segundos mientras tenés el pedido abierto.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+            <div
+              ref={chatScrollRef}
+              className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain bg-slate-50 p-3"
+            >
+              {!pedidoCreadoId ? (
+                <p className="text-xs text-slate-500">Cuando confirmes el pedido, este chat quedará activo.</p>
+              ) : chatCargando ? (
+                <p className="text-xs text-slate-500">Cargando mensajes...</p>
+              ) : chatMensajes.length === 0 ? (
+                <p className="text-xs text-slate-500">Sin mensajes aún. Escribe para hablar con el punto POS.</p>
+              ) : (
+                chatMensajes.map((m) => {
+                  const esCliente = m.autor === "cliente";
+                  return (
+                    <PosDomiciliosChatBurbuja
+                      key={m.id}
+                      mensaje={m}
+                      esPropio={esCliente}
+                      horaFormateada={formatoHora(m.creadoEnIso)}
+                    />
+                  );
+                })
+              )}
+            </div>
+            <div className="shrink-0 space-y-2 border-t border-gray-200 bg-white p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+              {pedidoCreadoId ? (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Respuestas rápidas</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {RESPUESTAS_RAPIDAS_CLIENTE_DOMICILIO.map((r) => (
+                      <button
+                        key={r.id}
+                        type="button"
+                        title={r.texto}
+                        disabled={chatEnviando}
+                        onClick={() => void enviarRespuestaRapidaCliente(r.id)}
+                        className="rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-[11px] font-semibold text-cyan-950 shadow-sm transition hover:border-cyan-400 hover:bg-cyan-100 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {r.etiqueta}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    ref={chatComprobanteInputRef}
+                    type="file"
+                    accept="image/jpeg,image/jpg,image/png,image/webp"
+                    className="hidden"
+                    onChange={(ev) => void onArchivoComprobanteChat(ev)}
+                  />
+                  <input
+                    ref={chatFotoCamaraInputRef}
+                    type="file"
+                    accept="image/jpeg,image/jpg,image/png,image/webp"
+                    capture="environment"
+                    className="hidden"
+                    onChange={(ev) => void onArchivoFotoChatCliente(ev)}
+                  />
+                  <input
+                    ref={chatFotoGaleriaInputRef}
+                    type="file"
+                    accept="image/jpeg,image/jpg,image/png,image/webp"
+                    className="hidden"
+                    onChange={(ev) => void onArchivoFotoChatCliente(ev)}
+                  />
+                  <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
                     <button
                       type="button"
-                      onClick={() => {
-                        setAhoraMs(Date.now());
-                        void refrescarEstadoPedidoConSpinner();
-                      }}
-                      disabled={estadoPedidoLoading}
-                      className="shrink-0 rounded-lg border border-cyan-200 bg-cyan-50 px-2 py-1 text-[10px] font-semibold text-cyan-900 hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={chatEnviando}
+                      onClick={() => chatFotoCamaraInputRef.current?.click()}
+                      className="rounded-lg border border-cyan-300 bg-cyan-50 px-2 py-2 text-[11px] font-semibold text-cyan-950 transition hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                      Actualizar
+                      {chatEnviando ? "…" : "Tomar foto"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={chatEnviando}
+                      onClick={() => chatFotoGaleriaInputRef.current?.click()}
+                      className="rounded-lg border border-cyan-300 bg-white px-2 py-2 text-[11px] font-semibold text-cyan-900 transition hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Galería
+                    </button>
+                    <button
+                      type="button"
+                      disabled={chatEnviando}
+                      onClick={() => chatComprobanteInputRef.current?.click()}
+                      className="rounded-lg border border-dashed border-amber-300 bg-amber-50/80 px-2 py-2 text-[11px] font-semibold text-amber-950 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Comprobante
                     </button>
                   </div>
-                  <div className="grid grid-cols-6 gap-0.5">
-                    {Array.from({ length: 6 }).map((_, idx) => {
-                      const paso = idx + 1;
-                      const activo = estadoPaso(estadoPedido) >= paso;
-                      return (
-                        <span
-                          key={`chat-estado-paso-${paso}`}
-                          className={`h-2 rounded-full transition ${activo ? "bg-cyan-600" : "bg-cyan-100"}`}
-                        />
-                      );
-                    })}
-                  </div>
                   <p className="text-[10px] text-slate-500">
-                    El estado también se actualiza solo cada pocos segundos mientras tenés el pedido abierto.
+                    Podés escribir una nota debajo y adjuntar foto o comprobante; si no escribís nada, se envía un texto
+                    corto con la imagen.
                   </p>
                 </div>
               ) : null}
+              <textarea
+                value={chatTexto}
+                onChange={(e) => setChatTexto(e.target.value)}
+                placeholder={pedidoCreadoId ? "Escribe tu mensaje…" : "Confirma el pedido para habilitar chat"}
+                disabled={!pedidoCreadoId}
+                rows={3}
+                className="w-full resize-y rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2 disabled:cursor-not-allowed disabled:bg-gray-100"
+              />
+              <button
+                type="button"
+                onClick={() => void enviarMensajeCliente()}
+                disabled={!pedidoCreadoId || chatEnviando || !chatTexto.trim()}
+                className="w-full rounded-lg bg-cyan-700 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {chatEnviando ? "Enviando..." : "Enviar mensaje"}
+              </button>
+              {chatError ? <p className="text-xs text-rose-600">{chatError}</p> : null}
             </div>
-          ) : null}
-          <div ref={chatScrollRef} className="max-h-[48vh] min-h-52 space-y-2 overflow-auto bg-slate-50 p-3 md:max-h-72">
-            {!pedidoCreadoId ? (
-              <p className="text-xs text-slate-500">Cuando confirmes el pedido, este chat quedará activo.</p>
-            ) : chatCargando ? (
-              <p className="text-xs text-slate-500">Cargando mensajes...</p>
-            ) : chatMensajes.length === 0 ? (
-              <p className="text-xs text-slate-500">Sin mensajes aún. Escribe para hablar con el punto POS.</p>
-            ) : (
-              chatMensajes.map((m) => {
-                const esCliente = m.autor === "cliente";
-                return (
-                  <PosDomiciliosChatBurbuja
-                    key={m.id}
-                    mensaje={m}
-                    esPropio={esCliente}
-                    horaFormateada={formatoHora(m.creadoEnIso)}
-                  />
-                );
-              })
-            )}
-          </div>
-          <div className="space-y-2 border-t border-gray-200 p-3">
-            {pedidoCreadoId ? (
-              <div className="space-y-2">
-                <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Respuestas rápidas</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {RESPUESTAS_RAPIDAS_CLIENTE_DOMICILIO.map((r) => (
-                    <button
-                      key={r.id}
-                      type="button"
-                      title={r.texto}
-                      disabled={chatEnviando}
-                      onClick={() => void enviarRespuestaRapidaCliente(r.id)}
-                      className="rounded-full border border-cyan-200 bg-cyan-50 px-2.5 py-1 text-[11px] font-semibold text-cyan-950 shadow-sm transition hover:border-cyan-400 hover:bg-cyan-100 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {r.etiqueta}
-                    </button>
-                  ))}
-                </div>
-                <input
-                  ref={chatComprobanteInputRef}
-                  type="file"
-                  accept="image/jpeg,image/jpg,image/png,image/webp"
-                  className="hidden"
-                  onChange={(ev) => void onArchivoComprobanteChat(ev)}
-                />
-                <button
-                  type="button"
-                  disabled={chatEnviando}
-                  onClick={() => chatComprobanteInputRef.current?.click()}
-                  className="w-full rounded-lg border border-dashed border-amber-300 bg-amber-50/80 px-3 py-2 text-[11px] font-semibold text-amber-950 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {chatEnviando ? "Enviando..." : "Adjuntar comprobante de transferencia (foto)"}
-                </button>
-                <p className="text-[10px] text-slate-500">
-                  Podés escribir una nota arriba (banco, referencia) y luego adjuntar; si no, se envía solo la imagen.
-                </p>
-              </div>
-            ) : null}
-            <textarea
-              value={chatTexto}
-              onChange={(e) => setChatTexto(e.target.value)}
-              placeholder={pedidoCreadoId ? "Escribe tu mensaje..." : "Confirma el pedido para habilitar chat"}
-              disabled={!pedidoCreadoId}
-              rows={2}
-              className="w-full resize-none rounded-lg border border-gray-300 px-3 py-2 text-xs outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2 disabled:cursor-not-allowed disabled:bg-gray-100"
-            />
-            <button
-              type="button"
-              onClick={enviarMensajeCliente}
-              disabled={!pedidoCreadoId || chatEnviando || !chatTexto.trim()}
-              className="w-full rounded-lg bg-cyan-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {chatEnviando ? "Enviando..." : "Enviar mensaje"}
-            </button>
-            {chatError ? <p className="text-xs text-rose-600">{chatError}</p> : null}
-          </div>
-        </section>
+          </section>
+        </div>
       ) : null}
       {chatVista === "minimizado" ? (
         <div className="fixed inset-x-3 bottom-24 z-50 md:inset-x-auto md:bottom-20 md:right-5 md:w-[340px] md:max-w-[calc(100vw-2rem)]">

@@ -20,7 +20,7 @@ function asBody(body: unknown): ChatDomicilioEnviarPayload {
     const o = body as Record<string, unknown>;
     const tm = o.tipoMensaje;
     const tipoMensaje: TipoMensajeChatDomicilio | undefined =
-      tm === "texto" || tm === "respuesta_rapida" || tm === "comprobante" ? tm : undefined;
+      tm === "texto" || tm === "respuesta_rapida" || tm === "comprobante" || tm === "imagen" ? tm : undefined;
     const rr = o.respuestaRapidaId;
     const respuestaRapidaId: RespuestaRapidaDomicilioId | undefined =
       rr === "confirmado" || rr === "modificar" || rr === "anular" ? rr : undefined;
@@ -76,7 +76,8 @@ export default async function handler(
     }
     let texto = payload.texto.trim().slice(0, MAX_TEXTO_CHAT);
     if (!texto && adjunto) {
-      texto = "Comprobante de pago (transferencia).";
+      texto =
+        payload.tipoMensaje === "imagen" ? "Foto adjunta." : "Comprobante de pago (transferencia).";
     }
     if (!payload.puntoVenta || !payload.pedidoId || (!texto && !adjunto)) {
       return res.status(400).json({ ok: false, message: "Datos incompletos para enviar el mensaje." });

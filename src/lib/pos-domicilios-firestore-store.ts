@@ -128,7 +128,16 @@ function toChat(raw: Record<string, unknown>): MensajeChatDomicilio | null {
     adjuntoRaw.startsWith("data:image")
       ? adjuntoRaw.slice(0, MAX_ADJUNTO_CHAT_CHARS)
       : undefined;
-  const texto = textoBruto || (adjuntoDataUrl ? "Comprobante de pago (transferencia)." : "");
+  const tmRaw = raw.tipoMensaje;
+  const tipoAdjuntoGuardado: TipoMensajeChatDomicilio | undefined =
+    tmRaw === "imagen" || tmRaw === "comprobante" ? tmRaw : adjuntoDataUrl ? "comprobante" : undefined;
+  const texto =
+    textoBruto ||
+    (adjuntoDataUrl
+      ? tipoAdjuntoGuardado === "imagen"
+        ? "Foto adjunta."
+        : "Comprobante de pago (transferencia)."
+      : "");
   const creadoEnIso = maybeIso(raw.creadoEnIso) ?? new Date().toISOString();
   const rr = raw.respuestaRapidaId;
   const respuestaRapidaId: RespuestaRapidaDomicilioId | undefined =
@@ -138,7 +147,7 @@ function toChat(raw: Record<string, unknown>): MensajeChatDomicilio | null {
       ? raw.adjuntoNombre.trim().slice(0, 120)
       : undefined;
   const tipoMensaje: TipoMensajeChatDomicilio | undefined = adjuntoDataUrl
-    ? "comprobante"
+    ? tipoAdjuntoGuardado ?? "comprobante"
     : respuestaRapidaId
       ? "respuesta_rapida"
       : raw.tipoMensaje === "texto"
@@ -280,7 +289,8 @@ export async function enviarMensajeChatPersistente(payload: ChatDomicilioEnviarP
       ? adjuntoRaw.slice(0, MAX_ADJUNTO_CHAT_CHARS)
       : undefined;
   let texto = payload.texto.trim().slice(0, 800);
-  if (!texto && adjuntoDataUrl) texto = "Comprobante de pago (transferencia).";
+  const esAdjuntoImagen = adjuntoDataUrl && payload.tipoMensaje === "imagen";
+  if (!texto && adjuntoDataUrl) texto = esAdjuntoImagen ? "Foto adjunta." : "Comprobante de pago (transferencia).";
   const rr = payload.respuestaRapidaId;
   const respuestaRapidaId: RespuestaRapidaDomicilioId | undefined =
     rr === "confirmado" || rr === "modificar" || rr === "anular" ? rr : undefined;
@@ -288,7 +298,9 @@ export async function enviarMensajeChatPersistente(payload: ChatDomicilioEnviarP
   const autor = payload.autor === "pos" ? "pos" : "cliente";
   const autorLabel = payload.autorLabel?.trim() || (autor === "cliente" ? "Cliente" : "POS");
   const tipoMensaje: TipoMensajeChatDomicilio = adjuntoDataUrl
-    ? "comprobante"
+    ? esAdjuntoImagen
+      ? "imagen"
+      : "comprobante"
     : respuestaRapidaId
       ? "respuesta_rapida"
       : "texto";
@@ -296,7 +308,9 @@ export async function enviarMensajeChatPersistente(payload: ChatDomicilioEnviarP
     adjuntoDataUrl && payload.adjuntoNombre?.trim()
       ? payload.adjuntoNombre.trim().slice(0, 120)
       : adjuntoDataUrl
-        ? "comprobante.jpg"
+        ? esAdjuntoImagen
+          ? "foto.jpg"
+          : "comprobante.jpg"
         : undefined;
   const mensaje: MensajeChatDomicilio = {
     id: buildIdPrefijo("chat"),

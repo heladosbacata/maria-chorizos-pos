@@ -11,7 +11,8 @@ type Props = {
 };
 
 export function PosDomiciliosChatBurbuja({ mensaje: m, esPropio, horaFormateada }: Props) {
-  const esComprobante = Boolean(m.adjuntoDataUrl) || m.tipoMensaje === "comprobante";
+  const esFotoChat = m.tipoMensaje === "imagen";
+  const esComprobante = m.tipoMensaje === "comprobante" || (Boolean(m.adjuntoDataUrl) && !esFotoChat);
   const etiquetaRapida = m.respuestaRapidaId ? etiquetaRespuestaRapidaDomicilio(m.respuestaRapidaId) : "";
 
   return (
@@ -29,6 +30,15 @@ export function PosDomiciliosChatBurbuja({ mensaje: m, esPropio, horaFormateada 
             }`}
           >
             {etiquetaRapida}
+          </span>
+        ) : null}
+        {esFotoChat ? (
+          <span
+            className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+              esPropio ? "bg-violet-300/25 text-violet-100" : "bg-violet-100 text-violet-900"
+            }`}
+          >
+            Foto
           </span>
         ) : null}
         {esComprobante ? (
@@ -53,7 +63,7 @@ export function PosDomiciliosChatBurbuja({ mensaje: m, esPropio, horaFormateada 
         >
           <img
             src={m.adjuntoDataUrl}
-            alt={m.adjuntoNombre ? `Comprobante: ${m.adjuntoNombre}` : "Comprobante de pago"}
+            alt={m.adjuntoNombre ? `Adjunto: ${m.adjuntoNombre}` : esFotoChat ? "Foto del chat" : "Comprobante de pago"}
             className="max-h-52 w-full object-contain"
           />
         </a>

@@ -2732,14 +2732,14 @@ export default function CajaPage() {
             type="button"
             data-pos-tutorial="nav-domicilios"
             onClick={() => setModuloActivo("domicilios")}
-            className={`group relative flex w-full items-center gap-3 overflow-hidden rounded-xl border px-3 py-2.5 text-left text-sm font-semibold transition-all ${
+            className={`group relative flex w-full items-center gap-3 overflow-visible rounded-xl border px-3 py-2.5 text-left text-sm font-semibold transition-all ${
               moduloActivo === "domicilios"
                 ? "border-cyan-400 bg-gradient-to-r from-cyan-600 to-sky-600 text-white shadow-md"
                 : "border-cyan-200 bg-gradient-to-r from-cyan-50 to-sky-50 text-cyan-900 hover:border-cyan-300 hover:shadow-sm"
             }`}
           >
             <span
-              className={`absolute inset-y-0 right-0 w-12 bg-white/20 blur-xl transition-opacity ${
+              className={`pointer-events-none absolute inset-y-0 right-0 w-12 overflow-hidden bg-white/20 blur-xl transition-opacity ${
                 moduloActivo === "domicilios" ? "opacity-70" : "opacity-0 group-hover:opacity-50"
               }`}
             />
