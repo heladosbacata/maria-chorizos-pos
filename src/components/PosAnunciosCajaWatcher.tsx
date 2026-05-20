@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, type Variants } from "framer-motion";
 import { Loader2, Sparkles } from "lucide-react";
 import {
   incrementarVentasDesdeLectura,
@@ -19,13 +19,13 @@ type Props = {
   ventaCompletadaTick?: number;
 };
 
-const backdropVariants = {
+const backdropVariants: Variants = {
   hidden: { opacity: 0 },
   visible: { opacity: 1 },
   exit: { opacity: 0 },
 };
 
-const panelVariants = {
+const panelVariants: Variants = {
   hidden: { opacity: 0, scale: 0.92, y: 24 },
   visible: {
     opacity: 1,
@@ -36,12 +36,12 @@ const panelVariants = {
   exit: { opacity: 0, scale: 0.96, y: 12, transition: { duration: 0.2 } },
 };
 
-const imageVariants = {
+const imageVariants: Variants = {
   hidden: { opacity: 0, scale: 0.97 },
   visible: {
     opacity: 1,
     scale: 1,
-    transition: { delay: 0.12, duration: 0.45, ease: [0.22, 1, 0.36, 1] },
+    transition: { delay: 0.12, duration: 0.45, ease: [0.22, 1, 0.36, 1] as const },
   },
 };
 
