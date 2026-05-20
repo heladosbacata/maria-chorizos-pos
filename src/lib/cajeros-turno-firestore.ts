@@ -13,7 +13,8 @@ import {
   type DocumentSnapshot,
   type QueryDocumentSnapshot,
 } from "firebase/firestore";
-import { db } from "@/lib/firebase";
+import { auth, db } from "@/lib/firebase";
+import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
 import type { CajeroFichaDatos } from "@/types/pos-perfil-cajero";
 import { emptyCajeroFicha } from "@/types/pos-perfil-cajero";
 
@@ -140,14 +141,97 @@ export async function listarCajerosTurnoPorPuntoVenta(puntoVenta: string): Promi
   }
 }
 
+async function crearCajeroViaWmsApi(
+  ficha: CajeroFichaDatos
+): Promise<{ ok: true; id: string } | { ok: false; message: string }> {
+  const user = auth?.currentUser;
+  if (!user) return { ok: false, message: "Debes tener sesión iniciada." };
+  const token = await user.getIdToken();
+  const base = getWmsPublicBaseUrl().replace(/\/$/, "");
+  try {
+    const res = await fetch(`${base}/api/pos/cajeros/crear`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ficha }),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      id?: string;
+      error?: string;
+      message?: string;
+    };
+    if (res.ok && data.ok === true && typeof data.id === "string" && data.id.trim()) {
+      return { ok: true, id: data.id.trim() };
+    }
+    const err =
+      typeof data.error === "string" && data.error.trim()
+        ? data.error.trim()
+        : typeof data.message === "string" && data.message.trim()
+          ? data.message.trim()
+          : `Error del servidor (${res.status})`;
+    return { ok: false, message: err };
+  } catch (e) {
+    return {
+      ok: false,
+      message: e instanceof Error ? e.message : "Error de red al registrar el cajero.",
+    };
+  }
+}
+
+/** Misma ruta en el propio despliegue del POS (Admin SDK, sin CORS). */
+async function crearCajeroViaPosApi(
+  ficha: CajeroFichaDatos
+): Promise<{ ok: true; id: string } | { ok: false; message: string }> {
+  const user = auth?.currentUser;
+  if (!user) return { ok: false, message: "Debes tener sesión iniciada." };
+  const token = await user.getIdToken();
+  try {
+    const res = await fetch("/api/pos_cajeros_turno_crear", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ficha }),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      id?: string;
+      message?: string;
+    };
+    if (res.ok && data.ok === true && typeof data.id === "string" && data.id.trim()) {
+      return { ok: true, id: data.id.trim() };
+    }
+    return { ok: false, message: data.message ?? `Error del servidor (${res.status})` };
+  } catch (e) {
+    return {
+      ok: false,
+      message: e instanceof Error ? e.message : "Error al registrar el cajero en el servidor POS.",
+    };
+  }
+}
+
 export async function crearCajeroTurnoFirestore(params: {
   puntoVenta: string;
   ficha: CajeroFichaDatos;
   createdByUid: string;
 }): Promise<{ ok: boolean; id?: string; message?: string }> {
-  if (!db) return { ok: false, message: "Firestore no está disponible." };
   const pv = params.puntoVenta.trim();
   if (!pv) return { ok: false, message: "Indica el punto de venta." };
+
+  const wms = await crearCajeroViaWmsApi(params.ficha);
+  if (wms.ok) return { ok: true, id: wms.id };
+
+  const local = await crearCajeroViaPosApi(params.ficha);
+  if (local.ok) return { ok: true, id: local.id };
+
+  if (!db) {
+    return { ok: false, message: wms.message || local.message || "Firestore no está disponible." };
+  }
+
   try {
     const ref = await addDoc(collection(db, POS_CAJEROS_TURNO_COLLECTION), {
       puntoVenta: pv,
@@ -159,9 +243,13 @@ export async function crearCajeroTurnoFirestore(params: {
     });
     return { ok: true, id: ref.id };
   } catch (e) {
+    const sdkMsg = e instanceof Error ? e.message : "No se pudo guardar el cajero.";
+    const hint = /permission|insufficient/i.test(sdkMsg)
+      ? " Publica las reglas de Firestore actualizadas o usa el WMS con NEXT_PUBLIC_WMS_URL."
+      : "";
     return {
       ok: false,
-      message: e instanceof Error ? e.message : "No se pudo guardar el cajero.",
+      message: `${wms.message || local.message || sdkMsg}${hint}`,
     };
   }
 }

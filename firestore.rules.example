@@ -88,37 +88,56 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.puntoVenta;
     }
 
-    function posUsuarioRol() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    function posUsuarioDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function posPuedeGestionarCajerosTurno() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && !(
+          posUsuarioDoc().data.keys().hasAny(['role'])
+          && posUsuarioDoc().data.role == 'pos_contador'
+        )
+        && !(
+          posUsuarioDoc().data.keys().hasAny(['rol'])
+          && posUsuarioDoc().data.rol == 'pos_contador'
+        );
+    }
+
+    function posMismoPuntoVenta(datoPv) {
+      let u = posUsuarioPuntoVenta();
+      return datoPv == u
+        || (datoPv is string && u is string && datoPv.lower() == u.lower());
     }
 
     /** true si users/{uid} existe y no es contador invitado (sin campo role = franquiciado). */
     function usuarioFranquiciadoPuedeDocumentosComerciales() {
-      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
-        && !(
-          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.keys().hasAny(['role'])
-          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'pos_contador'
-        );
+      return posPuedeGestionarCajerosTurno();
     }
 
     match /posCajerosTurno/{id} {
       allow read: if request.auth != null
-        && resource.data.puntoVenta == posUsuarioPuntoVenta();
+        && posMismoPuntoVenta(resource.data.puntoVenta);
 
       allow create: if request.auth != null
-        && posUsuarioRol() != 'pos_contador'
-        && request.resource.data.puntoVenta == posUsuarioPuntoVenta()
+        && posPuedeGestionarCajerosTurno()
+        && posMismoPuntoVenta(request.resource.data.puntoVenta)
         && request.resource.data.activo == true
         && request.resource.data.keys().hasAll(['puntoVenta', 'activo', 'ficha', 'createdByUid']);
 
       allow update: if request.auth != null
-        && posUsuarioRol() != 'pos_contador'
-        && resource.data.puntoVenta == posUsuarioPuntoVenta()
-        && request.resource.data.puntoVenta == resource.data.puntoVenta;
+        && posPuedeGestionarCajerosTurno()
+        && posMismoPuntoVenta(resource.data.puntoVenta)
+        && posMismoPuntoVenta(request.resource.data.puntoVenta);
 
       allow delete: if request.auth != null
-        && posUsuarioRol() != 'pos_contador'
-        && resource.data.puntoVenta == posUsuarioPuntoVenta();
+        && posPuedeGestionarCajerosTurno()
+        && posMismoPuntoVenta(resource.data.puntoVenta);
+    }
+
+    match /pos_cajero_identificado/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
     }
 
     // Cotizaciones y remisiones (PDF) por punto de venta; solo franquiciado (no pos_contador).
