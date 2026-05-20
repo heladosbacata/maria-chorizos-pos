@@ -1,6 +1,7 @@
 import {
   addDoc,
   collection,
+  deleteDoc,
   deleteField,
   doc,
   getDoc,
@@ -202,6 +203,24 @@ export async function setCajeroTurnoActivoFirestore(
     return {
       ok: false,
       message: e instanceof Error ? e.message : "No se pudo cambiar el estado.",
+    };
+  }
+}
+
+/** Elimina el registro del catálogo del punto (solo franquiciado; requiere regla `delete` en Firestore). */
+export async function eliminarCajeroTurnoFirestore(
+  firestoreId: string
+): Promise<{ ok: boolean; message?: string }> {
+  if (!db) return { ok: false, message: "Firestore no está disponible." };
+  const id = firestoreId.trim();
+  if (!id) return { ok: false, message: "Identificador de cajero inválido." };
+  try {
+    await deleteDoc(doc(db, POS_CAJEROS_TURNO_COLLECTION, id));
+    return { ok: true };
+  } catch (e) {
+    return {
+      ok: false,
+      message: e instanceof Error ? e.message : "No se pudo eliminar el cajero.",
     };
   }
 }

@@ -116,7 +116,9 @@ service cloud.firestore {
         && resource.data.puntoVenta == posUsuarioPuntoVenta()
         && request.resource.data.puntoVenta == resource.data.puntoVenta;
 
-      allow delete: if false;
+      allow delete: if request.auth != null
+        && posUsuarioRol() != 'pos_contador'
+        && resource.data.puntoVenta == posUsuarioPuntoVenta();
     }
 
     // Cotizaciones y remisiones (PDF) por punto de venta; solo franquiciado (no pos_contador).

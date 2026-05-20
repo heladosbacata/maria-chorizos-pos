@@ -5,6 +5,7 @@ import CajeroFichaFormFields from "@/components/CajeroFichaFormFields";
 import {
   actualizarCajeroTurnoFirestore,
   crearCajeroTurnoFirestore,
+  eliminarCajeroTurnoFirestore,
   listarCajerosTurnoPorPuntoVenta,
   nombreDisplayCajeroTurno,
   setCajeroTurnoActivoFirestore,
@@ -26,6 +27,7 @@ export default function CajerosTurnoPanel({ puntoVenta, uidSesion }: CajerosTurn
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [ficha, setFicha] = useState<CajeroFichaDatos>(emptyCajeroFicha());
   const [guardando, setGuardando] = useState(false);
+  const [eliminandoId, setEliminandoId] = useState<string | null>(null);
   const [mensaje, setMensaje] = useState<string | null>(null);
 
   const setCampo = useCallback(<K extends keyof CajeroFichaDatos>(k: K, v: CajeroFichaDatos[K]) => {
@@ -136,6 +138,29 @@ export default function CajerosTurnoPanel({ puntoVenta, uidSesion }: CajerosTurn
     await cargar();
   };
 
+  const confirmarEliminar = async (row: CajeroTurnoDoc) => {
+    const nombre = nombreDisplayCajeroTurno(row.ficha);
+    const avisoActivo = row.activo
+      ? " Está activo: no podrá abrir turno hasta que lo desactives o lo vuelvas a registrar."
+      : "";
+    const ok = window.confirm(
+      `¿Eliminar a ${nombre} del catálogo de este punto de venta?${avisoActivo} Esta acción no se puede deshacer.`
+    );
+    if (!ok) return;
+    setEliminandoId(row.id);
+    setError(null);
+    try {
+      const r = await eliminarCajeroTurnoFirestore(row.id);
+      if (!r.ok) {
+        setError(r.message ?? "No se pudo eliminar el cajero.");
+        return;
+      }
+      await cargar();
+    } finally {
+      setEliminandoId(null);
+    }
+  };
+
   if (!puntoVenta?.trim()) {
     return (
       <section className="mb-8 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
@@ -152,8 +177,10 @@ export default function CajerosTurnoPanel({ puntoVenta, uidSesion }: CajerosTurn
           <h3 className="text-base font-bold text-gray-900">Cajeros del punto de venta (turno en caja)</h3>
           <p className="mt-1 max-w-3xl text-sm text-gray-600">
             Alta de los cajeros que pueden seleccionarse al <strong>abrir un turno</strong> en el POS. Los datos son los
-            mismos campos que el perfil del cajero. Si Firebase pide un índice compuesto al listar, créalo desde el enlace
-            del error de consola (punto de venta + activo).
+            mismos campos que el perfil del cajero. Podés <strong>desactivar</strong> para impedir que opere en caja sin
+            borrar el registro, o <strong>eliminar</strong> para quitarlo del catálogo (recomendado desactivar antes si
+            sigue activo). Si Firebase pide un índice compuesto al listar, créalo desde el enlace del error de consola
+            (punto de venta + activo).
           </p>
         </div>
         <button
@@ -231,6 +258,14 @@ export default function CajerosTurnoPanel({ puntoVenta, uidSesion }: CajerosTurn
                       className="text-xs font-semibold text-gray-600 hover:underline"
                     >
                       {row.activo ? "Desactivar" : "Activar"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={eliminandoId === row.id}
+                      onClick={() => void confirmarEliminar(row)}
+                      className="text-xs font-semibold text-red-600 hover:underline disabled:opacity-50"
+                    >
+                      {eliminandoId === row.id ? "Eliminando…" : "Eliminar"}
                     </button>
                   </div>
                 </td>

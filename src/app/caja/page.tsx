@@ -137,6 +137,8 @@ import {
   mensajeErrorVentaParaUsuario,
 } from "@/lib/enviar-venta";
 import {
+  wmsCajeroDesdeCatalogo,
+  wmsCajeroIdentificar,
   wmsTurnoCajeroPayload,
   wmsTurnosAbrir,
   wmsTurnosCerrar,
@@ -408,6 +410,7 @@ export default function CajaPage() {
     id: string;
     nombreDisplay: string;
     documento: string;
+    tipoDocumento: string;
   } | null>(null);
   /** Catálogo posCajerosTurno cuando el turno no es «solo sesión». */
   const cajeroFirestoreIdPerfil = useMemo(() => {
@@ -1786,7 +1789,7 @@ export default function CajaPage() {
           setTotalVentasEnTurno(nextTot);
           void (async () => {
             const t = await auth?.currentUser?.getIdToken();
-            if (t) await wmsTurnosSincronizarSilent(t, nextTot);
+            if (t) await wmsTurnosSincronizarSilent(t, nextTot, cajeroWmsSyncRef.current);
           })();
         }
       } else {
@@ -1797,7 +1800,7 @@ export default function CajaPage() {
         setTotalVentasEnTurno(nextTot);
         void (async () => {
           const t = await auth?.currentUser?.getIdToken();
-          if (t) await wmsTurnosSincronizarSilent(t, nextTot);
+          if (t) await wmsTurnosSincronizarSilent(t, nextTot, cajeroWmsSyncRef.current);
         })();
       }
 
@@ -1961,7 +1964,7 @@ export default function CajaPage() {
           return next;
         });
         const tokenTurnoSync = await auth?.currentUser?.getIdToken();
-        if (tokenTurnoSync) void wmsTurnosSincronizarSilent(tokenTurnoSync, totalVentasEnTurnoRef.current);
+        if (tokenTurnoSync) void wmsTurnosSincronizarSilent(tokenTurnoSync, totalVentasEnTurnoRef.current, cajeroWmsSyncRef.current);
 
         const notaPieTicket =
           ventaSoloEnPos && notaPie
@@ -2332,6 +2335,7 @@ export default function CajaPage() {
       id: row.id,
       nombreDisplay: nombreDisplayCajeroTurno(row.ficha),
       documento: row.ficha.numeroDocumento?.trim() ?? "",
+      tipoDocumento: row.ficha.tipoDocumento?.trim() ?? "",
     };
 
     setAbriendoTurnoWms(true);
@@ -2342,7 +2346,14 @@ export default function CajaPage() {
         return;
       }
       const sesionId = nuevoTurnoSesionId();
-      const cajeroWms = wmsTurnoCajeroPayload(cajeroNext, sesionId);
+      const cajeroWms = wmsCajeroDesdeCatalogo(row, sesionId);
+      const rId = await wmsCajeroIdentificar(token, cajeroWms);
+      if (!rId.ok) {
+        setErrorModalAbrirTurno(
+          rId.error || "No se pudo registrar la identificación del cajero en el administrativo."
+        );
+        return;
+      }
       const rWms = await wmsTurnosAbrir(token, { uen: "Maria Chorizos", ...cajeroWms });
       if (!rWms.ok) {
         setErrorModalAbrirTurno(
@@ -2524,6 +2535,18 @@ export default function CajaPage() {
             setMotivoIdentificacionCajero("arranque");
             setCajeroIdentificado(cajero);
             setModalIdentificacionCajero(false);
+            void (async () => {
+              const token = await auth?.currentUser?.getIdToken();
+              if (!token) return;
+              const payload = wmsCajeroDesdeCatalogo(
+                cajero,
+                turnoSesionId.trim() || undefined
+              );
+              const r = await wmsCajeroIdentificar(token, payload);
+              if (!r.ok) {
+                console.warn("[POS] No se pudo registrar identificación en WMS:", r.error);
+              }
+            })();
           }}
         />
       ) : null}
