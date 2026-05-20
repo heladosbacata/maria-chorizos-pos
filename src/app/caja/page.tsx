@@ -326,8 +326,8 @@ type ModuloActivo =
 
 type TipoComprobante = TipoComprobanteVenta;
 
-/** Revalidación de documento del cajero cada hora en la misma sesión (sin F5). */
-const IDENTIFICACION_CAJERO_CADA_MS = 60 * 60 * 1000;
+/** Revalidación de documento del cajero cada 4 horas en la misma sesión (sin F5). */
+const IDENTIFICACION_CAJERO_CADA_MS = 4 * 60 * 60 * 1000;
 const IDENTIFICACION_CAJERO_REVISAR_MS = 60 * 1000;
 
 export default function CajaPage() {
@@ -448,7 +448,7 @@ export default function CajaPage() {
     setIdentificacionInicializada(true);
   }, [loading, user]);
 
-  /** Cada hora en sesión vuelve a exigir documento antes de seguir vendiendo. */
+  /** Cada 4 horas en sesión vuelve a exigir documento antes de seguir vendiendo. */
   useEffect(() => {
     if (loading || !user) return;
     if (esContadorInvitado(user.role)) return;

@@ -17,7 +17,7 @@ export interface CajeroIdentificacionGateModalProps {
   open: boolean;
   puntoVenta: string;
   uidSesion: string;
-  /** `arranque`: carga/F5 del POS. `periodica`: revalidación cada hora en sesión. */
+  /** `arranque`: carga/F5 del POS. `periodica`: revalidación cada 4 horas en sesión. */
   motivo?: CajeroIdentificacionMotivo;
   onIdentificado: (cajero: CajeroTurnoDoc) => void;
   /** Salir del POS (cuenta franquiciado) sin validar documento. */
@@ -188,7 +188,7 @@ export default function CajeroIdentificacionGateModal({
             ) : null}
             {paso === "documento" && motivo === "arranque" ? (
               <p className="mt-2 text-xs text-gray-500">
-                Protocolo de seguridad: cada vez que abrís o recargás el POS (F5) ingresá tu documento. Cada hora en
+                Protocolo de seguridad: cada vez que abrís o recargás el POS (F5) ingresá tu documento. Cada 4 horas en
                 sesión volveremos a pedir tu documento para seguir vendiendo. Si ya estás registrado y activo en
                 cualquier punto del país, podés identificarte aquí aunque hayas rotado de sede. La primera vez debés
                 completar tus datos en este punto.
@@ -200,7 +200,7 @@ export default function CajeroIdentificacionGateModal({
         <div className={`flex-1 overflow-y-auto ${paso === "exito_registro" ? "px-6 py-8" : "px-6 py-5"}`}>
           {paso === "documento" && motivo === "periodica" ? (
             <p className="mb-3 text-xs text-gray-500">
-              Validación programada cada hora. No podés cobrar ni registrar ventas hasta confirmar tu documento.
+              Validación programada cada 4 horas. No podés cobrar ni registrar ventas hasta confirmar tu documento.
             </p>
           ) : null}
           {paso === "documento" && (
