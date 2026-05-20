@@ -186,8 +186,9 @@ export default function CajeroIdentificacionGateModal({
             {paso === "documento" && motivo === "arranque" ? (
               <p className="mt-2 text-xs text-gray-500">
                 Protocolo de seguridad: cada vez que abrís o recargás el POS (F5) ingresá tu documento. Cada hora en
-                sesión volveremos a pedir tu documento para seguir vendiendo. Si ya estás registrado y activo en este
-                punto, continuás de inmediato. La primera vez debés completar tus datos.
+                sesión volveremos a pedir tu documento para seguir vendiendo. Si ya estás registrado y activo en
+                cualquier punto del país, podés identificarte aquí aunque hayas rotado de sede. La primera vez debés
+                completar tus datos en este punto.
               </p>
             ) : null}
           </div>
@@ -255,12 +256,13 @@ export default function CajeroIdentificacionGateModal({
               <div className="rounded-xl border-2 border-amber-300 bg-amber-50 px-4 py-4">
                 <p className="text-sm font-bold text-amber-950">Protocolo de seguridad del punto de venta</p>
                 <p className="mt-2 text-sm leading-relaxed text-amber-950/95">
-                  El documento <strong className="font-mono">{documentoInput.trim()}</strong> no está registrado en la
-                  base de datos de <strong>{puntoVenta}</strong>.
+                  El documento <strong className="font-mono">{documentoInput.trim()}</strong> no está registrado en el
+                  catálogo nacional de operadores María Chorizos.
                 </p>
                 <p className="mt-3 text-sm leading-relaxed text-amber-950/95">
-                  <strong>Primera vez:</strong> debés diligenciar tus datos personales en el formulario siguiente. Esto
-                  autoriza tu operación en caja y deja constancia en el catálogo del punto.
+                  <strong>Primera vez:</strong> debés diligenciar tus datos personales en el formulario siguiente. Quedás
+                  registrado en <strong>{puntoVenta}</strong> y podrás identificarte con el mismo documento en cualquier
+                  POS del país.
                 </p>
                 <p className="mt-3 text-sm leading-relaxed text-amber-950/90">
                   <strong>Después del registro:</strong> en cada ingreso al POS solo ingresás tu número de documento y
@@ -329,12 +331,12 @@ export default function CajeroIdentificacionGateModal({
                 ¡Hola, {nombreDisplayCajeroTurno(cajeroRegistroExito.ficha)}!
               </p>
               <p className="mx-auto mt-4 max-w-sm text-sm leading-relaxed text-gray-700">
-                Apreciamos que hayas diligenciado tus datos con cuidado. Ya quedaste activo en{" "}
-                <strong className="text-gray-900">{puntoVenta}</strong> y formás parte del protocolo de seguridad del
-                equipo María Chorizos.
+                Apreciamos que hayas diligenciado tus datos con cuidado. Quedaste activo con registro en{" "}
+                <strong className="text-gray-900">{puntoVenta}</strong> y podés identificarte con tu documento en
+                cualquier punto de venta del país.
               </p>
               <p className="mx-auto mt-4 rounded-xl border border-emerald-200/80 bg-white/80 px-4 py-3 text-sm font-medium text-emerald-900 shadow-sm">
-                En tus próximos ingresos al POS solo ingresá tu{" "}
+                En tus próximos ingresos (en este u otro POS) solo ingresá tu{" "}
                 <strong className="font-mono">número de documento</strong> y seguís trabajando al instante. ¡Nos vemos en
                 caja!
               </p>

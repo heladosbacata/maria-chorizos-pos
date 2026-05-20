@@ -69,13 +69,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const db = getFirestore(app);
   const norm = normalizarDoc(numeroDocumento);
   try {
-    const existentes = await db.collection(COLLECTION).where("puntoVenta", "==", ctx.puntoVenta).get();
+    const existentes = await db.collection(COLLECTION).get();
     for (const doc of existentes.docs) {
       const f = (doc.data().ficha ?? {}) as Partial<CajeroFichaDatos>;
       if (normalizarDoc(String(f.numeroDocumento ?? "")) === norm) {
+        const pvReg = String(doc.data().puntoVenta ?? "").trim() || "otro punto";
         return res.status(400).json({
           ok: false,
-          message: "Ya existe un cajero registrado con ese documento en este punto de venta.",
+          message: `Ya existe un cajero registrado con ese documento (punto de registro: ${pvReg}).`,
         });
       }
     }

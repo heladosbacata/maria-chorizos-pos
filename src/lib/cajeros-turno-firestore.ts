@@ -91,14 +91,93 @@ export type BusquedaCajeroPorDocumentoResult =
   | { estado: "inactivo"; cajero: CajeroTurnoDoc }
   | { estado: "no_encontrado" };
 
-/** Busca en el catálogo del punto de venta por número de documento (activo tiene prioridad). */
-export async function buscarCajeroTurnoPorDocumento(
-  puntoVenta: string,
+function cajeroDesdeApiPayload(raw: {
+  id?: string;
+  puntoVenta?: string;
+  activo?: boolean;
+  ficha?: Partial<CajeroFichaDatos>;
+}): CajeroTurnoDoc | null {
+  const id = String(raw.id ?? "").trim();
+  if (!id) return null;
+  return {
+    id,
+    puntoVenta: String(raw.puntoVenta ?? "").trim(),
+    activo: raw.activo !== false,
+    ficha: fichaFromFirestore(raw.ficha),
+  };
+}
+
+async function buscarCajeroViaWmsApi(
   numeroDocumento: string
-): Promise<BusquedaCajeroPorDocumentoResult> {
+): Promise<BusquedaCajeroPorDocumentoResult | null> {
+  const user = auth?.currentUser;
+  if (!user) return null;
+  const token = await user.getIdToken();
+  const base = getWmsPublicBaseUrl().replace(/\/$/, "");
+  try {
+    const res = await fetch(`${base}/api/pos/cajeros/buscar-documento`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ numeroDocumento }),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      estado?: string;
+      cajero?: { id?: string; puntoVenta?: string; activo?: boolean; ficha?: Partial<CajeroFichaDatos> };
+    };
+    if (!res.ok || data.ok !== true) return null;
+    if (data.estado === "no_encontrado") return { estado: "no_encontrado" };
+    const cajero = cajeroDesdeApiPayload(data.cajero ?? {});
+    if (!cajero) return null;
+    if (data.estado === "activo") return { estado: "activo", cajero };
+    if (data.estado === "inactivo") return { estado: "inactivo", cajero };
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function buscarCajeroViaPosApi(
+  numeroDocumento: string
+): Promise<BusquedaCajeroPorDocumentoResult | null> {
+  const user = auth?.currentUser;
+  if (!user) return null;
+  const token = await user.getIdToken();
+  try {
+    const res = await fetch("/api/pos_cajeros_turno_buscar_documento", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ numeroDocumento }),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      estado?: string;
+      cajero?: { id?: string; puntoVenta?: string; activo?: boolean; ficha?: Partial<CajeroFichaDatos> };
+    };
+    if (!res.ok || data.ok !== true) return null;
+    if (data.estado === "no_encontrado") return { estado: "no_encontrado" };
+    const cajero = cajeroDesdeApiPayload(data.cajero ?? {});
+    if (!cajero) return null;
+    if (data.estado === "activo") return { estado: "activo", cajero };
+    if (data.estado === "inactivo") return { estado: "inactivo", cajero };
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function buscarCajeroLocalPorPuntoVenta(
+  todos: CajeroTurnoDoc[],
+  numeroDocumento: string
+): BusquedaCajeroPorDocumentoResult {
   const norm = normalizarNumeroDocumentoCajero(numeroDocumento);
   if (!norm) return { estado: "no_encontrado" };
-  const todos = await listarCajerosTurnoPorPuntoVenta(puntoVenta);
   const coincidencias = todos.filter(
     (c) => normalizarNumeroDocumentoCajero(c.ficha.numeroDocumento ?? "") === norm
   );
@@ -106,6 +185,24 @@ export async function buscarCajeroTurnoPorDocumento(
   const activo = coincidencias.find((c) => c.activo);
   if (activo) return { estado: "activo", cajero: activo };
   return { estado: "inactivo", cajero: coincidencias[0]! };
+}
+
+/** Busca por documento en el catálogo nacional (cualquier punto de venta). */
+export async function buscarCajeroTurnoPorDocumento(
+  puntoVenta: string,
+  numeroDocumento: string
+): Promise<BusquedaCajeroPorDocumentoResult> {
+  const norm = normalizarNumeroDocumentoCajero(numeroDocumento);
+  if (!norm) return { estado: "no_encontrado" };
+
+  const wms = await buscarCajeroViaWmsApi(numeroDocumento);
+  if (wms) return wms;
+
+  const localApi = await buscarCajeroViaPosApi(numeroDocumento);
+  if (localApi) return localApi;
+
+  const todos = await listarCajerosTurnoPorPuntoVenta(puntoVenta);
+  return buscarCajeroLocalPorPuntoVenta(todos, numeroDocumento);
 }
 
 export async function listarCajerosTurnoActivos(puntoVenta: string): Promise<CajeroTurnoDoc[]> {
