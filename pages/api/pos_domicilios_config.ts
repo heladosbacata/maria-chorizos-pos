@@ -3,6 +3,10 @@ import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 import { getFirebaseAdminApp } from "@/lib/firebase-admin-server";
 import { getDomicilioTarifaConfig, setDomicilioTarifaConfig } from "@/lib/pos-domicilios-config-store";
+import {
+  CLAVE_ESPACIO_FRANQUICIADOS,
+  normalizarMediosTransferencia,
+} from "@/lib/pos-domicilios-medios-transferencia";
 import { puntoVentaFirestoreClave as normPv } from "@/lib/pos-domicilios-pv-clave";
 
 type GetOk = {
@@ -12,6 +16,7 @@ type GetOk = {
   domiciliosHabilitados: boolean;
   domiciliosHoraInicio: string;
   domiciliosHoraFin: string;
+  mediosTransferencia: ReturnType<typeof normalizarMediosTransferencia>;
 };
 
 type Err = { ok: false; message: string };
@@ -102,11 +107,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const hi = typeof body.domiciliosHoraInicio === "string" ? body.domiciliosHoraInicio : undefined;
   const hf = typeof body.domiciliosHoraFin === "string" ? body.domiciliosHoraFin : undefined;
 
+  const mediosBody = body.mediosTransferencia;
+  const tieneMediosBody = mediosBody !== undefined && mediosBody !== null;
+  if (tieneMediosBody) {
+    const clave =
+      typeof body.claveEspacioFranquiciados === "string" ? body.claveEspacioFranquiciados.trim() : "";
+    if (clave !== CLAVE_ESPACIO_FRANQUICIADOS) {
+      return res.status(403).json({
+        ok: false,
+        message: "Clave incorrecta. Usá la misma de Espacio para franquiciados.",
+      });
+    }
+  }
+
   const tieneTarifa = costoParsed !== undefined;
   const tieneOperacion =
     domiciliosHabilitados !== undefined || hi !== undefined || hf !== undefined || umbralParsed !== undefined;
 
-  if (!tieneTarifa && !tieneOperacion) {
+  if (!tieneTarifa && !tieneOperacion && !tieneMediosBody) {
     return res.status(400).json({ ok: false, message: "Indicá costo, umbral u operación de domicilios para guardar." });
   }
 
@@ -117,6 +135,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     ...(domiciliosHabilitados !== undefined ? { domiciliosHabilitados } : {}),
     ...(hi !== undefined ? { domiciliosHoraInicio: hi } : {}),
     ...(hf !== undefined ? { domiciliosHoraFin: hf } : {}),
+    ...(tieneMediosBody ? { mediosTransferencia: normalizarMediosTransferencia(mediosBody) } : {}),
   });
   if (!result.ok) {
     return res.status(400).json({ ok: false, message: result.message ?? "No se pudo guardar." });

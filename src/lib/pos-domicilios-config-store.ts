@@ -6,6 +6,9 @@ import {
   DEFAULT_UMBRAL_GRATIS_COP,
 } from "@/lib/pos-domicilios-tarifa-defaults";
 import { normalizarHoraConfig } from "@/lib/pos-domicilios-horario";
+import { normalizarMediosTransferencia } from "@/lib/pos-domicilios-medios-transferencia";
+import type { MediosTransferenciaConfig } from "@/types/pos-domicilios-medios-transferencia";
+import { MEDIOS_TRANSFERENCIA_VACIOS } from "@/types/pos-domicilios-medios-transferencia";
 
 export { DEFAULT_COSTO_DOMICILIO_COP, DEFAULT_UMBRAL_GRATIS_COP } from "@/lib/pos-domicilios-tarifa-defaults";
 
@@ -20,6 +23,7 @@ type MemVal = {
   domiciliosHabilitados: boolean;
   domiciliosHoraInicio: string;
   domiciliosHoraFin: string;
+  mediosTransferencia: MediosTransferenciaConfig;
 };
 
 const globalForMem = globalThis as typeof globalThis & {
@@ -40,6 +44,7 @@ function defaultsMem(): MemVal {
     domiciliosHabilitados: true,
     domiciliosHoraInicio: DEFAULT_HORA_INICIO,
     domiciliosHoraFin: DEFAULT_HORA_FIN,
+    mediosTransferencia: { ...MEDIOS_TRANSFERENCIA_VACIOS },
   };
 }
 
@@ -50,6 +55,7 @@ export type DomicilioTarifaPublica = {
   domiciliosHabilitados: boolean;
   domiciliosHoraInicio: string;
   domiciliosHoraFin: string;
+  mediosTransferencia: MediosTransferenciaConfig;
 };
 
 function leerHorarioDeDoc(d: Record<string, unknown>): { ini: string; fin: string } {
@@ -96,6 +102,7 @@ export async function getDomicilioTarifaConfig(puntoVenta: string): Promise<Domi
     domiciliosHabilitados,
     domiciliosHoraInicio: ini,
     domiciliosHoraFin: fin,
+    mediosTransferencia: normalizarMediosTransferencia(d.mediosTransferencia),
   };
 }
 
@@ -106,6 +113,7 @@ export async function setDomicilioTarifaConfig(params: {
   domiciliosHabilitados?: boolean;
   domiciliosHoraInicio?: string;
   domiciliosHoraFin?: string;
+  mediosTransferencia?: MediosTransferenciaConfig;
 }): Promise<{ ok: boolean; message?: string }> {
   const pv = params.puntoVenta.trim();
   if (!pv) return { ok: false, message: "puntoVenta es obligatorio." };
@@ -116,8 +124,9 @@ export async function setDomicilioTarifaConfig(params: {
     params.domiciliosHoraInicio !== undefined ||
     params.domiciliosHoraFin !== undefined ||
     params.umbralGratisCop !== undefined;
+  const tieneMedios = params.mediosTransferencia !== undefined;
 
-  if (!tieneTarifa && !tieneOperacion) {
+  if (!tieneTarifa && !tieneOperacion && !tieneMedios) {
     return { ok: false, message: "Indicá al menos un campo para actualizar." };
   }
 
@@ -148,6 +157,10 @@ export async function setDomicilioTarifaConfig(params: {
 
   const domiciliosHabilitados =
     params.domiciliosHabilitados !== undefined ? params.domiciliosHabilitados : actual.domiciliosHabilitados;
+  const mediosTransferencia =
+    params.mediosTransferencia !== undefined
+      ? normalizarMediosTransferencia(params.mediosTransferencia)
+      : actual.mediosTransferencia;
 
   const nk = normPv(pv);
   const now = new Date().toISOString();
@@ -159,6 +172,7 @@ export async function setDomicilioTarifaConfig(params: {
       domiciliosHabilitados,
       domiciliosHoraInicio,
       domiciliosHoraFin,
+      mediosTransferencia,
     });
     return { ok: true };
   }
@@ -172,6 +186,7 @@ export async function setDomicilioTarifaConfig(params: {
       domiciliosHabilitados,
       domiciliosHoraInicio,
       domiciliosHoraFin,
+      mediosTransferencia,
       actualizadoEnIso: now,
     },
     { merge: true }

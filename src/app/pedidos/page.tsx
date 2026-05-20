@@ -10,8 +10,14 @@ import { estaEnVentanaHoraria, textoHorarioAtencionCliente } from "@/lib/pos-dom
 import { comprimirComprobanteTransferenciaParaChat } from "@/lib/pos-domicilios-chat-imagen";
 import { enviarMensajeChatDomicilio, listarMensajesChatDomicilio } from "@/lib/pos-domicilios-chat-api";
 import { LOGO_ORG_URL } from "@/lib/brand";
+import MediosTransferenciaClienteModal from "@/components/MediosTransferenciaClienteModal";
 import { PosDomiciliosChatBurbuja } from "@/components/PosDomiciliosChatBurbuja";
+import { normalizarMediosTransferencia } from "@/lib/pos-domicilios-medios-transferencia";
 import { activarNotificacionesPedidoDomicilio, pedidosPushSoportadoEnEsteNavegador } from "@/lib/pedidos-push-client";
+import {
+  MEDIOS_TRANSFERENCIA_VACIOS,
+  type MediosTransferenciaConfig,
+} from "@/types/pos-domicilios-medios-transferencia";
 import type { ProductoPOS } from "@/types";
 import type { MensajeChatDomicilio } from "@/types/pos-domicilios-chat";
 
@@ -514,7 +520,9 @@ function PedidosLandingClient() {
     domiciliosHabilitados: true,
     domiciliosHoraInicio: "07:00",
     domiciliosHoraFin: "22:00",
+    mediosTransferencia: { ...MEDIOS_TRANSFERENCIA_VACIOS } as MediosTransferenciaConfig,
   });
+  const [modalMediosTransferenciaCliente, setModalMediosTransferenciaCliente] = useState(false);
   /** Fuerza reevaluación del horario local (Colombia) sin depender solo del fetch periódico. */
   const [tickHorarioRecepcion, setTickHorarioRecepcion] = useState(0);
 
@@ -553,6 +561,7 @@ function PedidosLandingClient() {
         domiciliosHabilitados?: boolean;
         domiciliosHoraInicio?: string;
         domiciliosHoraFin?: string;
+        mediosTransferencia?: MediosTransferenciaConfig;
       };
       if (!res.ok || json.ok === false) return;
       const costo =
@@ -574,6 +583,7 @@ function PedidosLandingClient() {
         domiciliosHabilitados,
         domiciliosHoraInicio,
         domiciliosHoraFin,
+        mediosTransferencia: normalizarMediosTransferencia(json.mediosTransferencia),
       });
     } catch {
       /* se mantienen defaults */
@@ -587,6 +597,19 @@ function PedidosLandingClient() {
     }, 45000);
     return () => window.clearInterval(t);
   }, [refrescarTarifaDomicilio]);
+
+  useEffect(() => {
+    if (tipoEntrega === "domicilio" && metodoPago === "datafono") {
+      setMetodoPago("efectivo");
+    }
+  }, [tipoEntrega, metodoPago]);
+
+  const cambiarMetodoPagoCliente = useCallback((valor: MetodoPago) => {
+    setMetodoPago(valor);
+    if (valor === "transferencia") {
+      setModalMediosTransferenciaCliente(true);
+    }
+  }, []);
 
   useEffect(() => {
     const id = window.setInterval(() => {
@@ -1862,7 +1885,10 @@ function PedidosLandingClient() {
               <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <button
                   type="button"
-                  onClick={() => setTipoEntrega("domicilio")}
+                  onClick={() => {
+                    setTipoEntrega("domicilio");
+                    setMetodoPago((m) => (m === "datafono" ? "efectivo" : m));
+                  }}
                   className={`rounded-xl border-2 px-3 py-2.5 text-left text-sm font-semibold transition ${
                     tipoEntrega === "domicilio"
                       ? "border-cyan-600 bg-cyan-50 text-cyan-950 shadow-sm"
@@ -1922,13 +1948,22 @@ function PedidosLandingClient() {
                 />
                 <select
                   value={metodoPago}
-                  onChange={(e) => setMetodoPago(e.target.value as MetodoPago)}
+                  onChange={(e) => cambiarMetodoPagoCliente(e.target.value as MetodoPago)}
                   className="block w-full max-w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
                 >
                   <option value="efectivo">Pago en efectivo</option>
                   <option value="transferencia">Transferencia</option>
-                  <option value="datafono">Datáfono</option>
+                  {tipoEntrega === "recogida" ? <option value="datafono">Datáfono</option> : null}
                 </select>
+                {metodoPago === "transferencia" ? (
+                  <button
+                    type="button"
+                    onClick={() => setModalMediosTransferenciaCliente(true)}
+                    className="block w-full max-w-full rounded-lg border border-cyan-300 bg-cyan-50 px-3 py-2 text-left text-xs font-semibold text-cyan-900 hover:bg-cyan-100"
+                  >
+                    Ver datos para transferir (Nequi, Bancolombia, Daviplata, Llave)
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={enviarPedido}
@@ -2324,9 +2359,15 @@ function PedidosLandingClient() {
                       <li>Mantené este pedido abierto en el navegador para ver las respuestas al instante.</li>
                       {pedidoResumenChat.metodoPago === "transferencia" ? (
                         <li>
-                          Elegiste <strong>transferencia</strong>: cuando hagas el pago, tocá el ícono de{" "}
-                          <strong>comprobante</strong> (recibo) y adjuntá la captura, o escribí banco y referencia en el
-                          mensaje.
+                          Elegiste <strong>transferencia</strong>: usá los datos de la tienda para pagar. Podés abrir{" "}
+                          <button
+                            type="button"
+                            onClick={() => setModalMediosTransferenciaCliente(true)}
+                            className="font-bold text-cyan-800 underline underline-offset-2 hover:text-cyan-950"
+                          >
+                            cuentas para transferir
+                          </button>
+                          . Luego adjuntá el comprobante con el ícono de recibo o escribí banco y referencia en el chat.
                         </li>
                       ) : (
                         <li>
@@ -2529,6 +2570,11 @@ function PedidosLandingClient() {
           burstKey={animacionCambioEstadoPedido.key}
         />
       ) : null}
+      <MediosTransferenciaClienteModal
+        open={modalMediosTransferenciaCliente}
+        onClose={() => setModalMediosTransferenciaCliente(false)}
+        medios={tarifaDomicilio.mediosTransferencia}
+      />
     </main>
   );
 }

@@ -8,6 +8,16 @@ import { domicilioCambiarEstado, domicilioCrear, domiciliosListar } from "@/lib/
 import { enviarMensajeChatDomicilio, listarMensajesChatDomicilio } from "@/lib/pos-domicilios-chat-api";
 import { DEFAULT_COSTO_DOMICILIO_COP, DEFAULT_UMBRAL_GRATIS_COP } from "@/lib/pos-domicilios-tarifa-defaults";
 import { PosDomiciliosChatBurbuja } from "@/components/PosDomiciliosChatBurbuja";
+import {
+  CLAVE_ESPACIO_FRANQUICIADOS,
+  normalizarMediosTransferencia,
+} from "@/lib/pos-domicilios-medios-transferencia";
+import {
+  ETIQUETAS_MEDIO_TRANSFERENCIA,
+  MEDIOS_TRANSFERENCIA_IDS,
+  MEDIOS_TRANSFERENCIA_VACIOS,
+  type MediosTransferenciaConfig,
+} from "@/types/pos-domicilios-medios-transferencia";
 import type { EstadoDomicilio, PedidoDomicilio } from "@/types/pos-domicilios";
 import type { MensajeChatDomicilio } from "@/types/pos-domicilios-chat";
 
@@ -293,6 +303,17 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
   const [domiciliosHoraIni, setDomiciliosHoraIni] = useState("07:00");
   const [domiciliosHoraFin, setDomiciliosHoraFin] = useState("22:00");
   const [operacionGuardando, setOperacionGuardando] = useState(false);
+  const [mediosTransferencia, setMediosTransferencia] = useState<MediosTransferenciaConfig>({
+    ...MEDIOS_TRANSFERENCIA_VACIOS,
+  });
+  const [modalClaveMediosTransferencia, setModalClaveMediosTransferencia] = useState(false);
+  const [modalEditarMediosTransferencia, setModalEditarMediosTransferencia] = useState(false);
+  const [claveMediosInput, setClaveMediosInput] = useState("");
+  const [claveMediosError, setClaveMediosError] = useState<string | null>(null);
+  const [mediosTransferenciaDraft, setMediosTransferenciaDraft] = useState<MediosTransferenciaConfig>({
+    ...MEDIOS_TRANSFERENCIA_VACIOS,
+  });
+  const [mediosTransferenciaGuardando, setMediosTransferenciaGuardando] = useState(false);
   const [unreadPorPedido, setUnreadPorPedido] = useState<UnreadPorPedido>({});
   const [nuevoPedido, setNuevoPedido] = useState<FormNuevoPedido>({
     cliente: "",
@@ -405,8 +426,12 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
           domiciliosHabilitados?: boolean;
           domiciliosHoraInicio?: string;
           domiciliosHoraFin?: string;
+          mediosTransferencia?: MediosTransferenciaConfig;
         };
         if (cancelled) return;
+        if (res.ok && j.mediosTransferencia) {
+          setMediosTransferencia(normalizarMediosTransferencia(j.mediosTransferencia));
+        }
         if (res.ok && typeof j.costoDomicilioCop === "number" && Number.isFinite(j.costoDomicilioCop)) {
           setTarifaCostoInput(String(Math.max(0, Math.round(j.costoDomicilioCop))));
         }
@@ -566,6 +591,64 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
     sonidosActivos,
     volumenSonido,
   ]);
+
+  const abrirConfigMediosTransferencia = useCallback(() => {
+    setClaveMediosInput("");
+    setClaveMediosError(null);
+    setModalClaveMediosTransferencia(true);
+  }, []);
+
+  const confirmarClaveMediosTransferencia = useCallback(() => {
+    if (claveMediosInput.trim() !== CLAVE_ESPACIO_FRANQUICIADOS) {
+      setClaveMediosError("Clave incorrecta.");
+      return;
+    }
+    setMediosTransferenciaDraft({ ...mediosTransferencia });
+    setModalClaveMediosTransferencia(false);
+    setModalEditarMediosTransferencia(true);
+    setClaveMediosError(null);
+  }, [claveMediosInput, mediosTransferencia]);
+
+  const guardarMediosTransferencia = useCallback(async () => {
+    if (!puntoVentaActivo) return;
+    const token = await auth?.currentUser?.getIdToken().catch(() => null);
+    if (!token) {
+      setSyncInfo("Inicia sesión en el POS para guardar los medios de transferencia.");
+      return;
+    }
+    setMediosTransferenciaGuardando(true);
+    setSyncInfo(null);
+    try {
+      const res = await fetch("/api/pos_domicilios_config", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          puntoVenta: puntoVentaActivo,
+          mediosTransferencia: mediosTransferenciaDraft,
+          claveEspacioFranquiciados: CLAVE_ESPACIO_FRANQUICIADOS,
+        }),
+      });
+      const j = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        message?: string;
+        mediosTransferencia?: MediosTransferenciaConfig;
+      };
+      if (!res.ok || j.ok === false) {
+        setSyncInfo(j.message ?? "No se pudieron guardar los medios de transferencia.");
+        return;
+      }
+      const norm = normalizarMediosTransferencia(j.mediosTransferencia ?? mediosTransferenciaDraft);
+      setMediosTransferencia(norm);
+      setMediosTransferenciaDraft(norm);
+      setModalEditarMediosTransferencia(false);
+      setSyncInfo("Medios de transferencia actualizados. Los clientes los verán al elegir transferencia.");
+      if (sonidosActivos) reproducirTonoPos("crear", volumenSonido);
+    } catch {
+      setSyncInfo("Error de red al guardar medios de transferencia.");
+    } finally {
+      setMediosTransferenciaGuardando(false);
+    }
+  }, [puntoVentaActivo, mediosTransferenciaDraft, sonidosActivos, volumenSonido]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1019,6 +1102,20 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Venta activa</p>
           <p className="mt-2 text-2xl font-extrabold text-gray-900">{formatoMoneda(ventasActivas)}</p>
           <p className="mt-1 text-xs text-gray-500">Pedidos no finalizados</p>
+          <div className="mt-3 space-y-2 border-t border-gray-100 pt-3">
+            <p className="text-[11px] font-semibold text-gray-600">Medios de pago por transferencia</p>
+            <button
+              type="button"
+              disabled={!puntoVentaActivo}
+              onClick={abrirConfigMediosTransferencia}
+              className="w-full rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-left text-xs font-semibold text-amber-950 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Configurar cuentas (Nequi, Bancolombia, Daviplata, Llave)
+              <span className="mt-0.5 block font-normal text-amber-800/90">
+                Requiere clave de Espacio para franquiciados
+              </span>
+            </button>
+          </div>
         </article>
         <article className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
           <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">Cobertura</p>
@@ -1501,6 +1598,123 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
               </div>
             </div>
           </motion.div>
+        </div>
+      ) : null}
+
+      {modalClaveMediosTransferencia ? (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/50"
+            aria-label="Cerrar"
+            onClick={() => setModalClaveMediosTransferencia(false)}
+          />
+          <div className="relative z-[1] w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-xl">
+            <h3 className="text-lg font-bold text-gray-900">Espacio para franquiciados</h3>
+            <p className="mt-1 text-sm text-gray-600">Ingresá la clave para configurar los medios de transferencia.</p>
+            <label htmlFor="clave-medios-dom" className="mt-4 block text-sm font-medium text-gray-700">
+              Clave
+            </label>
+            <input
+              id="clave-medios-dom"
+              type="password"
+              autoComplete="off"
+              value={claveMediosInput}
+              onChange={(e) => {
+                setClaveMediosInput(e.target.value);
+                setClaveMediosError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirmarClaveMediosTransferencia();
+              }}
+              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none ring-amber-200 focus:border-amber-500 focus:ring-2"
+            />
+            {claveMediosError ? (
+              <p className="mt-2 text-sm text-red-600" role="alert">
+                {claveMediosError}
+              </p>
+            ) : null}
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setModalClaveMediosTransferencia(false)}
+                className="flex-1 rounded-lg border border-gray-300 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={confirmarClaveMediosTransferencia}
+                className="flex-1 rounded-lg bg-amber-600 py-2 text-sm font-semibold text-white hover:bg-amber-700"
+              >
+                Continuar
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {modalEditarMediosTransferencia ? (
+        <div className="fixed inset-0 z-[90] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/50"
+            aria-label="Cerrar"
+            onClick={() => !mediosTransferenciaGuardando && setModalEditarMediosTransferencia(false)}
+          />
+          <div className="relative z-[1] flex max-h-[min(90vh,640px)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-xl">
+            <div className="border-b border-gray-100 px-5 py-4">
+              <h3 className="text-lg font-bold text-gray-900">Medios de transferencia</h3>
+              <p className="mt-1 text-xs text-gray-600">
+                Los clientes verán estos datos en una ventana al elegir pago por transferencia en pedidos web/QR.
+              </p>
+            </div>
+            <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
+              {MEDIOS_TRANSFERENCIA_IDS.map((id) => (
+                <div key={id}>
+                  <label htmlFor={`medio-dom-${id}`} className="mb-1 block text-sm font-medium text-gray-700">
+                    {ETIQUETAS_MEDIO_TRANSFERENCIA[id]}
+                  </label>
+                  <textarea
+                    id={`medio-dom-${id}`}
+                    rows={2}
+                    value={mediosTransferenciaDraft[id]}
+                    onChange={(e) =>
+                      setMediosTransferenciaDraft((prev) => ({ ...prev, [id]: e.target.value }))
+                    }
+                    placeholder={
+                      id === "nequi"
+                        ? "Ej. 300 123 4567"
+                        : id === "bancolombia"
+                          ? "Ej. Cuenta de ahorros 123-456789-01"
+                          : id === "daviplata"
+                            ? "Ej. 300 987 6543"
+                            : "Ej. llave@correo.com o número"
+                    }
+                    className="w-full resize-y rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2 border-t border-gray-100 bg-gray-50 px-5 py-3">
+              <button
+                type="button"
+                disabled={mediosTransferenciaGuardando}
+                onClick={() => setModalEditarMediosTransferencia(false)}
+                className="flex-1 rounded-lg border border-gray-300 py-2.5 text-sm font-medium text-gray-700 hover:bg-white disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={mediosTransferenciaGuardando}
+                onClick={() => void guardarMediosTransferencia()}
+                className="flex-1 rounded-lg bg-cyan-700 py-2.5 text-sm font-semibold text-white hover:bg-cyan-800 disabled:opacity-50"
+              >
+                {mediosTransferenciaGuardando ? "Guardando…" : "Guardar"}
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 
