@@ -36,6 +36,11 @@ function fichaFromFirestore(raw: unknown): CajeroFichaDatos {
   return { ...emptyCajeroFicha(), ...(raw as Partial<CajeroFichaDatos>) };
 }
 
+/** Solo dígitos, para comparar cédulas con o sin puntos o espacios. */
+export function normalizarNumeroDocumentoCajero(doc: string): string {
+  return doc.replace(/\D/g, "").trim();
+}
+
 export function nombreDisplayCajeroTurno(ficha: CajeroFichaDatos): string {
   const n = `${ficha.nombres ?? ""} ${ficha.apellidos ?? ""}`.trim();
   if (n) return n;
@@ -77,6 +82,28 @@ export async function obtenerCajeroTurnoPorId(firestoreId: string): Promise<Caje
   } catch {
     return null;
   }
+}
+
+export type BusquedaCajeroPorDocumentoResult =
+  | { estado: "activo"; cajero: CajeroTurnoDoc }
+  | { estado: "inactivo"; cajero: CajeroTurnoDoc }
+  | { estado: "no_encontrado" };
+
+/** Busca en el catálogo del punto de venta por número de documento (activo tiene prioridad). */
+export async function buscarCajeroTurnoPorDocumento(
+  puntoVenta: string,
+  numeroDocumento: string
+): Promise<BusquedaCajeroPorDocumentoResult> {
+  const norm = normalizarNumeroDocumentoCajero(numeroDocumento);
+  if (!norm) return { estado: "no_encontrado" };
+  const todos = await listarCajerosTurnoPorPuntoVenta(puntoVenta);
+  const coincidencias = todos.filter(
+    (c) => normalizarNumeroDocumentoCajero(c.ficha.numeroDocumento ?? "") === norm
+  );
+  if (coincidencias.length === 0) return { estado: "no_encontrado" };
+  const activo = coincidencias.find((c) => c.activo);
+  if (activo) return { estado: "activo", cajero: activo };
+  return { estado: "inactivo", cajero: coincidencias[0]! };
 }
 
 export async function listarCajerosTurnoActivos(puntoVenta: string): Promise<CajeroTurnoDoc[]> {

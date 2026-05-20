@@ -79,8 +79,7 @@ export default function PerfilCajeroForm({
     let cancelled = false;
     async function load() {
       setCargandoPerfil(true);
-      let local = loadFichaDesdeLocalStorage(fichaLocalKey);
-      if (emailSesion && !local.correo) local = { ...local, correo: emailSesion };
+      const local = loadFichaDesdeLocalStorage(fichaLocalKey);
       let merged: CajeroFichaDatos = local;
 
       if (catalogoActivo && cajeroCatalogoId) {
@@ -102,7 +101,7 @@ export default function PerfilCajeroForm({
     return () => {
       cancelled = true;
     };
-  }, [emailSesion, uidSesion, catalogoActivo, cajeroCatalogoId, fichaLocalKey]);
+  }, [uidSesion, catalogoActivo, cajeroCatalogoId, fichaLocalKey]);
 
   const setCampo = useCallback(<K extends keyof CajeroFichaDatos>(k: K, v: CajeroFichaDatos[K]) => {
     setDatos((prev) => ({ ...prev, [k]: v }));
@@ -123,6 +122,15 @@ export default function PerfilCajeroForm({
   const nombrePerfilLinea = nombreCompletoDesdeFicha(datos);
 
   const guardar = async () => {
+    const correo = datos.correo.trim();
+    if (!correo) {
+      window.alert("Indica el correo electrónico personal del cajero.");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) {
+      window.alert("El correo electrónico personal no es válido.");
+      return;
+    }
     try {
       localStorage.setItem(fichaLocalKey, JSON.stringify(datos));
     } catch {
@@ -209,8 +217,7 @@ export default function PerfilCajeroForm({
                 <span className="font-medium text-sky-950">{nombrePerfilLinea}</span>
               ) : (
                 <span className="text-sky-800/90">
-                  Aún sin indicar — completá nombres y apellidos abajo; mientras tanto se usa tu correo de sesión para
-                  identificarte en caja.
+                  Aún sin indicar — completá nombres, apellidos y correo electrónico personal abajo.
                 </span>
               )}
             </p>

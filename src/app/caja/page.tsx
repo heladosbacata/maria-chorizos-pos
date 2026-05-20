@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import CajeroIdentificacionGateModal from "@/components/CajeroIdentificacionGateModal";
 import CajeroReportesDashboard from "@/components/CajeroReportesDashboard";
 import MetasBonificacionesModule from "@/components/MetasBonificacionesModule";
 import { MetasRetosCajaProvider } from "@/components/MetasRetosCajaProvider";
@@ -24,9 +25,9 @@ import ModalCobroSinInternet from "@/components/ModalCobroSinInternet";
 import ModalInformeCierreCorreo from "@/components/ModalInformeCierreCorreo";
 import PosCajaMensajesBell from "@/components/PosCajaMensajesBell";
 import PosBroadcastBell from "@/components/PosBroadcastBell";
+import PosAnunciosCajaWatcher from "@/components/PosAnunciosCajaWatcher";
 import PlanMillasPosModule from "@/components/PlanMillasPosModule";
 import PosDomiciliosModule from "@/components/PosDomiciliosModule";
-import { domiciliosListar } from "@/lib/pos-domicilios-api";
 import RegistrarPagoPanel, { type DetallePagoConfirmado } from "@/components/RegistrarPagoPanel";
 import TurnoCierreExitoPremiumModal from "@/components/TurnoCierreExitoPremiumModal";
 import TurnosHistorialModule from "@/components/TurnosHistorialModule";
@@ -53,6 +54,7 @@ import {
   CAJERO_TURNO_ID_SESION,
   listarCajerosTurnoActivos,
   nombreDisplayCajeroTurno,
+  obtenerCajeroTurnoPorId,
   type CajeroTurnoDoc,
 } from "@/lib/cajeros-turno-firestore";
 import { listarClientesPorPuntoVenta, nombreDisplayCliente } from "@/lib/clientes-pos-firestore";
@@ -83,7 +85,6 @@ import {
   montoDescuentoLinea,
   subtotalNetoLinea,
 } from "@/lib/item-cuenta-linea";
-import { resumenIvaDesdeTotalConIvaIncluido } from "@/lib/iva-precios-incluidos";
 import {
   mediosPagoDesdeDetalle,
   normalizarMediosPagoVenta,
@@ -153,7 +154,6 @@ import type { TicketVentaLinea, TicketVentaPayload } from "@/types/impresion-pos
 import type { ClientePosFirestoreDoc } from "@/types/clientes-pos";
 import { CONSUMIDOR_FINAL_ID, type ClienteVentaRef } from "@/types/clientes-pos";
 import type { ProductoPOS, TipoComprobanteVenta, VentaReporte } from "@/types";
-import type { PedidoDomicilio } from "@/types/pos-domicilios";
 import type { ItemCuenta } from "@/types/pos-caja-item";
 import {
   comprimirDataUrlFotoCajero,
@@ -331,6 +331,27 @@ export default function CajaPage() {
     }
   }, [loading, user, router]);
 
+  /** Cada carga o recarga (F5) de /caja exige identificación (solo en memoria hasta el próximo F5). */
+  useEffect(() => {
+    if (loading || !user) return;
+    if (identificacionArranqueHechoRef.current) return;
+    identificacionArranqueHechoRef.current = true;
+    if (esContadorInvitado(user.role)) {
+      setIdentificacionInicializada(true);
+      setModalIdentificacionCajero(false);
+      return;
+    }
+    const pv = user.puntoVenta?.trim();
+    if (!pv) {
+      setIdentificacionInicializada(true);
+      setModalIdentificacionCajero(false);
+      return;
+    }
+    setCajeroIdentificado(null);
+    setModalIdentificacionCajero(true);
+    setIdentificacionInicializada(true);
+  }, [loading, user]);
+
   /** Reintenta ventas que quedaron fuera del WMS por red (cola local) y descuentos ensamble pendientes. */
   useEffect(() => {
     if (!user || esContadorInvitado(user.role)) return;
@@ -352,66 +373,6 @@ export default function CajaPage() {
   }, [user]);
 
   const [moduloActivo, setModuloActivo] = useState<ModuloActivo>("ventas");
-  const moduloActivoRef = useRef<ModuloActivo>("ventas");
-  moduloActivoRef.current = moduloActivo;
-
-  /** Pedidos en estado NUEVO (pendientes de aceptar) — badge menú + alerta. */
-  const [badgeDomiciliosPendientes, setBadgeDomiciliosPendientes] = useState(0);
-  const [alertaNuevosDomicilios, setAlertaNuevosDomicilios] = useState<PedidoDomicilio[] | null>(null);
-  const domiciliosNuevoIdsPrevRef = useRef<string[]>([]);
-  const domiciliosPollInicialListoRef = useRef(false);
-
-  useEffect(() => {
-    const pv = user?.puntoVenta?.trim();
-    if (!pv) {
-      setBadgeDomiciliosPendientes(0);
-      domiciliosNuevoIdsPrevRef.current = [];
-      domiciliosPollInicialListoRef.current = false;
-      return;
-    }
-
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const res = await domiciliosListar(pv);
-        if (cancelled) return;
-        const nuevos = res.data.filter((p) => p.estado === "NUEVO");
-        setBadgeDomiciliosPendientes(nuevos.length);
-        const idsActual = nuevos.map((p) => p.id);
-        const prev = domiciliosNuevoIdsPrevRef.current;
-
-        if (domiciliosPollInicialListoRef.current) {
-          const llegados = nuevos.filter((p) => !prev.includes(p.id));
-          if (llegados.length > 0 && moduloActivoRef.current !== "domicilios") {
-            setAlertaNuevosDomicilios((cur) => {
-              const map = new Map<string, PedidoDomicilio>();
-              for (const p of [...(cur ?? []), ...llegados]) {
-                map.set(p.id, p);
-              }
-              return Array.from(map.values());
-            });
-          }
-        }
-        domiciliosPollInicialListoRef.current = true;
-        domiciliosNuevoIdsPrevRef.current = idsActual;
-      } catch {
-        /* sin conexión: no actualizamos badge */
-      }
-    };
-
-    void poll();
-    const timer = window.setInterval(poll, 12_000);
-    const onVis = () => {
-      if (document.visibilityState === "visible") void poll();
-    };
-    document.addEventListener("visibilitychange", onVis);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVis);
-    };
-  }, [user?.puntoVenta]);
-
   const [posGebBienvenidaAbierta, setPosGebBienvenidaAbierta] = useState(false);
   const [posGebTutorialAbierto, setPosGebTutorialAbierto] = useState(false);
   const [posGebTutorialPaso, setPosGebTutorialPaso] = useState(0);
@@ -444,6 +405,11 @@ export default function CajaPage() {
   const [cargandoCajerosTurnoModal, setCargandoCajerosTurnoModal] = useState(false);
   const [cajeroIdSeleccionAbrirTurno, setCajeroIdSeleccionAbrirTurno] = useState<string>(CAJERO_TURNO_ID_SESION);
   const [errorModalAbrirTurno, setErrorModalAbrirTurno] = useState<string | null>(null);
+  /** Validación por documento al cargar / actualizar el POS (no aplica a contador invitado). */
+  const [cajeroIdentificado, setCajeroIdentificado] = useState<CajeroTurnoDoc | null>(null);
+  const [modalIdentificacionCajero, setModalIdentificacionCajero] = useState(false);
+  const [identificacionInicializada, setIdentificacionInicializada] = useState(false);
+  const identificacionArranqueHechoRef = useRef(false);
   const [showModalClaveMas, setShowModalClaveMas] = useState(false);
   const [inputClaveMas, setInputClaveMas] = useState("");
   const [mostrarClaveMasEnClaro, setMostrarClaveMasEnClaro] = useState(false);
@@ -579,6 +545,7 @@ export default function CajaPage() {
   const [showModalCrearCliente, setShowModalCrearCliente] = useState(false);
   const [cobrando, setCobrando] = useState(false);
   const [cobroImpresionOverlayOpen, setCobroImpresionOverlayOpen] = useState(false);
+  const [ventaCompletadaAnuncioTick, setVentaCompletadaAnuncioTick] = useState(0);
   /** Ticket listo para imprimir: primero se muestra vista previa si imprimir automático está activo. */
   const [previsualizacionCobro, setPrevisualizacionCobro] = useState<VistaPreviaCobroPendiente | null>(null);
   const [cancelandoTransaccionVistaPrevia, setCancelandoTransaccionVistaPrevia] = useState(false);
@@ -852,17 +819,26 @@ export default function CajaPage() {
     let cancelled = false;
     setCargandoCajerosTurnoModal(true);
     setErrorModalAbrirTurno(null);
-    void listarCajerosTurnoActivos(user.puntoVenta).then((rows) => {
+    const pv = user.puntoVenta.trim();
+    void listarCajerosTurnoActivos(pv).then(async (rows) => {
       if (cancelled) return;
-      setCajerosModalTurno(rows);
-      /** Por defecto: turno como franquiciado (quien suele apoyar en caja con la misma cuenta). */
-      setCajeroIdSeleccionAbrirTurno(CAJERO_TURNO_ID_SESION);
+      let lista = rows;
+      if (cajeroIdentificado && !rows.some((r) => r.id === cajeroIdentificado.id)) {
+        const extra = await obtenerCajeroTurnoPorId(cajeroIdentificado.id);
+        if (extra?.activo) lista = [...rows, extra];
+      }
+      setCajerosModalTurno(lista);
+      if (cajeroIdentificado?.id) {
+        setCajeroIdSeleccionAbrirTurno(cajeroIdentificado.id);
+      } else if (lista.length > 0) {
+        setCajeroIdSeleccionAbrirTurno(lista[0]!.id);
+      }
       setCargandoCajerosTurnoModal(false);
     });
     return () => {
       cancelled = true;
     };
-  }, [showModalAbrirTurno, user?.puntoVenta]);
+  }, [showModalAbrirTurno, user?.puntoVenta, cajeroIdentificado]);
 
   const catalogosFiltrados = useMemo(() => {
     const q = busquedaCatalogo.trim().toLowerCase();
@@ -1440,10 +1416,6 @@ export default function CajaPage() {
 
   const itemsCuentaActiva = itemsPorPrecuenta[activePrecuentaId] ?? [];
   const totalCuentaActiva = itemsCuentaActiva.reduce((sum, i) => sum + totalLineaItem(i), 0);
-  const resumenIvaCobro = useMemo(
-    () => resumenIvaDesdeTotalConIvaIncluido(totalCuentaActiva),
-    [totalCuentaActiva]
-  );
 
   const construirPayloadTicket = useCallback(
     (titulo: string, items: ItemCuenta[], notaPie?: string): TicketVentaPayload | null => {
@@ -1453,14 +1425,6 @@ export default function CajaPage() {
       const nombrePrecuenta = precuentas.find((p) => p.id === activePrecuentaId)?.nombre ?? "Cuenta";
       const vendedorTicket =
         cajeroTurnoActivo?.nombreDisplay?.trim() || user?.email?.split("@")[0]?.trim() || "—";
-      const rIva =
-        tipoComprobante === "factura_electronica" && total > 0
-          ? resumenIvaDesdeTotalConIvaIncluido(total)
-          : null;
-      const desgloseIvaPreciosIncluidos =
-        rIva && rIva.total > 0
-          ? { subtotalSinIva: rIva.subtotalSinIva, iva: rIva.iva, tasaPorcentaje: rIva.tasaPorcentaje }
-          : undefined;
       return {
         titulo,
         puntoVenta: pv,
@@ -1471,7 +1435,6 @@ export default function CajaPage() {
         vendedorLabel: vendedorTicket,
         lineas: lineasTicketDesdeItemsCuenta(items),
         total,
-        ...(desgloseIvaPreciosIncluidos ? { desgloseIvaPreciosIncluidos } : {}),
         ...(notaPie ? { notaPie } : {}),
       };
     },
@@ -1981,8 +1944,6 @@ export default function CajaPage() {
           isoTimestamp: isoVenta,
           puntoVenta: pv,
           total,
-          tipoComprobanteAlCobro:
-            tipoComprobante === "factura_electronica" ? "factura_electronica" : "documento_interno",
           ...(sid ? { turnoSesionId: sid } : {}),
           lineas: lineasVenta,
           ...(ct
@@ -2069,8 +2030,6 @@ export default function CajaPage() {
                 ...(notaPieTicket ? { pagoResumen: notaPieTicket } : {}),
                 ...(mediosPago ? { mediosPago } : {}),
                 wmsSincronizado: !ventaSoloEnPos,
-                tipoComprobanteAlCobro:
-                  tipoComprobante === "factura_electronica" ? "factura_electronica" : "documento_interno",
               });
               if (!sync.ok) {
                 console.warn("Venta guardada en el equipo; nube POS:", sync.message ?? sync);
@@ -2263,6 +2222,8 @@ export default function CajaPage() {
         void procesarColaAplicarEnsamblePendiente(async () => (await auth?.currentUser?.getIdToken()) ?? null);
         void procesarColaFeEmitir(async () => (await auth?.currentUser?.getIdToken()) ?? null);
 
+        setVentaCompletadaAnuncioTick((t) => t + 1);
+
         return true;
       } finally {
         setCobrando(false);
@@ -2311,28 +2272,20 @@ export default function CajaPage() {
       return;
     }
 
-    type CajeroTurnoState = NonNullable<typeof cajeroTurnoActivo>;
-    let cajeroNext: CajeroTurnoState;
-    if (cajeroIdSeleccionAbrirTurno === CAJERO_TURNO_ID_SESION) {
-      cajeroNext = {
-        id: CAJERO_TURNO_ID_SESION,
-        nombreDisplay: user?.email?.trim()
-          ? `Franquiciado · ${user.email.trim()}`
-          : "Franquiciado (cuenta del punto)",
-        documento: "",
-      };
-    } else {
-      const row = cajerosModalTurno.find((c) => c.id === cajeroIdSeleccionAbrirTurno);
-      if (!row) {
-        setErrorModalAbrirTurno("Selecciona quién inicia el turno en caja.");
-        return;
-      }
-      cajeroNext = {
-        id: row.id,
-        nombreDisplay: nombreDisplayCajeroTurno(row.ficha),
-        documento: row.ficha.numeroDocumento?.trim() ?? "",
-      };
+    const row =
+      cajerosModalTurno.find((c) => c.id === cajeroIdSeleccionAbrirTurno) ??
+      (cajeroIdentificado?.id === cajeroIdSeleccionAbrirTurno ? cajeroIdentificado : null);
+    if (!row) {
+      setErrorModalAbrirTurno(
+        "Selecciona quién inicia el turno. Debes estar identificado con tu documento en el catálogo activo del punto."
+      );
+      return;
     }
+    const cajeroNext = {
+      id: row.id,
+      nombreDisplay: nombreDisplayCajeroTurno(row.ficha),
+      documento: row.ficha.numeroDocumento?.trim() ?? "",
+    };
 
     setAbriendoTurnoWms(true);
     try {
@@ -2365,15 +2318,6 @@ export default function CajaPage() {
       setTurnoSesionId(nuevoTurnoSesionId());
       setShowModalAbrirTurno(false);
       setBaseInicialCajaInput("");
-      try {
-        await fetch("/api/pos_domicilios_config", {
-          method: "PUT",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ puntoVenta: pv, domiciliosHabilitados: true }),
-        });
-      } catch {
-        /* no bloquea apertura de turno */
-      }
       await wmsTurnosSincronizarSilent(token, 0);
     } finally {
       setAbriendoTurnoWms(false);
@@ -2383,6 +2327,7 @@ export default function CajaPage() {
     user?.email,
     cajeroIdSeleccionAbrirTurno,
     cajerosModalTurno,
+    cajeroIdentificado,
     baseInicialCajaInput,
     auth,
   ]);
@@ -2475,6 +2420,14 @@ export default function CajaPage() {
 
   const esContador = esContadorInvitado(user.role);
 
+  if (!esContador && !identificacionInicializada) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-gray-100/90">
+        <div className="h-12 w-12 animate-spin rounded-full border-4 border-primary-500 border-t-transparent" />
+      </div>
+    );
+  }
+
   const fechaHoy = ymdColombia();
   const fechaFormateada = fechaColombia(new Date(), {
     weekday: "long",
@@ -2511,6 +2464,17 @@ export default function CajaPage() {
 
   return (
     <div className="flex h-dvh max-h-dvh min-h-0 overflow-hidden bg-gray-100/90">
+      {!esContador && user.puntoVenta?.trim() ? (
+        <CajeroIdentificacionGateModal
+          open={modalIdentificacionCajero}
+          puntoVenta={user.puntoVenta.trim()}
+          uidSesion={user.uid}
+          onIdentificado={(cajero) => {
+            setCajeroIdentificado(cajero);
+            setModalIdentificacionCajero(false);
+          }}
+        />
+      ) : null}
       {/* Sidebar izquierdo */}
       <aside
         data-pos-tutorial="sidebar"
@@ -2741,14 +2705,14 @@ export default function CajaPage() {
             type="button"
             data-pos-tutorial="nav-domicilios"
             onClick={() => setModuloActivo("domicilios")}
-            className={`group relative flex w-full items-center gap-3 overflow-visible rounded-xl border px-3 py-2.5 text-left text-sm font-semibold transition-all ${
+            className={`group relative flex w-full items-center gap-3 overflow-hidden rounded-xl border px-3 py-2.5 text-left text-sm font-semibold transition-all ${
               moduloActivo === "domicilios"
                 ? "border-cyan-400 bg-gradient-to-r from-cyan-600 to-sky-600 text-white shadow-md"
                 : "border-cyan-200 bg-gradient-to-r from-cyan-50 to-sky-50 text-cyan-900 hover:border-cyan-300 hover:shadow-sm"
             }`}
           >
             <span
-              className={`pointer-events-none absolute inset-y-0 right-0 w-12 overflow-hidden bg-white/20 blur-xl transition-opacity ${
+              className={`absolute inset-y-0 right-0 w-12 bg-white/20 blur-xl transition-opacity ${
                 moduloActivo === "domicilios" ? "opacity-70" : "opacity-0 group-hover:opacity-50"
               }`}
             />
@@ -2772,16 +2736,6 @@ export default function CajaPage() {
                 Premium
               </span>
             </span>
-            {badgeDomiciliosPendientes > 0 ? (
-              <span
-                className={`pointer-events-none absolute right-2 top-2 flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-[11px] font-black leading-none shadow-md ring-2 ${
-                  moduloActivo === "domicilios" ? "bg-rose-500 text-white ring-cyan-200" : "bg-rose-600 text-white ring-white"
-                }`}
-                aria-label={`${badgeDomiciliosPendientes} pedidos pendientes de aceptar`}
-              >
-                {badgeDomiciliosPendientes > 99 ? "99+" : badgeDomiciliosPendientes}
-              </span>
-            ) : null}
           </button>
           {!esContador && (
             <button
@@ -3227,6 +3181,14 @@ export default function CajaPage() {
               <p className="mb-3 text-sm text-gray-600">
                 Punto de venta: <strong className="text-gray-900">{user?.puntoVenta ?? "—"}</strong>
               </p>
+              {cajeroIdentificado ? (
+                <p className="mb-3 rounded-lg border border-emerald-100 bg-emerald-50/80 px-3 py-2 text-sm text-emerald-900">
+                  Operador identificado: <strong>{nombreDisplayCajeroTurno(cajeroIdentificado.ficha)}</strong>
+                  {cajeroIdentificado.ficha.numeroDocumento ? (
+                    <span className="text-emerald-800"> · Doc. {cajeroIdentificado.ficha.numeroDocumento}</span>
+                  ) : null}
+                </p>
+              ) : null}
               <p className="mb-2 text-sm font-medium text-gray-900">
                 ¿Quién inicia el turno en caja? <span className="text-red-500">*</span>
               </p>
@@ -3236,21 +3198,6 @@ export default function CajaPage() {
                 <>
                   <fieldset className="mb-4 space-y-2">
                     <legend className="sr-only">Persona que inicia el turno</legend>
-                    <label className="flex cursor-pointer items-center gap-3 rounded-lg border border-gray-200 px-3 py-2.5 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50/60">
-                      <input
-                        type="radio"
-                        name="cajero-turno-apertura"
-                        checked={cajeroIdSeleccionAbrirTurno === CAJERO_TURNO_ID_SESION}
-                        onChange={() => setCajeroIdSeleccionAbrirTurno(CAJERO_TURNO_ID_SESION)}
-                        className="h-4 w-4 text-blue-600"
-                      />
-                      <span className="text-sm text-gray-900">
-                        <span className="font-medium">Franquiciado — apoyo en caja</span>
-                        <span className="block text-xs text-gray-500">
-                          Misma cuenta del punto de venta{user?.email ? ` (${user.email})` : ""}
-                        </span>
-                      </span>
-                    </label>
                     {cajerosModalTurno.map((c) => (
                       <label
                         key={c.id}
@@ -3277,8 +3224,9 @@ export default function CajaPage() {
                   </fieldset>
                   {cajerosModalTurno.length === 0 ? (
                     <p className="mb-4 rounded-lg border border-amber-100 bg-amber-50/80 px-3 py-2 text-xs text-amber-950">
-                      No hay cajeros de turno registrados. El turno se atribuye al franquiciado. Puedes dar de alta
-                      cajeros en <strong>Espacio Franquiciado → Cajeros de turno</strong> cuando otra persona opere la caja.
+                      No hay operadores activos en el catálogo. Recargá el POS (F5), ingresá tu cédula y completá el
+                      registro, o pide al administrador que te active en{" "}
+                      <strong>Espacio Franquiciado → Cajeros de turno</strong>.
                     </p>
                   ) : null}
                 </>
@@ -3718,65 +3666,6 @@ export default function CajaPage() {
         lineas={modalExitoCierreTurno?.lineas ?? []}
         onClose={() => setModalExitoCierreTurno(null)}
       />
-
-      {alertaNuevosDomicilios != null && alertaNuevosDomicilios.length > 0 ? (
-        <div
-          className="fixed inset-0 z-[85] flex items-center justify-center bg-slate-950/85 p-4 backdrop-blur-[2px]"
-          role="alertdialog"
-          aria-modal="true"
-          aria-labelledby="domicilio-alerta-titulo"
-          aria-describedby="domicilio-alerta-desc"
-        >
-          <div className="pointer-events-none absolute inset-0 animate-pulse bg-rose-500/10" aria-hidden />
-          <div className="relative w-full max-w-md overflow-hidden rounded-2xl border-2 border-rose-500 bg-white shadow-[0_0_48px_rgba(244,63,94,0.35)] ring-4 ring-rose-400/50">
-            <div className="bg-gradient-to-r from-rose-600 to-amber-500 px-4 py-3 text-white">
-              <p id="domicilio-alerta-titulo" className="flex items-center gap-2 text-lg font-black tracking-tight">
-                <span className="relative flex h-3 w-3">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-white opacity-75" />
-                  <span className="relative inline-flex h-3 w-3 rounded-full bg-amber-200" />
-                </span>
-                ¡Nuevo pedido de domicilio!
-              </p>
-              <p id="domicilio-alerta-desc" className="mt-1 text-sm font-medium text-rose-50">
-                Hay {alertaNuevosDomicilios.length} pedido(s) recién ingresado(s). Revisá la bandeja para aceptarlo(s).
-              </p>
-            </div>
-            <div className="max-h-[min(52vh,22rem)] space-y-2 overflow-y-auto px-4 py-3">
-              {alertaNuevosDomicilios.map((p) => (
-                <div key={p.id} className="rounded-xl border border-rose-100 bg-rose-50/50 px-3 py-2 text-sm">
-                  <p className="font-bold text-slate-900">{p.id}</p>
-                  <p className="text-slate-700">
-                    {p.cliente} · {p.telefono}
-                  </p>
-                  <p className="text-xs text-slate-600 line-clamp-2">{p.items.join(", ")}</p>
-                  <p className="mt-1 font-semibold text-rose-800 tabular-nums">
-                    {new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(p.total)}
-                  </p>
-                </div>
-              ))}
-            </div>
-            <div className="flex flex-col gap-2 border-t border-rose-100 bg-rose-50/40 px-4 py-3 sm:flex-row">
-              <button
-                type="button"
-                onClick={() => {
-                  setModuloActivo("domicilios");
-                  setAlertaNuevosDomicilios(null);
-                }}
-                className="flex-1 rounded-xl bg-gradient-to-r from-cyan-600 to-sky-600 py-3 text-sm font-bold text-white shadow-md transition hover:brightness-110 active:scale-[0.99]"
-              >
-                Ir a Domicilios
-              </button>
-              <button
-                type="button"
-                onClick={() => setAlertaNuevosDomicilios(null)}
-                className="flex-1 rounded-xl border-2 border-slate-300 bg-white py-3 text-sm font-bold text-slate-800 transition hover:bg-slate-50 active:scale-[0.99]"
-              >
-                Entendido
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
 
       {/* Área central + cuenta a cobrar (en columna en móvil, fila en escritorio) */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pl-52 lg:flex-row">
@@ -4629,11 +4518,11 @@ export default function CajaPage() {
           }}
           numProductos={itemsCuentaActiva.reduce((s, i) => s + i.cantidad, 0)}
           clienteNombre={clienteActivoPrecuenta.nombreDisplay}
-          subtotal={resumenIvaCobro.subtotalSinIva}
+          subtotal={totalCuentaActiva}
           descuento={0}
-          iva={resumenIvaCobro.iva}
-          totalBruto={resumenIvaCobro.total}
-          totalAPagar={resumenIvaCobro.total}
+          iva={0}
+          totalBruto={totalCuentaActiva}
+          totalAPagar={totalCuentaActiva}
           cobrando={cobrando}
           onConfirmar={handleConfirmarRegistrarPago}
           onAntesActivarClienteFrecuente={antesActivarClienteFrecuente}
@@ -4727,6 +4616,12 @@ export default function CajaPage() {
           setPosGebAyudaAbierta(false);
           window.location.reload();
         }}
+      />
+
+      <PosAnunciosCajaWatcher
+        turnoAbierto={turnoAbierto}
+        getIdToken={getIdTokenCajaMensajes}
+        ventaCompletadaTick={ventaCompletadaAnuncioTick}
       />
     </div>
   );

@@ -81,8 +81,17 @@ export default function CajerosTurnoPanel({ puntoVenta, uidSesion }: CajerosTurn
       return;
     }
     const nom = `${ficha.nombres} ${ficha.apellidos}`.trim();
-    if (!nom && !ficha.correo.trim()) {
-      setMensaje("Indica al menos nombres y apellidos o un correo para identificar al cajero.");
+    if (!nom) {
+      setMensaje("Indica nombres y apellidos del cajero.");
+      return;
+    }
+    const correo = ficha.correo.trim();
+    if (!correo) {
+      setMensaje("Indica el correo electrónico personal del cajero.");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) {
+      setMensaje("El correo electrónico personal no es válido.");
       return;
     }
     setGuardando(true);

@@ -1,5 +1,6 @@
 "use client";
 
+import { opcionesCiudadColombia } from "@/constants/ciudades-colombia";
 import type { CajeroFichaDatos } from "@/types/pos-perfil-cajero";
 
 const inputClass =
@@ -73,9 +74,14 @@ export default function CajeroFichaFormFields({ datos, setCampo }: CajeroFichaFo
         <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500">Contacto</h4>
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="sm:col-span-2">
-            <label className={labelClass}>Correo electrónico</label>
+            <label className={labelClass}>
+              Correo electrónico personal <span className="text-red-500">*</span>
+            </label>
             <input
               type="email"
+              required
+              autoComplete="email"
+              placeholder="ejemplo@gmail.com"
               className={inputClass}
               value={datos.correo}
               onChange={(e) => setCampo("correo", e.target.value)}
@@ -86,16 +92,19 @@ export default function CajeroFichaFormFields({ datos, setCampo }: CajeroFichaFo
             <input className={inputClass} value={datos.celular} onChange={(e) => setCampo("celular", e.target.value)} />
           </div>
           <div>
-            <label className={labelClass}>Teléfono fijo (opcional)</label>
-            <input
-              className={inputClass}
-              value={datos.telefonoFijo}
-              onChange={(e) => setCampo("telefonoFijo", e.target.value)}
-            />
-          </div>
-          <div>
             <label className={labelClass}>Ciudad</label>
-            <input className={inputClass} value={datos.ciudad} onChange={(e) => setCampo("ciudad", e.target.value)} />
+            <select
+              className={selectClass}
+              value={datos.ciudad}
+              onChange={(e) => setCampo("ciudad", e.target.value)}
+            >
+              <option value="">Selecciona ciudad</option>
+              {opcionesCiudadColombia(datos.ciudad).map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
           </div>
           <div className="sm:col-span-2">
             <label className={labelClass}>Dirección de residencia</label>

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { PosPerfilOrganizacionDatos } from "@/types/pos-perfil-organizacion";
 import { emptyPosPerfilOrganizacion } from "@/types/pos-perfil-organizacion";
+import { opcionesCiudadColombia } from "@/constants/ciudades-colombia";
 import { loadPosPerfilOrganizacionFromFirestore, persistPosPerfilOrganizacion } from "@/lib/pos-user-firestore";
 
 function CollapsibleSection({
@@ -57,18 +58,6 @@ const TIPOS_IDENTIFICACION = [
   "Cédula de extranjería",
   "Pasaporte",
   "Tarjeta de identidad",
-];
-
-const CIUDADES_CO = [
-  "Puerto Asís",
-  "Bogotá D.C.",
-  "Medellín",
-  "Cali",
-  "Barranquilla",
-  "Cartagena",
-  "Bucaramanga",
-  "Pereira",
-  "Manizales",
 ];
 
 const REGIMEN_IVA = [
@@ -417,7 +406,7 @@ export default function PerfilOrganizacionForm({ uid, onVolver }: PerfilOrganiza
         >
           <FieldRow label="Ciudad">
             <select className={selectClass} value={ciudad} onChange={(e) => setCiudad(e.target.value)}>
-              {CIUDADES_CO.map((c) => (
+              {opcionesCiudadColombia(ciudad).map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>

@@ -25,6 +25,17 @@ body {
   }
 }
 
+/* Brillo suave — popup anuncios POS */
+@keyframes shimmer {
+  0%,
+  100% {
+    transform: translateX(-120%);
+  }
+  50% {
+    transform: translateX(120%);
+  }
+}
+
 /* Confeti — celebración cargue inventario (CargueCelebracionExito) */
 @keyframes cargue-celebracion-fall {
   0% {
@@ -279,5 +290,83 @@ body {
     animation: none !important;
     opacity: 0 !important;
     transform: none !important;
+  }
+}
+
+@keyframes registro-exito-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes registro-exito-check-pop {
+  0% {
+    transform: scale(0) rotate(-12deg);
+  }
+  55% {
+    transform: scale(1.12) rotate(4deg);
+  }
+  100% {
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes registro-exito-glow {
+  0%,
+  100% {
+    opacity: 0.45;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.08);
+  }
+}
+
+@keyframes registro-exito-sparkle {
+  0%,
+  100% {
+    opacity: 0.2;
+    transform: scale(0.85) translateY(0);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1) translateY(-6px);
+  }
+}
+
+.registro-exito-card {
+  animation: registro-exito-card-in 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.registro-exito-check {
+  animation: registro-exito-check-pop 0.7s cubic-bezier(0.34, 1.56, 0.64, 1) 0.15s both;
+}
+
+.registro-exito-glow {
+  animation: registro-exito-glow 2.8s ease-in-out infinite;
+}
+
+.registro-exito-sparkle {
+  animation: registro-exito-sparkle 2.2s ease-in-out infinite;
+}
+
+.registro-exito-sparkle-delay {
+  animation: registro-exito-sparkle 2.2s ease-in-out infinite;
+  animation-delay: 0.5s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .registro-exito-card,
+  .registro-exito-check,
+  .registro-exito-glow,
+  .registro-exito-sparkle,
+  .registro-exito-sparkle-delay {
+    animation: none !important;
   }
 }
