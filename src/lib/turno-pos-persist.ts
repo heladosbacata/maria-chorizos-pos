@@ -10,6 +10,7 @@ export interface CajeroTurnoPersistido {
   id: string;
   nombreDisplay: string;
   documento: string;
+  tipoDocumento: string;
 }
 
 export interface TurnoPersistidoV1 {
@@ -63,6 +64,7 @@ export function leerTurnoPersistido(uid: string, puntoVenta: string): TurnoPersi
         id: cr.id,
         nombreDisplay: cr.nombreDisplay,
         documento: cr.documento,
+        tipoDocumento: typeof cr.tipoDocumento === "string" ? cr.tipoDocumento : "",
       },
       totalVentasEnTurno: num("totalVentasEnTurno"),
       totalIngresoEfectivo: num("totalIngresoEfectivo"),
