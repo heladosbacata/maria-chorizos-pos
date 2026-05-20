@@ -11,10 +11,14 @@ import {
 import type { CajeroFichaDatos } from "@/types/pos-perfil-cajero";
 import { emptyCajeroFicha } from "@/types/pos-perfil-cajero";
 
+export type CajeroIdentificacionMotivo = "arranque" | "periodica";
+
 export interface CajeroIdentificacionGateModalProps {
   open: boolean;
   puntoVenta: string;
   uidSesion: string;
+  /** `arranque`: carga/F5 del POS. `periodica`: revalidación cada hora en sesión. */
+  motivo?: CajeroIdentificacionMotivo;
   onIdentificado: (cajero: CajeroTurnoDoc) => void;
 }
 
@@ -24,6 +28,7 @@ export default function CajeroIdentificacionGateModal({
   open,
   puntoVenta,
   uidSesion,
+  motivo = "arranque",
   onIdentificado,
 }: CajeroIdentificacionGateModalProps) {
   const [paso, setPaso] = useState<Paso>("documento");
@@ -161,21 +166,39 @@ export default function CajeroIdentificacionGateModal({
                 ? "Registrar operador — primera vez"
                 : paso === "aviso_primera_vez"
                   ? "Registro obligatorio"
-                  : "Identificación para usar el POS"}
+                  : motivo === "periodica" && paso === "documento"
+                    ? "Validación de identidad"
+                    : "Identificación para usar el POS"}
             </h2>
             <p className="mt-1 text-sm text-gray-600">
               Punto de venta: <strong className="text-gray-900">{puntoVenta}</strong>
             </p>
-            {paso === "documento" ? (
+            {paso === "documento" && motivo === "periodica" ? (
+              <div
+                className="mt-3 rounded-xl border-2 border-amber-300 bg-amber-50 px-4 py-3.5"
+                role="status"
+              >
+                <p className="text-sm font-semibold leading-snug text-amber-950">
+                  Necesitamos validar tu identidad. Por favor digita tu número de documento para continuar vendiendo.
+                </p>
+              </div>
+            ) : null}
+            {paso === "documento" && motivo === "arranque" ? (
               <p className="mt-2 text-xs text-gray-500">
-                Protocolo de seguridad: cada vez que abrís o recargás el POS (F5) ingresá tu documento. Si ya estás
-                registrado y activo en este punto, continuás de inmediato. La primera vez debés completar tus datos.
+                Protocolo de seguridad: cada vez que abrís o recargás el POS (F5) ingresá tu documento. Cada hora en
+                sesión volveremos a pedir tu documento para seguir vendiendo. Si ya estás registrado y activo en este
+                punto, continuás de inmediato. La primera vez debés completar tus datos.
               </p>
             ) : null}
           </div>
         ) : null}
 
         <div className={`flex-1 overflow-y-auto ${paso === "exito_registro" ? "px-6 py-8" : "px-6 py-5"}`}>
+          {paso === "documento" && motivo === "periodica" ? (
+            <p className="mb-3 text-xs text-gray-500">
+              Validación programada cada hora. No podés cobrar ni registrar ventas hasta confirmar tu documento.
+            </p>
+          ) : null}
           {paso === "documento" && (
             <div className="space-y-4">
               <div>
@@ -209,7 +232,8 @@ export default function CajeroIdentificacionGateModal({
               <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-950">
                 El documento <strong>{documentoInput.trim()}</strong> corresponde a{" "}
                 <strong>{nombreDisplayCajeroTurno(cajeroInactivo.ficha)}</strong>, pero el cajero está{" "}
-                <strong>inactivo</strong>. Pide al administrador que lo reactive en Espacio Franquiciado → Cajeros de
+                <strong>inactivo</strong>. Pide al administrador que lo reactive en el WMS (Facturación GEB → Cajeros a
+                nivel nacional) o en Espacio Franquiciado → Cajeros de
                 turno.
               </p>
               <button

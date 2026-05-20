@@ -12,6 +12,28 @@ function baseRoot(): string {
 
 const BACKOFF_MS = [250, 700, 1600];
 
+export type WmsTurnoCajeroPayload = {
+  cajeroTurnoId: string;
+  cajeroNombre: string;
+  cajeroDocumento?: string;
+  turnoSesionId?: string;
+};
+
+export function wmsTurnoCajeroPayload(
+  cajero: { id: string; nombreDisplay: string; documento?: string },
+  turnoSesionId?: string | null
+): WmsTurnoCajeroPayload {
+  const out: WmsTurnoCajeroPayload = {
+    cajeroTurnoId: cajero.id.trim(),
+    cajeroNombre: cajero.nombreDisplay.trim(),
+  };
+  const doc = cajero.documento?.trim();
+  if (doc) out.cajeroDocumento = doc;
+  const sid = turnoSesionId?.trim();
+  if (sid) out.turnoSesionId = sid;
+  return out;
+}
+
 export type WmsTurnosAbrirResult =
   | { ok: true; yaAbierto?: boolean; turnoId?: string; message?: string }
   | { ok: false; error: string };
@@ -21,11 +43,16 @@ export type WmsTurnosAbrirResult =
  */
 export async function wmsTurnosAbrir(
   idToken: string,
-  opts: { uen?: string }
+  opts: { uen?: string } & Partial<WmsTurnoCajeroPayload>
 ): Promise<WmsTurnosAbrirResult> {
   const t = idToken?.trim();
   if (!t) return { ok: false, error: "Sin sesión (token vacío)." };
   const uen = (opts.uen ?? UEN_DEFAULT).trim() || UEN_DEFAULT;
+  const body: Record<string, string> = { uen };
+  if (opts.cajeroTurnoId?.trim()) body.cajeroTurnoId = opts.cajeroTurnoId.trim();
+  if (opts.cajeroNombre?.trim()) body.cajeroNombre = opts.cajeroNombre.trim();
+  if (opts.cajeroDocumento?.trim()) body.cajeroDocumento = opts.cajeroDocumento.trim();
+  if (opts.turnoSesionId?.trim()) body.turnoSesionId = opts.turnoSesionId.trim();
   try {
     const res = await fetch(`${baseRoot()}/api/pos/turnos/abrir`, {
       method: "POST",
@@ -33,7 +60,7 @@ export async function wmsTurnosAbrir(
         Authorization: `Bearer ${t}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ uen }),
+      body: JSON.stringify(body),
     });
     const data = (await res.json().catch(() => ({}))) as {
       ok?: boolean;
@@ -65,15 +92,23 @@ export async function wmsTurnosAbrir(
 /**
  * POST /api/pos/turnos/sincronizar — reintentos con backoff; fallos finales solo consola (no bloquea cobro).
  */
-export async function wmsTurnosSincronizarSilent(idToken: string, totalVenta: number): Promise<void> {
+export async function wmsTurnosSincronizarSilent(
+  idToken: string,
+  totalVenta: number,
+  cajero?: WmsTurnoCajeroPayload | null
+): Promise<void> {
   const t = idToken?.trim();
   if (!t) {
     console.warn("[wms-turnos] sincronizar: sin token");
     return;
   }
-  const body = JSON.stringify({
+  const body: Record<string, string | number> = {
     totalVenta: Math.round(Math.max(0, Number(totalVenta) || 0) * 100) / 100,
-  });
+  };
+  if (cajero?.cajeroTurnoId?.trim()) body.cajeroTurnoId = cajero.cajeroTurnoId.trim();
+  if (cajero?.cajeroNombre?.trim()) body.cajeroNombre = cajero.cajeroNombre.trim();
+  if (cajero?.cajeroDocumento?.trim()) body.cajeroDocumento = cajero.cajeroDocumento.trim();
+  if (cajero?.turnoSesionId?.trim()) body.turnoSesionId = cajero.turnoSesionId.trim();
   const url = `${baseRoot()}/api/pos/turnos/sincronizar`;
 
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -84,7 +119,7 @@ export async function wmsTurnosSincronizarSilent(idToken: string, totalVenta: nu
           Authorization: `Bearer ${t}`,
           "Content-Type": "application/json",
         },
-        body,
+        body: JSON.stringify(body),
       });
       const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
       if (res.ok && data.ok === true) return;

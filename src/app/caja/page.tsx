@@ -4,7 +4,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import CajeroIdentificacionGateModal from "@/components/CajeroIdentificacionGateModal";
+import CajeroIdentificacionGateModal, {
+  type CajeroIdentificacionMotivo,
+} from "@/components/CajeroIdentificacionGateModal";
 import CajeroReportesDashboard from "@/components/CajeroReportesDashboard";
 import MetasBonificacionesModule from "@/components/MetasBonificacionesModule";
 import { MetasRetosCajaProvider } from "@/components/MetasRetosCajaProvider";
@@ -135,9 +137,11 @@ import {
   mensajeErrorVentaParaUsuario,
 } from "@/lib/enviar-venta";
 import {
+  wmsTurnoCajeroPayload,
   wmsTurnosAbrir,
   wmsTurnosCerrar,
   wmsTurnosSincronizarSilent,
+  type WmsTurnoCajeroPayload,
 } from "@/lib/wms-turnos-client";
 import { wmsPosAlegraEmitirCobro } from "@/lib/wms-pos-dian-client";
 import {
@@ -320,6 +324,10 @@ type ModuloActivo =
 
 type TipoComprobante = TipoComprobanteVenta;
 
+/** Revalidación de documento del cajero cada hora en la misma sesión (sin F5). */
+const IDENTIFICACION_CAJERO_CADA_MS = 60 * 60 * 1000;
+const IDENTIFICACION_CAJERO_REVISAR_MS = 60 * 1000;
+
 export default function CajaPage() {
   const { user, signOut, loading } = useAuth();
   const router = useRouter();
@@ -330,27 +338,6 @@ export default function CajaPage() {
       router.replace("/");
     }
   }, [loading, user, router]);
-
-  /** Cada carga o recarga (F5) de /caja exige identificación (solo en memoria hasta el próximo F5). */
-  useEffect(() => {
-    if (loading || !user) return;
-    if (identificacionArranqueHechoRef.current) return;
-    identificacionArranqueHechoRef.current = true;
-    if (esContadorInvitado(user.role)) {
-      setIdentificacionInicializada(true);
-      setModalIdentificacionCajero(false);
-      return;
-    }
-    const pv = user.puntoVenta?.trim();
-    if (!pv) {
-      setIdentificacionInicializada(true);
-      setModalIdentificacionCajero(false);
-      return;
-    }
-    setCajeroIdentificado(null);
-    setModalIdentificacionCajero(true);
-    setIdentificacionInicializada(true);
-  }, [loading, user]);
 
   /** Reintenta ventas que quedaron fuera del WMS por red (cola local) y descuentos ensamble pendientes. */
   useEffect(() => {
@@ -408,8 +395,11 @@ export default function CajaPage() {
   /** Validación por documento al cargar / actualizar el POS (no aplica a contador invitado). */
   const [cajeroIdentificado, setCajeroIdentificado] = useState<CajeroTurnoDoc | null>(null);
   const [modalIdentificacionCajero, setModalIdentificacionCajero] = useState(false);
+  const [motivoIdentificacionCajero, setMotivoIdentificacionCajero] =
+    useState<CajeroIdentificacionMotivo>("arranque");
   const [identificacionInicializada, setIdentificacionInicializada] = useState(false);
   const identificacionArranqueHechoRef = useRef(false);
+  const ultimaIdentificacionCajeroEnRef = useRef<number | null>(null);
   const [showModalClaveMas, setShowModalClaveMas] = useState(false);
   const [inputClaveMas, setInputClaveMas] = useState("");
   const [mostrarClaveMasEnClaro, setMostrarClaveMasEnClaro] = useState(false);
@@ -432,6 +422,55 @@ export default function CajaPage() {
     if (!user) return;
     setFotoPerfil(readCajeroFotoDataUrl(user.uid, cajeroFirestoreIdPerfil));
   }, [user?.uid, cajeroFirestoreIdPerfil]);
+
+  /** Cada carga o recarga (F5) de /caja exige identificación (solo en memoria hasta el próximo F5). */
+  useEffect(() => {
+    if (loading || !user) return;
+    if (identificacionArranqueHechoRef.current) return;
+    identificacionArranqueHechoRef.current = true;
+    if (esContadorInvitado(user.role)) {
+      setIdentificacionInicializada(true);
+      setModalIdentificacionCajero(false);
+      return;
+    }
+    const pv = user.puntoVenta?.trim();
+    if (!pv) {
+      setIdentificacionInicializada(true);
+      setModalIdentificacionCajero(false);
+      return;
+    }
+    setMotivoIdentificacionCajero("arranque");
+    setCajeroIdentificado(null);
+    setModalIdentificacionCajero(true);
+    setIdentificacionInicializada(true);
+  }, [loading, user]);
+
+  /** Cada hora en sesión vuelve a exigir documento antes de seguir vendiendo. */
+  useEffect(() => {
+    if (loading || !user) return;
+    if (esContadorInvitado(user.role)) return;
+    if (!user.puntoVenta?.trim()) return;
+
+    const solicitarRevalidacion = () => {
+      const ultima = ultimaIdentificacionCajeroEnRef.current;
+      if (ultima == null) return;
+      if (modalIdentificacionCajero) return;
+      if (Date.now() - ultima < IDENTIFICACION_CAJERO_CADA_MS) return;
+      setMotivoIdentificacionCajero("periodica");
+      setModalIdentificacionCajero(true);
+    };
+
+    solicitarRevalidacion();
+    const id = window.setInterval(solicitarRevalidacion, IDENTIFICACION_CAJERO_REVISAR_MS);
+    const onVis = () => {
+      if (document.visibilityState === "visible") solicitarRevalidacion();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [loading, user, modalIdentificacionCajero]);
 
   const esUsuarioContadorGeb = Boolean(user && esContadorInvitado(user.role));
   const pasosTutorialPosGeb = useMemo(
@@ -2467,9 +2506,12 @@ export default function CajaPage() {
       {!esContador && user.puntoVenta?.trim() ? (
         <CajeroIdentificacionGateModal
           open={modalIdentificacionCajero}
+          motivo={motivoIdentificacionCajero}
           puntoVenta={user.puntoVenta.trim()}
           uidSesion={user.uid}
           onIdentificado={(cajero) => {
+            ultimaIdentificacionCajeroEnRef.current = Date.now();
+            setMotivoIdentificacionCajero("arranque");
             setCajeroIdentificado(cajero);
             setModalIdentificacionCajero(false);
           }}
