@@ -20,6 +20,8 @@ export interface CajeroIdentificacionGateModalProps {
   /** `arranque`: carga/F5 del POS. `periodica`: revalidación cada hora en sesión. */
   motivo?: CajeroIdentificacionMotivo;
   onIdentificado: (cajero: CajeroTurnoDoc) => void;
+  /** Salir del POS (cuenta franquiciado) sin validar documento. */
+  onCerrarSesion?: () => void | Promise<void>;
 }
 
 type Paso = "documento" | "aviso_primera_vez" | "registro" | "exito_registro" | "inactivo";
@@ -30,6 +32,7 @@ export default function CajeroIdentificacionGateModal({
   uidSesion,
   motivo = "arranque",
   onIdentificado,
+  onCerrarSesion,
 }: CajeroIdentificacionGateModalProps) {
   const [paso, setPaso] = useState<Paso>("documento");
   const [documentoInput, setDocumentoInput] = useState("");
@@ -345,19 +348,20 @@ export default function CajeroIdentificacionGateModal({
         </div>
 
         <div
-          className={`flex flex-wrap gap-3 px-6 py-4 ${
+          className={`flex flex-col gap-3 px-6 py-4 ${
             paso === "exito_registro"
               ? "border-t border-emerald-100/80 bg-white/60"
               : "border-t border-gray-200 bg-gray-50"
           }`}
         >
+          <div className="flex flex-wrap gap-3">
           {paso === "documento" && (
             <>
               <button
                 type="button"
                 disabled={buscando}
                 onClick={() => void validarDocumento()}
-                className="flex-1 rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                className="min-w-0 flex-1 rounded-lg bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
               >
                 {buscando ? "Validando…" : "Continuar"}
               </button>
@@ -430,6 +434,25 @@ export default function CajeroIdentificacionGateModal({
             >
               ¡Entrar al POS!
               <span aria-hidden>→</span>
+            </button>
+          ) : null}
+          </div>
+          {onCerrarSesion ? (
+            <button
+              type="button"
+              disabled={buscando || guardando}
+              onClick={() => void onCerrarSesion()}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-red-200 bg-white py-2.5 text-sm font-semibold text-red-600 transition hover:bg-red-50 disabled:opacity-50"
+            >
+              <svg className="h-5 w-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
+                />
+              </svg>
+              Cerrar sesión
             </button>
           ) : null}
         </div>

@@ -1,6 +1,6 @@
 import { getFirestore } from "firebase-admin/firestore";
 import { getFirebaseAdminApp } from "@/lib/firebase-admin-server";
-import { puntoVentaFirestoreClave as normPv } from "@/lib/pos-domicilios-pv-clave";
+import { pedidoIdChatClave, puntoVentaFirestoreClave as normPv } from "@/lib/pos-domicilios-pv-clave";
 import { buildPedidosSemillaDomicilios } from "@/lib/pos-domicilios-seed";
 import { getMensajesChatMemory, appendMensajeChatMemory } from "@/lib/pos-domicilios-chat-memory-store";
 import { getPedidosMemory, setPedidosMemory } from "@/lib/pos-domicilios-memory-store";
@@ -20,7 +20,7 @@ function pedidoDocId(puntoVenta: string, pedidoId: string): string {
 }
 
 function chatKey(puntoVenta: string, pedidoId: string): string {
-  return `${normPv(puntoVenta)}::${pedidoId.trim().toUpperCase()}`;
+  return `${normPv(puntoVenta)}::${pedidoIdChatClave(pedidoId)}`;
 }
 
 function buildIdPrefijo(prefix: string): string {
@@ -111,8 +111,11 @@ function pedidoFromPayload(payload: DomicilioCrearPayload, id: string): PedidoDo
 
 const MAX_ADJUNTO_CHAT_CHARS = 290_000;
 
-function toChat(raw: Record<string, unknown>): MensajeChatDomicilio | null {
-  const id = typeof raw.id === "string" ? raw.id.trim() : "";
+function toChat(raw: Record<string, unknown>, docIdFallback?: string): MensajeChatDomicilio | null {
+  const id =
+    (typeof raw.id === "string" && raw.id.trim()) ||
+    (typeof docIdFallback === "string" && docIdFallback.trim()) ||
+    "";
   const puntoVenta = typeof raw.puntoVenta === "string" ? raw.puntoVenta.trim() : "";
   const pedidoId = typeof raw.pedidoId === "string" ? raw.pedidoId.trim() : "";
   const autorRaw = typeof raw.autor === "string" ? raw.autor.trim().toLowerCase() : "";
@@ -268,17 +271,27 @@ export async function actualizarEstadoPedidoPersistente(params: {
 
 export async function listarMensajesChatPersistente(puntoVenta: string, pedidoId: string): Promise<MensajeChatDomicilio[]> {
   const pv = puntoVenta.trim();
-  const pid = pedidoId.trim();
+  const pid = pedidoIdChatClave(pedidoId);
   if (!pv || !pid) return [];
   const app = getFirebaseAdminApp();
   if (!app) return getMensajesChatMemory(pv, pid);
   const db = getFirestore(app);
   const key = chatKey(pv, pid);
-  const snaps = await db.collection(COLL_CHAT).where("chatKey", "==", key).get();
+  let snaps = await db.collection(COLL_CHAT).where("chatKey", "==", key).get();
+  if (snaps.empty) {
+    snaps = await db
+      .collection(COLL_CHAT)
+      .where("puntoVenta", "==", pv)
+      .where("pedidoId", "==", pid)
+      .get();
+  }
   const out: MensajeChatDomicilio[] = [];
+  const vistos = new Set<string>();
   for (const doc of snaps.docs) {
-    const m = toChat(doc.data() as Record<string, unknown>);
-    if (m) out.push(m);
+    const m = toChat(doc.data() as Record<string, unknown>, doc.id);
+    if (!m || vistos.has(m.id)) continue;
+    vistos.add(m.id);
+    out.push(m);
   }
   out.sort((a, b) => new Date(a.creadoEnIso).getTime() - new Date(b.creadoEnIso).getTime());
   return out;
@@ -286,7 +299,7 @@ export async function listarMensajesChatPersistente(puntoVenta: string, pedidoId
 
 export async function enviarMensajeChatPersistente(payload: ChatDomicilioEnviarPayload): Promise<MensajeChatDomicilio | null> {
   const pv = payload.puntoVenta.trim();
-  const pid = payload.pedidoId.trim();
+  const pid = pedidoIdChatClave(payload.pedidoId);
   const adjuntoRaw = typeof payload.adjuntoDataUrl === "string" ? payload.adjuntoDataUrl.trim() : "";
   const adjuntoDataUrl =
     adjuntoRaw &&

@@ -2,7 +2,8 @@
 
 import Image from "next/image";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+import { pedidoIdChatClave } from "@/lib/pos-domicilios-pv-clave";
 import { getCatalogoPOS } from "@/lib/catalogo-pos";
 import { DEFAULT_COSTO_DOMICILIO_COP, DEFAULT_UMBRAL_GRATIS_COP } from "@/lib/pos-domicilios-tarifa-defaults";
 import { estaEnVentanaHoraria, textoHorarioAtencionCliente } from "@/lib/pos-domicilios-horario";
@@ -448,8 +449,10 @@ function porcentajeProgresoDomicilioGratis(subtotal: number, metaGratisCop: numb
 }
 
 function PedidosLandingClient() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const puntoVenta = (searchParams?.get("puntoVenta") ?? "Punto Demo App").trim();
+  const pedidoIdEnUrl = pedidoIdChatClave(searchParams?.get("pedidoId") ?? "");
   const canalQuery = (searchParams?.get("canal") ?? "web").trim().toLowerCase();
   const canal: CanalPedido = canalQuery === "qr" ? "qr" : "web";
 
@@ -516,6 +519,24 @@ function PedidosLandingClient() {
   const [tickHorarioRecepcion, setTickHorarioRecepcion] = useState(0);
 
   const vapidPublicPedidos = useMemo(() => process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim() ?? "", []);
+
+  const sincronizarPedidoEnUrl = useCallback(
+    (pedidoId: string | null) => {
+      if (typeof window === "undefined") return;
+      const params = new URLSearchParams(window.location.search);
+      if (pedidoId) params.set("pedidoId", pedidoIdChatClave(pedidoId));
+      else params.delete("pedidoId");
+      const qs = params.toString();
+      router.replace(qs ? `/pedidos?${qs}` : "/pedidos", { scroll: false });
+    },
+    [router]
+  );
+
+  useEffect(() => {
+    if (!pedidoIdEnUrl) return;
+    setPedidoCreadoId((prev) => (prev === pedidoIdEnUrl ? prev : pedidoIdEnUrl));
+    setChatVista((v) => (v === "cerrado" ? "minimizado" : v));
+  }, [pedidoIdEnUrl]);
 
   useEffect(() => {
     setPushPedidosNavOk(pedidosPushSoportadoEnEsteNavegador());
@@ -944,7 +965,9 @@ function PedidosLandingClient() {
         tipoEntrega,
         puntoVenta,
       });
-      setPedidoCreadoId(json.pedido?.id ?? null);
+      const nuevoId = json.pedido?.id ? pedidoIdChatClave(json.pedido.id) : null;
+      setPedidoCreadoId(nuevoId);
+      if (nuevoId) sincronizarPedidoEnUrl(nuevoId);
       setPedidoCreadoEnIso(new Date().toISOString());
       setEtiquetaClienteChat(cliente.trim() || "Cliente");
       setChatVista("expandido");
@@ -1038,7 +1061,7 @@ function PedidosLandingClient() {
     void cargar(false);
     const timer = window.setInterval(() => {
       void cargar(true);
-    }, 2500);
+    }, 2000);
     return () => {
       activo = false;
       window.clearInterval(timer);
@@ -1178,6 +1201,9 @@ function PedidosLandingClient() {
       return;
     }
     setChatTexto("");
+    if (resp.mensaje) {
+      setChatMensajes((prev) => (prev.some((m) => m.id === resp.mensaje!.id) ? prev : [...prev, resp.mensaje!]));
+    }
     const refresh = await listarMensajesChatDomicilio(puntoVenta, pedidoCreadoId);
     if (refresh.ok) setChatMensajes(refresh.data);
     setChatEnviando(false);
@@ -1216,6 +1242,9 @@ function PedidosLandingClient() {
       return;
     }
     setChatTexto("");
+    if (resp.mensaje) {
+      setChatMensajes((prev) => (prev.some((m) => m.id === resp.mensaje!.id) ? prev : [...prev, resp.mensaje!]));
+    }
     const refresh = await listarMensajesChatDomicilio(puntoVenta, pedidoCreadoId);
     if (refresh.ok) setChatMensajes(refresh.data);
     setChatEnviando(false);

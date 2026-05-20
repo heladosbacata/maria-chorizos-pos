@@ -883,6 +883,9 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
       return;
     }
     setChatTextoPos("");
+    if (resp.mensaje) {
+      setChatMensajes((prev) => (prev.some((m) => m.id === resp.mensaje!.id) ? prev : [...prev, resp.mensaje!]));
+    }
     const refresh = await listarMensajesChatDomicilio(chatPedidoAbierto.puntoVenta, chatPedidoAbierto.id);
     if (refresh.ok) setChatMensajes(refresh.data);
     setChatEnviando(false);

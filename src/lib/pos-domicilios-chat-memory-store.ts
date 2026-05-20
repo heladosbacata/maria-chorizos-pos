@@ -1,11 +1,13 @@
+import { pedidoIdChatClave, puntoVentaFirestoreClave } from "@/lib/pos-domicilios-pv-clave";
 import type { MensajeChatDomicilio } from "@/types/pos-domicilios-chat";
 
 const globalForPos = globalThis as unknown as {
   __posDomiciliosChatStore__?: Map<string, MensajeChatDomicilio[]>;
 };
 
+/** Misma clave que Firestore (`chatKey`) para que GET y POST coincidan en dev sin Admin. */
 function keyChat(puntoVenta: string, pedidoId: string): string {
-  return `${puntoVenta.trim().toLowerCase()}::${pedidoId.trim().toUpperCase()}`;
+  return `${puntoVentaFirestoreClave(puntoVenta)}::${pedidoIdChatClave(pedidoId)}`;
 }
 
 function store(): Map<string, MensajeChatDomicilio[]> {

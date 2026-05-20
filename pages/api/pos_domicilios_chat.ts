@@ -1,6 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
+import { pedidoIdChatClave } from "@/lib/pos-domicilios-pv-clave";
 import { enviarMensajeChatPersistente, listarMensajesChatPersistente } from "@/lib/pos-domicilios-firestore-store";
-import { notificarNuevoMensajeChatPedidoDomicilioWebPush } from "@/lib/pos-domicilios-push-notify";
 import type {
   ChatDomicilioEnviarPayload,
   ChatDomicilioEnviarResponse,
@@ -52,7 +52,7 @@ export default async function handler(
 ) {
   if (req.method === "GET") {
     const puntoVenta = normalizarTexto(req.query.puntoVenta);
-    const pedidoId = normalizarTexto(req.query.pedidoId);
+    const pedidoId = pedidoIdChatClave(normalizarTexto(req.query.pedidoId));
     if (!puntoVenta || !pedidoId) {
       return res.status(400).json({ ok: false, data: [], message: "puntoVenta y pedidoId son obligatorios." });
     }
@@ -63,6 +63,8 @@ export default async function handler(
 
   if (req.method === "POST") {
     const payload = asBody(req.body);
+    payload.pedidoId = pedidoIdChatClave(payload.pedidoId);
+    payload.puntoVenta = payload.puntoVenta.trim();
     const adjunto = payload.adjuntoDataUrl?.trim() ?? "";
     if (adjunto.length > MAX_ADJUNTO_CHARS) {
       return res.status(400).json({
@@ -103,11 +105,15 @@ export default async function handler(
         mensaje.tipoMensaje === "imagen" || mensaje.tipoMensaje === "comprobante"
           ? "Te enviaron una imagen en el chat del pedido."
           : mensaje.texto;
-      void notificarNuevoMensajeChatPedidoDomicilioWebPush({
-        puntoVenta: payload.puntoVenta,
-        pedidoId: payload.pedidoId,
-        preview,
-      });
+      void import("@/lib/pos-domicilios-push-notify")
+        .then(({ notificarNuevoMensajeChatPedidoDomicilioWebPush }) =>
+          notificarNuevoMensajeChatPedidoDomicilioWebPush({
+            puntoVenta: payload.puntoVenta,
+            pedidoId: payload.pedidoId,
+            preview,
+          })
+        )
+        .catch((err) => console.warn("[pos_domicilios_chat] push:", err));
     }
     return res.status(200).json({ ok: true, mensaje, message: "Mensaje enviado." });
   }

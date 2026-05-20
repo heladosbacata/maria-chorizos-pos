@@ -1,9 +1,20 @@
-import webpush from "web-push";
 import type { EstadoDomicilio } from "@/types/pos-domicilios";
+import { pedidoIdChatClave } from "@/lib/pos-domicilios-pv-clave";
 import {
   eliminarSuscripcionPushPorDocId,
   listarSuscripcionesPushPorPedido,
 } from "@/lib/pos-domicilios-push-subscriptions";
+
+type WebPushModule = typeof import("web-push");
+
+async function webPushLib(): Promise<WebPushModule["default"] | null> {
+  try {
+    const mod = (await import("web-push")) as WebPushModule;
+    return mod.default;
+  } catch {
+    return null;
+  }
+}
 
 export function isWebPushDomiciliosConfigurado(): boolean {
   const pub = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim();
@@ -42,6 +53,8 @@ export async function notificarCambioEstadoPedidoDomicilioWebPush(params: {
   estado: EstadoDomicilio;
 }): Promise<void> {
   if (!isWebPushDomiciliosConfigurado()) return;
+  const webpush = await webPushLib();
+  if (!webpush) return;
 
   const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!.trim();
   const privateKey = process.env.VAPID_PRIVATE_KEY!.trim();
@@ -51,7 +64,10 @@ export async function notificarCambioEstadoPedidoDomicilioWebPush(params: {
 
   const titulo = "Maria Chorizos — tu pedido";
   const body = cuerpoNotificacionEstado(params.estado);
-  const qs = new URLSearchParams({ puntoVenta: params.puntoVenta.trim() }).toString();
+  const qs = new URLSearchParams({
+    puntoVenta: params.puntoVenta.trim(),
+    pedidoId: pedidoIdChatClave(params.pedidoId),
+  }).toString();
   const url = `/pedidos?${qs}`;
   const payload = JSON.stringify({ title: titulo, body, url });
 
@@ -82,6 +98,8 @@ export async function notificarNuevoMensajeChatPedidoDomicilioWebPush(params: {
   preview: string;
 }): Promise<void> {
   if (!isWebPushDomiciliosConfigurado()) return;
+  const webpush = await webPushLib();
+  if (!webpush) return;
 
   const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!.trim();
   const privateKey = process.env.VAPID_PRIVATE_KEY!.trim();
@@ -92,7 +110,10 @@ export async function notificarNuevoMensajeChatPedidoDomicilioWebPush(params: {
   const titulo = "Maria Chorizos — mensaje del local";
   const body =
     params.preview.trim().slice(0, 180) || "Tenés un mensaje nuevo sobre tu pedido. Abrí el chat para leerlo.";
-  const qs = new URLSearchParams({ puntoVenta: params.puntoVenta.trim() }).toString();
+  const qs = new URLSearchParams({
+    puntoVenta: params.puntoVenta.trim(),
+    pedidoId: pedidoIdChatClave(params.pedidoId),
+  }).toString();
   const url = `/pedidos?${qs}`;
   const payload = JSON.stringify({
     title: titulo,

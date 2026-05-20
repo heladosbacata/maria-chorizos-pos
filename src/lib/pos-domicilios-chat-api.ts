@@ -1,9 +1,18 @@
+import { pedidoIdChatClave } from "@/lib/pos-domicilios-pv-clave";
 import type {
   ChatDomicilioEnviarPayload,
   ChatDomicilioEnviarResponse,
   ChatDomicilioListadoResponse,
   MensajeChatDomicilio,
 } from "@/types/pos-domicilios-chat";
+
+function normalizarPayloadChat(payload: ChatDomicilioEnviarPayload): ChatDomicilioEnviarPayload {
+  return {
+    ...payload,
+    puntoVenta: payload.puntoVenta.trim(),
+    pedidoId: pedidoIdChatClave(payload.pedidoId),
+  };
+}
 
 async function parseJsonSafe(res: Response): Promise<unknown> {
   return res.json().catch(() => ({}));
@@ -14,7 +23,7 @@ export async function listarMensajesChatDomicilio(
   pedidoId: string
 ): Promise<ChatDomicilioListadoResponse> {
   const pv = puntoVenta.trim();
-  const pid = pedidoId.trim();
+  const pid = pedidoIdChatClave(pedidoId);
   if (!pv || !pid) return { ok: false, data: [], message: "puntoVenta y pedidoId son obligatorios." };
   try {
     const url = `/api/pos_domicilios_chat?${new URLSearchParams({ puntoVenta: pv, pedidoId: pid }).toString()}`;
@@ -24,7 +33,14 @@ export async function listarMensajesChatDomicilio(
       json && typeof json === "object" && "data" in json && Array.isArray((json as { data: unknown }).data)
         ? ((json as { data: MensajeChatDomicilio[] }).data ?? [])
         : [];
-    if (!res.ok) return { ok: false, data: [], message: "No fue posible cargar el chat." };
+    const bodyOk = json && typeof json === "object" && (json as { ok?: boolean }).ok !== false;
+    if (!res.ok || !bodyOk) {
+      const msg =
+        json && typeof json === "object" && typeof (json as { message?: unknown }).message === "string"
+          ? (json as { message: string }).message
+          : "No fue posible cargar el chat.";
+      return { ok: false, data: [], message: msg };
+    }
     return { ok: true, data };
   } catch {
     return { ok: false, data: [], message: "No fue posible cargar el chat." };
@@ -34,9 +50,10 @@ export async function listarMensajesChatDomicilio(
 const MAX_ADJUNTO_CHARS = 290_000;
 
 export async function enviarMensajeChatDomicilio(payload: ChatDomicilioEnviarPayload): Promise<ChatDomicilioEnviarResponse> {
-  const adj = payload.adjuntoDataUrl?.trim() ?? "";
-  const textoTrim = payload.texto.trim();
-  if (!payload.puntoVenta.trim() || !payload.pedidoId.trim()) {
+  const body = normalizarPayloadChat(payload);
+  const adj = body.adjuntoDataUrl?.trim() ?? "";
+  const textoTrim = body.texto.trim();
+  if (!body.puntoVenta || !body.pedidoId) {
     return { ok: false, message: "Mensaje inválido." };
   }
   if (!textoTrim && !adj) {
@@ -49,7 +66,7 @@ export async function enviarMensajeChatDomicilio(payload: ChatDomicilioEnviarPay
     const res = await fetch("/api/pos_domicilios_chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(body),
     });
     const json = await parseJsonSafe(res);
     if (!res.ok || (json && typeof json === "object" && "ok" in json && (json as { ok?: boolean }).ok === false)) {

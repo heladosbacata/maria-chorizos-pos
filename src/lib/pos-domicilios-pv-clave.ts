@@ -10,3 +10,8 @@ export function puntoVentaFirestoreClave(puntoVenta: string): string {
     .replace(/\\/g, "-")
     .replace(/\u0000/g, "");
 }
+
+/** Id de pedido normalizado para claves de chat (DOM-1234). */
+export function pedidoIdChatClave(pedidoId: string): string {
+  return pedidoId.trim().toUpperCase();
+}

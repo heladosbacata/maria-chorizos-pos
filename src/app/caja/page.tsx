@@ -2530,6 +2530,7 @@ export default function CajaPage() {
           motivo={motivoIdentificacionCajero}
           puntoVenta={user.puntoVenta.trim()}
           uidSesion={user.uid}
+          onCerrarSesion={handleCerrarSesion}
           onIdentificado={(cajero) => {
             ultimaIdentificacionCajeroEnRef.current = Date.now();
             setMotivoIdentificacionCajero("arranque");
