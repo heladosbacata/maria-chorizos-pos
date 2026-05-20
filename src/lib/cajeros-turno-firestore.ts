@@ -43,6 +43,26 @@ export function normalizarNumeroDocumentoCajero(doc: string): string {
   return doc.replace(/\D/g, "").trim();
 }
 
+function numeroDocumentoEsValido(doc: string): boolean {
+  const n = normalizarNumeroDocumentoCajero(doc);
+  return n.length >= 6 && n.length <= 15;
+}
+
+function digitosDocumentoFicha(ficha: CajeroFichaDatos): string[] {
+  const out: string[] = [];
+  for (const v of [ficha.numeroDocumento, ficha.celular, ficha.telefonoFijo]) {
+    const n = normalizarNumeroDocumentoCajero(String(v ?? ""));
+    if (numeroDocumentoEsValido(n) && !out.includes(n)) out.push(n);
+  }
+  return out;
+}
+
+function fichaCoincideDocumento(ficha: CajeroFichaDatos, numeroBusqueda: string): boolean {
+  const norm = normalizarNumeroDocumentoCajero(numeroBusqueda);
+  if (!norm) return false;
+  return digitosDocumentoFicha(ficha).includes(norm);
+}
+
 export function nombreDisplayCajeroTurno(ficha: CajeroFichaDatos): string {
   const n = `${ficha.nombres ?? ""} ${ficha.apellidos ?? ""}`.trim();
   if (n) return n;
@@ -178,9 +198,7 @@ function buscarCajeroLocalPorPuntoVenta(
 ): BusquedaCajeroPorDocumentoResult {
   const norm = normalizarNumeroDocumentoCajero(numeroDocumento);
   if (!norm) return { estado: "no_encontrado" };
-  const coincidencias = todos.filter(
-    (c) => normalizarNumeroDocumentoCajero(c.ficha.numeroDocumento ?? "") === norm
-  );
+  const coincidencias = todos.filter((c) => fichaCoincideDocumento(c.ficha, numeroDocumento));
   if (coincidencias.length === 0) return { estado: "no_encontrado" };
   const activo = coincidencias.find((c) => c.activo);
   if (activo) return { estado: "activo", cajero: activo };

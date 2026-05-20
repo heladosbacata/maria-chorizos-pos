@@ -64,7 +64,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     for (const doc of snap.docs) {
       const x = doc.data();
       const ficha = fichaFromFirestore(x.ficha);
-      if (normalizarDoc(String(ficha.numeroDocumento ?? "")) !== norm) continue;
+      const digitos = [
+        normalizarDoc(String(ficha.numeroDocumento ?? "")),
+        normalizarDoc(String(ficha.celular ?? "")),
+        normalizarDoc(String(ficha.telefonoFijo ?? "")),
+      ].filter((d) => d.length >= 6 && d.length <= 15);
+      if (!digitos.includes(norm)) continue;
       coincidencias.push({
         id: doc.id,
         puntoVenta: String(x.puntoVenta ?? "").trim(),
