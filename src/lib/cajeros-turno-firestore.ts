@@ -187,6 +187,19 @@ function buscarCajeroLocalPorPuntoVenta(
   return { estado: "inactivo", cajero: coincidencias[0]! };
 }
 
+/** Lista todo el catálogo nacional (requiere reglas Firestore de lectura para usuarios POS). */
+export async function listarCajerosTurnoNacionalCliente(): Promise<CajeroTurnoDoc[]> {
+  if (!db) return [];
+  try {
+    const snap = await getDocs(collection(db, POS_CAJEROS_TURNO_COLLECTION));
+    const out: CajeroTurnoDoc[] = [];
+    snap.forEach((d) => out.push(docToCajeroTurno(d)));
+    return out;
+  } catch {
+    return [];
+  }
+}
+
 /** Busca por documento en el catálogo nacional (cualquier punto de venta). */
 export async function buscarCajeroTurnoPorDocumento(
   puntoVenta: string,
@@ -195,11 +208,15 @@ export async function buscarCajeroTurnoPorDocumento(
   const norm = normalizarNumeroDocumentoCajero(numeroDocumento);
   if (!norm) return { estado: "no_encontrado" };
 
+  const posApi = await buscarCajeroViaPosApi(numeroDocumento);
+  if (posApi) return posApi;
+
   const wms = await buscarCajeroViaWmsApi(numeroDocumento);
   if (wms) return wms;
 
-  const localApi = await buscarCajeroViaPosApi(numeroDocumento);
-  if (localApi) return localApi;
+  const nacional = await listarCajerosTurnoNacionalCliente();
+  const desdeCliente = buscarCajeroLocalPorPuntoVenta(nacional, numeroDocumento);
+  if (desdeCliente.estado !== "no_encontrado") return desdeCliente;
 
   const todos = await listarCajerosTurnoPorPuntoVenta(puntoVenta);
   return buscarCajeroLocalPorPuntoVenta(todos, numeroDocumento);

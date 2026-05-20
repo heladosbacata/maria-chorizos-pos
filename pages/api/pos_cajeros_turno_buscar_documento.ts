@@ -36,9 +36,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(401).json({ ok: false, message: "Falta Authorization: Bearer." });
   }
 
-  const ctx = await getCreadorFirestoreContext(token);
+  const ctx = await getCreadorFirestoreContext(app, token);
   if (!ctx.ok) {
-    return res.status(ctx.status).json({ ok: false, message: ctx.message });
+    return res.status(401).json({ ok: false, message: ctx.message });
   }
 
   const body = (req.body ?? {}) as { numeroDocumento?: string };
