@@ -5,12 +5,11 @@ import {
   listarSuscripcionesPushPorPedido,
 } from "@/lib/pos-domicilios-push-subscriptions";
 
-type WebPushModule = typeof import("web-push");
+type WebPush = typeof import("web-push");
 
-async function webPushLib(): Promise<WebPushModule["default"] | null> {
+async function webPushLib(): Promise<WebPush | null> {
   try {
-    const mod = (await import("web-push")) as WebPushModule;
-    return mod.default;
+    return await import("web-push");
   } catch {
     return null;
   }
