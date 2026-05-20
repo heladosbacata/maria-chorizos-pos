@@ -554,6 +554,12 @@ export default function CajaPage() {
   const [abriendoTurnoWms, setAbriendoTurnoWms] = useState(false);
   const totalVentasEnTurnoRef = useRef(0);
   totalVentasEnTurnoRef.current = totalVentasEnTurno;
+  const cajeroWmsSyncRef = useRef<WmsTurnoCajeroPayload | null>(null);
+  useEffect(() => {
+    cajeroWmsSyncRef.current = cajeroTurnoActivo
+      ? wmsTurnoCajeroPayload(cajeroTurnoActivo, turnoSesionId)
+      : null;
+  }, [cajeroTurnoActivo, turnoSesionId]);
   /** Evita sobrescribir el cierre si el usuario editó con el modal abierto. */
   const cierreTurnoYaPrecargadoRef = useRef(false);
   /** Hubo snapshot de turno en localStorage al hidratar (alinear WMS una vez). */
@@ -748,7 +754,9 @@ export default function CajaPage() {
     if (!turnoHidratadoDesdeStorage) return;
     if (!restauradoDesdeLocalStorageRef.current) return;
     if (wmsAlineadoTrasRestauracionRef.current) return;
-    if (!turnoAbierto || !user?.puntoVenta?.trim() || esContadorInvitado(user.role)) return;
+    if (!turnoAbierto || !cajeroTurnoActivo || !user?.puntoVenta?.trim() || esContadorInvitado(user.role)) return;
+
+    const cajeroWms = wmsTurnoCajeroPayload(cajeroTurnoActivo, turnoSesionId);
 
     let cancelled = false;
     let settled = false;
@@ -761,7 +769,7 @@ export default function CajaPage() {
           wmsAlineadoTrasRestauracionRef.current = true;
           return;
         }
-        const r = await wmsTurnosAbrir(token, { uen: "Maria Chorizos" });
+        const r = await wmsTurnosAbrir(token, { uen: "Maria Chorizos", ...cajeroWms });
         if (cancelled) return;
         if (!r.ok) {
           console.warn("[POS] Turno restaurado desde este equipo: WMS abrir no disponible —", r.error);
@@ -769,7 +777,7 @@ export default function CajaPage() {
           wmsAlineadoTrasRestauracionRef.current = true;
           return;
         }
-        await wmsTurnosSincronizarSilent(token, totalVentasEnTurnoRef.current);
+        await wmsTurnosSincronizarSilent(token, totalVentasEnTurnoRef.current, cajeroWms);
         if (cancelled) return;
         settled = true;
         wmsAlineadoTrasRestauracionRef.current = true;
@@ -786,7 +794,7 @@ export default function CajaPage() {
       cancelled = true;
       if (!settled) wmsAlineadoTrasRestauracionRef.current = false;
     };
-  }, [turnoHidratadoDesdeStorage, turnoAbierto, user?.puntoVenta, user?.role]);
+  }, [turnoHidratadoDesdeStorage, turnoAbierto, cajeroTurnoActivo, turnoSesionId, user?.puntoVenta, user?.role]);
 
   /** Heartbeat de total de ventas del turno hacia el WMS (monitor en vivo). */
   useEffect(() => {
@@ -794,7 +802,7 @@ export default function CajaPage() {
     const id = window.setInterval(() => {
       void (async () => {
         const t = await auth?.currentUser?.getIdToken();
-        if (t) await wmsTurnosSincronizarSilent(t, totalVentasEnTurnoRef.current);
+        if (t) await wmsTurnosSincronizarSilent(t, totalVentasEnTurnoRef.current, cajeroWmsSyncRef.current);
       })();
     }, WMS_TURNO_SYNC_INTERVAL_MS);
     return () => window.clearInterval(id);
@@ -2333,7 +2341,9 @@ export default function CajaPage() {
         setErrorModalAbrirTurno("Sesión inválida. Volvé a iniciar sesión.");
         return;
       }
-      const rWms = await wmsTurnosAbrir(token, { uen: "Maria Chorizos" });
+      const sesionId = nuevoTurnoSesionId();
+      const cajeroWms = wmsTurnoCajeroPayload(cajeroNext, sesionId);
+      const rWms = await wmsTurnosAbrir(token, { uen: "Maria Chorizos", ...cajeroWms });
       if (!rWms.ok) {
         setErrorModalAbrirTurno(
           rWms.error ||
@@ -2354,10 +2364,10 @@ export default function CajaPage() {
       setPrecuentasEliminadasCount(0);
       setProductosEliminadosCount(0);
       setValorProductosEliminados(0);
-      setTurnoSesionId(nuevoTurnoSesionId());
+      setTurnoSesionId(sesionId);
       setShowModalAbrirTurno(false);
       setBaseInicialCajaInput("");
-      await wmsTurnosSincronizarSilent(token, 0);
+      await wmsTurnosSincronizarSilent(token, 0, cajeroWms);
     } finally {
       setAbriendoTurnoWms(false);
     }
@@ -4099,7 +4109,7 @@ export default function CajaPage() {
                   });
                   void (async () => {
                     const t = await auth?.currentUser?.getIdToken();
-                    if (t) await wmsTurnosSincronizarSilent(t, totalVentasEnTurnoRef.current);
+                    if (t) await wmsTurnosSincronizarSilent(t, totalVentasEnTurnoRef.current, cajeroWmsSyncRef.current);
                   })();
                 }
               }}
