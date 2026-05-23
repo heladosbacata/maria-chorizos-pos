@@ -60,8 +60,6 @@ import {
   type CajeroTurnoDoc,
 } from "@/lib/cajeros-turno-firestore";
 import { listarClientesPorPuntoVenta, nombreDisplayCliente } from "@/lib/clientes-pos-firestore";
-import { enriquecerTicketConInvitacionClubMillas } from "@/lib/club-millas-invitacion-ticket";
-import { enriquecerTicketConQrDomicilios } from "@/lib/domicilios-qr-ticket";
 import { loadImpresionPrefs } from "@/lib/impresion-pos-storage";
 import {
   imprimirTicketConQz,
@@ -130,8 +128,8 @@ import {
   type TipoMovimientoCaja,
 } from "@/lib/turno-movimientos-caja";
 import {
-  extraerCodigoQrClubDesdeTextoLeido,
-  generarQrTirillaClubMillas,
+  construirPayloadFidelizacionV1,
+  generarDataUrlQrFidelizacion,
 } from "@/lib/fidelizacion-qr";
 import {
   enviarReporteVenta,
@@ -175,15 +173,6 @@ import {
   combinarCcInformeCierreTurno,
   mensajeExitoMotivacionalInformeCierreTurno,
 } from "@/lib/cierre-turno-informe-correo-ui";
-import {
-  agregarCorreoInformeCierre,
-  alternarSeleccionCorreoInforme,
-  cargarCorreosInformeCierrePersistidos,
-  correosInformeSeleccionadosParaEnvio,
-  guardarCorreosInformeCierrePersistidos,
-  quitarCorreoInformeCierre,
-  type CorreosInformeCierrePersistidos,
-} from "@/lib/informe-cierre-correos-persistidos";
 import { emailDesdeFichaFranquiciado, getFranquiciadoPorPuntoVenta } from "@/lib/franquiciado-pos";
 import {
   clearPosGebOnboarding,
@@ -194,6 +183,7 @@ import {
 import { getPosGebTutorialSteps, type PosGebTutorialModulo } from "@/lib/pos-geb-tutorial-steps";
 
 const LS_INFORME_TURNO_PARA = "pos_mc_informe_turno_para_v1";
+const LS_INFORME_TURNO_CC = "pos_mc_informe_turno_cc_v1";
 /** Clave maestra para abrir «Espacio para franquiciados» (misma que PYG, inventario y contrato POS en el proyecto). */
 const ETIQUETA_ESPACIO_FRANQUICIADOS = "Espacio para franquiciados";
 const CLAVE_ACCESO_MAS = "MC2026";
@@ -388,12 +378,7 @@ export default function CajaPage() {
   const [showModalCierreTurno, setShowModalCierreTurno] = useState(false);
   const [modalInformeCierreCorreoAbierto, setModalInformeCierreCorreoAbierto] = useState(false);
   const [emailInformeCierrePara, setEmailInformeCierrePara] = useState("");
-  const [correosInformeCierre, setCorreosInformeCierre] = useState<CorreosInformeCierrePersistidos>({
-    emails: [],
-    seleccionados: [],
-  });
-  const [nuevoCorreoInformeCierre, setNuevoCorreoInformeCierre] = useState("");
-  const [errorAgregarCorreoInforme, setErrorAgregarCorreoInforme] = useState<string | null>(null);
+  const [emailInformeCierreCc, setEmailInformeCierreCc] = useState("");
   const [cargandoDefaultsInformeCorreo, setCargandoDefaultsInformeCorreo] = useState(false);
   const [procesandoCierreTurno, setProcesandoCierreTurno] = useState(false);
   const [errorInformeCierreCorreo, setErrorInformeCierreCorreo] = useState<string | null>(null);
@@ -1249,6 +1234,11 @@ export default function CajaPage() {
       try {
         if (typeof window !== "undefined") {
           localStorage.setItem(LS_INFORME_TURNO_PARA, correoInforme.para.trim());
+          if (correoInforme.cc?.trim()) {
+            localStorage.setItem(LS_INFORME_TURNO_CC, correoInforme.cc.trim());
+          } else {
+            localStorage.removeItem(LS_INFORME_TURNO_CC);
+          }
         }
       } catch {
         /* ignore */
@@ -1292,16 +1282,15 @@ export default function CajaPage() {
   const abrirModalInformeCierreCorreo = useCallback(async () => {
     setModalInformeCierreCorreoAbierto(true);
     setErrorInformeCierreCorreo(null);
-    setErrorAgregarCorreoInforme(null);
-    setNuevoCorreoInformeCierre("");
     setCargandoDefaultsInformeCorreo(true);
     let para = "";
-    const pv = user?.puntoVenta?.trim();
+    let ccExtraGuardado = "";
     try {
-      if (pv) {
-        setCorreosInformeCierre(cargarCorreosInformeCierrePersistidos(pv));
+      if (typeof window !== "undefined") {
+        ccExtraGuardado = localStorage.getItem(LS_INFORME_TURNO_CC)?.trim() ?? "";
       }
       const token = await auth?.currentUser?.getIdToken();
+      const pv = user?.puntoVenta?.trim();
       if (token && pv) {
         const r = await getFranquiciadoPorPuntoVenta(pv, token);
         if (r.ok) {
@@ -1315,44 +1304,10 @@ export default function CajaPage() {
       if (!para && user?.email?.trim()) para = user.email.trim();
     } finally {
       setEmailInformeCierrePara(para);
+      setEmailInformeCierreCc(combinarCcInformeCierreTurno(ccExtraGuardado));
       setCargandoDefaultsInformeCorreo(false);
     }
   }, [user?.puntoVenta, user?.email]);
-
-  const agregarCorreoInformeCierreUi = useCallback(() => {
-    const r = agregarCorreoInformeCierre(correosInformeCierre, nuevoCorreoInformeCierre);
-    if (!r.ok) {
-      setErrorAgregarCorreoInforme(r.message);
-      return;
-    }
-    setCorreosInformeCierre(r.data);
-    setNuevoCorreoInformeCierre("");
-    setErrorAgregarCorreoInforme(null);
-    const pv = user?.puntoVenta?.trim();
-    if (pv) guardarCorreosInformeCierrePersistidos(pv, r.data);
-  }, [correosInformeCierre, nuevoCorreoInformeCierre, user?.puntoVenta]);
-
-  const quitarCorreoInformeCierreUi = useCallback(
-    (email: string) => {
-      const next = quitarCorreoInformeCierre(correosInformeCierre, email);
-      setCorreosInformeCierre(next);
-      const pv = user?.puntoVenta?.trim();
-      if (pv) guardarCorreosInformeCierrePersistidos(pv, next);
-    },
-    [correosInformeCierre, user?.puntoVenta]
-  );
-
-  const toggleCorreoInformeCierreUi = useCallback(
-    (email: string, seleccionado: boolean) => {
-      setCorreosInformeCierre((prev) => {
-        const next = alternarSeleccionCorreoInforme(prev, email, seleccionado);
-        const pv = user?.puntoVenta?.trim();
-        if (pv) guardarCorreosInformeCierrePersistidos(pv, next);
-        return next;
-      });
-    },
-    [user?.puntoVenta]
-  );
 
   const confirmarInformeCierreYcerrarTurno = useCallback(async () => {
     const para = emailInformeCierrePara.trim();
@@ -1360,24 +1315,16 @@ export default function CajaPage() {
       setErrorInformeCierreCorreo("Ingresa un correo válido para el franquiciado.");
       return;
     }
-    const extras = correosInformeSeleccionadosParaEnvio(correosInformeCierre);
-    const ccFinal = combinarCcInformeCierreTurno(extras);
+    const ccFinal = combinarCcInformeCierreTurno(emailInformeCierreCc.trim());
     const partesCc = ccFinal.split(/[,;]/).map((x) => x.trim()).filter(Boolean);
     if (!partesCc.every((p) => emailValidoSimple(p))) {
-      setErrorInformeCierreCorreo("Revisa los correos adicionales.");
+      setErrorInformeCierreCorreo("Revisa los correos en «Con copia».");
       return;
     }
     setErrorInformeCierreCorreo(null);
-    const pv = user?.puntoVenta?.trim();
-    if (pv) guardarCorreosInformeCierrePersistidos(pv, correosInformeCierre);
     await ejecutarCierreTurnoDefinitivo({ para, cc: ccFinal });
     setModalInformeCierreCorreoAbierto(false);
-  }, [
-    emailInformeCierrePara,
-    correosInformeCierre,
-    ejecutarCierreTurnoDefinitivo,
-    user?.puntoVenta,
-  ]);
+  }, [emailInformeCierrePara, emailInformeCierreCc, ejecutarCierreTurnoDefinitivo]);
 
   const agregarPrecuenta = () => {
     const nextNum = precuentas.length + 1;
@@ -1769,11 +1716,7 @@ export default function CajaPage() {
     r?.(aceptar);
   }, []);
 
-  const ejecutarImpresionPostCobro = useCallback(async (ticketIn: TicketVentaPayload) => {
-    const ticket =
-      ticketIn.domiciliosLandingUrl?.trim() || ticketIn.domiciliosQrDataUrl?.trim()
-        ? ticketIn
-        : await enriquecerTicketConQrDomicilios(ticketIn);
+  const ejecutarImpresionPostCobro = useCallback(async (ticket: TicketVentaPayload) => {
     const prefs = loadImpresionPrefs();
     setCobroImpresionOverlayOpen(true);
     await new Promise<void>((resolve) => {
@@ -2150,7 +2093,7 @@ export default function CajaPage() {
         const ticketBase = construirPayloadTicket("TICKET DE VENTA", itemsSnap, notaPieTicket);
         if (!ticketBase) return false;
 
-        let ticket = await enriquecerTicketConQrDomicilios(ticketBase);
+        let ticket = ticketBase;
 
         if (tipoComprobante === "factura_electronica") {
           const tokenFe = await auth?.currentUser?.getIdToken();
@@ -2217,116 +2160,98 @@ export default function CajaPage() {
           const totalCop = Math.round(total * 100) / 100;
           /** Total COP entero para WMS (millas = floor(montoTotalCop / 9000)). */
           const montoTotalCop = Math.round(total);
-          try {
-            const tokenFid = await auth?.currentUser?.getIdToken();
-            const resClub = await fetch("/api/club_millas_registrar_ticket", {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                ...(tokenFid ? { Authorization: `Bearer ${tokenFid}` } : {}),
-              },
-              body: JSON.stringify({
-                ventaId: ventaIdFid,
-                puntoVenta: pv,
-                totalCop,
-                montoTotalCop,
-                idFacturaPos: ventaLocalId ?? ventaIdFid,
-                ...(sid || ct?.id ? { cajaId: String(sid || ct?.id) } : {}),
-                isoTimestamp: isoVenta,
-                lineas: itemsSnap.map((it) => ({
-                  sku: it.producto.sku,
-                  cantidad: it.cantidad,
-                })),
-                clienteDocumento: cr.numeroIdentificacion?.trim() ?? "",
-                ...(ticket.facturaElectronica ? { facturaElectronica: ticket.facturaElectronica } : {}),
-              }),
-            });
-            const clubJson = (await resClub.json().catch(() => ({}))) as {
-              ok?: boolean;
-              omitido?: boolean;
-              codigo?: string;
-              message?: string;
-              qrPayload?: string;
-              qrUrl?: string;
-              codigoCorto?: string;
-            };
-            if (clubJson.ok === true && clubJson.omitido === true && clubJson.codigo === "monto_insuficiente") {
-              ticket = {
-                ...ticket,
-                ...(clubJson.message?.trim()
-                  ? { fidelizacionPayloadTexto: clubJson.message.trim() }
-                  : {
-                      fidelizacionPayloadTexto:
-                        "Club de Millas: el total de esta factura no alcanza el mínimo para generar código QR en esta compra.",
-                    }),
+          const usarClubMillasWms =
+            tipoComprobante === "factura_electronica" && Boolean(ticket.facturaElectronica?.cufe?.trim());
+
+          if (usarClubMillasWms) {
+            try {
+              const tokenFid = await auth?.currentUser?.getIdToken();
+              const resClub = await fetch("/api/club_millas_registrar_ticket", {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  ...(tokenFid ? { Authorization: `Bearer ${tokenFid}` } : {}),
+                },
+                body: JSON.stringify({
+                  ventaId: ventaIdFid,
+                  puntoVenta: pv,
+                  totalCop,
+                  montoTotalCop,
+                  idFacturaPos: ventaLocalId ?? ventaIdFid,
+                  ...(sid || ct?.id ? { cajaId: String(sid || ct?.id) } : {}),
+                  isoTimestamp: isoVenta,
+                  lineas: itemsSnap.map((it) => ({
+                    sku: it.producto.sku,
+                    cantidad: it.cantidad,
+                  })),
+                  clienteDocumento: cr.numeroIdentificacion?.trim() ?? "",
+                  facturaElectronica: ticket.facturaElectronica,
+                }),
+              });
+              const clubJson = (await resClub.json().catch(() => ({}))) as {
+                ok?: boolean;
+                omitido?: boolean;
+                codigo?: string;
+                message?: string;
+                qrPayload?: string;
               };
-            } else if (clubJson.ok === true && !clubJson.omitido) {
-              const qrUrlWms =
-                typeof clubJson.qrUrl === "string" ? clubJson.qrUrl.replace(/\s+/g, "").trim() : "";
-              let raw =
-                typeof clubJson.qrPayload === "string"
-                  ? clubJson.qrPayload.replace(/\s+/g, "").trim()
-                  : "";
-              if (!raw && qrUrlWms) {
-                raw = extraerCodigoQrClubDesdeTextoLeido(qrUrlWms);
-              }
-              const codigoCorto =
-                typeof clubJson.codigoCorto === "string"
-                  ? clubJson.codigoCorto.replace(/\s+/g, "").trim().toUpperCase()
-                  : "";
-              if (raw || qrUrlWms) {
-                try {
-                  const qrClub = await generarQrTirillaClubMillas(
-                    raw || qrUrlWms,
-                    qrUrlWms || undefined
-                  );
-                  ticket = {
-                    ...ticket,
-                    fidelizacionQrDataUrl: qrClub.dataUrl,
-                    fidelizacionPayloadTexto: qrClub.contenidoImpreso,
-                    ...(codigoCorto.length === 6 ? { clubMillasCodigoCorto: codigoCorto } : {}),
-                  };
-                } catch (qrErr) {
-                  console.warn("[POS] generar QR Club de Millas:", qrErr);
-                  ticket = {
-                    ...ticket,
-                    fidelizacionPayloadTexto: qrUrlWms || raw,
-                    ...(codigoCorto.length === 6 ? { clubMillasCodigoCorto: codigoCorto } : {}),
-                  };
-                }
-              } else if (codigoCorto.length === 6) {
+              if (clubJson.ok === true && clubJson.omitido === true && clubJson.codigo === "monto_insuficiente") {
                 ticket = {
                   ...ticket,
-                  clubMillasCodigoCorto: codigoCorto,
-                  fidelizacionPayloadTexto:
-                    "Club de Millas: use el codigo de 6 letras en el escaner premium (Mi plan).",
+                  ...(clubJson.message?.trim()
+                    ? { fidelizacionPayloadTexto: clubJson.message.trim() }
+                    : {
+                        fidelizacionPayloadTexto:
+                          "Club de Millas: el total de esta factura no alcanza el mínimo para generar código QR en esta compra.",
+                      }),
+                };
+              } else if (clubJson.ok === true && typeof clubJson.qrPayload === "string" && clubJson.qrPayload.trim()) {
+                const raw = clubJson.qrPayload.replace(/\s+/g, "").trim();
+                const dataUrl = await generarDataUrlQrFidelizacion(raw);
+                ticket = {
+                  ...ticket,
+                  fidelizacionQrDataUrl: dataUrl,
+                  fidelizacionPayloadTexto: raw,
                 };
               } else {
                 const msg =
                   typeof clubJson.message === "string" && clubJson.message.trim()
                     ? clubJson.message.trim()
-                    : "Club de Millas: el WMS no devolvió QR ni codigo de tirilla.";
+                    : "Club de Millas: no se pudo registrar el ticket para el QR. Revisá conexión y variables del POS.";
                 ticket = { ...ticket, fidelizacionPayloadTexto: msg };
-                console.warn("[POS] club_millas_registrar_ticket sin qr:", clubJson);
+                console.warn("[POS] club_millas_registrar_ticket:", clubJson);
               }
-            } else {
-              const msg =
-                typeof clubJson.message === "string" && clubJson.message.trim()
-                  ? clubJson.message.trim()
-                  : "Club de Millas: no se pudo registrar el ticket para el QR. Revisá conexión y variables del POS.";
-              ticket = { ...ticket, fidelizacionPayloadTexto: msg };
-              console.warn("[POS] club_millas_registrar_ticket:", clubJson);
+            } catch (e) {
+              console.warn("[POS] Club de Millas registrar-ticket:", e);
+              ticket = {
+                ...ticket,
+                fidelizacionPayloadTexto:
+                  "Club de Millas: error al registrar el ticket. Informá a sistemas o reintentá más tarde.",
+              };
             }
-          } catch (e) {
-            console.warn("[POS] Club de Millas registrar-ticket:", e);
-            ticket = {
-              ...ticket,
-              fidelizacionPayloadTexto:
-                "Club de Millas: error al registrar el ticket. Informá a sistemas o reintentá más tarde.",
-            };
+          } else {
+            const payloadJson = construirPayloadFidelizacionV1({
+              ventaId: ventaIdFid,
+              puntoVenta: pv,
+              isoTimestamp: isoVenta,
+              total,
+              lineas: itemsSnap.map((it) => ({
+                sku: it.producto.sku,
+                cantidad: it.cantidad,
+              })),
+            });
+            try {
+              const dataUrl = await generarDataUrlQrFidelizacion(payloadJson);
+              ticket = {
+                ...ticket,
+                fidelizacionQrDataUrl: dataUrl,
+                fidelizacionPayloadTexto: payloadJson,
+              };
+            } catch (e) {
+              console.warn("[POS] QR cliente frecuente (documento interno / sin FE):", e);
+              ticket = { ...ticket, fidelizacionPayloadTexto: payloadJson };
+            }
           }
-        } else {
-          ticket = await enriquecerTicketConInvitacionClubMillas(ticket);
         }
 
         vaciarCuenta();
@@ -2649,7 +2574,7 @@ export default function CajaPage() {
                   getIdToken={getIdTokenCajaMensajes}
                   puntoVentaLabel={user.puntoVenta?.trim() || undefined}
                 />
-                <PosBroadcastBell getIdToken={getIdTokenCajaMensajes} />
+                <PosBroadcastBell getIdToken={getIdTokenCajaMensajes} currentUid={user?.uid} />
               </div>
             )}
             <button
@@ -3804,17 +3729,8 @@ export default function CajaPage() {
         onClose={() => !procesandoCierreTurno && setModalInformeCierreCorreoAbierto(false)}
         para={emailInformeCierrePara}
         onParaChange={setEmailInformeCierrePara}
-        correosAdicionales={correosInformeCierre.emails}
-        correosSeleccionados={correosInformeCierre.seleccionados}
-        onToggleCorreo={toggleCorreoInformeCierreUi}
-        onQuitarCorreo={quitarCorreoInformeCierreUi}
-        nuevoCorreo={nuevoCorreoInformeCierre}
-        onNuevoCorreoChange={(v) => {
-          setNuevoCorreoInformeCierre(v);
-          setErrorAgregarCorreoInforme(null);
-        }}
-        onAgregarCorreo={agregarCorreoInformeCierreUi}
-        errorAgregarCorreo={errorAgregarCorreoInforme}
+        cc={emailInformeCierreCc}
+        onCcChange={setEmailInformeCierreCc}
         defaultsLoading={cargandoDefaultsInformeCorreo}
         submitting={procesandoCierreTurno}
         onConfirm={() => void confirmarInformeCierreYcerrarTurno()}

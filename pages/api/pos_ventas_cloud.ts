@@ -1,7 +1,12 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { getFirestore, type DocumentData } from "firebase-admin/firestore";
+import { getFirestore, type DocumentData, type QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { getFirebaseAdminApp, getCreadorFirestoreContext } from "@/lib/firebase-admin-server";
 import type { VentaGuardadaLocal } from "@/lib/pos-ventas-local-storage";
+import { normalizarPuntoVentaClave, puntoVentaCoincide } from "@/lib/punto-venta-clave";
+import {
+  mensajeVentasCloudSinAdminLocal,
+  proxyApiVentasCloud,
+} from "@/lib/pos-ventas-cloud-proxy-server";
 
 const COLLECTION = "posVentasCloud";
 const PAGE = 800;
@@ -90,10 +95,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const app = getFirebaseAdminApp();
   if (!app) {
+    const proxied = await proxyApiVentasCloud(req, "pos_ventas_cloud");
+    if (proxied) {
+      return res.status(proxied.status).json(proxied.body);
+    }
     return res.status(503).json({
       ok: false,
-      message:
-        "Almacenamiento en nube no configurado. En Vercel agrega FIREBASE_SERVICE_ACCOUNT_JSON.",
+      message: mensajeVentasCloudSinAdminLocal(),
     });
   }
 
@@ -112,30 +120,103 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const db = getFirestore(app);
-  try {
-    const snap = await db
-      .collection(COLLECTION)
-      .where("puntoVenta", "==", ctx.puntoVenta)
-      .orderBy("serverCreatedAt", "desc")
-      .limit(PAGE)
-      .get();
+  const pvCanon = ctx.puntoVenta;
+  const pvNorm = normalizarPuntoVentaClave(pvCanon);
 
-    const ventas: VentaGuardadaLocal[] = [];
-    for (const d of snap.docs) {
+  const incorporarSnap = (docs: QueryDocumentSnapshot[], map: Map<string, VentaGuardadaLocal>) => {
+    for (const d of docs) {
       const row = docToVenta(d.id, d.data());
-      if (row) ventas.push(row);
+      if (!row) continue;
+      if (!puntoVentaCoincide(row.puntoVenta, pvCanon)) continue;
+      map.set(row.id, row);
     }
-    return res.status(200).json({ ok: true, ventas });
+  };
+
+  const msOrden = (data: DocumentData, row: VentaGuardadaLocal): number => {
+    const sc = data.serverCreatedAt;
+    if (sc && typeof sc.toDate === "function") {
+      const t = sc.toDate().getTime();
+      if (Number.isFinite(t)) return t;
+    }
+    const t = Date.parse(row.isoTimestamp);
+    return Number.isFinite(t) ? t : 0;
+  };
+
+  const listarConOrderBy = async (
+    campo: "puntoVenta" | "puntoVentaNorm",
+    valor: string
+  ): Promise<QueryDocumentSnapshot[] | null> => {
+    try {
+      const snap = await db
+        .collection(COLLECTION)
+        .where(campo, "==", valor)
+        .orderBy("serverCreatedAt", "desc")
+        .limit(PAGE)
+        .get();
+      return snap.docs;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (/index/i.test(msg)) return null;
+      throw e;
+    }
+  };
+
+  const listarSinOrderBy = async (
+    campo: "puntoVenta" | "puntoVentaNorm",
+    valor: string
+  ): Promise<QueryDocumentSnapshot[]> => {
+    const snap = await db.collection(COLLECTION).where(campo, "==", valor).limit(PAGE).get();
+    return snap.docs;
+  };
+
+  try {
+    const porId = new Map<string, VentaGuardadaLocal>();
+    const ordenMs = new Map<string, number>();
+
+    const absorber = (docs: QueryDocumentSnapshot[]) => {
+      for (const d of docs) {
+        const row = docToVenta(d.id, d.data());
+        if (!row || !puntoVentaCoincide(row.puntoVenta, pvCanon)) continue;
+        const ms = msOrden(d.data(), row);
+        const prev = porId.get(row.id);
+        if (!prev || ms >= (ordenMs.get(row.id) ?? 0)) {
+          porId.set(row.id, row);
+          ordenMs.set(row.id, ms);
+        }
+      }
+    };
+
+    let docsPv = await listarConOrderBy("puntoVenta", pvCanon);
+    let usoFallback = docsPv === null;
+    if (docsPv === null) {
+      console.warn(
+        "pos_ventas_cloud: sin índice compuesto; listando sin orderBy (despliega firestore.indexes.json)."
+      );
+      docsPv = await listarSinOrderBy("puntoVenta", pvCanon);
+    }
+    absorber(docsPv);
+
+    if (porId.size < PAGE) {
+      let docsNorm = await listarConOrderBy("puntoVentaNorm", pvNorm);
+      if (docsNorm === null) {
+        usoFallback = true;
+        docsNorm = await listarSinOrderBy("puntoVentaNorm", pvNorm);
+      }
+      absorber(docsNorm);
+    }
+
+    const ventas = Array.from(porId.values()).sort((a, b) => {
+      const ma = ordenMs.get(a.id) ?? Date.parse(a.isoTimestamp);
+      const mb = ordenMs.get(b.id) ?? Date.parse(b.isoTimestamp);
+      return mb - ma;
+    });
+
+    return res.status(200).json({
+      ok: true,
+      ventas,
+      ...(usoFallback ? { indexFallback: true as const } : {}),
+    });
   } catch (e: unknown) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (/index/i.test(msg)) {
-      console.error("pos_ventas_cloud: falta índice compuesto Firestore (puntoVenta + serverCreatedAt).", msg);
-      return res.status(503).json({
-        ok: false,
-        message:
-          "Firestore requiere un índice compuesto. Revisa la consola del servidor o despliega firestore.indexes.json del repositorio.",
-      });
-    }
     console.error("pos_ventas_cloud", e);
     return res.status(500).json({ ok: false, message: "No se pudieron listar las ventas." });
   }

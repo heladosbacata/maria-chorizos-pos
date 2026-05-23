@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
+  POS_BROADCAST_QUICK_REACT_EMOJIS,
   wmsBroadcastEnviar,
   wmsBroadcastEstado,
   wmsBroadcastMarcarLeido,
   wmsBroadcastMensajes,
+  wmsBroadcastReaccionar,
   wmsBroadcastUnread,
   type PosBroadcastMensajeCliente,
   type PosBroadcastSesionCliente,
@@ -22,6 +24,8 @@ function formatHora(ms: number): string {
 
 type Props = {
   getIdToken: () => Promise<string | null>;
+  /** UID del cajero para resaltar su reacción y toggle */
+  currentUid?: string | null;
   visible?: boolean;
 };
 
@@ -29,7 +33,7 @@ const POLL_ESTADO_MS = 30_000;
 const POLL_UNREAD_MS = 30_000;
 const POLL_HILO_ABIERTO_MS = 15_000;
 
-export default function PosBroadcastBell({ getIdToken, visible = true }: Props) {
+export default function PosBroadcastBell({ getIdToken, currentUid, visible = true }: Props) {
   const [sesion, setSesion] = useState<PosBroadcastSesionCliente | null>(null);
   const [abierto, setAbierto] = useState(false);
   const [minimizado, setMinimizado] = useState(false);
@@ -41,6 +45,8 @@ export default function PosBroadcastBell({ getIdToken, visible = true }: Props) 
   const [enviando, setEnviando] = useState(false);
   const [texto, setTexto] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [reactionMessageId, setReactionMessageId] = useState<string | null>(null);
+  const [reaccionandoId, setReaccionandoId] = useState<string | null>(null);
   const listaRef = useRef<HTMLDivElement>(null);
   const prevUnreadRef = useRef(0);
   const autoAbiertoInicialRef = useRef(false);
@@ -241,6 +247,29 @@ export default function PosBroadcastBell({ getIdToken, visible = true }: Props) 
     listaRef.current.scrollTop = listaRef.current.scrollHeight;
   }, [abierto, mensajes]);
 
+  const reaccionar = async (messageId: string, emoji: string) => {
+    setReaccionandoId(messageId);
+    setError(null);
+    try {
+      const token = await getIdToken();
+      if (!token) {
+        setError("Sesión inválida.");
+        return;
+      }
+      const r = await wmsBroadcastReaccionar(token, messageId, emoji);
+      if (!r.ok) {
+        setError(r.error);
+        return;
+      }
+      setMensajes((prev) =>
+        prev.map((m) => (m.id === messageId ? { ...m, reactions: r.reactions } : m))
+      );
+      setReactionMessageId(null);
+    } finally {
+      setReaccionandoId(null);
+    }
+  };
+
   const enviar = async () => {
     const t = texto.trim();
     if (!t || !sesion) return;
@@ -395,28 +424,114 @@ export default function PosBroadcastBell({ getIdToken, visible = true }: Props) 
               ) : (
                 mensajes.map((m) => {
                   const deAdmin = m.direction === "admin";
+                  const esMio = Boolean(currentUid && m.senderUid === currentUid);
+                  const etiquetaAutor = deAdmin
+                    ? "Administración"
+                    : esMio
+                      ? "Tu mensaje"
+                      : m.puntoEtiqueta || "Punto";
+                  const tieneReacciones = m.reactions && Object.keys(m.reactions).length > 0;
                   return (
                     <div key={m.id} className={`flex ${deAdmin ? "justify-start" : "justify-end"}`}>
-                      <div
-                        className={`max-w-[92%] rounded-2xl px-3 py-2.5 text-sm leading-relaxed shadow-md ${
-                          deAdmin
-                            ? "rounded-tl-md border border-indigo-400/30 bg-gradient-to-br from-indigo-100/95 to-violet-100/90 text-gray-900"
-                            : "rounded-tr-md border border-white/10 bg-gradient-to-br from-emerald-800 to-teal-900 text-white"
-                        }`}
-                      >
-                        {!deAdmin && m.puntoEtiqueta ? (
-                          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-100/90">
-                            {m.puntoEtiqueta}
-                          </p>
-                        ) : null}
-                        <p className="whitespace-pre-wrap break-words">{m.text}</p>
-                        <p
-                          className={`mt-1 text-[10px] font-semibold uppercase tracking-wide ${
-                            deAdmin ? "text-indigo-900/45" : "text-emerald-100/75"
+                      <div className={`relative max-w-[92%] ${deAdmin ? "" : "flex flex-col items-end"}`}>
+                        <div
+                          className={`rounded-2xl px-3 py-2.5 text-sm leading-relaxed shadow-md ${
+                            deAdmin
+                              ? "rounded-tl-md border border-indigo-400/30 bg-gradient-to-br from-indigo-100/95 to-violet-100/90 text-gray-900"
+                              : "rounded-tr-md border border-white/10 bg-gradient-to-br from-emerald-800 to-teal-900 text-white"
                           }`}
                         >
-                          {deAdmin ? "Administración" : "Tu mensaje"} · {formatHora(m.createdAtMs)}
-                        </p>
+                          {!deAdmin && m.puntoEtiqueta && !esMio ? (
+                            <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-100/90">
+                              {m.puntoEtiqueta}
+                            </p>
+                          ) : null}
+                          <p className="whitespace-pre-wrap break-words">{m.text}</p>
+                          <p
+                            className={`mt-1 text-[10px] font-semibold uppercase tracking-wide ${
+                              deAdmin ? "text-indigo-900/45" : "text-emerald-100/75"
+                            }`}
+                          >
+                            {etiquetaAutor} · {formatHora(m.createdAtMs)}
+                          </p>
+                        </div>
+
+                        {tieneReacciones ? (
+                          <div
+                            className={`mt-1 flex flex-wrap gap-1 ${deAdmin ? "justify-start" : "justify-end"}`}
+                          >
+                            {Object.entries(m.reactions!).map(([emoji, userIds]) => {
+                              const mia = Boolean(currentUid && userIds.includes(currentUid));
+                              return (
+                                <button
+                                  key={emoji}
+                                  type="button"
+                                  disabled={reaccionandoId === m.id}
+                                  onClick={() => void reaccionar(m.id, emoji)}
+                                  className={`inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs ring-1 transition disabled:opacity-50 ${
+                                    mia
+                                      ? "bg-indigo-500/30 ring-indigo-400/60 text-white"
+                                      : deAdmin
+                                        ? "bg-white/90 ring-slate-200 text-slate-700 hover:bg-white"
+                                        : "bg-white/10 ring-white/20 text-indigo-100 hover:bg-white/15"
+                                  }`}
+                                  title={
+                                    userIds.length > 1
+                                      ? `${emoji} · ${userIds.length} personas`
+                                      : emoji
+                                  }
+                                >
+                                  <span>{emoji}</span>
+                                  {userIds.length > 1 ? (
+                                    <span className="text-[10px] font-semibold opacity-80">{userIds.length}</span>
+                                  ) : null}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : null}
+
+                        <div
+                          className={`mt-1 flex items-center gap-1 ${deAdmin ? "justify-start" : "justify-end"}`}
+                        >
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setReactionMessageId((prev) => (prev === m.id ? null : m.id))
+                            }
+                            className={`rounded-lg px-2 py-1 text-[11px] font-medium transition ${
+                              reactionMessageId === m.id
+                                ? "bg-indigo-500/25 text-indigo-100"
+                                : "text-indigo-200/50 hover:bg-white/10 hover:text-indigo-100"
+                            }`}
+                            aria-label="Reaccionar al mensaje"
+                            title="Reaccionar"
+                          >
+                            😊
+                          </button>
+                        </div>
+
+                        {reactionMessageId === m.id ? (
+                          <div
+                            className={`mt-1 flex flex-wrap gap-1 rounded-xl border border-white/10 bg-black/40 p-2 shadow-lg ${
+                              deAdmin ? "" : "justify-end"
+                            }`}
+                            data-reaction-picker
+                          >
+                            {POS_BROADCAST_QUICK_REACT_EMOJIS.map((emoji) => (
+                              <button
+                                key={emoji}
+                                type="button"
+                                disabled={reaccionandoId === m.id}
+                                onClick={() => void reaccionar(m.id, emoji)}
+                                className="rounded-lg px-2 py-1 text-lg transition hover:bg-white/15 disabled:opacity-50"
+                                aria-label={`Reaccionar con ${emoji}`}
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
                       </div>
                     </div>
                   );

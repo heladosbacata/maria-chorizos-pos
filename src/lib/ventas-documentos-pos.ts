@@ -268,3 +268,20 @@ export function formatoFechaTabla(ymd: string, fechaMs: number): string {
 export function formatoPesos(n: number): string {
   return `$ ${n.toLocaleString("es-CO", { maximumFractionDigits: 0 })}`;
 }
+
+/** Rango YYYY-MM-DD mínimo y máximo entre filas (para ampliar filtros de fecha). */
+export function rangoFechasEnFilas(
+  filas: FilaDocumentoPosVenta[]
+): { desdeYmd: string; hastaYmd: string } | null {
+  if (filas.length === 0) return null;
+  let min = filas[0]!.fechaYmd;
+  let max = filas[0]!.fechaYmd;
+  for (const f of filas) {
+    const y = f.fechaYmd?.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(y)) continue;
+    if (y < min) min = y;
+    if (y > max) max = y;
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(min)) return null;
+  return { desdeYmd: min, hastaYmd: max };
+}

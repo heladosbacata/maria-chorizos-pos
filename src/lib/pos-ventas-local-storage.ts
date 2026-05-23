@@ -11,6 +11,7 @@ import {
   ymdColombia,
   ymdColombiaMenosDias,
 } from "@/lib/fecha-colombia";
+import { puntoVentaCoincide } from "@/lib/punto-venta-clave";
 
 /** Lista global antigua (una sola por navegador); se migra una vez al primer uid que lea. */
 const LEGACY_STORAGE_KEY = "pos_mc_ventas_cajero_v1";
@@ -230,7 +231,7 @@ export function listarVentasPuntoVenta(uid: string, puntoVenta: string): VentaGu
   const u = uid.trim();
   const pv = puntoVenta.trim();
   if (!u || !pv) return [];
-  return leerRaw(u).filter((v) => v.puntoVenta?.trim() === pv);
+  return leerRaw(u).filter((v) => puntoVentaCoincide(v.puntoVenta, pv));
 }
 
 function esVentaGuardadaValida(v: unknown): v is VentaGuardadaLocal {
@@ -264,7 +265,7 @@ export function listarVentasPuntoVentaEnEsteEquipo(puntoVenta: string): VentaGua
     if (!Array.isArray(lista)) return;
     for (const item of lista) {
       if (!esVentaGuardadaValida(item)) continue;
-      if (item.puntoVenta?.trim() !== pv) continue;
+      if (!puntoVentaCoincide(item.puntoVenta, pv)) continue;
       const id = item.id.trim();
       if (!id) continue;
       const prev = porId.get(id);

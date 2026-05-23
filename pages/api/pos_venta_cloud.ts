@@ -2,6 +2,11 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { getFirebaseAdminApp, getCreadorFirestoreContext } from "@/lib/firebase-admin-server";
 import { POS_CONTADOR_ROLE } from "@/lib/auth-roles";
+import { normalizarPuntoVentaClave, puntoVentaCoincide } from "@/lib/punto-venta-clave";
+import {
+  mensajeVentasCloudSinAdminLocal,
+  proxyApiVentasCloud,
+} from "@/lib/pos-ventas-cloud-proxy-server";
 
 const COLLECTION = "posVentasCloud";
 const MAX_LINEAS = 200;
@@ -33,10 +38,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const app = getFirebaseAdminApp();
   if (!app) {
+    const proxied = await proxyApiVentasCloud(req, "pos_venta_cloud");
+    if (proxied) {
+      return res.status(proxied.status).json(proxied.body);
+    }
     return res.status(503).json({
       ok: false,
-      message:
-        "Almacenamiento en nube no configurado. En Vercel agrega FIREBASE_SERVICE_ACCOUNT_JSON (mismo proyecto Firebase que el POS).",
+      message: mensajeVentasCloudSinAdminLocal(),
     });
   }
 
@@ -121,7 +129,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
       const dataSnap = snap.data();
       const pvDoc = typeof dataSnap?.puntoVenta === "string" ? dataSnap.puntoVenta.trim() : "";
-      if (pvDoc !== ctx.puntoVenta) {
+      if (!puntoVentaCoincide(pvDoc, ctx.puntoVenta)) {
         return res.status(403).json({ ok: false, message: "El ticket no pertenece a tu punto de venta." });
       }
       await ref.set(
@@ -147,13 +155,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ ok: false, message: "ventaLocalId inválido." });
   }
 
-  const puntoVenta = typeof b?.puntoVenta === "string" ? b.puntoVenta.trim() : "";
-  if (puntoVenta !== ctx.puntoVenta) {
+  const puntoVentaBody = typeof b?.puntoVenta === "string" ? b.puntoVenta.trim() : "";
+  if (!puntoVentaCoincide(puntoVentaBody, ctx.puntoVenta)) {
     return res.status(403).json({
       ok: false,
       message: "El punto de venta del ticket no coincide con tu perfil.",
     });
   }
+  const puntoVenta = ctx.puntoVenta;
+  const puntoVentaNorm = normalizarPuntoVentaClave(puntoVenta);
 
   const fechaYmd = typeof b?.fechaYmd === "string" ? b.fechaYmd.trim() : "";
   if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaYmd)) {
@@ -181,6 +191,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     ventaLocalId,
     uidRegistro: ctx.uid,
     puntoVenta,
+    puntoVentaNorm,
     fechaYmd,
     isoTimestamp,
     total: Math.round(total * 100) / 100,

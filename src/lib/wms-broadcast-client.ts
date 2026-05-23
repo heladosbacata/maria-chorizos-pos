@@ -2,6 +2,8 @@
  * Chat grupal temporal WMS ↔ todos los POS (proxy en /pages/api/pos_broadcast_*).
  */
 
+export type PosBroadcastReactionsCliente = Record<string, string[]>;
+
 export type PosBroadcastMensajeCliente = {
   id: string;
   sessionId: string;
@@ -11,6 +13,7 @@ export type PosBroadcastMensajeCliente = {
   senderUid: string;
   deleted: boolean;
   puntoEtiqueta?: string;
+  reactions?: PosBroadcastReactionsCliente;
 };
 
 export type PosBroadcastSesionCliente = { id: string; titulo: string; createdAtMs: number };
@@ -20,6 +23,9 @@ const PATH_MENSAJES = "/api/pos_broadcast_mensajes";
 const PATH_UNREAD = "/api/pos_broadcast_unread";
 const PATH_MARCAR = "/api/pos_broadcast_marcar_leido";
 const PATH_ENVIAR = "/api/pos_broadcast_enviar";
+const PATH_REACCIONAR = "/api/pos_broadcast_reaccionar";
+
+export const POS_BROADCAST_QUICK_REACT_EMOJIS = ["👍", "❤️", "😂", "😮", "😢", "🙏"] as const;
 
 export async function wmsBroadcastEstado(
   idToken: string
@@ -113,6 +119,39 @@ export async function wmsBroadcastMarcarLeido(
     });
   } catch {
     /* ignore */
+  }
+}
+
+export async function wmsBroadcastReaccionar(
+  idToken: string,
+  messageId: string,
+  emoji: string
+): Promise<
+  { ok: true; reactions: PosBroadcastReactionsCliente } | { ok: false; error: string }
+> {
+  const t = idToken?.trim();
+  if (!t) return { ok: false, error: "Sin sesión." };
+  try {
+    const res = await fetch(PATH_REACCIONAR, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${t}`,
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({ messageId, emoji }),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      reactions?: PosBroadcastReactionsCliente;
+      error?: string;
+    };
+    if (!res.ok || !data.ok || !data.reactions) {
+      return { ok: false, error: data.error || `Error ${res.status}` };
+    }
+    return { ok: true, reactions: data.reactions };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Red" };
   }
 }
 

@@ -9,6 +9,7 @@ import {
 import { fechaHoraColombia, ymdColombia, ymdColombiaMenosDias } from "@/lib/fecha-colombia";
 import { listarVentasPosCloud, actualizarFeVentaPosCloud } from "@/lib/pos-ventas-cloud-client";
 import {
+  listarVentasPuntoVenta,
   listarVentasPuntoVentaEnEsteEquipo,
   mergeVentasReporteNubeLocal,
   actualizarVentaLocalComprobanteEmail,
@@ -34,6 +35,7 @@ import {
   filtrarFilasDocumentosPos,
   formatoFechaTabla,
   formatoPesos,
+  rangoFechasEnFilas,
   type FilaDocumentoPosVenta,
   type TabDocumentoPosVenta,
 } from "@/lib/ventas-documentos-pos";
@@ -44,6 +46,14 @@ import {
 } from "@/lib/pos-fe-retry-queue";
 import { emitirCobroPayloadDesdeVentaLocal } from "@/lib/pos-emitir-payload-desde-venta";
 import { descargarPaqueteDebugEmitirFePos, wmsPosAlegraEmitirCobro } from "@/lib/wms-pos-dian-client";
+import ModalReporteVentasPos from "@/components/ModalReporteVentasPos";
+import { emailDesdeFichaFranquiciado, getFranquiciadoPorPuntoVenta } from "@/lib/franquiciado-pos";
+import {
+  construirDatosReporteVentasPos,
+  type NivelDetalleReporteVentas,
+} from "@/lib/ventas-reporte-pos-data";
+import { descargarPdfReporteVentasPos } from "@/lib/ventas-reporte-pos-pdf";
+import { enviarReporteVentasPosPorCorreo } from "@/lib/ventas-reporte-pos-correo";
 
 const TABS: { id: TabDocumentoPosVenta; label: string }[] = [
   { id: "todos", label: "Todos" },
@@ -346,14 +356,25 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
   const [cotizaciones, setCotizaciones] = useState<DocumentoComercialFirestoreDoc[]>([]);
   const [remisiones, setRemisiones] = useState<DocumentoComercialFirestoreDoc[]>([]);
   const [nubeOk, setNubeOk] = useState<boolean | null>(null);
+  const [nubeMensaje, setNubeMensaje] = useState<string | null>(null);
+  const [conteoLocalVentas, setConteoLocalVentas] = useState(0);
   const [filaCorreo, setFilaCorreo] = useState<FilaDocumentoPosVenta | null>(null);
   const [emailsDocsEnviados, setEmailsDocsEnviados] = useState<Record<string, EmailDocEnviado>>({});
   const [ticketConsulta, setTicketConsulta] = useState<TicketVentaPayload | null>(null);
   const [reimprimiendoTicket, setReimprimiendoTicket] = useState(false);
   const [jsonDebugBusyId, setJsonDebugBusyId] = useState<string | null>(null);
   const [emitirFeBusyId, setEmitirFeBusyId] = useState<string | null>(null);
+  const [modalReporteAbierto, setModalReporteAbierto] = useState(false);
+  const [nivelReporte, setNivelReporte] = useState<NivelDetalleReporteVentas>("transacciones");
+  const [reporteEmailPara, setReporteEmailPara] = useState("");
+  const [reporteEmailCc, setReporteEmailCc] = useState("");
+  const [reporteBusy, setReporteBusy] = useState<"idle" | "pdf" | "correo">("idle");
+  const [reporteError, setReporteError] = useState<string | null>(null);
+  const [reporteExito, setReporteExito] = useState<string | null>(null);
 
   const refrescar = useCallback(() => setTick((t) => t + 1), []);
+
+  const etiquetaTabActivo = useMemo(() => TABS.find((t) => t.id === tab)?.label ?? "Todos", [tab]);
 
   const puedeEmitirFeDian = useCallback((f: FilaDocumentoPosVenta) => {
     const v = f.venta;
@@ -485,12 +506,29 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
         if (token) {
           try {
             nube = await listarVentasPosCloud(token);
-            if (!cancelled) setNubeOk(true);
-          } catch {
+            if (!cancelled) {
+              setNubeOk(true);
+              setNubeMensaje(null);
+            }
+          } catch (e) {
             nube = [];
-            if (!cancelled) setNubeOk(false);
+            if (!cancelled) {
+              setNubeOk(false);
+              setNubeMensaje(
+                e instanceof Error
+                  ? e.message
+                  : "No se pudieron cargar ventas en nube (revisá FIREBASE_SERVICE_ACCOUNT_JSON en local o variables en Vercel)."
+              );
+            }
           }
+        } else if (!cancelled) {
+          setNubeOk(false);
+          setNubeMensaje("Sin sesión: no se consultó Firestore.");
         }
+        const localEquipo = listarVentasPuntoVentaEnEsteEquipo(pv);
+        const localUid = listarVentasPuntoVenta(u, pv);
+        const localMerged = mergeVentasReporteNubeLocal(localEquipo, localUid);
+        if (!cancelled) setConteoLocalVentas(localMerged.length);
         const [cotR, remR] = await Promise.all([
           listarDocumentosComerciales(pv, "cotizacion"),
           listarDocumentosComerciales(pv, "remision"),
@@ -514,10 +552,12 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
 
   const ventas = useMemo(() => {
     void tick;
-    const local = listarVentasPuntoVentaEnEsteEquipo(pv);
+    const localEquipo = listarVentasPuntoVentaEnEsteEquipo(pv);
+    const localUid = listarVentasPuntoVenta(u, pv);
+    const local = mergeVentasReporteNubeLocal(localEquipo, localUid);
     if (ventasNube === null) return local;
     return mergeVentasReporteNubeLocal(local, ventasNube);
-  }, [pv, tick, ventasNube]);
+  }, [pv, u, tick, ventasNube]);
 
   const todasFilas = useMemo(
     () => construirFilasDocumentosPos({ ventas, cotizaciones, remisiones }),
@@ -551,10 +591,104 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
     });
   }, [filasBase, emailsDocsEnviados]);
 
+  const datosReporteActual = useCallback(
+    () =>
+      construirDatosReporteVentasPos({
+        puntoVenta: pv,
+        desdeYmd,
+        hastaYmd,
+        nivel: nivelReporte,
+        filas,
+        filtroTabLabel: etiquetaTabActivo,
+      }),
+    [pv, desdeYmd, hastaYmd, nivelReporte, filas, etiquetaTabActivo]
+  );
+
+  const descargarReporteVentas = useCallback(async () => {
+    if (filas.length === 0) return;
+    setReporteBusy("pdf");
+    setReporteError(null);
+    setReporteExito(null);
+    try {
+      await descargarPdfReporteVentasPos(datosReporteActual());
+      setReporteExito("PDF descargado en tu equipo.");
+    } catch (e) {
+      setReporteError(e instanceof Error ? e.message : "No se pudo generar el PDF.");
+    } finally {
+      setReporteBusy("idle");
+    }
+  }, [filas.length, datosReporteActual]);
+
+  const enviarReporteVentasCorreo = useCallback(async () => {
+    if (filas.length === 0 || !reporteEmailPara.trim()) return;
+    setReporteBusy("correo");
+    setReporteError(null);
+    setReporteExito(null);
+    try {
+      const token = await auth?.currentUser?.getIdToken();
+      if (!token) throw new Error("Sesión expirada. Volvé a iniciar sesión.");
+      const r = await enviarReporteVentasPosPorCorreo({
+        idToken: token,
+        datos: datosReporteActual(),
+        to: reporteEmailPara.trim(),
+        cc: reporteEmailCc.trim() || undefined,
+      });
+      if (!r.ok) throw new Error(r.message);
+      setReporteExito(`Reporte enviado a ${reporteEmailPara.trim()}${r.via ? ` (${r.via})` : ""}.`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "No se pudo enviar el correo.";
+      if (/no configurado|Firebase Admin|POS_DEPLOY_PROXY|PROXY_URL/i.test(msg)) {
+        setReporteError(
+          `${msg} Podés descargar el PDF igualmente. En local: copiá ZOHO_* o RESEND_* desde Vercel a .env.local, o agregá POS_DEPLOY_PROXY_URL=https://maria-chorizos-pos.vercel.app y reiniciá npm run dev.`
+        );
+      } else {
+        setReporteError(msg);
+      }
+    } finally {
+      setReporteBusy("idle");
+    }
+  }, [filas.length, reporteEmailPara, reporteEmailCc, datosReporteActual]);
+
   const totalFiltrado = useMemo(
     () => filas.filter((f) => !f.anulada).reduce((s, f) => s + f.total, 0),
     [filas]
   );
+
+  const rangoHistorial = useMemo(() => rangoFechasEnFilas(todasFilas), [todasFilas]);
+
+  const hayVentasFueraDeRango = todasFilas.length > 0 && filas.length === 0;
+
+  const ampliarRangoAlHistorial = useCallback(() => {
+    const r = rangoHistorial;
+    if (!r) return;
+    setDesdeYmd(r.desdeYmd);
+    setHastaYmd(r.hastaYmd);
+  }, [rangoHistorial]);
+
+  const abrirModalReporte = useCallback(() => {
+    setReporteError(null);
+    setReporteExito(null);
+    if (filas.length === 0 && todasFilas.length > 0) {
+      const r = rangoFechasEnFilas(todasFilas);
+      if (r) {
+        setDesdeYmd(r.desdeYmd);
+        setHastaYmd(r.hastaYmd);
+      }
+    }
+    setModalReporteAbierto(true);
+    void (async () => {
+      const sesion = auth?.currentUser?.email?.trim();
+      if (sesion) setReporteEmailPara(sesion);
+      try {
+        const token = await auth?.currentUser?.getIdToken();
+        const r = await getFranquiciadoPorPuntoVenta(pv, token);
+        const fromFicha = emailDesdeFichaFranquiciado(r.franquiciado ?? null);
+        if (fromFicha) setReporteEmailPara(fromFicha);
+      } catch {
+        /* correo de sesión o manual */
+      }
+    })();
+  }, [filas.length, todasFilas, pv]);
 
   const conteosTab = useMemo(() => {
     const base = filtrarFilasDocumentosPos(todasFilas, {
@@ -610,19 +744,96 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
             {nubeOk === true ? " (incluye ventas en nube de todos los cajeros)." : " (ventas de este navegador + documentos en Firestore)."}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={refrescar}
-          disabled={cargando}
-          className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
-        >
-          {cargando ? "Actualizando…" : "Actualizar"}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={abrirModalReporte}
+            disabled={cargando || (filas.length === 0 && todasFilas.length === 0)}
+            className="rounded-xl border border-[#FFE08A] bg-gradient-to-r from-[#FFF8E6] to-[#FFC81C]/30 px-4 py-2 text-sm font-semibold text-gray-900 shadow-sm hover:from-[#FFE08A]/40 hover:to-[#FFC81C]/50 disabled:opacity-50"
+            title={
+              filas.length === 0 && todasFilas.length === 0
+                ? "No hay ventas guardadas para este punto"
+                : filas.length === 0
+                  ? "Ampliá el rango de fechas o usá «Ver todo el historial»"
+                  : "Generar reporte PDF del período filtrado"
+            }
+          >
+            Reporte PDF
+          </button>
+          <button
+            type="button"
+            onClick={refrescar}
+            disabled={cargando}
+            className="rounded-xl border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {cargando ? "Actualizando…" : "Actualizar"}
+          </button>
+        </div>
       </div>
 
       {error ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950" role="alert">
           {error}
+        </p>
+      ) : null}
+
+      {nubeOk === false && nubeMensaje ? (
+        <div className="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950" role="status">
+          <p>
+            <strong>Ventas en nube (Firestore):</strong> {nubeMensaje}
+          </p>
+          {/FIREBASE_SERVICE_ACCOUNT|503|no configurado|Sin Firebase Admin/i.test(nubeMensaje) ? (
+            <p className="mt-2 text-xs text-sky-900/95">
+              En <strong>localhost</strong> las ventas de producción no aparecen solas: copiá{" "}
+              <code className="rounded bg-sky-100 px-1">FIREBASE_SERVICE_ACCOUNT_JSON</code> desde Vercel a{" "}
+              <code className="rounded bg-sky-100 px-1">.env.local</code>, o agregá{" "}
+              <code className="rounded bg-sky-100 px-1">
+                POS_VENTAS_CLOUD_PROXY_URL=https://maria-chorizos-pos.vercel.app
+              </code>{" "}
+              y reiniciá <code className="rounded bg-sky-100 px-1">npm run dev</code>.
+            </p>
+          ) : null}
+          <p className="mt-1 text-xs">
+            {conteoLocalVentas > 0
+              ? `En este navegador hay ${conteoLocalVentas} venta(s) locales para este punto.`
+              : "En este navegador no hay ventas locales; las de Vercel solo cargan con una de las dos opciones de arriba."}
+          </p>
+        </div>
+      ) : null}
+
+      {nubeOk === true ? (
+        <p className="text-xs text-emerald-800" role="status">
+          Ventas en nube cargadas (todos los cajeros del punto).
+          {conteoLocalVentas > 0 ? ` + ${conteoLocalVentas} en este navegador.` : ""}
+        </p>
+      ) : null}
+
+      {hayVentasFueraDeRango && rangoHistorial ? (
+        <div
+          className="rounded-xl border border-[#FFE08A] bg-amber-50/90 px-4 py-3 text-sm text-amber-950"
+          role="status"
+        >
+          <p className="font-semibold">Hay {todasFilas.length} documento(s) guardados, pero ninguno cae en las fechas elegidas.</p>
+          <p className="mt-1 text-xs text-amber-900/90">
+            Historial disponible:{" "}
+            <strong>{formatoFechaTabla(rangoHistorial.desdeYmd, 0)}</strong> —{" "}
+            <strong>{formatoFechaTabla(rangoHistorial.hastaYmd, 0)}</strong>. Revisá que el año del filtro sea correcto
+            (por ejemplo 2026, no 2024).
+          </p>
+          <button
+            type="button"
+            onClick={ampliarRangoAlHistorial}
+            className="mt-2 rounded-lg bg-[#FFC81C] px-3 py-1.5 text-xs font-bold text-gray-900 hover:opacity-90"
+          >
+            Ver todo el historial ({todasFilas.length})
+          </button>
+        </div>
+      ) : null}
+
+      {!cargando && todasFilas.length === 0 ? (
+        <p className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700">
+          No hay cobros ni documentos guardados para <strong>{pv}</strong> en este equipo
+          {nubeOk === true ? " ni en la nube" : ""}. Registrá ventas en caja o ampliá el rango cuando existan datos.
         </p>
       ) : null}
 
@@ -721,9 +932,20 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
           <span className="text-gray-700">
             <strong className="text-gray-900">{filas.length}</strong> documento{filas.length === 1 ? "" : "s"}
           </span>
-          <span className="font-semibold text-gray-900">
-            Total vigente en lista: {formatoPesos(totalFiltrado)}
-          </span>
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="font-semibold text-gray-900">
+              Total vigente en lista: {formatoPesos(totalFiltrado)}
+            </span>
+            {filas.length > 0 ? (
+              <button
+                type="button"
+                onClick={abrirModalReporte}
+                className="text-xs font-semibold text-emerald-800 underline-offset-2 hover:underline"
+              >
+                Generar reporte PDF →
+              </button>
+            ) : null}
+          </div>
         </div>
 
         {cargando ? (
@@ -923,6 +1145,30 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
           }}
         />
       ) : null}
+
+      <ModalReporteVentasPos
+        open={modalReporteAbierto}
+        onClose={() => {
+          if (reporteBusy === "idle") setModalReporteAbierto(false);
+        }}
+        puntoVenta={pv}
+        desdeYmd={desdeYmd}
+        hastaYmd={hastaYmd}
+        cantidadDocumentos={todasFilas.length}
+        cantidadEnRango={filas.length}
+        totalVigente={totalFiltrado}
+        nivel={nivelReporte}
+        onNivelChange={setNivelReporte}
+        emailPara={reporteEmailPara}
+        onEmailParaChange={setReporteEmailPara}
+        emailCc={reporteEmailCc}
+        onEmailCcChange={setReporteEmailCc}
+        busy={reporteBusy}
+        onDescargarPdf={() => void descargarReporteVentas()}
+        onEnviarCorreo={() => void enviarReporteVentasCorreo()}
+        errorMsg={reporteError}
+        exitoMsg={reporteExito}
+      />
     </div>
   );
 }

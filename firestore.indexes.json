@@ -7,6 +7,14 @@
         { "fieldPath": "puntoVenta", "order": "ASCENDING" },
         { "fieldPath": "serverCreatedAt", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "posVentasCloud",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "puntoVentaNorm", "order": "ASCENDING" },
+        { "fieldPath": "serverCreatedAt", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

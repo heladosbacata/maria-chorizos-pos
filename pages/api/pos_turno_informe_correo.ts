@@ -8,6 +8,10 @@ import {
   smtpInformeTurnoConfigured,
 } from "@/lib/email-informe-turno-smtp";
 import { detectCierreEmailBackend, sendPosCierreInformeEmail } from "@/lib/posCierreInformeEmail";
+import {
+  mensajeCorreoPosSinConfigLocal,
+  proxyPosApiRoute,
+} from "@/lib/pos-ventas-cloud-proxy-server";
 
 type Body = {
   subject?: string;
@@ -71,10 +75,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const usarSmtpGenerico = smtpInformeTurnoConfigured();
   const usarZohoOResend = detectCierreEmailBackend() !== null;
   if (!usarSmtpGenerico && !usarZohoOResend) {
+    const proxied = await proxyPosApiRoute(req, "pos_turno_informe_correo");
+    if (proxied) {
+      return res.status(proxied.status).json(proxied.body);
+    }
     return res.status(503).json({
       ok: false,
-      message:
-        "Envío por correo no configurado. Agrega SMTP_HOST, SMTP_USER y SMTP_PASS; o ZOHO_SMTP_USER y ZOHO_SMTP_PASSWORD (mismo WMS); o RESEND_API_KEY.",
+      message: mensajeCorreoPosSinConfigLocal(),
     });
   }
 
