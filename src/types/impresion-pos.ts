@@ -47,6 +47,10 @@ export interface TicketVentaPayload {
   };
   /** Pie del ticket (pre-cuenta vs venta cobrada). */
   notaPie?: string;
+  /** PNG data URL del QR de pedidos web/QR del punto de venta (parte superior de la tirilla). */
+  domiciliosQrDataUrl?: string;
+  /** URL codificada en el QR de domicilios (impresión térmica ESC/POS). */
+  domiciliosLandingUrl?: string;
   /** PNG data URL para impresión en navegador (programa cliente frecuente). */
   fidelizacionQrDataUrl?: string;
   /** Mismo contenido que el QR, en JSON; va al ticket plano / térmico. */

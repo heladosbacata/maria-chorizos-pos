@@ -6,6 +6,7 @@ import QRCode from "qrcode";
 import { auth } from "@/lib/firebase";
 import { domicilioCambiarEstado, domicilioCrear, domiciliosListar } from "@/lib/pos-domicilios-api";
 import { enviarMensajeChatDomicilio, listarMensajesChatDomicilio } from "@/lib/pos-domicilios-chat-api";
+import { construirLandingPedidosUrl } from "@/lib/pos-domicilios-landing-url";
 import { DEFAULT_COSTO_DOMICILIO_COP, DEFAULT_UMBRAL_GRATIS_COP } from "@/lib/pos-domicilios-tarifa-defaults";
 import { PosDomiciliosChatBurbuja } from "@/components/PosDomiciliosChatBurbuja";
 import {
@@ -196,18 +197,6 @@ function textoResumenPedidoParaConfirmacion(p: PedidoDomicilio): string {
   return msg;
 }
 
-function construirLandingPedidosUrl(puntoVenta: string): string {
-  const baseEnv = process.env.NEXT_PUBLIC_POS_LANDING_PEDIDOS_URL?.trim();
-  const pv = puntoVenta.trim();
-  const fallbackBase =
-    typeof window !== "undefined" ? `${window.location.origin}/pedidos` : "https://mariachorizos.app/pedidos";
-  const base = baseEnv && /^https?:\/\//i.test(baseEnv) ? baseEnv : fallbackBase;
-  const u = new URL(base);
-  if (pv) u.searchParams.set("puntoVenta", pv);
-  u.searchParams.set("canal", "qr");
-  return u.toString();
-}
-
 function keySonidosDomicilios(puntoVenta: string): string {
   return `pos_mc_domicilios_sonido_v1:${puntoVenta.trim().toLowerCase() || "global"}`;
 }
@@ -341,7 +330,10 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const url = construirLandingPedidosUrl(puntoVentaActivo);
+    const url = construirLandingPedidosUrl(
+      puntoVentaActivo,
+      typeof window !== "undefined" ? window.location.origin : undefined
+    );
     let cancelled = false;
     setLandingPedidosUrl(url);
     setLandingQrDataUrl(null);

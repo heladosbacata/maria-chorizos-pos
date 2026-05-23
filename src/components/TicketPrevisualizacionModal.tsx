@@ -4,6 +4,10 @@ import Image from "next/image";
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { LOGO_ORG_URL, MARIA_CHORIZOS_IG_HANDLE } from "@/lib/brand";
+import {
+  MENSAJE_DOMICILIOS_TIRILLA_LINEA1,
+  MENSAJE_DOMICILIOS_TIRILLA_LINEA2,
+} from "@/lib/domicilios-qr-ticket";
 import { loadImpresionPrefs } from "@/lib/impresion-pos-storage";
 import type { TicketVentaPayload } from "@/types/impresion-pos";
 
@@ -63,6 +67,8 @@ export default function TicketPrevisualizacionModal({
   if (!mounted || !open || !ticket) return null;
 
   const qr = ticket.fidelizacionQrDataUrl?.trim();
+  const qrDomicilios = ticket.domiciliosQrDataUrl?.trim();
+  const mostrarPromoDomicilios = Boolean(qrDomicilios || ticket.domiciliosLandingUrl?.trim());
   const busy = cancelandoTransaccion;
   const notaPie =
     ticket.notaPie?.trim() || "Gracias por elegirnos — calidad y sabor en cada visita.";
@@ -108,6 +114,29 @@ export default function TicketPrevisualizacionModal({
             className="mx-auto rounded-lg border border-slate-200/90 bg-white px-3 py-4 shadow-[0_12px_40px_-12px_rgba(15,23,42,0.35)] ring-1 ring-black/[0.04]"
             style={{ width: "min(58mm, 100%)", maxWidth: "100%" }}
           >
+            {mostrarPromoDomicilios ? (
+              <div className="mb-3 rounded-lg border border-cyan-200 bg-gradient-to-b from-cyan-50 to-white px-2 py-2.5 text-center">
+                <p className="text-[8px] font-bold uppercase leading-snug tracking-wide text-cyan-800">
+                  {MENSAJE_DOMICILIOS_TIRILLA_LINEA1}
+                </p>
+                <p className="mt-0.5 text-[13px] font-black tracking-[0.22em] text-teal-800">
+                  {MENSAJE_DOMICILIOS_TIRILLA_LINEA2}
+                </p>
+                {qrDomicilios ? (
+                  <>
+                    {/* eslint-disable-next-line @next/next/no-img-element -- data URL del QR */}
+                    <img
+                      src={qrDomicilios}
+                      width={130}
+                      height={130}
+                      alt="QR pedidos a domicilio"
+                      className="mx-auto mt-1"
+                    />
+                    <p className="mt-1 text-[7px] uppercase tracking-widest text-slate-500">Escanea y pide a domicilio</p>
+                  </>
+                ) : null}
+              </div>
+            ) : null}
             {!ocultarLogo ? (
               <div className="mb-3 border-b border-slate-100 pb-3 text-center">
                 <div className="flex justify-center">

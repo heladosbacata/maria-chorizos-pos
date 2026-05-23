@@ -24,6 +24,7 @@ import {
   imprimirTicketEnNavegador,
   reservarVentanaTicketNavegador,
 } from "@/lib/pos-geb-print";
+import { enriquecerTicketConQrDomicilios } from "@/lib/domicilios-qr-ticket";
 import { payloadTicketDesdeVenta } from "@/lib/pos-ticket-desde-venta";
 import type { TicketVentaPayload } from "@/types/impresion-pos";
 import {
@@ -429,7 +430,10 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
   );
 
   const abrirTicketVenta = useCallback((v: VentaGuardadaLocal) => {
-    setTicketConsulta(payloadTicketDesdeVenta(v));
+    void (async () => {
+      const base = payloadTicketDesdeVenta(v);
+      setTicketConsulta(await enriquecerTicketConQrDomicilios(base));
+    })();
   }, []);
 
   const reimprimirTicketConsulta = useCallback(async () => {
@@ -438,7 +442,10 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
     try {
       const prefs = loadImpresionPrefs();
       const reservada = prefs.metodo === "directa" ? reservarVentanaTicketNavegador() : null;
-      const payload = { ...ticketConsulta, titulo: "TICKET DE VENTA (copia)" };
+      const payload = await enriquecerTicketConQrDomicilios({
+        ...ticketConsulta,
+        titulo: "TICKET DE VENTA (copia)",
+      });
       if (prefs.metodo === "directa") {
         try {
           await imprimirTicketConQz(prefs, payload);

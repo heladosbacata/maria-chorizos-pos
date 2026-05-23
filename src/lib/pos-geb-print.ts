@@ -1,4 +1,8 @@
 import { LOGO_ORG_URL, MARIA_CHORIZOS_IG_HANDLE } from "@/lib/brand";
+import {
+  MENSAJE_DOMICILIOS_TIRILLA_LINEA1,
+  MENSAJE_DOMICILIOS_TIRILLA_LINEA2,
+} from "@/lib/domicilios-qr-ticket";
 import { fechaHoraColombia } from "@/lib/fecha-colombia";
 import { loadImpresionPrefs } from "@/lib/impresion-pos-storage";
 import type { ImpresionPosPrefs, TamanoPapelTicket, TicketVentaPayload } from "@/types/impresion-pos";
@@ -31,6 +35,8 @@ export type OpcionesTextoTicketPlano = {
    * En impresión térmica directa (QZ) el QR va por comandos ESC/POS; no hace falta volcar el JSON en líneas de texto.
    */
   omitirBloqueFidelizacionTexto?: boolean;
+  /** En QZ el bloque domicilios va por ESC/POS al inicio; evita duplicar el mensaje en texto plano. */
+  omitirBloqueDomiciliosTexto?: boolean;
 };
 
 export function construirTextoTicketPlano(
@@ -46,6 +52,14 @@ export function construirTextoTicketPlano(
     return " ".repeat(pad) + t;
   };
   const rows: string[] = [];
+  if (
+    !opciones?.omitirBloqueDomiciliosTexto &&
+    (payload.domiciliosLandingUrl?.trim() || payload.domiciliosQrDataUrl?.trim())
+  ) {
+    rows.push(center(textoTicketSeguro(MENSAJE_DOMICILIOS_TIRILLA_LINEA1)));
+    rows.push(center(textoTicketSeguro(MENSAJE_DOMICILIOS_TIRILLA_LINEA2)));
+    rows.push("");
+  }
   rows.push(center(payload.titulo));
   rows.push(center("POS GEB"));
   rows.push("-".repeat(W));
@@ -136,6 +150,23 @@ function escPosAbrirCajon(): string {
   return "\x1B\x70\x00\x19\xFA";
 }
 
+function escPosBloqueQrDomicilios(landingUrl: string, columnas: number): string {
+  const W = columnas;
+  const center = (t: string) => {
+    const x = textoTicketSeguro(t).slice(0, W);
+    const pad = Math.max(0, Math.floor((W - x.length) / 2));
+    return " ".repeat(pad) + x;
+  };
+  let out = "\n";
+  out += escPosAlinearCentro();
+  out += center(textoTicketSeguro(MENSAJE_DOMICILIOS_TIRILLA_LINEA1)) + "\n";
+  out += center(textoTicketSeguro(MENSAJE_DOMICILIOS_TIRILLA_LINEA2)) + "\n\n";
+  out += escPosQrCodigo(landingUrl);
+  out += "\n\n";
+  out += escPosAlinearIzq();
+  return out;
+}
+
 function escPosBloqueQrFidelizacion(payloadJson: string, columnas: number): string {
   const W = columnas;
   const center = (t: string) => {
@@ -222,6 +253,21 @@ function construirHtmlTirillaTicket(
     <div class="iva-row"><span class="iva-k">Subtotal (sin IVA)</span><span class="iva-v">$ ${escapeHtml(formatCopTicket(dIva.subtotalSinIva))}</span></div>
     <div class="iva-row"><span class="iva-k">IVA ${escapeHtml(String(dIva.tasaPorcentaje))}%</span><span class="iva-v">$ ${escapeHtml(formatCopTicket(dIva.iva))}</span></div>
   </div>`
+      : "";
+
+  const domiciliosBlock =
+    p.domiciliosQrDataUrl?.trim() || p.domiciliosLandingUrl?.trim()
+      ? `<div class="domicilios-promo">
+          <p class="domicilios-msg">${escapeHtml(MENSAJE_DOMICILIOS_TIRILLA_LINEA1)}</p>
+          <p class="domicilios-aqui">${escapeHtml(MENSAJE_DOMICILIOS_TIRILLA_LINEA2)}</p>
+          ${
+            p.domiciliosQrDataUrl?.trim()
+              ? `<img src="${escapeHtml(p.domiciliosQrDataUrl)}" width="150" height="150" alt="QR pedidos a domicilio" />`
+              : ""
+          }
+          <p class="domicilios-hint">Escanea y pide a domicilio</p>
+        </div>
+        <div class="rule"></div>`
       : "";
 
   const qrBlock =
@@ -370,6 +416,38 @@ function construirHtmlTirillaTicket(
     letter-spacing: 0.1em;
     margin: 0;
   }
+  .domicilios-promo {
+    margin-bottom: 8px;
+    padding: 8px 4px 6px;
+    text-align: center;
+    background: linear-gradient(180deg, #ecfeff 0%, #fff 100%);
+    border: 1px solid #a5f3fc;
+    border-radius: 8px;
+  }
+  .domicilios-msg {
+    margin: 0;
+    font-size: 8.5px;
+    font-weight: 700;
+    line-height: 1.35;
+    color: #0e7490;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .domicilios-aqui {
+    margin: 2px 0 6px;
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: 0.2em;
+    color: #0f766e;
+  }
+  .domicilios-hint {
+    margin: 4px 0 0;
+    font-size: 7px;
+    color: #64748b;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .domicilios-promo img { image-rendering: pixelated; display: inline-block; margin-top: 2px; }
   .qr { margin-top: 12px; text-align: center; padding-top: 10px; border-top: 1px dashed #cbd5e1; }
   .qr-t { margin: 0 0 6px; font-size: 8px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em; color: #475569; }
   .qr-s { margin: 6px 0 0; font-size: 7px; color: #64748b; }
@@ -397,6 +475,7 @@ function construirHtmlTirillaTicket(
   .fe-dian-k { font-weight: 700; color: #64748b; display: block; margin-bottom: 2px; }
 </style></head><body>
 <div class="tirilla">
+  ${domiciliosBlock}
   ${logoHtml}
   <p class="tagline">${escapeHtml(p.titulo)}</p>
   <p class="subtag">POS GEB · ${escapeHtml(p.fechaHora)}</p>
@@ -588,11 +667,16 @@ export async function imprimirTicketConQz(prefs: ImpresionPosPrefs, payload: Tic
   });
   const cols = columnasTicketPorTamanoPapel(prefs.tamanoPapel);
   const fid = payload.fidelizacionPayloadTexto?.trim();
-  const plain = construirTextoTicketPlano(payload, cols, fid ? { omitirBloqueFidelizacionTexto: true } : undefined);
+  const domUrl = payload.domiciliosLandingUrl?.trim();
+  const plain = construirTextoTicketPlano(payload, cols, {
+    ...(fid ? { omitirBloqueFidelizacionTexto: true } : {}),
+    ...(domUrl ? { omitirBloqueDomiciliosTexto: true } : {}),
+  });
+  const bloqueDomicilios = domUrl ? escPosBloqueQrDomicilios(domUrl, cols) : "";
   const bloqueQr = fid ? escPosBloqueQrFidelizacion(fid, cols) : "";
   const init = "\x1B\x40";
   const abrirCajon = escPosAbrirCajon();
-  const data = `${init}${plain}${bloqueQr}\n\n${abrirCajon}\n\x1D\x56\x00`;
+  const data = `${init}${bloqueDomicilios}${plain}${bloqueQr}\n\n${abrirCajon}\n\x1D\x56\x00`;
   await qz.print(config, [data]);
 }
 

@@ -60,6 +60,7 @@ import {
   type CajeroTurnoDoc,
 } from "@/lib/cajeros-turno-firestore";
 import { listarClientesPorPuntoVenta, nombreDisplayCliente } from "@/lib/clientes-pos-firestore";
+import { enriquecerTicketConQrDomicilios } from "@/lib/domicilios-qr-ticket";
 import { loadImpresionPrefs } from "@/lib/impresion-pos-storage";
 import {
   imprimirTicketConQz,
@@ -1716,7 +1717,11 @@ export default function CajaPage() {
     r?.(aceptar);
   }, []);
 
-  const ejecutarImpresionPostCobro = useCallback(async (ticket: TicketVentaPayload) => {
+  const ejecutarImpresionPostCobro = useCallback(async (ticketIn: TicketVentaPayload) => {
+    const ticket =
+      ticketIn.domiciliosLandingUrl?.trim() || ticketIn.domiciliosQrDataUrl?.trim()
+        ? ticketIn
+        : await enriquecerTicketConQrDomicilios(ticketIn);
     const prefs = loadImpresionPrefs();
     setCobroImpresionOverlayOpen(true);
     await new Promise<void>((resolve) => {
@@ -2093,7 +2098,7 @@ export default function CajaPage() {
         const ticketBase = construirPayloadTicket("TICKET DE VENTA", itemsSnap, notaPieTicket);
         if (!ticketBase) return false;
 
-        let ticket = ticketBase;
+        let ticket = await enriquecerTicketConQrDomicilios(ticketBase);
 
         if (tipoComprobante === "factura_electronica") {
           const tokenFe = await auth?.currentUser?.getIdToken();
