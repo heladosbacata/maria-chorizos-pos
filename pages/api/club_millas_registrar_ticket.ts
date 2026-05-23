@@ -26,7 +26,7 @@ type BodyIn = {
 };
 
 type OkPayload =
-  | { ok: true; qrPayload: string }
+  | { ok: true; qrPayload: string; qrUrl?: string }
   | { ok: true; omitido: true; codigo: "monto_insuficiente"; message: string }
   | { ok: false; message: string };
 
@@ -44,6 +44,21 @@ function str(v: unknown): string {
   if (typeof v === "string") return v.trim();
   if (typeof v === "number" && Number.isFinite(v)) return String(v);
   return "";
+}
+
+function extraerQrUrlWms(data: unknown): string | null {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  const o = data as Record<string, unknown>;
+  const direct = str(o.qrUrl);
+  if (direct && /^https?:\/\//i.test(direct)) return direct;
+  for (const nestKey of ["data", "result"] as const) {
+    const nested = o[nestKey];
+    if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+      const q = str((nested as Record<string, unknown>).qrUrl);
+      if (q && /^https?:\/\//i.test(q)) return q;
+    }
+  }
+  return null;
 }
 
 function extraerQrPayloadWms(data: unknown): string | null {
@@ -252,5 +267,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     });
   }
 
-  return res.status(200).json({ ok: true, qrPayload: limpio });
+  const qrUrl = extraerQrUrlWms(data);
+
+  return res.status(200).json({
+    ok: true,
+    qrPayload: limpio,
+    ...(qrUrl ? { qrUrl } : {}),
+  });
 }

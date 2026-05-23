@@ -20,6 +20,7 @@ import {
   etiquetaCuentaParaGuardado,
   leerNombrePerfilCajeroDesdeLocal,
 } from "@/lib/pos-perfil-cajero-display";
+import { aplicarPieClubMillasEnTicket } from "@/lib/club-millas-invitacion-ticket";
 import { enriquecerTicketConQrDomicilios } from "@/lib/domicilios-qr-ticket";
 import { payloadTicketDesdeVenta } from "@/lib/pos-ticket-desde-venta";
 
@@ -286,7 +287,8 @@ export default function UltimosRecibosModule({
     async (v: VentaGuardadaLocal) => {
       setAccionId(v.id);
       try {
-        const payload = await enriquecerTicketConQrDomicilios(payloadTicketDesdeVenta(v, { copia: true }));
+        let payload = await enriquecerTicketConQrDomicilios(payloadTicketDesdeVenta(v, { copia: true }));
+        payload = await aplicarPieClubMillasEnTicket(payload);
         const prefs = loadImpresionPrefs();
         const reservada = prefs.metodo === "directa" ? reservarVentanaTicketNavegador() : null;
         if (prefs.metodo === "directa") {

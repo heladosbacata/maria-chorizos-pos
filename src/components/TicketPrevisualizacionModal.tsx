@@ -5,6 +5,16 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { LOGO_ORG_URL, MARIA_CHORIZOS_IG_HANDLE } from "@/lib/brand";
 import {
+  INVITACION_CLUB_TIRILLA_CUERPO,
+  INVITACION_CLUB_TIRILLA_LLAMADO,
+  INVITACION_CLUB_TIRILLA_TITULO,
+} from "@/lib/club-millas-invitacion-ticket";
+import {
+  MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO1,
+  MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO2,
+  MENSAJE_TIRILLA_CLUB_FRECUENTE_TITULO,
+} from "@/lib/fidelizacion-qr";
+import {
   MENSAJE_DOMICILIOS_TIRILLA_LINEA1,
   MENSAJE_DOMICILIOS_TIRILLA_LINEA2,
 } from "@/lib/domicilios-qr-ticket";
@@ -67,6 +77,10 @@ export default function TicketPrevisualizacionModal({
   if (!mounted || !open || !ticket) return null;
 
   const qr = ticket.fidelizacionQrDataUrl?.trim();
+  const qrInvitacionClub = ticket.clubMillasInvitacionQrDataUrl?.trim();
+  const mostrarInvitacionClub = Boolean(
+    !qr && (qrInvitacionClub || ticket.clubMillasInvitacionUrl?.trim())
+  );
   const qrDomicilios = ticket.domiciliosQrDataUrl?.trim();
   const mostrarPromoDomicilios = Boolean(qrDomicilios || ticket.domiciliosLandingUrl?.trim());
   const busy = cancelandoTransaccion;
@@ -240,19 +254,55 @@ export default function TicketPrevisualizacionModal({
             </div>
 
             {qr ? (
-              <div className="mt-4 border-t border-dashed border-slate-200 pt-3 text-center">
-                <p className="text-[8px] font-bold uppercase tracking-widest text-slate-600">Cliente frecuente</p>
+              <div className="mt-4 rounded-xl border border-amber-300 bg-gradient-to-b from-amber-50 to-white px-3 py-3 text-center">
+                <p className="text-[8px] font-extrabold uppercase tracking-wide text-amber-950">
+                  {MENSAJE_TIRILLA_CLUB_FRECUENTE_TITULO}
+                </p>
+                <p className="mt-2 text-[7px] font-semibold leading-snug text-amber-900">
+                  {MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO1}
+                </p>
+                <p className="mt-1 text-[7px] font-semibold leading-snug text-amber-900">
+                  {MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO2}
+                </p>
                 {/* eslint-disable-next-line @next/next/no-img-element -- data URL del QR */}
                 <img
                   src={qr}
                   width={140}
                   height={140}
-                  alt="Código QR fidelización"
-                  className="mx-auto mt-2 rounded-md border border-slate-200 bg-white p-1"
+                  alt="Código QR Club de Millas"
+                  className="mx-auto mt-2 rounded-md border border-amber-200 bg-white p-1"
                   style={{ imageRendering: "pixelated" }}
                 />
-                <p className="mt-2 text-[7px] text-slate-500">
-                  Ingresá al Club de Millas y validá tus millas
+              </div>
+            ) : null}
+
+            {mostrarInvitacionClub ? (
+              <div className="mt-4 rounded-xl border-2 border-amber-400 bg-gradient-to-b from-amber-50 via-orange-50 to-white px-3 py-3 text-center shadow-sm">
+                <p className="text-[7px] font-extrabold uppercase tracking-[0.2em] text-amber-800">
+                  Programa nacional
+                </p>
+                <p className="mt-1 text-[8px] font-extrabold uppercase tracking-wide text-amber-950">
+                  {INVITACION_CLUB_TIRILLA_TITULO}
+                </p>
+                <p className="mt-1 text-[14px] font-black uppercase tracking-[0.14em] text-orange-700">
+                  {INVITACION_CLUB_TIRILLA_LLAMADO}
+                </p>
+                <p className="mt-2 text-[7px] font-semibold leading-snug text-amber-900">
+                  {INVITACION_CLUB_TIRILLA_CUERPO}
+                </p>
+                {qrInvitacionClub ? (
+                  /* eslint-disable-next-line @next/next/no-img-element -- data URL del QR */
+                  <img
+                    src={qrInvitacionClub}
+                    width={148}
+                    height={148}
+                    alt="QR inscripción Club de Millas"
+                    className="mx-auto mt-2 rounded-md border border-amber-300 bg-white p-1"
+                    style={{ imageRendering: "pixelated" }}
+                  />
+                ) : null}
+                <p className="mt-2 text-[7px] font-bold uppercase tracking-widest text-amber-800">
+                  Escanea el QR · Registrate gratis
                 </p>
               </div>
             ) : null}

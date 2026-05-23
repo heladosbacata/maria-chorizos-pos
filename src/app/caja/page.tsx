@@ -60,6 +60,7 @@ import {
   type CajeroTurnoDoc,
 } from "@/lib/cajeros-turno-firestore";
 import { listarClientesPorPuntoVenta, nombreDisplayCliente } from "@/lib/clientes-pos-firestore";
+import { enriquecerTicketConInvitacionClubMillas } from "@/lib/club-millas-invitacion-ticket";
 import { enriquecerTicketConQrDomicilios } from "@/lib/domicilios-qr-ticket";
 import { loadImpresionPrefs } from "@/lib/impresion-pos-storage";
 import {
@@ -129,8 +130,6 @@ import {
   type TipoMovimientoCaja,
 } from "@/lib/turno-movimientos-caja";
 import {
-  construirPayloadFidelizacionV1,
-  construirUrlPortalClubMillasConCodigo,
   generarQrTirillaClubMillas,
 } from "@/lib/fidelizacion-qr";
 import {
@@ -2217,101 +2216,77 @@ export default function CajaPage() {
           const totalCop = Math.round(total * 100) / 100;
           /** Total COP entero para WMS (millas = floor(montoTotalCop / 9000)). */
           const montoTotalCop = Math.round(total);
-          const usarClubMillasWms =
-            tipoComprobante === "factura_electronica" && Boolean(ticket.facturaElectronica?.cufe?.trim());
-
-          if (usarClubMillasWms) {
-            try {
-              const tokenFid = await auth?.currentUser?.getIdToken();
-              const resClub = await fetch("/api/club_millas_registrar_ticket", {
-                method: "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  ...(tokenFid ? { Authorization: `Bearer ${tokenFid}` } : {}),
-                },
-                body: JSON.stringify({
-                  ventaId: ventaIdFid,
-                  puntoVenta: pv,
-                  totalCop,
-                  montoTotalCop,
-                  idFacturaPos: ventaLocalId ?? ventaIdFid,
-                  ...(sid || ct?.id ? { cajaId: String(sid || ct?.id) } : {}),
-                  isoTimestamp: isoVenta,
-                  lineas: itemsSnap.map((it) => ({
-                    sku: it.producto.sku,
-                    cantidad: it.cantidad,
-                  })),
-                  clienteDocumento: cr.numeroIdentificacion?.trim() ?? "",
-                  facturaElectronica: ticket.facturaElectronica,
-                }),
-              });
-              const clubJson = (await resClub.json().catch(() => ({}))) as {
-                ok?: boolean;
-                omitido?: boolean;
-                codigo?: string;
-                message?: string;
-                qrPayload?: string;
-              };
-              if (clubJson.ok === true && clubJson.omitido === true && clubJson.codigo === "monto_insuficiente") {
-                ticket = {
-                  ...ticket,
-                  ...(clubJson.message?.trim()
-                    ? { fidelizacionPayloadTexto: clubJson.message.trim() }
-                    : {
-                        fidelizacionPayloadTexto:
-                          "Club de Millas: el total de esta factura no alcanza el mínimo para generar código QR en esta compra.",
-                      }),
-                };
-              } else if (clubJson.ok === true && typeof clubJson.qrPayload === "string" && clubJson.qrPayload.trim()) {
-                const raw = clubJson.qrPayload.replace(/\s+/g, "").trim();
-                const qrClub = await generarQrTirillaClubMillas(raw);
-                ticket = {
-                  ...ticket,
-                  fidelizacionQrDataUrl: qrClub.dataUrl,
-                  fidelizacionPayloadTexto: qrClub.urlQr,
-                };
-              } else {
-                const msg =
-                  typeof clubJson.message === "string" && clubJson.message.trim()
-                    ? clubJson.message.trim()
-                    : "Club de Millas: no se pudo registrar el ticket para el QR. Revisá conexión y variables del POS.";
-                ticket = { ...ticket, fidelizacionPayloadTexto: msg };
-                console.warn("[POS] club_millas_registrar_ticket:", clubJson);
-              }
-            } catch (e) {
-              console.warn("[POS] Club de Millas registrar-ticket:", e);
+          try {
+            const tokenFid = await auth?.currentUser?.getIdToken();
+            const resClub = await fetch("/api/club_millas_registrar_ticket", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                ...(tokenFid ? { Authorization: `Bearer ${tokenFid}` } : {}),
+              },
+              body: JSON.stringify({
+                ventaId: ventaIdFid,
+                puntoVenta: pv,
+                totalCop,
+                montoTotalCop,
+                idFacturaPos: ventaLocalId ?? ventaIdFid,
+                ...(sid || ct?.id ? { cajaId: String(sid || ct?.id) } : {}),
+                isoTimestamp: isoVenta,
+                lineas: itemsSnap.map((it) => ({
+                  sku: it.producto.sku,
+                  cantidad: it.cantidad,
+                })),
+                clienteDocumento: cr.numeroIdentificacion?.trim() ?? "",
+                ...(ticket.facturaElectronica ? { facturaElectronica: ticket.facturaElectronica } : {}),
+              }),
+            });
+            const clubJson = (await resClub.json().catch(() => ({}))) as {
+              ok?: boolean;
+              omitido?: boolean;
+              codigo?: string;
+              message?: string;
+              qrPayload?: string;
+              qrUrl?: string;
+            };
+            if (clubJson.ok === true && clubJson.omitido === true && clubJson.codigo === "monto_insuficiente") {
               ticket = {
                 ...ticket,
-                fidelizacionPayloadTexto:
-                  "Club de Millas: error al registrar el ticket. Informá a sistemas o reintentá más tarde.",
+                ...(clubJson.message?.trim()
+                  ? { fidelizacionPayloadTexto: clubJson.message.trim() }
+                  : {
+                      fidelizacionPayloadTexto:
+                        "Club de Millas: el total de esta factura no alcanza el mínimo para generar código QR en esta compra.",
+                    }),
               };
-            }
-          } else {
-            const payloadJson = construirPayloadFidelizacionV1({
-              ventaId: ventaIdFid,
-              puntoVenta: pv,
-              isoTimestamp: isoVenta,
-              total,
-              lineas: itemsSnap.map((it) => ({
-                sku: it.producto.sku,
-                cantidad: it.cantidad,
-              })),
-            });
-            try {
-              const qrClub = await generarQrTirillaClubMillas(payloadJson);
+            } else if (clubJson.ok === true && typeof clubJson.qrPayload === "string" && clubJson.qrPayload.trim()) {
+              const raw = clubJson.qrPayload.replace(/\s+/g, "").trim();
+              const qrClub = await generarQrTirillaClubMillas(
+                raw,
+                typeof clubJson.qrUrl === "string" ? clubJson.qrUrl : undefined
+              );
               ticket = {
                 ...ticket,
                 fidelizacionQrDataUrl: qrClub.dataUrl,
-                fidelizacionPayloadTexto: qrClub.urlQr,
+                fidelizacionPayloadTexto: qrClub.contenidoImpreso,
               };
-            } catch (e) {
-              console.warn("[POS] QR cliente frecuente (documento interno / sin FE):", e);
-              ticket = {
-                ...ticket,
-                fidelizacionPayloadTexto: construirUrlPortalClubMillasConCodigo(payloadJson),
-              };
+            } else {
+              const msg =
+                typeof clubJson.message === "string" && clubJson.message.trim()
+                  ? clubJson.message.trim()
+                  : "Club de Millas: no se pudo registrar el ticket para el QR. Revisá conexión y variables del POS.";
+              ticket = { ...ticket, fidelizacionPayloadTexto: msg };
+              console.warn("[POS] club_millas_registrar_ticket:", clubJson);
             }
+          } catch (e) {
+            console.warn("[POS] Club de Millas registrar-ticket:", e);
+            ticket = {
+              ...ticket,
+              fidelizacionPayloadTexto:
+                "Club de Millas: error al registrar el ticket. Informá a sistemas o reintentá más tarde.",
+            };
           }
+        } else {
+          ticket = await enriquecerTicketConInvitacionClubMillas(ticket);
         }
 
         vaciarCuenta();

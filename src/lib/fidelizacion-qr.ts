@@ -6,10 +6,32 @@ export interface FidelizacionLineaSku {
   cantidad: number;
 }
 
-/** Query en el portal WMS donde va el texto del ticket (BACATA-CLUB-V1-… o JSON legacy). */
+/** Ticket POS registrado en WMS (formato acordado). */
+export const PREFIJO_TICKET_CLUB_MILLAS = "BACATA-CLUB-V1-";
+const RE_TICKET_CLUB_MILLAS = /^BACATA-CLUB-V1-[0-9a-fA-F]{32}$/;
+
+export type ModoContenidoQrClubMillas = "token" | "url";
+
+/** Textos del pie de tirilla (cliente frecuente). */
+export const MENSAJE_TIRILLA_CLUB_FRECUENTE_TITULO = "CLUB DE MILLAS — ACUMULA TUS MILLAS";
+export const MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO1 =
+  "1. Escanea el QR e ingresa en maria-chorizos-wms.vercel.app/club-de-millas";
+export const MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO2 =
+  "2. Tras iniciar sesion, escanea de nuevo este QR en Mi plan para acumular";
+
+/**
+ * url (defecto): abre /club-de-millas?c=BACATA-… (login y luego acumular en Mi plan).
+ * token: solo BACATA-CLUB-V1-… para escaner premium que no lee URLs.
+ */
+export function modoContenidoQrClubMillas(): ModoContenidoQrClubMillas {
+  const m = process.env.NEXT_PUBLIC_CLUB_MILLAS_QR_MODO?.trim().toLowerCase();
+  return m === "token" ? "token" : "url";
+}
+
+/** Query en landing WMS; el portal usa `c` (ver clubMillasPosTicket en WMS). */
 export function parametroQueryQrClubMillas(): string {
   const custom = process.env.NEXT_PUBLIC_CLUB_MILLAS_QR_QUERY_PARAM?.trim();
-  return custom || "codigo";
+  return custom || "c";
 }
 
 function baseUrlPortalClubMillas(): string {
@@ -18,21 +40,58 @@ function baseUrlPortalClubMillas(): string {
   return base;
 }
 
+export function esTicketClubMillasPos(payload: string): boolean {
+  return RE_TICKET_CLUB_MILLAS.test(payload.replace(/\s+/g, "").trim());
+}
+
 /**
- * URL que debe codificar el QR de la tirilla: el socio entra primero a login/registro
- * y el WMS conserva el código para acumular millas una sola vez.
+ * Normaliza lo que devuelve el escáner (token plano, URL con ?qr= o ?codigo=, JSON legacy).
+ */
+export function extraerCodigoQrClubDesdeTextoLeido(texto: string): string {
+  const t = texto.replace(/\s+/g, " ").trim();
+  if (!t) return "";
+  if (esTicketClubMillasPos(t)) return t.replace(/\s+/g, "");
+  try {
+    if (/^https?:\/\//i.test(t)) {
+      const u = new URL(t);
+      for (const key of ["c", "qr", "codigo", "qrCode", "ticket", "payload"]) {
+        const v = u.searchParams.get(key)?.trim();
+        if (v && (esTicketClubMillasPos(v) || v.length > 8)) return v.replace(/\s+/g, "");
+      }
+      const pathTail = u.pathname.split("/").filter(Boolean).pop() ?? "";
+      if (esTicketClubMillasPos(pathTail)) return pathTail;
+    }
+  } catch {
+    /* ignore */
+  }
+  const match = t.match(/BACATA-CLUB-V1-[0-9a-fA-F]{32}/i);
+  if (match) return match[0]!.toUpperCase();
+  return t.replace(/\s+/g, "");
+}
+
+/**
+ * URL del portal para flujo «abrir en navegador → login → acumular».
  */
 export function construirUrlPortalClubMillasConCodigo(qrPayload: string): string {
-  const limpio = qrPayload.replace(/\s+/g, "").trim();
+  const limpio = extraerCodigoQrClubDesdeTextoLeido(qrPayload);
   if (!limpio) return baseUrlPortalClubMillas();
   const u = new URL(baseUrlPortalClubMillas());
   u.searchParams.set(parametroQueryQrClubMillas(), limpio);
   return u.toString();
 }
 
+/** Texto exacto que debe ir codificado en el QR de la tirilla. */
+export function contenidoQrImpresoClubMillas(qrPayload: string): string {
+  const limpio = qrPayload.replace(/\s+/g, "").trim();
+  if (!limpio) return "";
+  if (modoContenidoQrClubMillas() === "url" && esTicketClubMillasPos(limpio)) {
+    return construirUrlPortalClubMillasConCodigo(limpio);
+  }
+  return limpio;
+}
+
 /**
- * JSON compacto para QR de fidelización (app María Chorizos).
- * Incluye id de venta para evitar doble uso; el backend puede validar y marcar consumido.
+ * JSON compacto legacy (doc. interno sin ticket WMS). Preferir registrar-ticket en caja.
  */
 export function construirPayloadFidelizacionV1(params: {
   ventaId: string;
@@ -53,27 +112,32 @@ export function construirPayloadFidelizacionV1(params: {
 }
 
 export type QrTirillaClubMillasGenerado = {
-  /** Texto original del ticket (BACATA-CLUB-V1-… o JSON). */
   payloadOriginal: string;
-  /** URL del portal con el código en query (contenido del QR impreso). */
-  urlQr: string;
+  /** Lo que el lector QR devuelve (token o URL según modo). */
+  contenidoImpreso: string;
   dataUrl: string;
 };
 
-/** Genera imagen QR que abre el portal del club con el código pendiente de validar. */
-export async function generarQrTirillaClubMillas(qrPayload: string): Promise<QrTirillaClubMillasGenerado> {
+export async function generarQrTirillaClubMillas(
+  qrPayload: string,
+  qrUrlPreferida?: string
+): Promise<QrTirillaClubMillasGenerado> {
   const payloadOriginal = qrPayload.replace(/\s+/g, "").trim();
-  const urlQr = construirUrlPortalClubMillasConCodigo(payloadOriginal);
-  const dataUrl = await QRCode.toDataURL(urlQr, {
+  const urlWms = qrUrlPreferida?.trim();
+  const contenidoImpreso =
+    urlWms && /^https?:\/\//i.test(urlWms)
+      ? urlWms
+      : contenidoQrImpresoClubMillas(payloadOriginal);
+  const dataUrl = await QRCode.toDataURL(contenidoImpreso, {
     errorCorrectionLevel: "M",
     margin: 2,
     width: 220,
     type: "image/png",
   });
-  return { payloadOriginal, urlQr, dataUrl };
+  return { payloadOriginal, contenidoImpreso, dataUrl };
 }
 
-/** @deprecated Usar generarQrTirillaClubMillas (QR con URL al portal). */
+/** @deprecated Usar generarQrTirillaClubMillas. */
 export async function generarDataUrlQrFidelizacion(payloadUtf8: string): Promise<string> {
   const { dataUrl } = await generarQrTirillaClubMillas(payloadUtf8);
   return dataUrl;

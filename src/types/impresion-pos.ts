@@ -54,10 +54,14 @@ export interface TicketVentaPayload {
   /** PNG data URL para impresión en navegador (programa cliente frecuente). */
   fidelizacionQrDataUrl?: string;
   /**
-   * Contenido del QR en impresión térmica (URL del portal club-de-millas?codigo=…).
-   * El token BACATA-CLUB-V1-… va en el parámetro; el WMS valida uso único al acumular.
+   * Contenido del QR impreso (URL club-de-millas?c=… por defecto, o token si NEXT_PUBLIC_CLUB_MILLAS_QR_MODO=token).
+   * Debe coincidir con lo que lee el escáner del Club de Millas.
    */
   fidelizacionPayloadTexto?: string;
+  /** QR de inscripcion al club (cuando no es cliente frecuente en el cobro). */
+  clubMillasInvitacionQrDataUrl?: string;
+  /** URL https://maria-chorizos-wms.vercel.app/club-de-millas para ESC/POS. */
+  clubMillasInvitacionUrl?: string;
   /** Si se emitió factura electrónica (DIAN) en este cobro. */
   facturaElectronica?: {
     numero?: string;
