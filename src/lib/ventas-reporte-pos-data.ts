@@ -172,7 +172,7 @@ export function construirDatosReporteVentasPos(params: {
     }
   }
 
-  const porDia = [...mapDia.entries()]
+  const porDia = Array.from(mapDia.entries())
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([ymd, v]) => ({
       ymd,
@@ -181,7 +181,7 @@ export function construirDatosReporteVentasPos(params: {
       total: v.total,
     }));
 
-  const productosAgregados = [...mapProductos.values()].sort((a, b) => b.total - a.total);
+  const productosAgregados = Array.from(mapProductos.values()).sort((a, b) => b.total - a.total);
 
   return {
     puntoVenta: puntoVenta.trim(),
@@ -194,7 +194,7 @@ export function construirDatosReporteVentasPos(params: {
     cantidadAnuladas,
     totalVigente,
     totalAnulado,
-    porTipo: [...mapTipo.entries()].map(([tipo, v]) => ({ tipo, ...v })),
+    porTipo: Array.from(mapTipo.entries()).map(([tipo, v]) => ({ tipo, ...v })),
     porDia,
     transacciones: nivel === "resumen" ? [] : transacciones,
     productosAgregados: nivel === "detallado" ? productosAgregados : [],

@@ -173,6 +173,16 @@ import {
   combinarCcInformeCierreTurno,
   mensajeExitoMotivacionalInformeCierreTurno,
 } from "@/lib/cierre-turno-informe-correo-ui";
+import {
+  agregarCorreoInformeCierre,
+  alternarSeleccionCorreoInforme,
+  cargarCorreosInformeCierrePersistidos,
+  correosInformeSeleccionadosParaEnvio,
+  emailValidoInformeCierre,
+  guardarCorreosInformeCierrePersistidos,
+  quitarCorreoInformeCierre,
+  type CorreosInformeCierrePersistidos,
+} from "@/lib/informe-cierre-correos-persistidos";
 import { emailDesdeFichaFranquiciado, getFranquiciadoPorPuntoVenta } from "@/lib/franquiciado-pos";
 import {
   clearPosGebOnboarding,
@@ -183,7 +193,6 @@ import {
 import { getPosGebTutorialSteps, type PosGebTutorialModulo } from "@/lib/pos-geb-tutorial-steps";
 
 const LS_INFORME_TURNO_PARA = "pos_mc_informe_turno_para_v1";
-const LS_INFORME_TURNO_CC = "pos_mc_informe_turno_cc_v1";
 /** Clave maestra para abrir «Espacio para franquiciados» (misma que PYG, inventario y contrato POS en el proyecto). */
 const ETIQUETA_ESPACIO_FRANQUICIADOS = "Espacio para franquiciados";
 const CLAVE_ACCESO_MAS = "MC2026";
@@ -378,7 +387,12 @@ export default function CajaPage() {
   const [showModalCierreTurno, setShowModalCierreTurno] = useState(false);
   const [modalInformeCierreCorreoAbierto, setModalInformeCierreCorreoAbierto] = useState(false);
   const [emailInformeCierrePara, setEmailInformeCierrePara] = useState("");
-  const [emailInformeCierreCc, setEmailInformeCierreCc] = useState("");
+  const [correosInformeCierre, setCorreosInformeCierre] = useState<CorreosInformeCierrePersistidos>({
+    emails: [],
+    seleccionados: [],
+  });
+  const [nuevoCorreoInformeCierre, setNuevoCorreoInformeCierre] = useState("");
+  const [errorAgregarCorreoInforme, setErrorAgregarCorreoInforme] = useState<string | null>(null);
   const [cargandoDefaultsInformeCorreo, setCargandoDefaultsInformeCorreo] = useState(false);
   const [procesandoCierreTurno, setProcesandoCierreTurno] = useState(false);
   const [errorInformeCierreCorreo, setErrorInformeCierreCorreo] = useState<string | null>(null);
@@ -1234,11 +1248,6 @@ export default function CajaPage() {
       try {
         if (typeof window !== "undefined") {
           localStorage.setItem(LS_INFORME_TURNO_PARA, correoInforme.para.trim());
-          if (correoInforme.cc?.trim()) {
-            localStorage.setItem(LS_INFORME_TURNO_CC, correoInforme.cc.trim());
-          } else {
-            localStorage.removeItem(LS_INFORME_TURNO_CC);
-          }
         }
       } catch {
         /* ignore */
@@ -1282,15 +1291,16 @@ export default function CajaPage() {
   const abrirModalInformeCierreCorreo = useCallback(async () => {
     setModalInformeCierreCorreoAbierto(true);
     setErrorInformeCierreCorreo(null);
+    setErrorAgregarCorreoInforme(null);
+    setNuevoCorreoInformeCierre("");
     setCargandoDefaultsInformeCorreo(true);
     let para = "";
-    let ccExtraGuardado = "";
     try {
-      if (typeof window !== "undefined") {
-        ccExtraGuardado = localStorage.getItem(LS_INFORME_TURNO_CC)?.trim() ?? "";
+      const pv = user?.puntoVenta?.trim();
+      if (pv && typeof window !== "undefined") {
+        setCorreosInformeCierre(cargarCorreosInformeCierrePersistidos(pv));
       }
       const token = await auth?.currentUser?.getIdToken();
-      const pv = user?.puntoVenta?.trim();
       if (token && pv) {
         const r = await getFranquiciadoPorPuntoVenta(pv, token);
         if (r.ok) {
@@ -1304,27 +1314,36 @@ export default function CajaPage() {
       if (!para && user?.email?.trim()) para = user.email.trim();
     } finally {
       setEmailInformeCierrePara(para);
-      setEmailInformeCierreCc(combinarCcInformeCierreTurno(ccExtraGuardado));
       setCargandoDefaultsInformeCorreo(false);
     }
   }, [user?.puntoVenta, user?.email]);
 
+  const agregarCorreoInformeCierreModal = useCallback(() => {
+    const r = agregarCorreoInformeCierre(correosInformeCierre, nuevoCorreoInformeCierre);
+    if (!r.ok) {
+      setErrorAgregarCorreoInforme(r.message);
+      return;
+    }
+    setCorreosInformeCierre(r.data);
+    setNuevoCorreoInformeCierre("");
+    setErrorAgregarCorreoInforme(null);
+  }, [correosInformeCierre, nuevoCorreoInformeCierre]);
+
   const confirmarInformeCierreYcerrarTurno = useCallback(async () => {
     const para = emailInformeCierrePara.trim();
-    if (!emailValidoSimple(para)) {
+    if (!emailValidoInformeCierre(para)) {
       setErrorInformeCierreCorreo("Ingresa un correo válido para el franquiciado.");
       return;
     }
-    const ccFinal = combinarCcInformeCierreTurno(emailInformeCierreCc.trim());
-    const partesCc = ccFinal.split(/[,;]/).map((x) => x.trim()).filter(Boolean);
-    if (!partesCc.every((p) => emailValidoSimple(p))) {
-      setErrorInformeCierreCorreo("Revisa los correos en «Con copia».");
-      return;
+    const pv = user?.puntoVenta?.trim();
+    if (pv && typeof window !== "undefined") {
+      guardarCorreosInformeCierrePersistidos(pv, correosInformeCierre);
     }
+    const ccFinal = combinarCcInformeCierreTurno(correosInformeSeleccionadosParaEnvio(correosInformeCierre));
     setErrorInformeCierreCorreo(null);
     await ejecutarCierreTurnoDefinitivo({ para, cc: ccFinal });
     setModalInformeCierreCorreoAbierto(false);
-  }, [emailInformeCierrePara, emailInformeCierreCc, ejecutarCierreTurnoDefinitivo]);
+  }, [emailInformeCierrePara, correosInformeCierre, user?.puntoVenta, ejecutarCierreTurnoDefinitivo]);
 
   const agregarPrecuenta = () => {
     const nextNum = precuentas.length + 1;
@@ -3729,8 +3748,23 @@ export default function CajaPage() {
         onClose={() => !procesandoCierreTurno && setModalInformeCierreCorreoAbierto(false)}
         para={emailInformeCierrePara}
         onParaChange={setEmailInformeCierrePara}
-        cc={emailInformeCierreCc}
-        onCcChange={setEmailInformeCierreCc}
+        correosAdicionales={correosInformeCierre.emails}
+        correosSeleccionados={correosInformeCierre.seleccionados}
+        onToggleCorreo={(email, sel) =>
+          setCorreosInformeCierre((prev) => alternarSeleccionCorreoInforme(prev, email, sel))
+        }
+        onQuitarCorreo={(email) => {
+          const pv = user?.puntoVenta?.trim();
+          const next = quitarCorreoInformeCierre(correosInformeCierre, email);
+          setCorreosInformeCierre(next);
+          if (pv && typeof window !== "undefined") {
+            guardarCorreosInformeCierrePersistidos(pv, next);
+          }
+        }}
+        nuevoCorreo={nuevoCorreoInformeCierre}
+        onNuevoCorreoChange={setNuevoCorreoInformeCierre}
+        onAgregarCorreo={agregarCorreoInformeCierreModal}
+        errorAgregarCorreo={errorAgregarCorreoInforme}
         defaultsLoading={cargandoDefaultsInformeCorreo}
         submitting={procesandoCierreTurno}
         onConfirm={() => void confirmarInformeCierreYcerrarTurno()}
