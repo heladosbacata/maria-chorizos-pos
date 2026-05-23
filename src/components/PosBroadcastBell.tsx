@@ -12,6 +12,7 @@ import {
   type PosBroadcastMensajeCliente,
   type PosBroadcastSesionCliente,
 } from "@/lib/wms-broadcast-client";
+import { comprimirImagenParaBroadcastChat } from "@/lib/pos-broadcast-chat-imagen";
 
 function formatHora(ms: number): string {
   if (!ms) return "—";
@@ -47,7 +48,9 @@ export default function PosBroadcastBell({ getIdToken, currentUid, visible = tru
   const [error, setError] = useState<string | null>(null);
   const [reactionMessageId, setReactionMessageId] = useState<string | null>(null);
   const [reaccionandoId, setReaccionandoId] = useState<string | null>(null);
+  const [imagenPendiente, setImagenPendiente] = useState<{ previewUrl: string; dataUrl: string } | null>(null);
   const listaRef = useRef<HTMLDivElement>(null);
+  const inputImagenRef = useRef<HTMLInputElement>(null);
   const prevUnreadRef = useRef(0);
   const autoAbiertoInicialRef = useRef(false);
   const dragRef = useRef<{
@@ -270,9 +273,43 @@ export default function PosBroadcastBell({ getIdToken, currentUid, visible = tru
     }
   };
 
+  const quitarImagenPendiente = useCallback(() => {
+    if (imagenPendiente?.previewUrl) URL.revokeObjectURL(imagenPendiente.previewUrl);
+    setImagenPendiente(null);
+    if (inputImagenRef.current) inputImagenRef.current.value = "";
+  }, [imagenPendiente?.previewUrl]);
+
+  useEffect(() => {
+    return () => {
+      if (imagenPendiente?.previewUrl) URL.revokeObjectURL(imagenPendiente.previewUrl);
+    };
+  }, [imagenPendiente?.previewUrl]);
+
+  const onElegirImagen = async (file: File | null) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setError("Solo se permiten imágenes (JPG, PNG, WebP).");
+      return;
+    }
+    const comprimida = await comprimirImagenParaBroadcastChat(file);
+    if (!comprimida) {
+      setError("No se pudo usar esa imagen. Probá con otra más pequeña.");
+      return;
+    }
+    setImagenPendiente((prev) => {
+      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+      return {
+        previewUrl: URL.createObjectURL(file),
+        dataUrl: comprimida.dataUrl,
+      };
+    });
+    if (inputImagenRef.current) inputImagenRef.current.value = "";
+    setError(null);
+  };
+
   const enviar = async () => {
     const t = texto.trim();
-    if (!t || !sesion) return;
+    if ((!t && !imagenPendiente) || !sesion) return;
     setEnviando(true);
     setError(null);
     try {
@@ -281,12 +318,15 @@ export default function PosBroadcastBell({ getIdToken, currentUid, visible = tru
         setError("Sesión inválida.");
         return;
       }
-      const r = await wmsBroadcastEnviar(token, t);
+      const r = await wmsBroadcastEnviar(token, t, {
+        imageDataUrl: imagenPendiente?.dataUrl,
+      });
       if (!r.ok) {
         setError(r.error);
         return;
       }
       setTexto("");
+      quitarImagenPendiente();
       await cargarHilo();
       await fetchUnread();
     } finally {
@@ -446,7 +486,24 @@ export default function PosBroadcastBell({ getIdToken, currentUid, visible = tru
                               {m.puntoEtiqueta}
                             </p>
                           ) : null}
-                          <p className="whitespace-pre-wrap break-words">{m.text}</p>
+                          {m.imageUrl ? (
+                            <a
+                              href={m.imageUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="mb-2 block"
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={m.imageUrl}
+                                alt="Imagen adjunta"
+                                className="max-h-44 max-w-full rounded-lg object-cover"
+                                loading="lazy"
+                                referrerPolicy="no-referrer"
+                              />
+                            </a>
+                          ) : null}
+                          {m.text ? <p className="whitespace-pre-wrap break-words">{m.text}</p> : null}
                           <p
                             className={`mt-1 text-[10px] font-semibold uppercase tracking-wide ${
                               deAdmin ? "text-indigo-900/45" : "text-emerald-100/75"
@@ -546,7 +603,51 @@ export default function PosBroadcastBell({ getIdToken, currentUid, visible = tru
             ) : null}
 
             <footer className="relative border-t border-white/10 bg-black/25 p-3">
+              {imagenPendiente ? (
+                <div className="relative mb-2 inline-block">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={imagenPendiente.previewUrl}
+                    alt="Vista previa"
+                    className="h-16 max-w-[140px] rounded-lg border border-white/20 object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={quitarImagenPendiente}
+                    className="absolute -right-1.5 -top-1.5 rounded-full bg-slate-900/90 p-1 text-white ring-1 ring-white/20"
+                    aria-label="Quitar imagen"
+                  >
+                    <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              ) : null}
               <div className="flex gap-2 rounded-2xl border border-indigo-500/25 bg-white/[0.06] p-1.5 focus-within:border-indigo-400/50">
+                <input
+                  ref={inputImagenRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/*"
+                  className="hidden"
+                  onChange={(e) => void onElegirImagen(e.target.files?.[0] ?? null)}
+                />
+                <button
+                  type="button"
+                  disabled={enviando}
+                  onClick={() => inputImagenRef.current?.click()}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center self-end rounded-xl border border-white/15 text-indigo-100/90 transition hover:bg-white/10 disabled:opacity-40"
+                  aria-label="Adjuntar imagen"
+                  title="Adjuntar imagen"
+                >
+                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+                    />
+                  </svg>
+                </button>
                 <textarea
                   value={texto}
                   onChange={(e) => setTexto(e.target.value)}
@@ -558,7 +659,7 @@ export default function PosBroadcastBell({ getIdToken, currentUid, visible = tru
                 />
                 <button
                   type="button"
-                  disabled={enviando || !texto.trim()}
+                  disabled={enviando || (!texto.trim() && !imagenPendiente)}
                   onClick={() => void enviar()}
                   className="flex h-11 w-11 shrink-0 items-center justify-center self-end rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 text-white shadow-lg transition hover:brightness-110 disabled:opacity-40"
                   aria-label="Enviar"

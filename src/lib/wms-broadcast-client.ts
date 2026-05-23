@@ -13,6 +13,7 @@ export type PosBroadcastMensajeCliente = {
   senderUid: string;
   deleted: boolean;
   puntoEtiqueta?: string;
+  imageUrl?: string;
   reactions?: PosBroadcastReactionsCliente;
 };
 
@@ -157,7 +158,8 @@ export async function wmsBroadcastReaccionar(
 
 export async function wmsBroadcastEnviar(
   idToken: string,
-  text: string
+  text: string,
+  opts?: { imageDataUrl?: string }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const t = idToken?.trim();
   if (!t) return { ok: false, error: "Sin sesión." };
@@ -169,7 +171,10 @@ export async function wmsBroadcastEnviar(
         "Content-Type": "application/json",
         Accept: "application/json",
       },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({
+        text,
+        ...(opts?.imageDataUrl ? { imageDataUrl: opts.imageDataUrl } : {}),
+      }),
     });
     const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
     if (!res.ok || !data.ok) {
