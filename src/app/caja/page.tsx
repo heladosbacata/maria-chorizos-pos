@@ -2247,6 +2247,7 @@ export default function CajaPage() {
               message?: string;
               qrPayload?: string;
               qrUrl?: string;
+              codigoCorto?: string;
             };
             if (clubJson.ok === true && clubJson.omitido === true && clubJson.codigo === "monto_insuficiente") {
               ticket = {
@@ -2264,10 +2265,15 @@ export default function CajaPage() {
                 raw,
                 typeof clubJson.qrUrl === "string" ? clubJson.qrUrl : undefined
               );
+              const codigoCorto =
+                typeof clubJson.codigoCorto === "string"
+                  ? clubJson.codigoCorto.replace(/\s+/g, "").trim().toUpperCase()
+                  : "";
               ticket = {
                 ...ticket,
                 fidelizacionQrDataUrl: qrClub.dataUrl,
                 fidelizacionPayloadTexto: qrClub.contenidoImpreso,
+                ...(codigoCorto.length === 6 ? { clubMillasCodigoCorto: codigoCorto } : {}),
               };
             } else {
               const msg =

@@ -26,7 +26,7 @@ type BodyIn = {
 };
 
 type OkPayload =
-  | { ok: true; qrPayload: string; qrUrl?: string }
+  | { ok: true; qrPayload: string; qrUrl?: string; codigoCorto?: string }
   | { ok: true; omitido: true; codigo: "monto_insuficiente"; message: string }
   | { ok: false; message: string };
 
@@ -56,6 +56,21 @@ function extraerQrUrlWms(data: unknown): string | null {
     if (nested && typeof nested === "object" && !Array.isArray(nested)) {
       const q = str((nested as Record<string, unknown>).qrUrl);
       if (q && /^https?:\/\//i.test(q)) return q;
+    }
+  }
+  return null;
+}
+
+function extraerCodigoCortoWms(data: unknown): string | null {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+  const o = data as Record<string, unknown>;
+  const direct = str(o.codigoCorto).toUpperCase().replace(/\s+/g, "");
+  if (/^[A-Z0-9]{6}$/.test(direct)) return direct;
+  for (const nestKey of ["data", "result"] as const) {
+    const nested = o[nestKey];
+    if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+      const c = str((nested as Record<string, unknown>).codigoCorto).toUpperCase().replace(/\s+/g, "");
+      if (/^[A-Z0-9]{6}$/.test(c)) return c;
     }
   }
   return null;
@@ -268,10 +283,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   const qrUrl = extraerQrUrlWms(data);
+  const codigoCorto = extraerCodigoCortoWms(data);
 
   return res.status(200).json({
     ok: true,
     qrPayload: limpio,
     ...(qrUrl ? { qrUrl } : {}),
+    ...(codigoCorto ? { codigoCorto } : {}),
   });
 }

@@ -5,6 +5,7 @@ import {
   INVITACION_CLUB_TIRILLA_TITULO,
 } from "@/lib/club-millas-invitacion-ticket";
 import {
+  MENSAJE_TIRILLA_CLUB_CODIGO_LABEL,
   MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO1,
   MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO2,
   MENSAJE_TIRILLA_CLUB_FRECUENTE_TITULO,
@@ -117,7 +118,13 @@ export function construirTextoTicketPlano(
   rows.push(center("Maria Chorizos POS GEB"));
   rows.push("");
   if (payload.fidelizacionPayloadTexto?.trim() && !opciones?.omitirBloqueFidelizacionTexto) {
-    rows.push(textoFidelizacionTicketPlano(payload.fidelizacionPayloadTexto.trim(), W));
+    rows.push(
+      textoFidelizacionTicketPlano(
+        payload.fidelizacionPayloadTexto.trim(),
+        W,
+        payload.clubMillasCodigoCorto
+      )
+    );
   }
   if (
     !opciones?.omitirBloqueInvitacionClubTexto &&
@@ -206,18 +213,24 @@ function escPosBloqueInvitacionClubMillas(urlInscripcion: string, columnas: numb
   return out;
 }
 
-function escPosBloqueQrFidelizacion(payloadJson: string, columnas: number): string {
+function escPosBloqueQrFidelizacion(payloadJson: string, columnas: number, codigoCorto?: string): string {
   const W = columnas;
   const center = (t: string) => {
     const x = textoTicketSeguro(t).slice(0, W);
     const pad = Math.max(0, Math.floor((W - x.length) / 2));
     return " ".repeat(pad) + x;
   };
+  const cod = codigoCorto?.trim().toUpperCase();
   let out = "\n";
   out += escPosAlinearCentro();
   out += center(textoTicketSeguro(MENSAJE_TIRILLA_CLUB_FRECUENTE_TITULO)) + "\n";
   out += center(textoTicketSeguro(MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO1)) + "\n";
-  out += center(textoTicketSeguro(MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO2)) + "\n\n";
+  out += center(textoTicketSeguro(MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO2)) + "\n";
+  if (cod && cod.length === 6) {
+    out += center(textoTicketSeguro(MENSAJE_TIRILLA_CLUB_CODIGO_LABEL)) + "\n";
+    out += center(cod) + "\n";
+  }
+  out += "\n";
   out += escPosQrCodigo(payloadJson);
   out += "\n\n";
   out += escPosAlinearIzq();
@@ -257,7 +270,7 @@ function textoInvitacionClubTicketPlano(ancho: number): string {
   return rows.join("\n");
 }
 
-function textoFidelizacionTicketPlano(_payloadJson: string, ancho: number): string {
+function textoFidelizacionTicketPlano(_payloadJson: string, ancho: number, codigoCorto?: string): string {
   const center = (s: string) => {
     const t = textoTicketSeguro(s).slice(0, ancho);
     const pad = Math.max(0, Math.floor((ancho - t.length) / 2));
@@ -266,6 +279,11 @@ function textoFidelizacionTicketPlano(_payloadJson: string, ancho: number): stri
   const rows: string[] = ["", center(MENSAJE_TIRILLA_CLUB_FRECUENTE_TITULO)];
   rows.push(center(MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO1));
   rows.push(center(MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO2));
+  const cod = codigoCorto?.trim().toUpperCase();
+  if (cod && cod.length === 6) {
+    rows.push(center(MENSAJE_TIRILLA_CLUB_CODIGO_LABEL));
+    rows.push(center(cod));
+  }
   rows.push("");
   return rows.join("\n");
 }
@@ -333,6 +351,12 @@ function construirHtmlTirillaTicket(
           <p class="qr-t">${escapeHtml(MENSAJE_TIRILLA_CLUB_FRECUENTE_TITULO)}</p>
           <p class="qr-paso">${escapeHtml(MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO1)}</p>
           <p class="qr-paso">${escapeHtml(MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO2)}</p>
+          ${
+            p.clubMillasCodigoCorto?.trim()
+              ? `<p class="qr-codigo-label">${escapeHtml(MENSAJE_TIRILLA_CLUB_CODIGO_LABEL)}</p>
+          <p class="qr-codigo-valor">${escapeHtml(p.clubMillasCodigoCorto.trim().toUpperCase())}</p>`
+              : ""
+          }
           <img src="${escapeHtml(payload.fidelizacionQrDataUrl)}" width="160" height="160" alt="" />
           <p class="qr-s">Club de Millas Maria Chorizos</p>
         </div>`
@@ -585,6 +609,8 @@ function construirHtmlTirillaTicket(
   }
   .qr-t { margin: 0 0 4px; font-size: 7.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; color: #92400e; line-height: 1.3; }
   .qr-paso { margin: 0 0 4px; font-size: 7px; font-weight: 600; line-height: 1.35; color: #b45309; }
+  .qr-codigo-label { margin: 6px 0 2px; font-size: 7px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: #92400e; }
+  .qr-codigo-valor { margin: 0 0 8px; font-size: 18px; font-weight: 900; letter-spacing: 0.28em; color: #c2410c; }
   .qr-s { margin: 6px 0 0; font-size: 7px; font-weight: 700; color: #78350f; text-transform: uppercase; letter-spacing: 0.08em; }
   .qr img { image-rendering: pixelated; display: inline-block; }
   .fe-dian {
@@ -811,7 +837,9 @@ export async function imprimirTicketConQz(prefs: ImpresionPosPrefs, payload: Tic
     ...(invUrl && tieneQrInvitacion ? { omitirBloqueInvitacionClubTexto: true } : {}),
   });
   const bloqueDomicilios = domUrl ? escPosBloqueQrDomicilios(domUrl, cols) : "";
-  const bloqueQr = fid ? escPosBloqueQrFidelizacion(fid, cols) : "";
+  const bloqueQr = fid
+    ? escPosBloqueQrFidelizacion(fid, cols, payload.clubMillasCodigoCorto)
+    : "";
   const bloqueInvitacion =
     invUrl && !fid ? escPosBloqueInvitacionClubMillas(invUrl, cols) : "";
   const init = "\x1B\x40";

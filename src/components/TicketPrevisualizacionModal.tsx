@@ -10,6 +10,7 @@ import {
   INVITACION_CLUB_TIRILLA_TITULO,
 } from "@/lib/club-millas-invitacion-ticket";
 import {
+  MENSAJE_TIRILLA_CLUB_CODIGO_LABEL,
   MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO1,
   MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO2,
   MENSAJE_TIRILLA_CLUB_FRECUENTE_TITULO,
@@ -77,6 +78,7 @@ export default function TicketPrevisualizacionModal({
   if (!mounted || !open || !ticket) return null;
 
   const qr = ticket.fidelizacionQrDataUrl?.trim();
+  const codigoClub = ticket.clubMillasCodigoCorto?.trim().toUpperCase();
   const qrInvitacionClub = ticket.clubMillasInvitacionQrDataUrl?.trim();
   const mostrarInvitacionClub = Boolean(
     !qr && (qrInvitacionClub || ticket.clubMillasInvitacionUrl?.trim())
@@ -264,6 +266,16 @@ export default function TicketPrevisualizacionModal({
                 <p className="mt-1 text-[7px] font-semibold leading-snug text-amber-900">
                   {MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO2}
                 </p>
+                {codigoClub && codigoClub.length === 6 ? (
+                  <div className="mt-2 rounded-lg border border-amber-400 bg-white px-2 py-2">
+                    <p className="text-[7px] font-extrabold uppercase tracking-[0.2em] text-amber-800">
+                      {MENSAJE_TIRILLA_CLUB_CODIGO_LABEL}
+                    </p>
+                    <p className="mt-1 font-mono text-[20px] font-black tracking-[0.35em] text-orange-700">
+                      {codigoClub}
+                    </p>
+                  </div>
+                ) : null}
                 {/* eslint-disable-next-line @next/next/no-img-element -- data URL del QR */}
                 <img
                   src={qr}
