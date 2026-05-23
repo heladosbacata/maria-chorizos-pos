@@ -53,7 +53,10 @@ export interface TicketVentaPayload {
   domiciliosLandingUrl?: string;
   /** PNG data URL para impresión en navegador (programa cliente frecuente). */
   fidelizacionQrDataUrl?: string;
-  /** Mismo contenido que el QR, en JSON; va al ticket plano / térmico. */
+  /**
+   * Contenido del QR en impresión térmica (URL del portal club-de-millas?codigo=…).
+   * El token BACATA-CLUB-V1-… va en el parámetro; el WMS valida uso único al acumular.
+   */
   fidelizacionPayloadTexto?: string;
   /** Si se emitió factura electrónica (DIAN) en este cobro. */
   facturaElectronica?: {

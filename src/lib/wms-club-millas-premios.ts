@@ -6,6 +6,7 @@ export type PremioClubMillas = {
   puntosNecesarios: number;
 };
 
+/** Landing login/registro del club (antes de validar millas del QR de tirilla). */
 export const CLUB_MILLAS_PORTAL_URL = "https://maria-chorizos-wms.vercel.app/club-de-millas";
 
 export async function listarPremiosClubMillasWms(): Promise<

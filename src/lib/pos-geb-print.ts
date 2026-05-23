@@ -178,7 +178,8 @@ function escPosBloqueQrFidelizacion(payloadJson: string, columnas: number): stri
   out += escPosAlinearCentro();
   out += center("--- MARIA CHORIZOS ---") + "\n";
   out += center("CLIENTE FRECUENTE") + "\n";
-  out += center("Escanear con app") + "\n\n";
+  out += center("Club de Millas") + "\n";
+  out += center("Ingresar y validar") + "\n\n";
   out += escPosQrCodigo(payloadJson);
   out += "\n\n";
   out += escPosAlinearIzq();
@@ -204,7 +205,7 @@ function textoFidelizacionTicketPlano(payloadJson: string, ancho: number): strin
   const rows: string[] = [];
   rows.push(line("--- MARIA CHORIZOS ---"));
   rows.push(line("CLIENTE FRECUENTE"));
-  rows.push(line("Escanear con app"));
+  rows.push(line("Club de Millas - validar"));
   rows.push("");
   for (let i = 0; i < payloadJson.length; i += ancho) {
     rows.push(line(payloadJson.slice(i, i + ancho)));
@@ -275,7 +276,7 @@ function construirHtmlTirillaTicket(
       ? `<div class="qr">
           <p class="qr-t">Cliente frecuente</p>
           <img src="${escapeHtml(payload.fidelizacionQrDataUrl)}" width="160" height="160" alt="" />
-          <p class="qr-s">Escaneá con la app María Chorizos</p>
+          <p class="qr-s">Ingresá al Club de Millas y validá tus millas</p>
         </div>`
       : "";
 

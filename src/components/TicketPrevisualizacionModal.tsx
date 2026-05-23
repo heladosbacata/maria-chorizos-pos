@@ -251,7 +251,9 @@ export default function TicketPrevisualizacionModal({
                   className="mx-auto mt-2 rounded-md border border-slate-200 bg-white p-1"
                   style={{ imageRendering: "pixelated" }}
                 />
-                <p className="mt-2 text-[7px] text-slate-500">Escaneá con la app María Chorizos</p>
+                <p className="mt-2 text-[7px] text-slate-500">
+                  Ingresá al Club de Millas y validá tus millas
+                </p>
               </div>
             ) : null}
           </article>

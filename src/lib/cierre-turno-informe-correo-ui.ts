@@ -13,13 +13,14 @@ function emailValidoInforme(s: string): boolean {
 /**
  * Garantiza la copia a servicioalcliente@grupobacata.com y añade otros correos válidos que escriba el usuario.
  */
-export function combinarCcInformeCierreTurno(extraDelUsuario: string): string {
+/** Arma CC con copia fija Bacatá + correos adicionales del cajero (lista o texto separado por coma). */
+export function combinarCcInformeCierreTurno(extraDelUsuario: string | string[]): string {
+  const extrasInput = Array.isArray(extraDelUsuario)
+    ? extraDelUsuario
+    : extraDelUsuario.split(/[,;]/).map((x) => x.trim());
   const fijo = INFORME_CIERRE_CC_SERVICIO_GRUPO_BACATA;
   const fijoLower = fijo.toLowerCase();
-  const extras = extraDelUsuario
-    .split(/[,;]/)
-    .map((x) => x.trim())
-    .filter((x) => emailValidoInforme(x) && x.toLowerCase() !== fijoLower);
+  const extras = extrasInput.filter((x) => emailValidoInforme(x) && x.toLowerCase() !== fijoLower);
   const unicos: string[] = [];
   const seen = new Set<string>();
   const add = (e: string) => {
