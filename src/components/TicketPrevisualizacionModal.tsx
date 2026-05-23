@@ -78,10 +78,13 @@ export default function TicketPrevisualizacionModal({
   if (!mounted || !open || !ticket) return null;
 
   const qr = ticket.fidelizacionQrDataUrl?.trim();
-  const codigoClub = ticket.clubMillasCodigoCorto?.trim().toUpperCase();
+  const codigoClub = ticket.clubMillasCodigoCorto?.trim().toUpperCase() ?? "";
+  const msgClubMillas = ticket.fidelizacionPayloadTexto?.trim() ?? "";
+  const esMsgClubMillas = /club de millas/i.test(msgClubMillas);
   const qrInvitacionClub = ticket.clubMillasInvitacionQrDataUrl?.trim();
+  const mostrarClubFrecuente = Boolean(qr || codigoClub.length === 6 || esMsgClubMillas);
   const mostrarInvitacionClub = Boolean(
-    !qr && (qrInvitacionClub || ticket.clubMillasInvitacionUrl?.trim())
+    !mostrarClubFrecuente && (qrInvitacionClub || ticket.clubMillasInvitacionUrl?.trim())
   );
   const qrDomicilios = ticket.domiciliosQrDataUrl?.trim();
   const mostrarPromoDomicilios = Boolean(qrDomicilios || ticket.domiciliosLandingUrl?.trim());
@@ -255,18 +258,24 @@ export default function TicketPrevisualizacionModal({
               <p className="mt-1 text-[7px] tracking-[0.12em] text-slate-400">María Chorizos · POS GEB</p>
             </div>
 
-            {qr ? (
+            {mostrarClubFrecuente ? (
               <div className="mt-4 rounded-xl border border-amber-300 bg-gradient-to-b from-amber-50 to-white px-3 py-3 text-center">
                 <p className="text-[8px] font-extrabold uppercase tracking-wide text-amber-950">
                   {MENSAJE_TIRILLA_CLUB_FRECUENTE_TITULO}
                 </p>
-                <p className="mt-2 text-[7px] font-semibold leading-snug text-amber-900">
-                  {MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO1}
-                </p>
-                <p className="mt-1 text-[7px] font-semibold leading-snug text-amber-900">
-                  {MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO2}
-                </p>
-                {codigoClub && codigoClub.length === 6 ? (
+                {!qr && esMsgClubMillas ? (
+                  <p className="mt-2 text-[7px] font-semibold leading-snug text-rose-800">{msgClubMillas}</p>
+                ) : (
+                  <>
+                    <p className="mt-2 text-[7px] font-semibold leading-snug text-amber-900">
+                      {MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO1}
+                    </p>
+                    <p className="mt-1 text-[7px] font-semibold leading-snug text-amber-900">
+                      {MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO2}
+                    </p>
+                  </>
+                )}
+                {codigoClub.length === 6 ? (
                   <div className="mt-2 rounded-lg border border-amber-400 bg-white px-2 py-2">
                     <p className="text-[7px] font-extrabold uppercase tracking-[0.2em] text-amber-800">
                       {MENSAJE_TIRILLA_CLUB_CODIGO_LABEL}
@@ -276,15 +285,17 @@ export default function TicketPrevisualizacionModal({
                     </p>
                   </div>
                 ) : null}
-                {/* eslint-disable-next-line @next/next/no-img-element -- data URL del QR */}
-                <img
-                  src={qr}
-                  width={140}
-                  height={140}
-                  alt="Código QR Club de Millas"
-                  className="mx-auto mt-2 rounded-md border border-amber-200 bg-white p-1"
-                  style={{ imageRendering: "pixelated" }}
-                />
+                {qr ? (
+                  /* eslint-disable-next-line @next/next/no-img-element -- data URL del QR */
+                  <img
+                    src={qr}
+                    width={140}
+                    height={140}
+                    alt="Código QR Club de Millas"
+                    className="mx-auto mt-2 rounded-md border border-amber-200 bg-white p-1"
+                    style={{ imageRendering: "pixelated" }}
+                  />
+                ) : null}
               </div>
             ) : null}
 

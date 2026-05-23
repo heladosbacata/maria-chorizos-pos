@@ -76,6 +76,28 @@ function extraerCodigoCortoWms(data: unknown): string | null {
   return null;
 }
 
+function mensajeDesdeRespuestaWms(data: unknown): string {
+  if (!data || typeof data !== "object" || Array.isArray(data)) return "";
+  const o = data as Record<string, unknown>;
+  const direct = str(o.message) || str(o.error);
+  if (direct) return direct;
+  for (const nestKey of ["data", "result"] as const) {
+    const nested = o[nestKey];
+    if (nested && typeof nested === "object" && !Array.isArray(nested)) {
+      const n = nested as Record<string, unknown>;
+      const m = str(n.message) || str(n.error);
+      if (m) return m;
+    }
+  }
+  return "";
+}
+
+function construirQrPayloadDesdeToken(token: string): string | null {
+  const t = token.replace(/\s+/g, "").trim().toLowerCase();
+  if (!/^[a-f0-9]{32}$/.test(t)) return null;
+  return `BACATA-CLUB-V1-${t}`;
+}
+
 function extraerQrPayloadWms(data: unknown): string | null {
   if (typeof data === "string") {
     const t = data.trim();
@@ -85,15 +107,21 @@ function extraerQrPayloadWms(data: unknown): string | null {
   const o = data as Record<string, unknown>;
   const direct = str(o.qrPayload);
   if (direct) return direct;
+  const desdeToken = construirQrPayloadDesdeToken(str(o.token));
+  if (desdeToken) return desdeToken;
   const nested = o.data && typeof o.data === "object" && !Array.isArray(o.data) ? (o.data as Record<string, unknown>) : null;
   if (nested) {
     const q = str(nested.qrPayload);
     if (q) return q;
+    const t2 = construirQrPayloadDesdeToken(str(nested.token));
+    if (t2) return t2;
   }
   const result = o.result && typeof o.result === "object" && !Array.isArray(o.result) ? (o.result as Record<string, unknown>) : null;
   if (result) {
     const q = str(result.qrPayload);
     if (q) return q;
+    const t3 = construirQrPayloadDesdeToken(str(result.token));
+    if (t3) return t3;
   }
   return null;
 }
@@ -243,11 +271,41 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
 
   const { status, data } = outcome;
+
+  if (data && typeof data === "object" && !Array.isArray(data)) {
+    const body = data as Record<string, unknown>;
+    if (body.ok === true && body.omitido === true && str(body.codigo) === "monto_insuficiente") {
+      return res.status(200).json({
+        ok: true,
+        omitido: true,
+        codigo: "monto_insuficiente",
+        message:
+          mensajeDesdeRespuestaWms(data) ||
+          "Club de Millas: el total de esta factura no alcanza el mínimo para generar código QR en esta compra.",
+      });
+    }
+    if (body.ok === false) {
+      return res.status(200).json({
+        ok: false,
+        message:
+          mensajeDesdeRespuestaWms(data) ||
+          "El WMS rechazó el registro del ticket del Club de Millas.",
+      });
+    }
+  }
+
   if (!Number.isFinite(status) || status < 200 || status >= 300) {
     const msg =
-      typeof (data as { message?: string })?.message === "string"
-        ? (data as { message: string }).message
-        : `El WMS respondió HTTP ${status} al registrar el ticket del Club de Millas.`;
+      mensajeDesdeRespuestaWms(data) ||
+      `El WMS respondió HTTP ${status} al registrar el ticket del Club de Millas.`;
+    if (status === 400 && /monto|millas|9000|alcanza/i.test(msg)) {
+      return res.status(200).json({
+        ok: true,
+        omitido: true,
+        codigo: "monto_insuficiente",
+        message: msg,
+      });
+    }
     return res.status(200).json({ ok: false, message: msg });
   }
 

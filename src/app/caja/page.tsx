@@ -130,6 +130,7 @@ import {
   type TipoMovimientoCaja,
 } from "@/lib/turno-movimientos-caja";
 import {
+  extraerCodigoQrClubDesdeTextoLeido,
   generarQrTirillaClubMillas,
 } from "@/lib/fidelizacion-qr";
 import {
@@ -2259,22 +2260,55 @@ export default function CajaPage() {
                         "Club de Millas: el total de esta factura no alcanza el mínimo para generar código QR en esta compra.",
                     }),
               };
-            } else if (clubJson.ok === true && typeof clubJson.qrPayload === "string" && clubJson.qrPayload.trim()) {
-              const raw = clubJson.qrPayload.replace(/\s+/g, "").trim();
-              const qrClub = await generarQrTirillaClubMillas(
-                raw,
-                typeof clubJson.qrUrl === "string" ? clubJson.qrUrl : undefined
-              );
+            } else if (clubJson.ok === true && !clubJson.omitido) {
+              const qrUrlWms =
+                typeof clubJson.qrUrl === "string" ? clubJson.qrUrl.replace(/\s+/g, "").trim() : "";
+              let raw =
+                typeof clubJson.qrPayload === "string"
+                  ? clubJson.qrPayload.replace(/\s+/g, "").trim()
+                  : "";
+              if (!raw && qrUrlWms) {
+                raw = extraerCodigoQrClubDesdeTextoLeido(qrUrlWms);
+              }
               const codigoCorto =
                 typeof clubJson.codigoCorto === "string"
                   ? clubJson.codigoCorto.replace(/\s+/g, "").trim().toUpperCase()
                   : "";
-              ticket = {
-                ...ticket,
-                fidelizacionQrDataUrl: qrClub.dataUrl,
-                fidelizacionPayloadTexto: qrClub.contenidoImpreso,
-                ...(codigoCorto.length === 6 ? { clubMillasCodigoCorto: codigoCorto } : {}),
-              };
+              if (raw || qrUrlWms) {
+                try {
+                  const qrClub = await generarQrTirillaClubMillas(
+                    raw || qrUrlWms,
+                    qrUrlWms || undefined
+                  );
+                  ticket = {
+                    ...ticket,
+                    fidelizacionQrDataUrl: qrClub.dataUrl,
+                    fidelizacionPayloadTexto: qrClub.contenidoImpreso,
+                    ...(codigoCorto.length === 6 ? { clubMillasCodigoCorto: codigoCorto } : {}),
+                  };
+                } catch (qrErr) {
+                  console.warn("[POS] generar QR Club de Millas:", qrErr);
+                  ticket = {
+                    ...ticket,
+                    fidelizacionPayloadTexto: qrUrlWms || raw,
+                    ...(codigoCorto.length === 6 ? { clubMillasCodigoCorto: codigoCorto } : {}),
+                  };
+                }
+              } else if (codigoCorto.length === 6) {
+                ticket = {
+                  ...ticket,
+                  clubMillasCodigoCorto: codigoCorto,
+                  fidelizacionPayloadTexto:
+                    "Club de Millas: use el codigo de 6 letras en el escaner premium (Mi plan).",
+                };
+              } else {
+                const msg =
+                  typeof clubJson.message === "string" && clubJson.message.trim()
+                    ? clubJson.message.trim()
+                    : "Club de Millas: el WMS no devolvió QR ni codigo de tirilla.";
+                ticket = { ...ticket, fidelizacionPayloadTexto: msg };
+                console.warn("[POS] club_millas_registrar_ticket sin qr:", clubJson);
+              }
             } else {
               const msg =
                 typeof clubJson.message === "string" && clubJson.message.trim()

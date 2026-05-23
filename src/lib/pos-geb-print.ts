@@ -345,22 +345,37 @@ function construirHtmlTirillaTicket(
         <div class="rule"></div>`
       : "";
 
-  const qrFrecuenteBlock =
-    payload.fidelizacionQrDataUrl?.trim() != null && payload.fidelizacionQrDataUrl.trim() !== ""
-      ? `<div class="qr club-frecuente-promo">
+  const tieneQrFrecuenteImg = Boolean(payload.fidelizacionQrDataUrl?.trim());
+  const codigoCortoFrec = p.clubMillasCodigoCorto?.trim().toUpperCase() ?? "";
+  const msgClubFrec = p.fidelizacionPayloadTexto?.trim() ?? "";
+  const esBloqueClubFrecuente = Boolean(
+    tieneQrFrecuenteImg ||
+    codigoCortoFrec.length === 6 ||
+    /club de millas/i.test(msgClubFrec)
+  );
+  const qrFrecuenteBlock = esBloqueClubFrecuente
+    ? `<div class="qr club-frecuente-promo">
           <p class="qr-t">${escapeHtml(MENSAJE_TIRILLA_CLUB_FRECUENTE_TITULO)}</p>
-          <p class="qr-paso">${escapeHtml(MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO1)}</p>
-          <p class="qr-paso">${escapeHtml(MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO2)}</p>
           ${
-            p.clubMillasCodigoCorto?.trim()
+            !tieneQrFrecuenteImg && /club de millas/i.test(msgClubFrec)
+              ? `<p class="qr-paso">${escapeHtml(msgClubFrec)}</p>`
+              : `<p class="qr-paso">${escapeHtml(MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO1)}</p>
+          <p class="qr-paso">${escapeHtml(MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO2)}</p>`
+          }
+          ${
+            codigoCortoFrec.length === 6
               ? `<p class="qr-codigo-label">${escapeHtml(MENSAJE_TIRILLA_CLUB_CODIGO_LABEL)}</p>
-          <p class="qr-codigo-valor">${escapeHtml(p.clubMillasCodigoCorto.trim().toUpperCase())}</p>`
+          <p class="qr-codigo-valor">${escapeHtml(codigoCortoFrec)}</p>`
               : ""
           }
-          <img src="${escapeHtml(payload.fidelizacionQrDataUrl)}" width="160" height="160" alt="" />
+          ${
+            tieneQrFrecuenteImg
+              ? `<img src="${escapeHtml(payload.fidelizacionQrDataUrl!)}" width="160" height="160" alt="" />`
+              : ""
+          }
           <p class="qr-s">Club de Millas Maria Chorizos</p>
         </div>`
-      : "";
+    : "";
 
   const qrInvitacionBlock =
     !qrFrecuenteBlock &&
@@ -831,14 +846,16 @@ export async function imprimirTicketConQz(prefs: ImpresionPosPrefs, payload: Tic
   const domUrl = payload.domiciliosLandingUrl?.trim();
   const invUrl = payload.clubMillasInvitacionUrl?.trim();
   const tieneQrInvitacion = Boolean(payload.clubMillasInvitacionQrDataUrl?.trim());
+  const tieneQrFrecuenteImgQz = Boolean(payload.fidelizacionQrDataUrl?.trim());
   const plain = construirTextoTicketPlano(payload, cols, {
-    ...(fid ? { omitirBloqueFidelizacionTexto: true } : {}),
+    ...(fid && tieneQrFrecuenteImgQz ? { omitirBloqueFidelizacionTexto: true } : {}),
     ...(domUrl ? { omitirBloqueDomiciliosTexto: true } : {}),
     ...(invUrl && tieneQrInvitacion ? { omitirBloqueInvitacionClubTexto: true } : {}),
   });
   const bloqueDomicilios = domUrl ? escPosBloqueQrDomicilios(domUrl, cols) : "";
-  const bloqueQr = fid
-    ? escPosBloqueQrFidelizacion(fid, cols, payload.clubMillasCodigoCorto)
+  const contenidoQrFid = fid || (tieneQrFrecuenteImgQz ? payload.fidelizacionQrDataUrl!.trim() : "");
+  const bloqueQr = contenidoQrFid
+    ? escPosBloqueQrFidelizacion(contenidoQrFid, cols, payload.clubMillasCodigoCorto)
     : "";
   const bloqueInvitacion =
     invUrl && !fid ? escPosBloqueInvitacionClubMillas(invUrl, cols) : "";
