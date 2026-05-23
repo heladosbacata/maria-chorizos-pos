@@ -634,7 +634,9 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
         cc: reporteEmailCc.trim() || undefined,
       });
       if (!r.ok) throw new Error(r.message);
-      setReporteExito(`Reporte enviado a ${reporteEmailPara.trim()}${r.via ? ` (${r.via})` : ""}.`);
+      setReporteExito(
+        `Reporte enviado a ${reporteEmailPara.trim()}${r.via ? ` (${r.via})` : ""}.${r.aviso ? ` ${r.aviso}` : ""}`
+      );
     } catch (e) {
       const msg = e instanceof Error ? e.message : "No se pudo enviar el correo.";
       if (/no configurado|Firebase Admin|POS_DEPLOY_PROXY|PROXY_URL/i.test(msg)) {

@@ -226,6 +226,64 @@ export function textoResumenReporteVentasCorreo(d: DatosReporteVentasPos): strin
   return lineas.join("\n");
 }
 
+/** Límite seguro del adjunto en base64 (~3 MB PDF) para APIs serverless (Vercel ~4,5 MB body). */
+export const MAX_BASE64_ADJUNTO_CORREO_CHARS = 2_500_000;
+
+const UMBRAL_DOCS_DETALLADO_CORREO = 45;
+const UMBRAL_DOCS_TRANSACCIONES_CORREO = 120;
+
+/**
+ * Reduce el reporte para correo si el PDF detallado sería demasiado grande (evita HTTP 413).
+ */
+export function prepararDatosReporteParaCorreo(d: DatosReporteVentasPos): {
+  datos: DatosReporteVentasPos;
+  notaCorreo?: string;
+} {
+  if (d.cantidadDocumentos > UMBRAL_DOCS_TRANSACCIONES_CORREO) {
+    return {
+      datos: {
+        ...d,
+        nivel: "resumen",
+        transacciones: [],
+        productosAgregados: d.productosAgregados.slice(0, 80),
+        detallePorVenta: [],
+      },
+      notaCorreo:
+        `Hay ${d.cantidadDocumentos} documentos: el adjunto por correo es resumen ejecutivo + top productos (máx. 80). Para el listado completo usá «Descargar PDF».`,
+    };
+  }
+  if (d.nivel === "detallado" && d.cantidadDocumentos > UMBRAL_DOCS_DETALLADO_CORREO) {
+    return {
+      datos: {
+        ...d,
+        nivel: "transacciones",
+        detallePorVenta: [],
+      },
+      notaCorreo:
+        `El período tiene ${d.cantidadDocumentos} documentos: por límite del servidor de correo se adjunta versión «Con listado de ventas» y ranking de productos, sin el detalle ítem por ítem de cada ticket. Para el PDF completo en modo detallado usá «Descargar PDF».`,
+    };
+  }
+  return { datos: d };
+}
+
+export function estimaAdjuntoCorreoDemasiadoGrande(base64: string): boolean {
+  return base64.length > MAX_BASE64_ADJUNTO_CORREO_CHARS;
+}
+
+export function mensajeErrorEnvioReporteCorreo(status: number, mensajeServidor?: string): string {
+  if (status === 413) {
+    return (
+      "El PDF es demasiado grande para enviarlo por correo (límite del servidor). " +
+      "Descargalo con «Descargar PDF», acortá el rango de fechas o elegí «Resumen ejecutivo» / «Con listado de ventas» en lugar de «Detallado con productos»."
+    );
+  }
+  if (mensajeServidor?.trim()) return mensajeServidor.trim();
+  if (status === 502 || status === 503) {
+    return `No se pudo enviar el correo (${status}). Revisá la configuración SMTP/Zoho/Resend del POS o probá más tarde.`;
+  }
+  return `No se pudo enviar el correo (error ${status}).`;
+}
+
 export function nombreArchivoReporteVentasPdf(d: DatosReporteVentasPos): string {
   const slugPv = d.puntoVenta.replace(/[^\w.-]+/g, "_").slice(0, 32);
   return `Reporte-ventas-${slugPv}-${d.desdeYmd}_${d.hastaYmd}.pdf`;

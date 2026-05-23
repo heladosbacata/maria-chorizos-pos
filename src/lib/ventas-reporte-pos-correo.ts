@@ -1,5 +1,8 @@
 import {
+  estimaAdjuntoCorreoDemasiadoGrande,
+  mensajeErrorEnvioReporteCorreo,
   nombreArchivoReporteVentasPdf,
+  prepararDatosReporteParaCorreo,
   textoResumenReporteVentasCorreo,
   type DatosReporteVentasPos,
 } from "@/lib/ventas-reporte-pos-data";
@@ -11,24 +14,59 @@ function emailValido(s: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t);
 }
 
+export type EnviarReporteVentasCorreoResult =
+  | { ok: true; via?: string; aviso?: string }
+  | { ok: false; message: string };
+
+async function generarPdfCorreo(d: DatosReporteVentasPos, notaCorreo?: string) {
+  return pdfReporteVentasBase64(d, {
+    paraCorreo: true,
+    ...(notaCorreo ? { notaAdaptacionCorreo: notaCorreo } : {}),
+  });
+}
+
 export async function enviarReporteVentasPosPorCorreo(params: {
   idToken: string;
   datos: DatosReporteVentasPos;
   to: string;
   cc?: string;
-}): Promise<{ ok: true; via?: string } | { ok: false; message: string }> {
+}): Promise<EnviarReporteVentasCorreoResult> {
   const to = params.to.trim();
   if (!emailValido(to)) {
     return { ok: false, message: "El correo del destinatario no es válido." };
   }
 
-  const pdfBase64 = await pdfReporteVentasBase64(params.datos);
-  if (!pdfBase64) {
-    return { ok: false, message: "No se pudo generar el PDF del reporte." };
+  let { datos: datosCorreo, notaCorreo } = prepararDatosReporteParaCorreo(params.datos);
+  let pdfBase64 = await generarPdfCorreo(datosCorreo, notaCorreo);
+
+  if (estimaAdjuntoCorreoDemasiadoGrande(pdfBase64)) {
+    datosCorreo = {
+      ...datosCorreo,
+      nivel: "resumen",
+      transacciones: [],
+      productosAgregados: [],
+      detallePorVenta: [],
+    };
+    notaCorreo =
+      (notaCorreo ? `${notaCorreo}\n\n` : "") +
+      "Aun así el archivo superaba el límite: se envió solo el resumen ejecutivo. Usá «Descargar PDF» para el informe completo.";
+    pdfBase64 = await generarPdfCorreo(datosCorreo, notaCorreo);
   }
 
-  const d = params.datos;
+  if (!pdfBase64 || estimaAdjuntoCorreoDemasiadoGrande(pdfBase64)) {
+    return {
+      ok: false,
+      message:
+        "El reporte sigue siendo demasiado grande para correo. Acortá el rango de fechas o descargá el PDF en tu equipo.",
+    };
+  }
+
+  const d = datosCorreo;
   const subject = `Reporte de ventas ${d.puntoVenta} · ${d.desdeYmd}${d.desdeYmd !== d.hastaYmd ? ` a ${d.hastaYmd}` : ""}`;
+  let texto = textoResumenReporteVentasCorreo(d);
+  if (notaCorreo?.trim()) {
+    texto += `\n\nNota: ${notaCorreo.trim()}`;
+  }
 
   const res = await fetch("/api/pos_turno_informe_correo", {
     method: "POST",
@@ -40,7 +78,7 @@ export async function enviarReporteVentasPosPorCorreo(params: {
       to,
       ...(params.cc?.trim() ? { cc: params.cc.trim() } : {}),
       subject,
-      text: textoResumenReporteVentasCorreo(d),
+      text: texto,
       attachments: [
         {
           filename: nombreArchivoReporteVentasPdf(d),
@@ -53,8 +91,14 @@ export async function enviarReporteVentasPosPorCorreo(params: {
 
   const data = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string; via?: string };
   if (!res.ok || !data.ok) {
-    const msg = data.message?.trim() || `Error ${res.status} al enviar correo.`;
-    return { ok: false, message: msg };
+    return {
+      ok: false,
+      message: mensajeErrorEnvioReporteCorreo(res.status, data.message),
+    };
   }
-  return { ok: true, via: data.via };
+  return {
+    ok: true,
+    via: data.via,
+    ...(notaCorreo?.trim() ? { aviso: notaCorreo.trim() } : {}),
+  };
 }

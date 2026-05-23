@@ -148,10 +148,19 @@ function escribirMetaBajoBanda(doc: jsPDF, d: DatosReporteVentasPos, margin: num
   return (docAt.lastAutoTable?.finalY ?? y) + 8;
 }
 
+export type OpcionesPdfReporteVentas = {
+  /** Omite detalle por documento y acota tablas (envío por correo). */
+  paraCorreo?: boolean;
+  notaAdaptacionCorreo?: string;
+};
+
 /**
  * Genera el PDF premium del reporte de ventas (solo cliente).
  */
-export async function crearPdfReporteVentasPos(d: DatosReporteVentasPos): Promise<jsPDF> {
+export async function crearPdfReporteVentasPos(
+  d: DatosReporteVentasPos,
+  opts?: OpcionesPdfReporteVentas
+): Promise<jsPDF> {
   const doc = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
   const margin = 14;
   const pageH = doc.internal.pageSize.getHeight();
@@ -186,7 +195,11 @@ export async function crearPdfReporteVentasPos(d: DatosReporteVentasPos): Promis
     y = (docAt.lastAutoTable?.finalY ?? y) + 6;
   }
 
-  if (d.transacciones.length > 0) {
+  const maxFilasTx =
+    opts?.paraCorreo && d.transacciones.length > 100 ? 100 : d.transacciones.length;
+  const transaccionesPdf = d.transacciones.slice(0, maxFilasTx);
+
+  if (transaccionesPdf.length > 0) {
     if (y > pageH - 50) {
       doc.addPage();
       y = margin;
@@ -196,11 +209,22 @@ export async function crearPdfReporteVentasPos(d: DatosReporteVentasPos): Promis
     doc.setTextColor(...BRAND_GREEN);
     doc.text("Listado de documentos", margin, y);
     y += 5;
+    if (maxFilasTx < d.transacciones.length) {
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(7);
+      doc.setTextColor(100, 100, 100);
+      doc.text(
+        `Mostrando ${maxFilasTx} de ${d.transacciones.length} documentos (versión para correo).`,
+        margin,
+        y
+      );
+      y += 4;
+    }
 
     autoTable(doc, {
       startY: y,
       head: [["Fecha", "Comprobante", "Tipo", "Cliente", "Total"]],
-      body: d.transacciones.map((t) => [
+      body: transaccionesPdf.map((t) => [
         t.fechaLabel,
         t.comprobante.length > 22 ? `${t.comprobante.slice(0, 19)}…` : t.comprobante,
         t.tipoLabel.length > 28 ? `${t.tipoLabel.slice(0, 25)}…` : t.tipoLabel,
@@ -216,7 +240,7 @@ export async function crearPdfReporteVentasPos(d: DatosReporteVentasPos): Promis
       },
       margin: { left: margin, right: margin },
       didParseCell: (data) => {
-        if (data.section === "body" && d.transacciones[data.row.index]?.anulada) {
+        if (data.section === "body" && transaccionesPdf[data.row.index]?.anulada) {
           data.cell.styles.textColor = [180, 40, 40];
         }
       },
@@ -224,7 +248,12 @@ export async function crearPdfReporteVentasPos(d: DatosReporteVentasPos): Promis
     y = (docAt.lastAutoTable?.finalY ?? y) + 6;
   }
 
-  if (d.productosAgregados.length > 0) {
+  const productosPdf =
+    opts?.paraCorreo && d.productosAgregados.length > 80
+      ? d.productosAgregados.slice(0, 80)
+      : d.productosAgregados;
+
+  if (productosPdf.length > 0) {
     if (y > pageH - 50) {
       doc.addPage();
       y = margin;
@@ -234,11 +263,18 @@ export async function crearPdfReporteVentasPos(d: DatosReporteVentasPos): Promis
     doc.setTextColor(...BRAND_GREEN);
     doc.text("Productos vendidos (consolidado)", margin, y);
     y += 5;
+    if (productosPdf.length < d.productosAgregados.length) {
+      doc.setFont("helvetica", "italic");
+      doc.setFontSize(7);
+      doc.setTextColor(100, 100, 100);
+      doc.text(`Top ${productosPdf.length} productos por ventas (versión para correo).`, margin, y);
+      y += 4;
+    }
 
     autoTable(doc, {
       startY: y,
       head: [["SKU", "Producto", "Cant.", "Total"]],
-      body: d.productosAgregados.map((p) => [
+      body: productosPdf.map((p) => [
         p.sku || "—",
         p.descripcion.length > 48 ? `${p.descripcion.slice(0, 45)}…` : p.descripcion,
         String(p.cantidad),
@@ -252,7 +288,7 @@ export async function crearPdfReporteVentasPos(d: DatosReporteVentasPos): Promis
     y = (docAt.lastAutoTable?.finalY ?? y) + 6;
   }
 
-  if (d.detallePorVenta.length > 0) {
+  if (!opts?.paraCorreo && d.detallePorVenta.length > 0) {
     doc.addPage();
     y = margin;
     doc.setFont("helvetica", "bold");
@@ -300,6 +336,20 @@ export async function crearPdfReporteVentasPos(d: DatosReporteVentasPos): Promis
     }
   }
 
+  if (opts?.notaAdaptacionCorreo?.trim()) {
+    const pageW = doc.internal.pageSize.getWidth();
+    let ny = pageH - 18;
+    if (ny < margin + 10) {
+      doc.addPage();
+      ny = pageH - 18;
+    }
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(7);
+    doc.setTextColor(90, 90, 90);
+    const split = doc.splitTextToSize(opts.notaAdaptacionCorreo.trim(), pageW - margin * 2);
+    doc.text(split, margin, ny);
+  }
+
   const totalPages = doc.getNumberOfPages();
   for (let i = 1; i <= totalPages; i++) {
     doc.setPage(i);
@@ -323,7 +373,10 @@ export async function descargarPdfReporteVentasPos(d: DatosReporteVentasPos): Pr
   doc.save(nombreArchivoReporteVentasPdf(d));
 }
 
-export async function pdfReporteVentasBase64(d: DatosReporteVentasPos): Promise<string> {
-  const doc = await crearPdfReporteVentasPos(d);
+export async function pdfReporteVentasBase64(
+  d: DatosReporteVentasPos,
+  opts?: OpcionesPdfReporteVentas
+): Promise<string> {
+  const doc = await crearPdfReporteVentasPos(d, opts);
   return doc.output("datauristring").split(",", 2)[1] || "";
 }

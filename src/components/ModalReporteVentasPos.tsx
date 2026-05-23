@@ -22,7 +22,7 @@ const NIVELES: {
     id: "detallado",
     titulo: "Detallado con productos",
     descripcion:
-      "Todo lo anterior más ranking de productos vendidos y el detalle de ítems por cada documento.",
+      "Todo lo anterior más ranking de productos vendidos y el detalle de ítems por cada documento. Para muchas ventas, el correo puede enviar una versión reducida (usá Descargar PDF para el archivo completo).",
   },
 ];
 
@@ -119,6 +119,17 @@ export default function ModalReporteVentasPos({
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           <p className="text-sm font-semibold text-gray-900">Nivel de detalle</p>
           <p className="mt-0.5 text-xs text-gray-600">Elegí cuánta información incluir en el PDF.</p>
+          {cantidadEnRango > 120 ? (
+            <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-950">
+              Hay {cantidadEnRango} documentos: por correo solo se envía resumen ejecutivo + top productos. Usá «Descargar
+              PDF» para el informe completo.
+            </p>
+          ) : nivel === "detallado" && cantidadEnRango > 45 ? (
+            <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-950">
+              Hay {cantidadEnRango} documentos: por correo se enviará una versión más liviana (sin detalle ítem por
+              ticket). «Descargar PDF» siempre genera el informe completo.
+            </p>
+          ) : null}
           <div className="mt-3 space-y-2">
             {NIVELES.map((opt) => {
               const sel = nivel === opt.id;
