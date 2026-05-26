@@ -151,6 +151,7 @@ En Sheets debe existir fila de `DB_ResolucionesDian` para el NIT del franquiciad
 | | `pages/api/pos_alegra_ping_pos.ts` → `GET {WMS}/api/pos/alegra/ping-pos` |
 | | `pages/api/pos_alegra_emitir_cobro.ts` → `POST {WMS}/api/pos/alegra/emitir-cobro` |
 | UI Habilitaciones DIAN | `src/components/PosDianFacturacionPanel.tsx` (p. ej. desde `ConfiguracionMasModule`) |
+| TestSetId DIAN (franquiciado → Bacatá) | `pages/api/pos_dian_test_set.ts` — Firestore `posDianHabilitacion`; notifica WMS (`POST /api/pos/notificaciones/admin` o fallback mensajes caja) |
 | Cobro con FE | `src/app/caja/page.tsx` — `wmsPosAlegraEmitirCobro` + cola `src/lib/pos-fe-retry-queue.ts` |
 
 El POS **no** pega al WMS con URL absoluta desde el cliente en estos flujos: usa rutas **relativas** `/api/pos_*` del propio despliegue del POS, que el servidor reenvía al `getWmsPublicBaseUrl()`.

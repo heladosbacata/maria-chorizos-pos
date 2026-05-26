@@ -10,6 +10,7 @@ import ClientesProveedoresFranquiciaPanel from "@/components/ClientesProveedores
 import ComprasGastosFranquiciaPanel from "@/components/ComprasGastosFranquiciaPanel";
 import PygFranquiciaPanel from "@/components/PygFranquiciaPanel";
 import UsuariosPosRegistradosPanel from "@/components/UsuariosPosRegistradosPanel";
+import DianAlegraHabilitacionGuiaPanel from "@/components/DianAlegraHabilitacionGuiaPanel";
 import PosDianFacturacionPanel from "@/components/PosDianFacturacionPanel";
 import ProductosServiciosFranquiciaPanel from "@/components/ProductosServiciosFranquiciaPanel";
 import VentasDocumentosPosPanel from "@/components/VentasDocumentosPosPanel";
@@ -36,6 +37,8 @@ const CG_COMPRAS_GASTOS_ITEM_ID = "cg-registro";
 const CP_CENTRO_ITEM_ID = "cp-centro";
 /** Política de catálogo: solo productos de marca; altas vía PQRS en app franquiciado */
 const PS_POLITICA_ITEM_ID = "ps-politica-catalogo";
+/** Guía oficial Alegra: habilitación DIAN (videos y pasos en portal DIAN) */
+const DIAN_VEN_GUIA_ITEM_ID = "dian-ven-guia";
 /** Facturación electrónica POS → Alegra / DIAN */
 const DIAN_VEN_FACT_ITEM_ID = "dian-ven-fact";
 /** Misma pantalla que facturación electrónica, abriendo en el paso de NIT y número de resolución */
@@ -54,6 +57,7 @@ const VISTA_DETALLE_ITEM_IDS = new Set<string>([
   CG_COMPRAS_GASTOS_ITEM_ID,
   CP_CENTRO_ITEM_ID,
   PS_POLITICA_ITEM_ID,
+  DIAN_VEN_GUIA_ITEM_ID,
   DIAN_VEN_FACT_ITEM_ID,
   DIAN_VEN_RES_ITEM_ID,
 ]);
@@ -112,6 +116,7 @@ const CATEGORIAS: ConfigCategoria[] = [
       {
         titulo: "Ventas",
         items: [
+          { id: DIAN_VEN_GUIA_ITEM_ID, label: "Guía para habilitar tu facturación electrónica" },
           { id: "dian-ven-fact", label: "Facturación electrónica" },
           { id: "dian-ven-res", label: "Sincroniza tu resolución" },
         ],
@@ -298,7 +303,7 @@ export default function ConfiguracionMasModule({ puntoVenta, uid, role }: Config
     } else if (catId === "productos-servicios") {
       setVistaDetalleItemId(PS_POLITICA_ITEM_ID);
     } else if (catId === "habilitaciones-dian") {
-      setVistaDetalleItemId(DIAN_VEN_FACT_ITEM_ID);
+      setVistaDetalleItemId(DIAN_VEN_GUIA_ITEM_ID);
     } else {
       setVistaDetalleItemId(null);
     }
@@ -428,12 +433,19 @@ export default function ConfiguracionMasModule({ puntoVenta, uid, role }: Config
 
       {/* Panel principal */}
       <div className="min-w-0 flex-1 overflow-y-auto p-6">
-        {vistaDetalleItemId === DIAN_VEN_FACT_ITEM_ID || vistaDetalleItemId === DIAN_VEN_RES_ITEM_ID ? (
+        {vistaDetalleItemId === DIAN_VEN_GUIA_ITEM_ID ? (
+          <DianAlegraHabilitacionGuiaPanel
+            puntoVenta={puntoVenta}
+            onVolver={() => setVistaDetalleItemId(null)}
+            onIrAConfiguracionPos={() => setVistaDetalleItemId(DIAN_VEN_FACT_ITEM_ID)}
+          />
+        ) : vistaDetalleItemId === DIAN_VEN_FACT_ITEM_ID || vistaDetalleItemId === DIAN_VEN_RES_ITEM_ID ? (
           <PosDianFacturacionPanel
             key={vistaDetalleItemId}
             puntoVenta={puntoVenta}
             initialStep={vistaDetalleItemId === DIAN_VEN_RES_ITEM_ID ? 2 : 1}
             onVolver={() => setVistaDetalleItemId(null)}
+            onAbrirGuiaHabilitacion={() => setVistaDetalleItemId(DIAN_VEN_GUIA_ITEM_ID)}
           />
         ) : vistaDetalleItemId === PERFIL_ORGANIZACION_ITEM_ID ? (
           uid ? (

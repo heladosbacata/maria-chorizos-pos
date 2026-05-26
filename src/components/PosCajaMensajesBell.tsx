@@ -9,6 +9,10 @@ import {
   type PosCajaMensajeCliente,
 } from "@/lib/wms-caja-mensajes-client";
 import { EVENT_OPEN_CAJA_CHAT } from "@/lib/pos-geb-chat-event";
+import {
+  EVENT_DIAN_TEST_SET_REGISTRADO,
+  type DianTestSetRegistradoDetail,
+} from "@/lib/pos-notificaciones-event";
 
 function formatHora(ms: number): string {
   if (!ms) return "—";
@@ -92,6 +96,7 @@ export default function PosCajaMensajesBell({ getIdToken, puntoVentaLabel, visib
   const [enviando, setEnviando] = useState(false);
   const [texto, setTexto] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [avisoSistema, setAvisoSistema] = useState<string | null>(null);
   const listaRef = useRef<HTMLDivElement>(null);
   const prevUnreadRef = useRef(0);
   const autoAbiertoInicialRef = useRef(false);
@@ -226,6 +231,22 @@ export default function PosCajaMensajesBell({ getIdToken, puntoVentaLabel, visib
     window.addEventListener(EVENT_OPEN_CAJA_CHAT, openDesdeCabecera);
     return () => window.removeEventListener(EVENT_OPEN_CAJA_CHAT, openDesdeCabecera);
   }, [visible, abrirChat]);
+
+  useEffect(() => {
+    if (!visible || typeof window === "undefined") return;
+    const onTestSetRegistrado = (ev: Event) => {
+      const detail = (ev as CustomEvent<DianTestSetRegistradoDetail>).detail;
+      const texto =
+        detail?.mensaje ??
+        "Registraste el identificador DIAN (set de pruebas). Grupo Bacatá fue notificado.";
+      setAvisoSistema(texto);
+      setUnread((n) => Math.max(n, 1));
+      void fetchUnread();
+      void cargarHilo();
+    };
+    window.addEventListener(EVENT_DIAN_TEST_SET_REGISTRADO, onTestSetRegistrado);
+    return () => window.removeEventListener(EVENT_DIAN_TEST_SET_REGISTRADO, onTestSetRegistrado);
+  }, [visible, fetchUnread, cargarHilo]);
 
   useEffect(() => {
     if (!visible) return;
@@ -397,6 +418,22 @@ export default function PosCajaMensajesBell({ getIdToken, puntoVentaLabel, visib
               className="relative flex-1 space-y-2.5 overflow-y-auto px-3 py-3"
               style={{ maxHeight: "min(52vh, 420px)" }}
             >
+              {avisoSistema ? (
+                <div
+                  className="rounded-xl border border-emerald-400/40 bg-emerald-950/50 px-3 py-2.5 text-xs leading-relaxed text-emerald-100"
+                  role="status"
+                >
+                  <p className="font-semibold text-emerald-50">Notificación · Facturación electrónica</p>
+                  <p className="mt-1">{avisoSistema}</p>
+                  <button
+                    type="button"
+                    className="mt-2 text-[10px] font-semibold uppercase tracking-wide text-emerald-200/90 underline"
+                    onClick={() => setAvisoSistema(null)}
+                  >
+                    Entendido
+                  </button>
+                </div>
+              ) : null}
               {cargando && mensajes.length === 0 ? (
                 <div className="flex justify-center py-12 text-amber-200/50">
                   <Spinner className="h-8 w-8" />

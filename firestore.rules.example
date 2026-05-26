@@ -221,6 +221,18 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // TestSetId DIAN por punto (franquiciado guarda; administración lee en consola / WMS).
+    match /posDianHabilitacion/{id} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // Avisos en bandeja del POS (escritura solo servidor; lectura del propio usuario).
+    match /posNotificacionesCaja/{id} {
+      allow read: if request.auth != null && resource.data.uid == request.auth.uid;
+      allow write: if false;
+    }
+
     // Usuarios POS: contador (role pos_contador) no puede cambiar punto de venta, rol ni invitadoPorUid desde el cliente.
     match /users/{uid} {
       allow read: if request.auth != null && request.auth.uid == uid;

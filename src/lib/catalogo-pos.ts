@@ -204,7 +204,10 @@ export async function getCatalogoPOS(
   if (token) headers.Authorization = `Bearer ${token}`;
 
   try {
-    const res = await fetch(url, { headers });
+    const res = await fetch(url, {
+      headers,
+      cache: "no-store",
+    });
     const data = await res.json().catch(() => ({}));
 
     if (!res.ok) {
@@ -217,7 +220,13 @@ export async function getCatalogoPOS(
 
     // Si la API devolvió 200 pero ok: false (ej. WMS no disponible), tratar como error
     if (data && data.ok === false) {
-      return { ok: false, message: data.message ?? "No se pudo cargar el catálogo." };
+      const raw = String(data.message ?? "No se pudo cargar el catálogo.");
+      const m = raw.toLowerCase();
+      const msg =
+        m.includes("fetch failed") || m.includes("failed to fetch")
+          ? "No se pudo descargar el catálogo (problema de red). Reintentá con el botón de abajo."
+          : raw;
+      return { ok: false, message: msg };
     }
 
     const d = data as Record<string, unknown>;
