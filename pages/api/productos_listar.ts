@@ -132,9 +132,17 @@ async function resolverCatalogoDesdeBases(
   headers: HeadersInit,
   puntoVenta?: string
 ): Promise<{ outcome: FetchOutcome; usedFallback: boolean }> {
-  const uniqueBases = [...new Set(bases.map((b) => b.replace(/\/$/, "").toLowerCase()))].map((lower) =>
-    bases.find((b) => b.replace(/\/$/, "").toLowerCase() === lower)!
-  );
+  // Deduplicar sin usar `[...new Set(...)]` para evitar error de compilación en targets antiguos.
+  // Mantenemos el primer valor encontrado (normalizando quitando `/` final).
+  const uniqueBases: string[] = [];
+  const seenLower: Record<string, true> = {};
+  for (const b of bases) {
+    const normalized = b.replace(/\/$/, "");
+    const lower = normalized.toLowerCase();
+    if (seenLower[lower]) continue;
+    seenLower[lower] = true;
+    uniqueBases.push(normalized);
+  }
 
   for (let i = 0; i < uniqueBases.length; i++) {
     const base = uniqueBases[i]!;

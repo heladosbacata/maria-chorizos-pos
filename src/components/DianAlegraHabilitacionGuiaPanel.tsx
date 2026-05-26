@@ -346,6 +346,10 @@ export default function DianAlegraHabilitacionGuiaPanel({
         open={modalConfirmar}
         testSetId={testSetId}
         puntoVenta={puntoVenta}
+        dianResolutionNumber=""
+        prefijoFactura=""
+        consecutivoDesde=""
+        consecutivoHasta=""
         guardando={guardandoTestSet}
         onCancelar={() => setModalConfirmar(false)}
         onConfirmar={() => void confirmarYEnviarTestSet()}

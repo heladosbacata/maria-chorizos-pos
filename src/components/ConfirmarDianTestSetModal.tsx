@@ -27,6 +27,8 @@ export default function ConfirmarDianTestSetModal({
 }: Props) {
   if (!open) return null;
 
+  const formatOrDash = (v: string) => (v.trim() ? v.trim() : "—");
+
   return (
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4"
@@ -53,11 +55,11 @@ export default function ConfirmarDianTestSetModal({
           </div>
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-900/80">Número de resolución</p>
-            <p className="font-mono font-semibold text-gray-900">{dianResolutionNumber.trim()}</p>
+            <p className="font-mono font-semibold text-gray-900">{formatOrDash(dianResolutionNumber)}</p>
           </div>
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wide text-amber-900/80">Prefijo de facturación</p>
-            <p className="font-mono font-semibold text-gray-900">{prefijoFactura.trim()}</p>
+            <p className="font-mono font-semibold text-gray-900">{formatOrDash(prefijoFactura)}</p>
           </div>
           {consecutivoDesde.trim() || consecutivoHasta.trim() ? (
             <div>
