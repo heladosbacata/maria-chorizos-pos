@@ -60,6 +60,8 @@ export interface TicketVentaPayload {
   fidelizacionPayloadTexto?: string;
   /** Codigo de 6 caracteres (escaner premium / pegar en Mi plan). */
   clubMillasCodigoCorto?: string;
+  /** Enlace web con ?c= y documento (ingreso manual si el QR no lee). */
+  clubMillasLandingUrl?: string;
   /** QR de inscripcion al club (cuando no es cliente frecuente en el cobro). */
   clubMillasInvitacionQrDataUrl?: string;
   /** URL https://maria-chorizos-wms.vercel.app/club-de-millas para ESC/POS. */

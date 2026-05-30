@@ -10,6 +10,7 @@ import {
   MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO2,
   MENSAJE_TIRILLA_CLUB_FRECUENTE_TITULO,
   contenidoQrEscaneableClubMillasDesdeTicket,
+  esCodigoCortoTirillaClubMillas,
 } from "@/lib/fidelizacion-qr";
 import {
   esAvisoErrorClubMillasEnTicket,
@@ -365,7 +366,7 @@ function construirHtmlTirillaTicket(
           <p class="qr-paso">${escapeHtml(MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO2)}</p>`
           }
           ${
-            codigoCortoFrec.length === 6
+            esCodigoCortoTirillaClubMillas(codigoCortoFrec)
               ? `<p class="qr-codigo-label">${escapeHtml(MENSAJE_TIRILLA_CLUB_CODIGO_LABEL)}</p>
           <p class="qr-codigo-valor">${escapeHtml(codigoCortoFrec)}</p>`
               : ""
@@ -373,6 +374,11 @@ function construirHtmlTirillaTicket(
           ${
             tieneQrFrecuenteImg
               ? `<img src="${escapeHtml(payload.fidelizacionQrDataUrl!)}" width="160" height="160" alt="" />`
+              : ""
+          }
+          ${
+            p.clubMillasLandingUrl?.trim()
+              ? `<p class="qr-paso" style="font-size:7px;word-break:break-all">${escapeHtml(p.clubMillasLandingUrl.trim())}</p>`
               : ""
           }
           <p class="qr-s">Club de Millas Maria Chorizos</p>

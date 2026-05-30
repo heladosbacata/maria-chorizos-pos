@@ -16,6 +16,7 @@ import {
   MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO1,
   MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO2,
   MENSAJE_TIRILLA_CLUB_FRECUENTE_TITULO,
+  esCodigoCortoTirillaClubMillas,
 } from "@/lib/fidelizacion-qr";
 import {
   MENSAJE_DOMICILIOS_TIRILLA_LINEA1,
@@ -278,7 +279,7 @@ export default function TicketPrevisualizacionModal({
                     </p>
                   </>
                 )}
-                {codigoClub.length === 6 ? (
+                {esCodigoCortoTirillaClubMillas(codigoClub) ? (
                   <div className="mt-2 rounded-lg border border-amber-400 bg-white px-2 py-2">
                     <p className="text-[7px] font-extrabold uppercase tracking-[0.2em] text-amber-800">
                       {MENSAJE_TIRILLA_CLUB_CODIGO_LABEL}
@@ -298,6 +299,11 @@ export default function TicketPrevisualizacionModal({
                     className="mx-auto mt-2 rounded-md border border-amber-200 bg-white p-1"
                     style={{ imageRendering: "pixelated" }}
                   />
+                ) : null}
+                {ticket.clubMillasLandingUrl?.trim() ? (
+                  <p className="mt-2 break-all text-[6px] leading-snug text-slate-500">
+                    {ticket.clubMillasLandingUrl.trim()}
+                  </p>
                 ) : null}
               </div>
             ) : null}

@@ -21,6 +21,8 @@ type BodyIn = {
   isoTimestamp?: unknown;
   lineas?: unknown;
   clienteDocumento?: unknown;
+  socioId?: unknown;
+  clienteFrecuenteSocioId?: unknown;
   facturaElectronica?: unknown;
   idFacturaPos?: unknown;
   cajaId?: unknown;
@@ -242,6 +244,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     if (Object.keys(facturaElectronica).length === 0) facturaElectronica = undefined;
   }
 
+  const socioIdPos = str(b.socioId) || str(b.clienteFrecuenteSocioId);
   const wmsBody: Record<string, unknown> = {
     ventaId,
     puntoVenta,
@@ -255,6 +258,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           clienteDocumento: str(b.clienteDocumento),
         }
       : {}),
+    ...(socioIdPos ? { socioId: socioIdPos } : {}),
     ...(facturaElectronica ? { facturaElectronica } : {}),
     ...(idFacturaPos ? { idFacturaPos } : {}),
     ...(cajaId ? { cajaId } : {}),

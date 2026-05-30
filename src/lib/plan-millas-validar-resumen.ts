@@ -5,6 +5,8 @@ export type PlanMillasClienteResumen = {
   nombre?: string;
   millas?: number;
   documento?: string;
+  /** Id Firestore del socio en WMS (`club_de_millas_socios`). */
+  socioId?: string;
 };
 
 function normalizarBodyJson(body: unknown): unknown {
@@ -158,6 +160,8 @@ const KEYS_MILLAS = [
 
 const KEYS_DOC = ["documento", "numeroDocumento", "numeroIdentificacion", "cedula", "nit", "identificacion"] as const;
 
+const KEYS_SOCIO_ID = ["socioId", "idSocio", "id", "uid", "socio_id"] as const;
+
 /**
  * Interpreta el JSON del WMS (estructuras habituales) y devuelve nombre / millas / documento si vienen en la respuesta.
  */
@@ -166,16 +170,19 @@ export function extraerResumenPlanMillasDesdeBodyWms(body: unknown, documentoCon
   let nombre: string | undefined;
   let millas: number | undefined;
   let documento: string | undefined;
+  let socioId: string | undefined;
 
   for (const o of rows) {
     if (!nombre) nombre = pickString(o, KEYS_NOMBRE);
     if (millas === undefined) millas = pickNumber(o, KEYS_MILLAS);
     if (!documento) documento = pickString(o, KEYS_DOC);
+    if (!socioId) socioId = pickString(o, KEYS_SOCIO_ID);
   }
 
   const out: PlanMillasClienteResumen = {};
   if (nombre) out.nombre = nombre;
   if (millas !== undefined) out.millas = millas;
+  if (socioId) out.socioId = socioId;
   if (documento) out.documento = documento;
   else if (documentoConsulta.trim()) out.documento = documentoConsulta.trim();
 

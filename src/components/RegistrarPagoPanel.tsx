@@ -31,6 +31,8 @@ export interface DetallePagoConfirmado {
   incluirQrClienteFrecuente?: boolean;
   /** Documento validado en plan de millas (WMS) al activar «Soy cliente frecuente». */
   clienteFrecuenteDocumento?: string;
+  /** Id del socio en WMS (validar-documento) para amarrar el ticket POS. */
+  clienteFrecuenteSocioId?: string;
 }
 
 export interface RegistrarPagoPanelProps {
@@ -98,6 +100,7 @@ export default function RegistrarPagoPanel({
   const [modalValidacionDocFrecuente, setModalValidacionDocFrecuente] = useState(false);
   const [planMillasResumenTrasValidar, setPlanMillasResumenTrasValidar] = useState<PlanMillasClienteResumen | null>(null);
   const [documentoClienteFrecuenteValidado, setDocumentoClienteFrecuenteValidado] = useState("");
+  const [socioIdClienteFrecuenteValidado, setSocioIdClienteFrecuenteValidado] = useState("");
 
   const resetForm = useCallback(() => {
     setTab("contado");
@@ -111,6 +114,7 @@ export default function RegistrarPagoPanel({
     setModalValidacionDocFrecuente(false);
     setPlanMillasResumenTrasValidar(null);
     setDocumentoClienteFrecuenteValidado("");
+    setSocioIdClienteFrecuenteValidado("");
   }, []);
 
   useEffect(() => {
@@ -141,7 +145,9 @@ export default function RegistrarPagoPanel({
   const activarClienteFrecuenteTrasValidarWms = useCallback(
     async (resumen?: PlanMillasClienteResumen): Promise<boolean> => {
       const docNorm = resumen?.documento?.replace(/\s/g, "").replace(/[.\-]/g, "").trim() ?? "";
+      const socioIdNorm = resumen?.socioId?.replace(/\s/g, "").trim() ?? "";
       setDocumentoClienteFrecuenteValidado(docNorm);
+      setSocioIdClienteFrecuenteValidado(socioIdNorm);
       setPlanMillasResumenTrasValidar(
         resumen && Object.keys(resumen).length > 0 ? { ...resumen, ...(docNorm ? { documento: docNorm } : {}) } : null
       );
@@ -153,6 +159,7 @@ export default function RegistrarPagoPanel({
             window.alert(r.message);
             setPlanMillasResumenTrasValidar(null);
             setDocumentoClienteFrecuenteValidado("");
+            setSocioIdClienteFrecuenteValidado("");
             return false;
           }
         } finally {
@@ -227,7 +234,12 @@ export default function RegistrarPagoPanel({
       observaciones: observaciones.slice(0, OBS_MAX).trim(),
       incluirQrClienteFrecuente: clienteFrecuenteActivo,
       ...(clienteFrecuenteActivo && documentoClienteFrecuenteValidado
-        ? { clienteFrecuenteDocumento: documentoClienteFrecuenteValidado }
+        ? {
+            clienteFrecuenteDocumento: documentoClienteFrecuenteValidado,
+            ...(socioIdClienteFrecuenteValidado
+              ? { clienteFrecuenteSocioId: socioIdClienteFrecuenteValidado }
+              : {}),
+          }
         : {}),
     });
   };

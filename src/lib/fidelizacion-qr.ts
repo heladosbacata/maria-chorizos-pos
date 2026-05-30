@@ -157,8 +157,12 @@ export function contenidoQrEscaneableClubMillasDesdeTicket(
 export function elegirContenidoQrTirillaClubMillas(
   qrPayload: string,
   qrUrlPreferida?: string,
-  documento?: string
+  documento?: string,
+  codigoCorto?: string
 ): string {
+  const corto = codigoCorto?.replace(/\s+/g, "").trim().toUpperCase() ?? "";
+  if (esCodigoCortoTirillaClubMillas(corto)) return corto;
+
   const payload = qrPayload.replace(/\s+/g, "").trim();
   const urlWms = qrUrlPreferida?.trim();
 
@@ -198,13 +202,15 @@ export async function generarDataUrlQrPng(contenidoImpreso: string): Promise<str
 export async function generarQrTirillaClubMillas(
   qrPayload: string,
   qrUrlPreferida?: string,
-  documento?: string
+  documento?: string,
+  codigoCorto?: string
 ): Promise<QrTirillaClubMillasGenerado> {
   const payloadOriginal = qrPayload.replace(/\s+/g, "").trim();
   const contenidoImpreso = elegirContenidoQrTirillaClubMillas(
     payloadOriginal,
     qrUrlPreferida,
-    documento
+    documento,
+    codigoCorto
   );
   const dataUrl = (await generarDataUrlQrPng(contenidoImpreso)) ?? "";
   if (!dataUrl) {

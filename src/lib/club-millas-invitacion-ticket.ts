@@ -1,4 +1,5 @@
 import QRCode from "qrcode";
+import { esCodigoCortoTirillaClubMillas } from "@/lib/fidelizacion-qr";
 import { CLUB_MILLAS_PORTAL_URL } from "@/lib/wms-club-millas-premios";
 import type { TicketVentaPayload } from "@/types/impresion-pos";
 
@@ -13,7 +14,7 @@ export const INVITACION_CLUB_TIRILLA_CUERPO =
 export function ticketTieneQrAcumulacionClubMillas(ticket: TicketVentaPayload): boolean {
   if (ticket.fidelizacionQrDataUrl?.trim()) return true;
   const cod = ticket.clubMillasCodigoCorto?.trim().toUpperCase() ?? "";
-  if (/^[A-Z0-9]{6}$/.test(cod)) return true;
+  if (esCodigoCortoTirillaClubMillas(cod)) return true;
   const t = ticket.fidelizacionPayloadTexto?.trim() ?? "";
   if (/^https?:\/\//i.test(t) || /^BACATA-CLUB-V1-/i.test(t)) return true;
   return false;

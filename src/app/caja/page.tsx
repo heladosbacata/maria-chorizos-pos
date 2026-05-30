@@ -2223,6 +2223,9 @@ export default function CajaPage() {
                   cantidad: it.cantidad,
                 })),
                 clienteDocumento: docClienteFrecuente,
+                ...(opts.detallePago.clienteFrecuenteSocioId?.trim()
+                  ? { socioId: opts.detallePago.clienteFrecuenteSocioId.trim() }
+                  : {}),
                 ...(ticket.facturaElectronica ? { facturaElectronica: ticket.facturaElectronica } : {}),
               }),
             });
@@ -2274,20 +2277,23 @@ export default function CajaPage() {
                   const qrClub = await generarQrTirillaClubMillas(
                     raw || qrUrlWms,
                     qrUrlWms || undefined,
-                    docClienteFrecuente || undefined
+                    docClienteFrecuente || undefined,
+                    codigoCorto || undefined
                   );
                   ticket = {
                     ...ticket,
                     fidelizacionQrDataUrl: qrClub.dataUrl,
                     fidelizacionPayloadTexto: qrClub.contenidoImpreso,
                     ...(codigoCorto.length === 6 ? { clubMillasCodigoCorto: codigoCorto } : {}),
+                    ...(qrUrlWms ? { clubMillasLandingUrl: qrUrlWms } : {}),
                   };
                 } catch (qrErr) {
                   console.warn("[POS] generar QR Club de Millas:", qrErr);
                   const contenido = elegirContenidoQrTirillaClubMillas(
                     raw || qrUrlWms,
                     qrUrlWms || undefined,
-                    docClienteFrecuente || undefined
+                    docClienteFrecuente || undefined,
+                    codigoCorto || undefined
                   );
                   const dataUrlFallback = contenido ? await generarDataUrlQrPng(contenido) : null;
                   ticket = {
