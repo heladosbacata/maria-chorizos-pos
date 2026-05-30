@@ -29,6 +29,8 @@ export interface DetallePagoConfirmado {
   observaciones: string;
   /** Si true, el ticket incluye QR (y texto en térmica) para fidelización María Chorizos. */
   incluirQrClienteFrecuente?: boolean;
+  /** Documento validado en plan de millas (WMS) al activar «Soy cliente frecuente». */
+  clienteFrecuenteDocumento?: string;
 }
 
 export interface RegistrarPagoPanelProps {
@@ -95,6 +97,7 @@ export default function RegistrarPagoPanel({
   const [aplicandoClienteFrecuente, setAplicandoClienteFrecuente] = useState(false);
   const [modalValidacionDocFrecuente, setModalValidacionDocFrecuente] = useState(false);
   const [planMillasResumenTrasValidar, setPlanMillasResumenTrasValidar] = useState<PlanMillasClienteResumen | null>(null);
+  const [documentoClienteFrecuenteValidado, setDocumentoClienteFrecuenteValidado] = useState("");
 
   const resetForm = useCallback(() => {
     setTab("contado");
@@ -107,6 +110,7 @@ export default function RegistrarPagoPanel({
     setAplicandoClienteFrecuente(false);
     setModalValidacionDocFrecuente(false);
     setPlanMillasResumenTrasValidar(null);
+    setDocumentoClienteFrecuenteValidado("");
   }, []);
 
   useEffect(() => {
@@ -136,8 +140,10 @@ export default function RegistrarPagoPanel({
 
   const activarClienteFrecuenteTrasValidarWms = useCallback(
     async (resumen?: PlanMillasClienteResumen): Promise<boolean> => {
+      const docNorm = resumen?.documento?.replace(/\s/g, "").replace(/[.\-]/g, "").trim() ?? "";
+      setDocumentoClienteFrecuenteValidado(docNorm);
       setPlanMillasResumenTrasValidar(
-        resumen && Object.keys(resumen).length > 0 ? { ...resumen } : null
+        resumen && Object.keys(resumen).length > 0 ? { ...resumen, ...(docNorm ? { documento: docNorm } : {}) } : null
       );
       if (onAntesActivarClienteFrecuente) {
         setAplicandoClienteFrecuente(true);
@@ -146,6 +152,7 @@ export default function RegistrarPagoPanel({
           if (!r.ok) {
             window.alert(r.message);
             setPlanMillasResumenTrasValidar(null);
+            setDocumentoClienteFrecuenteValidado("");
             return false;
           }
         } finally {
@@ -219,6 +226,9 @@ export default function RegistrarPagoPanel({
       pagosLinea,
       observaciones: observaciones.slice(0, OBS_MAX).trim(),
       incluirQrClienteFrecuente: clienteFrecuenteActivo,
+      ...(clienteFrecuenteActivo && documentoClienteFrecuenteValidado
+        ? { clienteFrecuenteDocumento: documentoClienteFrecuenteValidado }
+        : {}),
     });
   };
 
@@ -540,6 +550,8 @@ export default function RegistrarPagoPanel({
               if (clienteFrecuenteActivo) {
                 setAvisoClienteFrecuenteOpen(false);
                 setClienteFrecuenteActivo(false);
+                setDocumentoClienteFrecuenteValidado("");
+                setPlanMillasResumenTrasValidar(null);
                 return;
               }
               setModalValidacionDocFrecuente(true);

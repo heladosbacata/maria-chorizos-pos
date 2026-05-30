@@ -2184,7 +2184,17 @@ export default function CajaPage() {
           const totalCop = Math.round(total * 100) / 100;
           /** Total COP entero para WMS (millas = floor(montoTotalCop / 9000)). */
           const montoTotalCop = Math.round(total);
+          const docClienteFrecuente = (
+            opts.detallePago.clienteFrecuenteDocumento?.replace(/\s/g, "").replace(/[.\-]/g, "").trim() ||
+            cr.numeroIdentificacion?.replace(/\s/g, "").replace(/[.\-]/g, "").trim() ||
+            ""
+          );
           /** Siempre registrar ticket en WMS (URL escaneable); no usar QR JSON legacy sin FE/CUFE. */
+          if (!docClienteFrecuente) {
+            console.warn(
+              "[POS] Cliente frecuente sin documento en el cobro; el WMS puede no devolver QR de millas."
+            );
+          }
           try {
             const tokenFid = await auth?.currentUser?.getIdToken();
             const resClub = await fetch("/api/club_millas_registrar_ticket", {
@@ -2205,7 +2215,7 @@ export default function CajaPage() {
                   sku: it.producto.sku,
                   cantidad: it.cantidad,
                 })),
-                clienteDocumento: cr.numeroIdentificacion?.trim() ?? "",
+                clienteDocumento: docClienteFrecuente,
                 ...(ticket.facturaElectronica ? { facturaElectronica: ticket.facturaElectronica } : {}),
               }),
             });

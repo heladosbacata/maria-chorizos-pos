@@ -47,17 +47,35 @@ function str(v: unknown): string {
   return "";
 }
 
+const QR_URL_KEYS = ["qrUrl", "qr_url", "urlQr", "url_qr", "enlaceQr", "linkQr"] as const;
+
+function pickUrlHttp(o: Record<string, unknown>): string | null {
+  for (const key of QR_URL_KEYS) {
+    const q = str(o[key]);
+    if (q && /^https?:\/\//i.test(q)) return q;
+  }
+  return null;
+}
+
 function extraerQrUrlWms(data: unknown): string | null {
   if (!data || typeof data !== "object" || Array.isArray(data)) return null;
   const o = data as Record<string, unknown>;
-  const direct = str(o.qrUrl);
-  if (direct && /^https?:\/\//i.test(direct)) return direct;
-  for (const nestKey of ["data", "result"] as const) {
+  const direct = pickUrlHttp(o);
+  if (direct) return direct;
+  for (const nestKey of ["data", "result", "ticket", "payload"] as const) {
     const nested = o[nestKey];
     if (nested && typeof nested === "object" && !Array.isArray(nested)) {
-      const q = str((nested as Record<string, unknown>).qrUrl);
-      if (q && /^https?:\/\//i.test(q)) return q;
+      const q = pickUrlHttp(nested as Record<string, unknown>);
+      if (q) return q;
     }
+  }
+  return null;
+}
+
+function pickCodigoCorto(o: Record<string, unknown>): string | null {
+  for (const key of ["codigoCorto", "codigo_corto", "codigo", "shortCode"] as const) {
+    const direct = str(o[key]).toUpperCase().replace(/\s+/g, "");
+    if (/^[A-Z0-9]{6}$/.test(direct)) return direct;
   }
   return null;
 }
@@ -65,13 +83,13 @@ function extraerQrUrlWms(data: unknown): string | null {
 function extraerCodigoCortoWms(data: unknown): string | null {
   if (!data || typeof data !== "object" || Array.isArray(data)) return null;
   const o = data as Record<string, unknown>;
-  const direct = str(o.codigoCorto).toUpperCase().replace(/\s+/g, "");
-  if (/^[A-Z0-9]{6}$/.test(direct)) return direct;
-  for (const nestKey of ["data", "result"] as const) {
+  const direct = pickCodigoCorto(o);
+  if (direct) return direct;
+  for (const nestKey of ["data", "result", "ticket", "payload"] as const) {
     const nested = o[nestKey];
     if (nested && typeof nested === "object" && !Array.isArray(nested)) {
-      const c = str((nested as Record<string, unknown>).codigoCorto).toUpperCase().replace(/\s+/g, "");
-      if (/^[A-Z0-9]{6}$/.test(c)) return c;
+      const c = pickCodigoCorto(nested as Record<string, unknown>);
+      if (c) return c;
     }
   }
   return null;
@@ -106,23 +124,22 @@ function extraerQrPayloadWms(data: unknown): string | null {
   }
   if (!data || typeof data !== "object" || Array.isArray(data)) return null;
   const o = data as Record<string, unknown>;
-  const direct = str(o.qrPayload);
-  if (direct) return direct;
+  for (const key of ["qrPayload", "qr_payload", "payload", "codigoQr", "ticket"] as const) {
+    const q = str(o[key]);
+    if (q) return q;
+  }
   const desdeToken = construirQrPayloadDesdeToken(str(o.token));
   if (desdeToken) return desdeToken;
-  const nested = o.data && typeof o.data === "object" && !Array.isArray(o.data) ? (o.data as Record<string, unknown>) : null;
-  if (nested) {
-    const q = str(nested.qrPayload);
-    if (q) return q;
-    const t2 = construirQrPayloadDesdeToken(str(nested.token));
+  for (const nestKey of ["data", "result", "ticket", "payload"] as const) {
+    const nested = o[nestKey];
+    if (!nested || typeof nested !== "object" || Array.isArray(nested)) continue;
+    const n = nested as Record<string, unknown>;
+    for (const key of ["qrPayload", "qr_payload", "payload", "codigoQr", "ticket"] as const) {
+      const q = str(n[key]);
+      if (q) return q;
+    }
+    const t2 = construirQrPayloadDesdeToken(str(n.token));
     if (t2) return t2;
-  }
-  const result = o.result && typeof o.result === "object" && !Array.isArray(o.result) ? (o.result as Record<string, unknown>) : null;
-  if (result) {
-    const q = str(result.qrPayload);
-    if (q) return q;
-    const t3 = construirQrPayloadDesdeToken(str(result.token));
-    if (t3) return t3;
   }
   return null;
 }
@@ -290,7 +307,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           "Club de Millas: el total de esta factura no alcanza el mínimo para generar código QR en esta compra.",
       });
     }
-    if (body.ok === false) {
+    if (body.ok === false || body.success === false) {
       return res.status(200).json({
         ok: false,
         message:
@@ -298,6 +315,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           "El WMS rechazó el registro del ticket del Club de Millas.",
       });
     }
+  }
+
+  const docEnviado = str(b.clienteDocumento).replace(/\D/g, "");
+  if (!docEnviado && process.env.CLUB_MILLAS_DEBUG_LOG === "1") {
+    console.warn("[club_millas_registrar_ticket] Sin clienteDocumento en el body; el WMS puede no devolver qrUrl.");
   }
 
   if (!Number.isFinite(status) || status < 200 || status >= 300) {

@@ -86,7 +86,13 @@ export default function ClienteFrecuenteDocumentoModal({
         setError(null);
         return;
       }
-      const activado = await Promise.resolve(onClienteRegistradoEnPlanMillas(r.clientePlanMillas));
+      const docNorm = documento.replace(/\s/g, "").replace(/[.\-]/g, "").trim();
+      const activado = await Promise.resolve(
+        onClienteRegistradoEnPlanMillas({
+          ...(r.clientePlanMillas ?? {}),
+          ...(docNorm ? { documento: r.clientePlanMillas?.documento?.trim() || docNorm } : {}),
+        })
+      );
       if (activado === false) return;
       onCancel();
     } finally {
