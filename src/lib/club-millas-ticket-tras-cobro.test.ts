@@ -16,8 +16,10 @@ describe("enriquecerTicketConClubMillasTrasCobro", () => {
         urlConsultaMillas: "https://wms.example/mi-plan?documento=12345",
         mensaje: "Sumaste 3 millas.",
       },
-      "12345"
+      "12345",
+      { millasAntes: 39 }
     );
+    expect(t.clubMillasSaldoAntes).toBe(39);
     expect(t.clubMillasSaldoTotal).toBe(42);
     expect(t.clubMillasGanadasCompra).toBe(3);
     expect(t.clubMillasConsultaUrl).toContain("mi-plan");

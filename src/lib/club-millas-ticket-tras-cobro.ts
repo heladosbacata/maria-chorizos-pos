@@ -18,11 +18,20 @@ export type ClubMillasCobroApiResponse = {
 };
 
 /** Aplica en el ticket el resultado de registrar + acumular millas al cobrar. */
+export type EnriquecerClubMillasTrasCobroOpts = {
+  millasAntes?: number;
+};
+
 export async function enriquecerTicketConClubMillasTrasCobro(
   ticket: TicketVentaPayload,
   clubJson: ClubMillasCobroApiResponse,
-  documento: string
+  documento: string,
+  opts?: EnriquecerClubMillasTrasCobroOpts
 ): Promise<TicketVentaPayload> {
+  const millasAntesIn =
+    opts?.millasAntes !== undefined && Number.isFinite(opts.millasAntes)
+      ? Math.trunc(opts.millasAntes)
+      : undefined;
   const msg =
     typeof clubJson.mensaje === "string"
       ? clubJson.mensaje.trim()
@@ -48,6 +57,12 @@ export async function enriquecerTicketConClubMillasTrasCobro(
       };
     }
     const puntos = Number(clubJson.puntosSumados ?? 0) || 0;
+    const millasAntes =
+      millasAntesIn !== undefined
+        ? millasAntesIn
+        : puntos > 0 && saldo >= puntos
+          ? saldo - puntos
+          : undefined;
     const urlConsulta =
       typeof clubJson.urlConsultaMillas === "string" && clubJson.urlConsultaMillas.trim()
         ? clubJson.urlConsultaMillas.trim()
@@ -55,6 +70,7 @@ export async function enriquecerTicketConClubMillasTrasCobro(
     const qrImg = await generarDataUrlQrPng(urlConsulta);
     return {
       ...ticket,
+      ...(millasAntes !== undefined ? { clubMillasSaldoAntes: millasAntes } : {}),
       clubMillasSaldoTotal: saldo,
       clubMillasGanadasCompra: puntos,
       clubMillasConsultaUrl: urlConsulta,

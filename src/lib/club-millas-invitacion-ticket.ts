@@ -12,8 +12,12 @@ export const INVITACION_CLUB_TIRILLA_CUERPO =
 
 /** Cliente frecuente con saldo impreso tras acumulación automática al cobrar. */
 export function ticketTieneSaldoClubMillasEnTirilla(ticket: TicketVentaPayload): boolean {
-  const s = ticket.clubMillasSaldoTotal;
-  return s != null && Number.isFinite(s);
+  const despues = ticket.clubMillasSaldoTotal;
+  const antes = ticket.clubMillasSaldoAntes;
+  return (
+    (despues != null && Number.isFinite(despues)) ||
+    (antes != null && Number.isFinite(antes))
+  );
 }
 
 /** Ticket con QR/código/URL BACATA de acumulación (cliente frecuente exitoso). */

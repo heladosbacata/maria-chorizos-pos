@@ -16,6 +16,8 @@ export function construirUrlConsultaClubMillas(documento?: string): string {
 }
 
 export const MENSAJE_TIRILLA_CLUB_SALDO_TITULO = "CLUB DE MILLAS — TU SALDO";
+export const MENSAJE_TIRILLA_CLUB_SALDO_ANTES_LABEL = "Millas ahora";
+export const MENSAJE_TIRILLA_CLUB_SALDO_DESPUES_LABEL = "Quedas con";
 export const MENSAJE_TIRILLA_CLUB_SALDO_LABEL = "Millas acumuladas";
 export const MENSAJE_TIRILLA_CLUB_GANADAS_LABEL = "Millas de esta compra";
 export const MENSAJE_TIRILLA_CLUB_CONSULTA_PASO = "Escaneá el QR para ver tu plan y premios";

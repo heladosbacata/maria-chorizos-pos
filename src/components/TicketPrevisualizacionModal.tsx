@@ -16,7 +16,8 @@ import {
   MENSAJE_TIRILLA_CLUB_ACUMULADO_AUTO,
   MENSAJE_TIRILLA_CLUB_CONSULTA_PASO,
   MENSAJE_TIRILLA_CLUB_GANADAS_LABEL,
-  MENSAJE_TIRILLA_CLUB_SALDO_LABEL,
+  MENSAJE_TIRILLA_CLUB_SALDO_ANTES_LABEL,
+  MENSAJE_TIRILLA_CLUB_SALDO_DESPUES_LABEL,
   MENSAJE_TIRILLA_CLUB_SALDO_TITULO,
 } from "@/lib/club-millas-consulta-url";
 import {
@@ -281,12 +282,26 @@ export default function TicketPrevisualizacionModal({
                 <p className="mt-1 text-[7px] font-semibold leading-snug text-amber-900">
                   {MENSAJE_TIRILLA_CLUB_ACUMULADO_AUTO}
                 </p>
-                <p className="mt-3 text-[7px] font-extrabold uppercase tracking-[0.2em] text-amber-800">
-                  {MENSAJE_TIRILLA_CLUB_SALDO_LABEL}
-                </p>
-                <p className="mt-1 text-[32px] font-black leading-none tabular-nums tracking-tight text-orange-700">
-                  {(ticket.clubMillasSaldoTotal ?? 0).toLocaleString("es-CO")}
-                </p>
+                {ticket.clubMillasSaldoAntes != null && Number.isFinite(ticket.clubMillasSaldoAntes) ? (
+                  <>
+                    <p className="mt-3 text-[7px] font-extrabold uppercase tracking-[0.2em] text-amber-800">
+                      {MENSAJE_TIRILLA_CLUB_SALDO_ANTES_LABEL}
+                    </p>
+                    <p className="mt-1 text-[30px] font-black leading-none tabular-nums tracking-tight text-orange-700">
+                      {ticket.clubMillasSaldoAntes.toLocaleString("es-CO")}
+                    </p>
+                  </>
+                ) : null}
+                {ticket.clubMillasSaldoTotal != null && Number.isFinite(ticket.clubMillasSaldoTotal) ? (
+                  <>
+                    <p className="mt-3 text-[7px] font-extrabold uppercase tracking-[0.2em] text-emerald-800">
+                      {MENSAJE_TIRILLA_CLUB_SALDO_DESPUES_LABEL}
+                    </p>
+                    <p className="mt-1 text-[34px] font-black leading-none tabular-nums tracking-tight text-emerald-700">
+                      {ticket.clubMillasSaldoTotal.toLocaleString("es-CO")}
+                    </p>
+                  </>
+                ) : null}
                 {(ticket.clubMillasGanadasCompra ?? 0) > 0 ? (
                   <>
                     <p className="mt-2 text-[7px] font-bold uppercase text-amber-800">

@@ -66,6 +66,8 @@ export interface TicketVentaPayload {
   clubMillasInvitacionQrDataUrl?: string;
   /** URL https://maria-chorizos-wms.vercel.app/club-de-millas para ESC/POS. */
   clubMillasInvitacionUrl?: string;
+  /** Millas del socio antes de esta compra (validación WMS). */
+  clubMillasSaldoAntes?: number;
   /** Saldo de millas del socio tras acumular en el cobro (impreso en grande). */
   clubMillasSaldoTotal?: number;
   /** Millas ganadas en esta compra (0 si ya estaban acumuladas). */

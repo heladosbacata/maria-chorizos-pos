@@ -2,6 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
+import {
+  millasGanadasPorMontoCop,
+  millasSaldoProyectadoTrasCompra,
+} from "@/lib/club-millas-calculo-venta";
 import type { PlanMillasClienteResumen } from "@/lib/plan-millas-validar-resumen";
 
 export interface ClienteFrecuenteAvisoModalProps {
@@ -9,6 +13,8 @@ export interface ClienteFrecuenteAvisoModalProps {
   onCerrar: () => void;
   /** Datos devueltos por el WMS al validar documento (nombre, millas, documento). */
   planMillasResumen?: PlanMillasClienteResumen | null;
+  /** Total de la venta en COP (entero) para proyectar millas tras esta compra. */
+  totalCompraCop?: number;
 }
 
 function formatPuntos(n: number): string {
@@ -18,7 +24,12 @@ function formatPuntos(n: number): string {
 /**
  * Tras validar documento en el WMS: solo resumen del cliente y puntos/millas acumulados.
  */
-export default function ClienteFrecuenteAvisoModal({ open, onCerrar, planMillasResumen }: ClienteFrecuenteAvisoModalProps) {
+export default function ClienteFrecuenteAvisoModal({
+  open,
+  onCerrar,
+  planMillasResumen,
+  totalCompraCop = 0,
+}: ClienteFrecuenteAvisoModalProps) {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -40,6 +51,10 @@ export default function ClienteFrecuenteAvisoModal({ open, onCerrar, planMillasR
   const documento = planMillasResumen?.documento?.trim();
   const puntos = planMillasResumen?.millas;
   const tienePuntos = typeof puntos === "number";
+  const millasActuales = tienePuntos ? Math.trunc(puntos) : undefined;
+  const montoCop = Math.max(0, Math.round(totalCompraCop));
+  const millasGanadas = millasGanadasPorMontoCop(montoCop);
+  const millasDespues = millasSaldoProyectadoTrasCompra(millasActuales, montoCop);
 
   return createPortal(
     <div
@@ -87,14 +102,29 @@ export default function ClienteFrecuenteAvisoModal({ open, onCerrar, planMillasR
                 </p>
               ) : null}
               <div className="mt-5 border-t border-emerald-400/25 pt-4">
-                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-200/90">Puntos acumulados</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-emerald-200/90">Millas ahora</p>
                 {tienePuntos ? (
-                  <p className="mt-1 text-3xl font-extrabold tabular-nums tracking-tight text-brand-yellow">
-                    {formatPuntos(puntos)}
+                  <p className="mt-1 text-4xl font-extrabold tabular-nums tracking-tight text-brand-yellow">
+                    {formatPuntos(millasActuales!)}
                   </p>
                 ) : (
                   <p className="mt-1 text-2xl font-bold tabular-nums text-slate-400">—</p>
                 )}
+                {millasDespues !== undefined ? (
+                  <div className="mt-4 rounded-xl border border-emerald-400/30 bg-black/20 px-4 py-3">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-emerald-200/90">
+                      Queda con (esta compra)
+                    </p>
+                    <p className="mt-1 text-4xl font-extrabold tabular-nums tracking-tight text-white">
+                      {formatPuntos(millasDespues)}
+                    </p>
+                    <p className="mt-2 text-xs text-emerald-100/90">
+                      {millasGanadas > 0
+                        ? `+ ${formatPuntos(millasGanadas)} milla(s) por esta venta`
+                        : "Esta venta no alcanza el mínimo ($9.000) para sumar millas"}
+                    </p>
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : (

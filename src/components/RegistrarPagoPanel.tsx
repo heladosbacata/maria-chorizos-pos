@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import ClienteFrecuenteAvisoModal from "@/components/ClienteFrecuenteAvisoModal";
 import ClienteFrecuenteDocumentoModal from "@/components/ClienteFrecuenteDocumentoModal";
+import {
+  millasGanadasPorMontoCop,
+  millasSaldoProyectadoTrasCompra,
+} from "@/lib/club-millas-calculo-venta";
 import type { PlanMillasClienteResumen } from "@/lib/plan-millas-validar-resumen";
 import type { ClientePosFirestoreDoc } from "@/types/clientes-pos";
 import { formatPesosCop, parsePesosCopInput } from "@/lib/pesos-cop-input";
@@ -33,6 +37,8 @@ export interface DetallePagoConfirmado {
   clienteFrecuenteDocumento?: string;
   /** Id del socio en WMS (validar-documento) para amarrar el ticket POS. */
   clienteFrecuenteSocioId?: string;
+  /** Millas actuales del socio al validar documento (WMS). */
+  clienteFrecuenteMillasActuales?: number;
 }
 
 export interface RegistrarPagoPanelProps {
@@ -142,6 +148,22 @@ export default function RegistrarPagoPanel({
 
   const cubreTotal = totalPagado + EPS >= totalAPagar;
 
+  const millasActualesFrecuente =
+    typeof planMillasResumenTrasValidar?.millas === "number" &&
+    Number.isFinite(planMillasResumenTrasValidar.millas)
+      ? Math.trunc(planMillasResumenTrasValidar.millas)
+      : undefined;
+
+  const millasGanadasEstaCompra = useMemo(
+    () => millasGanadasPorMontoCop(Math.round(totalAPagar)),
+    [totalAPagar]
+  );
+
+  const millasProyectadasTrasCompra = useMemo(
+    () => millasSaldoProyectadoTrasCompra(millasActualesFrecuente, Math.round(totalAPagar)),
+    [millasActualesFrecuente, totalAPagar]
+  );
+
   const activarClienteFrecuenteTrasValidarWms = useCallback(
     async (resumen?: PlanMillasClienteResumen): Promise<boolean> => {
       const docNorm = resumen?.documento?.replace(/\s/g, "").replace(/[.\-]/g, "").trim() ?? "";
@@ -238,6 +260,9 @@ export default function RegistrarPagoPanel({
             clienteFrecuenteDocumento: documentoClienteFrecuenteValidado,
             ...(socioIdClienteFrecuenteValidado
               ? { clienteFrecuenteSocioId: socioIdClienteFrecuenteValidado }
+              : {}),
+            ...(millasActualesFrecuente !== undefined
+              ? { clienteFrecuenteMillasActuales: millasActualesFrecuente }
               : {}),
           }
         : {}),
@@ -563,6 +588,7 @@ export default function RegistrarPagoPanel({
                 setAvisoClienteFrecuenteOpen(false);
                 setClienteFrecuenteActivo(false);
                 setDocumentoClienteFrecuenteValidado("");
+                setSocioIdClienteFrecuenteValidado("");
                 setPlanMillasResumenTrasValidar(null);
                 return;
               }
@@ -581,6 +607,32 @@ export default function RegistrarPagoPanel({
             </span>
             {aplicandoClienteFrecuente ? "Aplicando…" : "SOY CLIENTE FRECUENTE"}
           </button>
+          {clienteFrecuenteActivo && millasActualesFrecuente !== undefined ? (
+            <div className="mt-3 rounded-2xl border-2 border-amber-400 bg-gradient-to-b from-amber-50 to-white px-4 py-4 text-center shadow-sm">
+              <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-amber-900">
+                Club de millas
+              </p>
+              <p className="mt-2 text-[10px] font-bold uppercase tracking-wide text-amber-800">Millas ahora</p>
+              <p className="text-[36px] font-black leading-none tabular-nums text-orange-700">
+                {millasActualesFrecuente.toLocaleString("es-CO")}
+              </p>
+              {millasProyectadasTrasCompra !== undefined ? (
+                <>
+                  <p className="mt-3 text-[10px] font-bold uppercase tracking-wide text-amber-800">
+                    Queda con (esta compra)
+                  </p>
+                  <p className="text-[36px] font-black leading-none tabular-nums text-emerald-800">
+                    {millasProyectadasTrasCompra.toLocaleString("es-CO")}
+                  </p>
+                  <p className="mt-2 text-[11px] font-semibold text-amber-900">
+                    {millasGanadasEstaCompra > 0
+                      ? `+ ${millasGanadasEstaCompra.toLocaleString("es-CO")} milla(s) por $${formatPesosCop(totalAPagar)}`
+                      : `Compra menor a $9.000: no suma millas en esta venta`}
+                  </p>
+                </>
+              ) : null}
+            </div>
+          ) : null}
           <p className="mt-1.5 text-center text-[11px] leading-snug text-slate-500">
             {onAntesActivarClienteFrecuente
               ? stickerFidelizacionConfigurado
@@ -613,6 +665,7 @@ export default function RegistrarPagoPanel({
       open={avisoClienteFrecuenteOpen}
       onCerrar={() => setAvisoClienteFrecuenteOpen(false)}
       planMillasResumen={planMillasResumenTrasValidar}
+      totalCompraCop={Math.round(totalAPagar)}
     />
     </>
   );

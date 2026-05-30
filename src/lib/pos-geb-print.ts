@@ -15,6 +15,8 @@ import {
 import {
   MENSAJE_TIRILLA_CLUB_CONSULTA_PASO,
   MENSAJE_TIRILLA_CLUB_GANADAS_LABEL,
+  MENSAJE_TIRILLA_CLUB_SALDO_ANTES_LABEL,
+  MENSAJE_TIRILLA_CLUB_SALDO_DESPUES_LABEL,
   MENSAJE_TIRILLA_CLUB_SALDO_LABEL,
   MENSAJE_TIRILLA_CLUB_SALDO_TITULO,
   MENSAJE_TIRILLA_CLUB_ACUMULADO_AUTO,
@@ -198,19 +200,43 @@ function formatoMillasTicket(n: number): string {
   return Math.max(0, Math.round(n)).toLocaleString("es-CO");
 }
 
+function millasAntesEnTicket(payload: TicketVentaPayload): number | undefined {
+  const a = payload.clubMillasSaldoAntes;
+  return a != null && Number.isFinite(a) ? Math.round(a) : undefined;
+}
+
+function millasDespuesEnTicket(payload: TicketVentaPayload): number | undefined {
+  const d = payload.clubMillasSaldoTotal;
+  if (d != null && Number.isFinite(d)) return Math.round(d);
+  const antes = millasAntesEnTicket(payload);
+  if (antes === undefined) return undefined;
+  const g = payload.clubMillasGanadasCompra ?? 0;
+  return antes + (Number.isFinite(g) ? Math.round(g) : 0);
+}
+
 function textoClubMillasSaldoTicketPlano(payload: TicketVentaPayload, ancho: number): string {
   const center = (s: string) => {
     const t = textoTicketSeguro(s).slice(0, ancho);
     const pad = Math.max(0, Math.floor((ancho - t.length) / 2));
     return " ".repeat(pad) + t;
   };
-  const saldo = payload.clubMillasSaldoTotal ?? 0;
+  const antes = millasAntesEnTicket(payload);
+  const despues = millasDespuesEnTicket(payload);
   const ganadas = payload.clubMillasGanadasCompra ?? 0;
   const rows: string[] = ["", center(MENSAJE_TIRILLA_CLUB_SALDO_TITULO)];
   rows.push(center(MENSAJE_TIRILLA_CLUB_ACUMULADO_AUTO));
   rows.push("");
-  rows.push(center(MENSAJE_TIRILLA_CLUB_SALDO_LABEL));
-  rows.push(center(formatoMillasTicket(saldo)));
+  if (antes !== undefined) {
+    rows.push(center(MENSAJE_TIRILLA_CLUB_SALDO_ANTES_LABEL));
+    rows.push(center(formatoMillasTicket(antes)));
+  }
+  if (despues !== undefined) {
+    rows.push(center(MENSAJE_TIRILLA_CLUB_SALDO_DESPUES_LABEL));
+    rows.push(center(formatoMillasTicket(despues)));
+  } else if (antes !== undefined) {
+    rows.push(center(MENSAJE_TIRILLA_CLUB_SALDO_LABEL));
+    rows.push(center(formatoMillasTicket(antes)));
+  }
   if (ganadas > 0) {
     rows.push(center(MENSAJE_TIRILLA_CLUB_GANADAS_LABEL));
     rows.push(center(`+ ${formatoMillasTicket(ganadas)}`));
@@ -229,17 +255,26 @@ function escPosBloqueClubMillasSaldo(payload: TicketVentaPayload, columnas: numb
     const pad = Math.max(0, Math.floor((W - x.length) / 2));
     return " ".repeat(pad) + x;
   };
-  const saldo = payload.clubMillasSaldoTotal ?? 0;
+  const antes = millasAntesEnTicket(payload);
+  const despues = millasDespuesEnTicket(payload);
   const ganadas = payload.clubMillasGanadasCompra ?? 0;
   const url = payload.clubMillasConsultaUrl?.trim() ?? "";
   let out = "\n";
   out += escPosAlinearCentro();
   out += center(textoTicketSeguro(MENSAJE_TIRILLA_CLUB_SALDO_TITULO)) + "\n";
   out += center(textoTicketSeguro(MENSAJE_TIRILLA_CLUB_ACUMULADO_AUTO)) + "\n\n";
-  out += center(textoTicketSeguro(MENSAJE_TIRILLA_CLUB_SALDO_LABEL)) + "\n";
-  out += escPosTextoGrande();
-  out += center(formatoMillasTicket(saldo)) + "\n";
-  out += escPosTextoNormal();
+  if (antes !== undefined) {
+    out += center(textoTicketSeguro(MENSAJE_TIRILLA_CLUB_SALDO_ANTES_LABEL)) + "\n";
+    out += escPosTextoGrande();
+    out += center(formatoMillasTicket(antes)) + "\n";
+    out += escPosTextoNormal();
+  }
+  if (despues !== undefined) {
+    out += center(textoTicketSeguro(MENSAJE_TIRILLA_CLUB_SALDO_DESPUES_LABEL)) + "\n";
+    out += escPosTextoGrande();
+    out += center(formatoMillasTicket(despues)) + "\n";
+    out += escPosTextoNormal();
+  }
   if (ganadas > 0) {
     out += center(textoTicketSeguro(MENSAJE_TIRILLA_CLUB_GANADAS_LABEL)) + "\n";
     out += escPosTextoGrande();
@@ -435,15 +470,26 @@ function construirHtmlTirillaTicket(
       : "";
 
   const tieneSaldoClub = ticketTieneSaldoClubMillasEnTirilla(p);
-  const saldoClub = p.clubMillasSaldoTotal ?? 0;
+  const antesClub = millasAntesEnTicket(p);
+  const despuesClub = millasDespuesEnTicket(p);
   const ganadasClub = p.clubMillasGanadasCompra ?? 0;
   const qrConsultaClub = p.clubMillasConsultaQrDataUrl?.trim();
   const clubSaldoBlock = tieneSaldoClub
     ? `<div class="qr club-saldo-promo">
           <p class="qr-t">${escapeHtml(MENSAJE_TIRILLA_CLUB_SALDO_TITULO)}</p>
           <p class="qr-paso">${escapeHtml(MENSAJE_TIRILLA_CLUB_ACUMULADO_AUTO)}</p>
-          <p class="club-saldo-label">${escapeHtml(MENSAJE_TIRILLA_CLUB_SALDO_LABEL)}</p>
-          <p class="club-saldo-valor">${escapeHtml(formatoMillasTicket(saldoClub))}</p>
+          ${
+            antesClub !== undefined
+              ? `<p class="club-saldo-label">${escapeHtml(MENSAJE_TIRILLA_CLUB_SALDO_ANTES_LABEL)}</p>
+          <p class="club-saldo-valor club-saldo-antes">${escapeHtml(formatoMillasTicket(antesClub))}</p>`
+              : ""
+          }
+          ${
+            despuesClub !== undefined
+              ? `<p class="club-saldo-label club-saldo-label-despues">${escapeHtml(MENSAJE_TIRILLA_CLUB_SALDO_DESPUES_LABEL)}</p>
+          <p class="club-saldo-valor club-saldo-despues">${escapeHtml(formatoMillasTicket(despuesClub))}</p>`
+              : ""
+          }
           ${
             ganadasClub > 0
               ? `<p class="club-ganadas-label">${escapeHtml(MENSAJE_TIRILLA_CLUB_GANADAS_LABEL)}</p>
@@ -759,6 +805,8 @@ function construirHtmlTirillaTicket(
   }
   .club-saldo-label { margin: 8px 0 2px; font-size: 8px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: #92400e; }
   .club-saldo-valor { margin: 0 0 6px; font-size: 28px; font-weight: 900; line-height: 1.1; letter-spacing: 0.04em; color: #c2410c; }
+  .club-saldo-despues { font-size: 32px; color: #15803d; }
+  .club-saldo-label-despues { margin-top: 8px; }
   .club-ganadas-label { margin: 4px 0 2px; font-size: 7px; font-weight: 700; color: #b45309; }
   .club-ganadas-valor { margin: 0 0 8px; font-size: 16px; font-weight: 800; color: #ea580c; }
   .qr-s { margin: 6px 0 0; font-size: 7px; font-weight: 700; color: #78350f; text-transform: uppercase; letter-spacing: 0.08em; }

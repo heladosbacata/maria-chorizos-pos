@@ -2228,7 +2228,12 @@ export default function CajaPage() {
             ticket = await enriquecerTicketConClubMillasTrasCobro(
               ticket,
               clubJson,
-              docClienteFrecuente
+              docClienteFrecuente,
+              {
+                ...(opts.detallePago.clienteFrecuenteMillasActuales !== undefined
+                  ? { millasAntes: opts.detallePago.clienteFrecuenteMillasActuales }
+                  : {}),
+              }
             );
             if (clubJson?.ok !== true) {
               console.warn("[POS] club_millas_cobro_cliente_frecuente:", clubJson);
