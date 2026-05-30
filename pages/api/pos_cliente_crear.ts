@@ -2,17 +2,18 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { getFirebaseAdminApp, getCreadorFirestoreContext } from "@/lib/firebase-admin-server";
 import {
-  enviarBienvenidaClienteClubMillasPorCorreo,
-  generarPinClubMillas4Digitos,
-} from "@/lib/email-bienvenida-cliente-club-millas";
-import { headersClubMillasPosSecretHaciaWms } from "@/lib/club-millas-wms-secret-header";
-import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
+  aplicarBienvenidaClubMillasACliente,
+  emailValidoClientePos,
+  type ClientePosFirestoreLike,
+} from "@/lib/pos-cliente-club-millas-bienvenida";
 
 type CreateClienteOk = {
   ok: true;
   id: string;
   bienvenidaCorreoEnviado?: boolean;
   bienvenidaCorreoError?: string;
+  clubMillasWmsSincronizado?: boolean;
+  clubMillasWmsError?: string;
 };
 type CreateClienteErr = { ok: false; message: string };
 
@@ -31,48 +32,6 @@ function sanitizeComplementarios(raw: unknown): Record<string, string> | undefin
     if (kk && vv) out[kk] = vv;
   }
   return Object.keys(out).length ? out : undefined;
-}
-
-/**
- * Réplica al WMS (`upsert-socio`): mismo secreto que registrar-ticket (`CLUB_MILLAS_POS_SECRET`),
- * cabecera `x-club-millas-pos-secret` (o `CLUB_MILLAS_WMS_SECRET_HEADER`). Ver docs WMS: POS-CLUB-DE-MILLAS-WMS.md.
- */
-async function sincronizarClientePosEnWms(idFirestore: string, payload: Record<string, unknown>): Promise<void> {
-  const raw = process.env.WMS_POS_CLIENTE_UPSERT_PATH?.trim();
-  if (!raw) return;
-  const secret = process.env.CLUB_MILLAS_POS_SECRET?.trim();
-  if (!secret) {
-    console.warn("[pos_cliente_crear] WMS upsert-socio omitido: falta CLUB_MILLAS_POS_SECRET en el servidor del POS.");
-    return;
-  }
-  const base = getWmsPublicBaseUrl().replace(/\/$/, "");
-  const path = raw.startsWith("/") ? raw : `/${raw}`;
-  const url = `${base}${path}`;
-  const ni = typeof payload.numeroIdentificacion === "string" ? payload.numeroIdentificacion.trim() : "";
-  const aliases: Record<string, string> = {};
-  if (ni) {
-    aliases.documento = ni;
-    aliases.numeroDocumento = ni;
-  }
-  try {
-    const wmsRes = await fetch(url, {
-      method: "POST",
-      headers: headersClubMillasPosSecretHaciaWms(secret),
-      body: JSON.stringify({
-        ...payload,
-        ...aliases,
-        idDocumentoFirestore: idFirestore,
-        origenAlta: "pos",
-      }),
-      cache: "no-store",
-    });
-    if (!wmsRes.ok) {
-      const t = await wmsRes.text().catch(() => "");
-      console.warn("[pos_cliente_crear] WMS sync HTTP", wmsRes.status, t.slice(0, 400));
-    }
-  } catch (e) {
-    console.warn("[pos_cliente_crear] WMS sync error", e instanceof Error ? e.message : e);
-  }
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<CreateClienteOk | CreateClienteErr>) {
@@ -157,8 +116,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     ...(datosComplementarios ? { datosComplementarios } : {}),
   };
 
-  const emailValido = Boolean(email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
-
   try {
     const db = getFirestore(app);
     const ref = await db.collection("posClientes").add({
@@ -168,41 +125,32 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       updatedAt: FieldValue.serverTimestamp(),
     });
 
-    let pinInicial: string | undefined;
     let bienvenidaCorreoEnviado = false;
     let bienvenidaCorreoError: string | undefined;
+    let clubMillasWmsSincronizado = false;
+    let clubMillasWmsError: string | undefined;
 
-    if (emailValido) {
-      pinInicial = generarPinClubMillas4Digitos();
-      const nombreDisplay =
-        tipoCliente === "empresa"
-          ? razonSocial
-          : [nombres, apellidos].filter(Boolean).join(" ").trim() || "Cliente";
-      const envio = await enviarBienvenidaClienteClubMillasPorCorreo({
-        to: email,
-        nombreDisplay,
-        pin: pinInicial,
-      });
-      if (envio.ok) {
-        bienvenidaCorreoEnviado = true;
-        await ref.update({ clubMillasBienvenidaCorreoEnviadoAt: FieldValue.serverTimestamp() });
+    if (emailValidoClientePos(email)) {
+      const clienteData = { ...payloadCliente, email } as ClientePosFirestoreLike;
+      const bienvenida = await aplicarBienvenidaClubMillasACliente(ref, clienteData);
+      if (bienvenida.ok) {
+        bienvenidaCorreoEnviado = bienvenida.correoEnviado;
+        clubMillasWmsSincronizado = bienvenida.wmsSincronizado;
+        bienvenidaCorreoError = bienvenida.correoError;
+        clubMillasWmsError = bienvenida.wmsError;
       } else {
-        bienvenidaCorreoError = envio.error;
-        console.warn("[pos_cliente_crear] correo bienvenida club millas:", envio.error);
+        bienvenidaCorreoError = bienvenida.error;
+        console.warn("[pos_cliente_crear] club millas bienvenida:", bienvenida.error);
       }
     }
-
-    await sincronizarClientePosEnWms(ref.id, {
-      ...payloadCliente,
-      createdByUid: ctx.uid,
-      ...(pinInicial ? { pinAccesoClubMillasInicial: pinInicial } : {}),
-    });
 
     return res.status(200).json({
       ok: true,
       id: ref.id,
       ...(bienvenidaCorreoEnviado ? { bienvenidaCorreoEnviado: true } : {}),
       ...(bienvenidaCorreoError ? { bienvenidaCorreoError } : {}),
+      ...(clubMillasWmsSincronizado ? { clubMillasWmsSincronizado: true } : {}),
+      ...(clubMillasWmsError ? { clubMillasWmsError } : {}),
     });
   } catch (e) {
     return res.status(500).json({ ok: false, message: e instanceof Error ? e.message : "No se pudo crear el cliente." });

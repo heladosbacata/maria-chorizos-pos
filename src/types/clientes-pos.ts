@@ -19,6 +19,8 @@ export interface ClientePosFirestoreDoc {
   createdByUid: string;
   createdAt?: unknown;
   updatedAt?: unknown;
+  /** PIN de 4 dígitos del plan de millas (solo servidor POS; no mostrar en UI). */
+  clubMillasPinAcceso?: string;
   /** Marca de tiempo del servidor cuando se envió el correo de bienvenida al plan de millas (solo API Admin). */
   clubMillasBienvenidaCorreoEnviadoAt?: unknown;
 }
