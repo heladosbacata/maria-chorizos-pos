@@ -24,6 +24,9 @@ export default function PosChatFloatingDock({
 }: Props) {
   const dockRef = useRef<HTMLDivElement>(null);
   const [posicion, setPosicion] = useState<{ x: number; y: number } | null>(null);
+  const [unreadCaja, setUnreadCaja] = useState(0);
+  const [unreadGrupal, setUnreadGrupal] = useState(0);
+  const totalUnread = unreadCaja + unreadGrupal;
   const dragRef = useRef<{
     pointerId: number;
     startX: number;
@@ -101,15 +104,27 @@ export default function PosChatFloatingDock({
     <PosBodyPortal open>
     <div
       ref={dockRef}
-      className="fixed z-[170] flex max-w-[calc(100vw-1.5rem)] items-center gap-2 rounded-[1.35rem] border border-white/70 bg-gradient-to-br from-white/98 via-amber-50/95 to-indigo-50/95 px-3.5 py-2.5 shadow-[0_22px_60px_-20px_rgba(15,23,42,0.85)] ring-1 ring-slate-900/5"
+      className="relative fixed z-[170] flex max-w-[calc(100vw-1.5rem)] items-center gap-2 rounded-[1.35rem] border border-white/70 bg-gradient-to-br from-white/98 via-amber-50/95 to-indigo-50/95 px-3.5 py-2.5 shadow-[0_22px_60px_-20px_rgba(15,23,42,0.85)] ring-1 ring-slate-900/5"
       style={
         posicion
           ? { left: `${posicion.x}px`, top: `${posicion.y}px` }
           : { left: "0.75rem", bottom: "1.25rem" }
       }
       role="navigation"
-      aria-label="Chats del POS"
+      aria-label={
+        totalUnread > 0
+          ? `Chats del POS, ${totalUnread} mensaje${totalUnread === 1 ? "" : "s"} sin leer`
+          : "Chats del POS"
+      }
     >
+      {totalUnread > 0 ? (
+        <span
+          className="pointer-events-none absolute -right-1.5 -top-1.5 z-20 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-gradient-to-br from-red-500 to-rose-600 px-1.5 text-[10px] font-bold text-white shadow-[0_4px_14px_-2px_rgba(220,38,38,0.65)] ring-2 ring-white"
+          aria-hidden
+        >
+          {totalUnread > 9 ? "9+" : totalUnread}
+        </span>
+      ) : null}
       <div
         className="flex min-w-0 cursor-grab touch-none select-none items-center gap-2 pr-1 active:cursor-grabbing"
         onPointerDown={onPointerDown}
@@ -137,8 +152,13 @@ export default function PosChatFloatingDock({
         <PosCajaMensajesBell
           getIdToken={getIdToken}
           puntoVentaLabel={puntoVentaLabel}
+          onUnreadChange={setUnreadCaja}
         />
-        <PosBroadcastBell getIdToken={getIdToken} currentUid={currentUid} />
+        <PosBroadcastBell
+          getIdToken={getIdToken}
+          currentUid={currentUid}
+          onUnreadChange={setUnreadGrupal}
+        />
       </div>
     </div>
     </PosBodyPortal>

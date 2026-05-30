@@ -81,13 +81,20 @@ type Props = {
   getIdToken: () => Promise<string | null>;
   puntoVentaLabel?: string;
   visible?: boolean;
+  /** Notifica al contenedor (dock flotante) cuántos mensajes sin leer hay. */
+  onUnreadChange?: (count: number) => void;
 };
 
 const POLL_UNREAD_MS = 30_000;
 const POLL_HILO_ABIERTO_MS = 15_000;
 const EMOJIS_CHAT_RAPIDO = ["😀", "😊", "👍", "🙏", "🎉", "🔥", "❤️", "👏", "💪", "🏆", "✅", "📌"] as const;
 
-export default function PosCajaMensajesBell({ getIdToken, puntoVentaLabel, visible = true }: Props) {
+export default function PosCajaMensajesBell({
+  getIdToken,
+  puntoVentaLabel,
+  visible = true,
+  onUnreadChange,
+}: Props) {
   const [abierto, setAbierto] = useState(false);
   const [minimizado, setMinimizado] = useState(false);
   const [posicionFlotante, setPosicionFlotante] = useState<{ x: number; y: number } | null>(null);
@@ -279,6 +286,10 @@ export default function PosCajaMensajesBell({ getIdToken, puntoVentaLabel, visib
       document.removeEventListener("visibilitychange", onVis);
     };
   }, [visible, fetchUnread]);
+
+  useEffect(() => {
+    onUnreadChange?.(visible ? unread : 0);
+  }, [unread, visible, onUnreadChange]);
 
   useEffect(() => {
     if (!abierto) return;

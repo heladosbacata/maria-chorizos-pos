@@ -29,6 +29,8 @@ type Props = {
   /** UID del cajero para resaltar su reacción y toggle */
   currentUid?: string | null;
   visible?: boolean;
+  /** Notifica al contenedor (dock flotante) cuántos mensajes sin leer hay. */
+  onUnreadChange?: (count: number) => void;
 };
 
 const POLL_ESTADO_MS = 30_000;
@@ -36,7 +38,12 @@ const POLL_UNREAD_MS = 30_000;
 const POLL_HILO_ABIERTO_MS = 15_000;
 const EMOJIS_CHAT_RAPIDO = ["😀", "😊", "👍", "🙏", "🎉", "🔥", "❤️", "👏", "💪", "🏆", "✅", "📌"] as const;
 
-export default function PosBroadcastBell({ getIdToken, currentUid, visible = true }: Props) {
+export default function PosBroadcastBell({
+  getIdToken,
+  currentUid,
+  visible = true,
+  onUnreadChange,
+}: Props) {
   const [sesion, setSesion] = useState<PosBroadcastSesionCliente | null>(null);
   const [abierto, setAbierto] = useState(false);
   const [minimizado, setMinimizado] = useState(false);
@@ -237,6 +244,10 @@ export default function PosBroadcastBell({ getIdToken, currentUid, visible = tru
     }, POLL_UNREAD_MS);
     return () => clearInterval(id);
   }, [visible, sesion, fetchUnread]);
+
+  useEffect(() => {
+    onUnreadChange?.(visible && sesion ? unread : 0);
+  }, [unread, visible, sesion, onUnreadChange]);
 
   useEffect(() => {
     if (!abierto || !sesion) return;
