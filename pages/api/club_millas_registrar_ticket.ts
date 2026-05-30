@@ -2,6 +2,7 @@ import type { NextApiRequest, NextApiResponse } from "next";
 import { getAuth } from "firebase-admin/auth";
 import { getFirebaseAdminApp } from "@/lib/firebase-admin-server";
 import { headersClubMillasPosSecretHaciaWms } from "@/lib/club-millas-wms-secret-header";
+import { extraerCodigoQrClubDesdeTextoLeido } from "@/lib/fidelizacion-qr";
 import { getWmsPublicBaseUrl, WMS_VERCEL_URL } from "@/lib/wms-public-base";
 
 /** COP por cada “ticket” de club (regla de negocio acordada con el WMS). */
@@ -26,7 +27,7 @@ type BodyIn = {
 };
 
 type OkPayload =
-  | { ok: true; qrPayload: string; qrUrl?: string; codigoCorto?: string }
+  | { ok: true; qrPayload?: string; qrUrl?: string; codigoCorto?: string }
   | { ok: true; omitido: true; codigo: "monto_insuficiente"; message: string }
   | { ok: false; message: string };
 
@@ -314,26 +315,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     return res.status(200).json({ ok: false, message: msg });
   }
 
-  const qrPayload = extraerQrPayloadWms(data);
-  if (!qrPayload) {
+  const qrUrl = extraerQrUrlWms(data);
+  const codigoCorto = extraerCodigoCortoWms(data);
+  let qrPayload = extraerQrPayloadWms(data);
+  if (!qrPayload && qrUrl) {
+    const desdeUrl = extraerCodigoQrClubDesdeTextoLeido(qrUrl);
+    if (desdeUrl) qrPayload = desdeUrl;
+  }
+
+  if (!qrPayload && !qrUrl && !codigoCorto) {
     return res.status(200).json({
       ok: false,
       message:
-        "El WMS no devolvió qrPayload en la respuesta. Revisá el contrato de POST /api/club-de-millas/pos/registrar-ticket.",
+        "El WMS no devolvió qrPayload, qrUrl ni código corto. Revisá POST /api/club-de-millas/pos/registrar-ticket.",
     });
   }
 
-  const limpio = qrPayload.replace(/\s+/g, "").trim();
-  if (!limpio) {
-    return res.status(200).json({ ok: false, message: "El WMS devolvió qrPayload vacío." });
-  }
-
-  const esperadoPrefijo = /^BACATA-CLUB-V1-[0-9a-fA-F]{32}$/;
-  if (!esperadoPrefijo.test(limpio)) {
-    console.warn(
-      "[club_millas_registrar_ticket] qrPayload no coincide con BACATA-CLUB-V1- + 32 hex; el WMS o la tirilla pueden rechazarlo:",
-      limpio.slice(0, 80)
-    );
+  const limpio = qrPayload ? qrPayload.replace(/\s+/g, "").trim() : "";
+  if (limpio) {
+    const esperadoPrefijo = /^BACATA-CLUB-V1-[0-9a-fA-F]{32}$/;
+    if (!esperadoPrefijo.test(limpio)) {
+      console.warn(
+        "[club_millas_registrar_ticket] qrPayload no coincide con BACATA-CLUB-V1- + 32 hex; el WMS o la tirilla pueden rechazarlo:",
+        limpio.slice(0, 80)
+      );
+    }
   }
 
   if (process.env.CLUB_MILLAS_DEBUG_LOG === "1") {
@@ -342,15 +348,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       totalRedondeado,
       qrPayloadLen: limpio.length,
       qrPayloadPrefijo: limpio.slice(0, 24),
+      tieneQrUrl: Boolean(qrUrl),
+      tieneCodigoCorto: Boolean(codigoCorto),
     });
   }
 
-  const qrUrl = extraerQrUrlWms(data);
-  const codigoCorto = extraerCodigoCortoWms(data);
-
   return res.status(200).json({
     ok: true,
-    qrPayload: limpio,
+    ...(limpio ? { qrPayload: limpio } : {}),
     ...(qrUrl ? { qrUrl } : {}),
     ...(codigoCorto ? { codigoCorto } : {}),
   });
