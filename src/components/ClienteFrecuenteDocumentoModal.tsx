@@ -2,7 +2,11 @@
 
 import { Fragment, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { UserPlus } from "lucide-react";
+import { KeyRound, UserPlus } from "lucide-react";
+import {
+  documentoListoParaClubMillas,
+  recuperarClaveClubMillasPorDocumento,
+} from "@/lib/recuperar-clave-club-millas-documento";
 import CrearClientePosModal from "@/components/CrearClientePosModal";
 import type { PlanMillasClienteResumen } from "@/lib/plan-millas-validar-resumen";
 import type { ClientePosFirestoreDoc } from "@/types/clientes-pos";
@@ -42,6 +46,10 @@ export default function ClienteFrecuenteDocumentoModal({
   const [error, setError] = useState<string | null>(null);
   const [infoNoRegistrado, setInfoNoRegistrado] = useState(false);
   const [crearClienteOpen, setCrearClienteOpen] = useState(false);
+  const [enviandoRecuperacion, setEnviandoRecuperacion] = useState(false);
+  const [mensajeRecuperacion, setMensajeRecuperacion] = useState<{ tipo: "ok" | "err"; texto: string } | null>(
+    null
+  );
 
   useEffect(() => {
     setMounted(true);
@@ -52,6 +60,8 @@ export default function ClienteFrecuenteDocumentoModal({
     setError(null);
     setInfoNoRegistrado(false);
     setCrearClienteOpen(false);
+    setMensajeRecuperacion(null);
+    setEnviandoRecuperacion(false);
     setDocumento(documentoInicial?.trim() ? String(documentoInicial).trim() : "");
   }, [open, documentoInicial]);
 
@@ -67,8 +77,41 @@ export default function ClienteFrecuenteDocumentoModal({
   if (!mounted || !open) return null;
 
   const cerrar = () => {
-    if (validando) return;
+    if (validando || enviandoRecuperacion) return;
     onCancel();
+  };
+
+  const docListoRecuperacion = documentoListoParaClubMillas(documento);
+  const ocupado = validando || enviandoRecuperacion;
+
+  const enviarRecuperacionClave = async () => {
+    setError(null);
+    setMensajeRecuperacion(null);
+    if (!docListoRecuperacion) {
+      setMensajeRecuperacion({
+        tipo: "err",
+        texto: "Escribí el documento del cliente (mínimo 5 dígitos sin puntos ni guiones).",
+      });
+      return;
+    }
+    const ok = window.confirm(
+      "¿Enviar al correo registrado en el plan de millas la clave de acceso (4 dígitos) de este documento?\n\n" +
+        "El cliente podrá ingresar en el portal club-de-millas con su cédula y esa clave."
+    );
+    if (!ok) return;
+
+    setEnviandoRecuperacion(true);
+    try {
+      const r = await recuperarClaveClubMillasPorDocumento(documento);
+      if (!r.ok) {
+        setMensajeRecuperacion({ tipo: "err", texto: r.message });
+        return;
+      }
+      setMensajeRecuperacion({ tipo: "ok", texto: r.message });
+      setInfoNoRegistrado(false);
+    } finally {
+      setEnviandoRecuperacion(false);
+    }
   };
 
   const validar = async () => {
@@ -128,12 +171,44 @@ export default function ClienteFrecuenteDocumentoModal({
                 inputMode="numeric"
                 autoComplete="off"
                 value={documento}
-                onChange={(e) => setDocumento(e.target.value)}
-                disabled={validando}
+                onChange={(e) => {
+                  setDocumento(e.target.value);
+                  setMensajeRecuperacion(null);
+                }}
+                disabled={ocupado}
                 className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm text-slate-900 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
                 placeholder="Ej. cédula o NIT sin puntos"
               />
             </label>
+            {docListoRecuperacion ? (
+              <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/90 px-3 py-3">
+                <p className="text-xs leading-relaxed text-emerald-950">
+                  Si el cliente <strong>olvidó su clave</strong> del Club de Millas, enviá el correo de recuperación al
+                  email que tiene registrado con este documento.
+                </p>
+                <button
+                  type="button"
+                  disabled={ocupado}
+                  onClick={() => void enviarRecuperacionClave()}
+                  className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-emerald-600 bg-white px-3 py-2.5 text-sm font-semibold text-emerald-900 shadow-sm hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <KeyRound className="h-4 w-4 shrink-0" aria-hidden />
+                  {enviandoRecuperacion ? "Enviando correo…" : "Enviar clave por correo (olvidó contraseña)"}
+                </button>
+              </div>
+            ) : null}
+            {mensajeRecuperacion ? (
+              <p
+                className={`mt-3 rounded-lg px-3 py-2 text-sm ${
+                  mensajeRecuperacion.tipo === "ok"
+                    ? "border border-emerald-200 bg-emerald-50 text-emerald-950"
+                    : "border border-rose-200 bg-rose-50 text-rose-800"
+                }`}
+                role="status"
+              >
+                {mensajeRecuperacion.texto}
+              </p>
+            ) : null}
             {infoNoRegistrado ? (
               <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
                 <strong className="font-semibold">Acción para el artesano:</strong> invitá al cliente a registrarse en el plan de millas (app María Chorizos) y volvé a intentar cuando ya figure en el sistema.
@@ -143,7 +218,7 @@ export default function ClienteFrecuenteDocumentoModal({
             <div className="mt-6 flex flex-wrap items-center justify-end gap-2">
               <button
                 type="button"
-                disabled={validando}
+                disabled={ocupado}
                 onClick={cerrar}
                 className="rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
               >
@@ -152,7 +227,7 @@ export default function ClienteFrecuenteDocumentoModal({
               {puedeCrearCliente ? (
                 <button
                   type="button"
-                  disabled={validando}
+                  disabled={ocupado}
                   onClick={() => setCrearClienteOpen(true)}
                   title="Alta de cliente: mismo formulario y datos que en caja y que el WMS (sistema central)"
                   aria-label="Crear cliente: mismo formulario que caja y WMS"
@@ -163,7 +238,7 @@ export default function ClienteFrecuenteDocumentoModal({
               ) : null}
               <button
                 type="button"
-                disabled={validando || !documento.trim()}
+                disabled={ocupado || !documento.trim()}
                 onClick={() => void validar()}
                 className="rounded-lg bg-primary-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
