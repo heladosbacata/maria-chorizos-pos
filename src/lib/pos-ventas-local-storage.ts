@@ -11,7 +11,7 @@ import {
   ymdColombia,
   ymdColombiaMenosDias,
 } from "@/lib/fecha-colombia";
-import { puntoVentaCoincide } from "@/lib/punto-venta-clave";
+import { normalizarPuntoVentaClave, puntoVentaCoincide } from "@/lib/punto-venta-clave";
 
 /** Lista global antigua (una sola por navegador); se migra una vez al primer uid que lea. */
 const LEGACY_STORAGE_KEY = "pos_mc_ventas_cajero_v1";
@@ -73,6 +73,100 @@ export interface VentaGuardadaLocal {
 /** Ventas que siguen contando como ingreso y stock vendido. */
 export function esVentaVigente(v: VentaGuardadaLocal): boolean {
   return v.anulada !== true;
+}
+
+/**
+ * Alinea sku / lineId / inventarioLookupKey para conteo de metas (SKU compuesto con variantes).
+ * Tickets antiguos guardaban solo el código base (ej. CHO-PET-QUESO).
+ */
+export function normalizarLineaVentaSkuCompuesto(line: LineaVentaGuardada): LineaVentaGuardada {
+  const lineId = String(line.lineId ?? "").trim();
+  const sku = String(line.sku ?? "").trim();
+  const lookup = String(line.inventarioLookupKey ?? "").trim();
+  const candidatos = [lineId, lookup, sku].filter(Boolean);
+  const masCompleto = candidatos.sort((a, b) => b.length - a.length)[0] ?? "";
+  const skuCompuesto = masCompleto.includes("|") ? masCompleto : lineId.includes("|") ? lineId : masCompleto;
+  const skuOut = skuCompuesto || sku || lineId;
+  const lineIdOut = lineId || skuOut;
+  const lookupOut = lookup || lineId || skuOut;
+  if (skuOut === sku && lineIdOut === lineId && lookupOut === lookup) return line;
+  return {
+    ...line,
+    sku: skuOut,
+    lineId: lineIdOut,
+    inventarioLookupKey: lookupOut,
+  };
+}
+
+function lineaNecesitaNormalizarSkuCompuesto(line: LineaVentaGuardada): boolean {
+  const sku = String(line.sku ?? "").trim();
+  const lineId = String(line.lineId ?? "").trim();
+  const lookup = String(line.inventarioLookupKey ?? "").trim();
+  if (!sku) return Boolean(lineId || lookup);
+  if (sku.includes("|")) return false;
+  return Boolean((lineId && lineId.includes("|")) || (lookup && lookup.includes("|")));
+}
+
+/**
+ * Persiste en localStorage el SKU compuesto en líneas históricas del punto (una pasada por sesión de caja).
+ */
+export function migrarVentasSkuCompuestoEnEquipo(puntoVenta: string): number {
+  const pv = puntoVenta.trim();
+  if (!pv || typeof window === "undefined") return 0;
+  const flagKey = `pos_mc_metas_migracion_sku_v1:${normalizarPuntoVentaClave(pv)}`;
+  if (sessionStorage.getItem(flagKey) === "1") return 0;
+
+  let lineasCorregidas = 0;
+
+  const procesarLista = (lista: VentaGuardadaLocal[]): { out: VentaGuardadaLocal[]; changed: boolean } => {
+    let changed = false;
+    const out = lista.map((v) => {
+      if (!puntoVentaCoincide(v.puntoVenta, pv)) return v;
+      let ventaCambio = false;
+      const lineas = v.lineas.map((line) => {
+        if (!lineaNecesitaNormalizarSkuCompuesto(line)) return line;
+        const next = normalizarLineaVentaSkuCompuesto(line);
+        if (next !== line) {
+          lineasCorregidas += 1;
+          ventaCambio = true;
+        }
+        return next;
+      });
+      if (!ventaCambio) return v;
+      changed = true;
+      return { ...v, lineas };
+    });
+    return { out, changed };
+  };
+
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key?.startsWith("pos_mc_ventas_cajero_v2:")) continue;
+      const uid = key.slice("pos_mc_ventas_cajero_v2:".length);
+      if (!uid.trim()) continue;
+      const prev = leerRaw(uid);
+      const { out: next, changed } = procesarLista(prev);
+      if (changed) escribir(uid, next);
+    }
+    const legacyRaw = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (legacyRaw) {
+      try {
+        const parsed = JSON.parse(legacyRaw) as unknown;
+        if (Array.isArray(parsed)) {
+          const { out: next, changed } = procesarLista(parsed.filter(esVentaGuardadaValida));
+          if (changed) localStorage.setItem(LEGACY_STORAGE_KEY, JSON.stringify(next));
+        }
+      } catch {
+        /* ignore */
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
+  sessionStorage.setItem(flagKey, "1");
+  return lineasCorregidas;
 }
 
 export function filtrarVentasVigentes(ventas: VentaGuardadaLocal[]): VentaGuardadaLocal[] {

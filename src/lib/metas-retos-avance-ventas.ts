@@ -1,6 +1,41 @@
 import { ymdColombia, ymdColombiaMenosDias, ZONA_HORARIA_COLOMBIA } from "@/lib/fecha-colombia";
-import { esVentaVigente, type VentaGuardadaLocal } from "@/lib/pos-ventas-local-storage";
+import {
+  esVentaVigente,
+  type LineaVentaGuardada,
+  type VentaGuardadaLocal,
+} from "@/lib/pos-ventas-local-storage";
 import type { MetaRetoActiva } from "@/lib/wms-metas-retos-activas";
+
+function normalizarClaveSkuMeta(s: string): string {
+  return String(s ?? "").trim().toLowerCase();
+}
+
+/** WMS usa arepa:peto_queso; el POS persiste arepa:arepa_queso para la misma arepa. */
+function normalizarSegmentoSkuMeta(seg: string): string {
+  const t = seg.trim().toLowerCase();
+  if (t === "arepa:arepa_queso" || t === "arepa:peto_queso") return "arepa:peto_queso";
+  return t;
+}
+
+/** SKU compuesto normalizado para comparar ticket vs meta del WMS. */
+export function skuNormalizadoParaMeta(s: string): string {
+  const raw = normalizarClaveSkuMeta(s);
+  if (!raw) return "";
+  const parts = raw.split("|").map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 0) return "";
+  const base = parts[0] ?? "";
+  const segs = parts.slice(1).map(normalizarSegmentoSkuMeta);
+  return [base, ...segs].join("|");
+}
+
+export function identificadoresLineaVenta(line: LineaVentaGuardada): string[] {
+  const out: string[] = [];
+  for (const v of [line.inventarioLookupKey, line.lineId, line.sku]) {
+    const t = String(v ?? "").trim();
+    if (t && !out.includes(t)) out.push(t);
+  }
+  return out;
+}
 
 function maxYmd(a: string, b: string): string {
   return a >= b ? a : b;
@@ -72,11 +107,32 @@ export function rangoConteoCadenciaReto(
 }
 
 export function skuLineaCoincideReto(lineaSku: string, skuReto: string): boolean {
-  const a = String(lineaSku ?? "").trim();
-  const b = String(skuReto ?? "").trim();
+  const a = skuNormalizadoParaMeta(lineaSku);
+  const b = skuNormalizadoParaMeta(skuReto);
   if (!a || !b) return false;
   if (a === b) return true;
-  return a.toLowerCase() === b.toLowerCase();
+
+  const partesA = a.split("|");
+  const partesB = b.split("|");
+  const baseA = partesA[0] ?? "";
+  const baseB = partesB[0] ?? "";
+  if (!baseA || baseA !== baseB) return false;
+
+  const segsA = partesA.slice(1);
+  const segsB = partesB.slice(1);
+
+  // Meta sin variantes: cualquier venta del mismo código base cuenta.
+  if (segsB.length === 0) return true;
+
+  // Ticket guardó solo el SKU base (común en cobros POS); misma referencia de producto.
+  if (segsA.length === 0) return true;
+
+  const setA = new Set(segsA);
+  return segsB.every((s) => setA.has(s));
+}
+
+export function lineaVentaCoincideReto(line: LineaVentaGuardada, skuReto: string): boolean {
+  return identificadoresLineaVenta(line).some((id) => skuLineaCoincideReto(id, skuReto));
 }
 
 /** Suma cantidades vendidas del SKU en ventas vigentes cuya fechaYmd cae en [desde, hasta]. */
@@ -94,7 +150,7 @@ export function unidadesVendidasSkuEnRango(
     const fy = String(v.fechaYmd ?? "").trim();
     if (!fy || fy < desde || fy > hasta) continue;
     for (const line of v.lineas) {
-      if (!skuLineaCoincideReto(line.sku, target)) continue;
+      if (!lineaVentaCoincideReto(line, target)) continue;
       const q = Number(line.cantidad);
       if (Number.isFinite(q) && q > 0) sum += q;
     }

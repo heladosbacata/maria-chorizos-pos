@@ -98,6 +98,7 @@ import { anularVentaEnEquipoInventarioYNube } from "@/lib/pos-anular-venta-inven
 import { encolarAplicarEnsamblePendiente, procesarColaAplicarEnsamblePendiente } from "@/lib/pos-wms-ensamble-pendiente";
 import { encolarFeEmitirPendiente, procesarColaFeEmitir } from "@/lib/pos-fe-retry-queue";
 import { encolarVentaPendienteWms, procesarColaVentasPendientesWms } from "@/lib/pos-ventas-pendientes-wms";
+import { emitirVentaLocalRegistrada } from "@/lib/pos-metas-ventas-event";
 import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
 import { registrarVentaPosCloud } from "@/lib/pos-ventas-cloud-client";
 import {
@@ -2001,7 +2002,7 @@ export default function CajaPage() {
           return {
             lineId: it.lineId,
             inventarioLookupKey: it.lineId,
-            sku: it.producto.sku,
+            sku: it.lineId.trim() || it.producto.sku,
             descripcion: it.producto.descripcion,
             cantidad: it.cantidad,
             precioUnitario: Math.round((sub / qty) * 100) / 100,
@@ -2025,6 +2026,7 @@ export default function CajaPage() {
           ...(notaPieTicket ? { pagoResumen: notaPieTicket } : {}),
           ...(mediosPago ? { mediosPago } : {}),
         });
+        emitirVentaLocalRegistrada();
 
         const bebidasInventarioDirecto = itemsSnap.filter(itemCuentaEsBebidaConInventarioDirecto);
         if (bebidasInventarioDirecto.length > 0) {
@@ -2103,6 +2105,8 @@ export default function CajaPage() {
               });
               if (!sync.ok) {
                 console.warn("Venta guardada en el equipo; nube POS:", sync.message ?? sync);
+              } else {
+                emitirVentaLocalRegistrada();
               }
             }
           } catch (e) {

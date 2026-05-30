@@ -4,15 +4,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { auth } from "@/lib/firebase";
 import { ymdReferenciaMetas } from "@/lib/metas-retos-avance-ventas";
 import { listarVentasPosCloud } from "@/lib/pos-ventas-cloud-client";
-import {
-  listarVentasPuntoVentaEnEsteEquipo,
-  mergeVentasReporteNubeLocal,
-  type VentaGuardadaLocal,
-} from "@/lib/pos-ventas-local-storage";
+import type { VentaGuardadaLocal } from "@/lib/pos-ventas-local-storage";
+import { EVENT_POS_VENTA_LOCAL_REGISTRADA } from "@/lib/pos-metas-ventas-event";
+import { ventasParaMetasAvance } from "@/lib/pos-ventas-metas-sync";
+import { puntoVentaCoincide } from "@/lib/punto-venta-clave";
 import { fetchMetasRetosActivas, type MetaRetoActiva } from "@/lib/wms-metas-retos-activas";
 
 const POLL_METAS_MS = 60_000;
-const POLL_VENTAS_MS = 30_000;
+const POLL_VENTAS_MS = 20_000;
 
 export type UseMetasRetosYVentasParaPuntoResult = {
   pvNorm: string;
@@ -50,6 +49,24 @@ export function useMetasRetosYVentasParaPunto(
   const loadGenRef = useRef(0);
 
   const refrescarVentas = useCallback(() => setVentasTick((t) => t + 1), []);
+
+  const cargarVentasNube = useCallback(async () => {
+    if (!u || !pv) {
+      setVentasNube(null);
+      return;
+    }
+    try {
+      const token = await auth?.currentUser?.getIdToken();
+      if (!token) return;
+      const rows = await listarVentasPosCloud(token);
+      setVentasNube(rows.filter((v) => puntoVentaCoincide(v.puntoVenta, pv)));
+    } catch (e) {
+      setVentasNube([]);
+      if (process.env.NODE_ENV === "development") {
+        console.warn("[Metas] Ventas nube no disponibles; avance con tickets locales.", e);
+      }
+    }
+  }, [u, pv]);
 
   const cargar = useCallback(async () => {
     const gen = ++loadGenRef.current;
@@ -102,32 +119,8 @@ export function useMetasRetosYVentasParaPunto(
   }, [cargar]);
 
   useEffect(() => {
-    if (!u || !pv) {
-      setVentasNube(null);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        const token = await auth?.currentUser?.getIdToken();
-        if (!token || cancelled) return;
-        const rows = await listarVentasPosCloud(token);
-        if (!cancelled) {
-          setVentasNube(rows);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setVentasNube([]);
-          if (process.env.NODE_ENV === "development") {
-            console.warn("[Metas] Ventas nube no disponibles; avance con tickets locales.", e);
-          }
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [u, pv, ventasTick]);
+    void cargarVentasNube();
+  }, [cargarVentasNube, ventasTick]);
 
   useEffect(() => {
     if (!u || !pv) return;
@@ -146,12 +139,19 @@ export function useMetasRetosYVentasParaPunto(
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [u, pv, refrescarVentas]);
 
+  useEffect(() => {
+    if (!pv) return;
+    const onVenta = () => {
+      refrescarVentas();
+      void cargarVentasNube();
+    };
+    window.addEventListener(EVENT_POS_VENTA_LOCAL_REGISTRADA, onVenta);
+    return () => window.removeEventListener(EVENT_POS_VENTA_LOCAL_REGISTRADA, onVenta);
+  }, [pv, refrescarVentas, cargarVentasNube]);
+
   const ventas = useMemo(() => {
     void ventasTick;
-    if (!pv) return [];
-    const local = listarVentasPuntoVentaEnEsteEquipo(pv);
-    if (ventasNube === null) return local;
-    return mergeVentasReporteNubeLocal(local, ventasNube);
+    return ventasParaMetasAvance(pv, ventasNube);
   }, [pv, ventasTick, ventasNube]);
 
   const ymdRef = useMemo(() => ymdReferenciaMetas(fechaRef), [fechaRef]);
@@ -159,7 +159,8 @@ export function useMetasRetosYVentasParaPunto(
   const refrescar = useCallback(() => {
     void cargar();
     refrescarVentas();
-  }, [cargar, refrescarVentas]);
+    void cargarVentasNube();
+  }, [cargar, refrescarVentas, cargarVentasNube]);
 
   return {
     pvNorm: pv,

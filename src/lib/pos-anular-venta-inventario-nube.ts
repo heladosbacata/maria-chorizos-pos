@@ -9,6 +9,7 @@ import {
   registrarMovimientoInventario,
 } from "@/lib/inventario-pos-firestore";
 import { anularVentaPosCloud } from "@/lib/pos-ventas-cloud-client";
+import { emitirMetasVentasActualizadas } from "@/lib/pos-metas-ventas-event";
 import { marcarVentaAnuladaLocal, type VentaGuardadaLocal } from "@/lib/pos-ventas-local-storage";
 import type { InsumoKitItem } from "@/types/inventario-pos";
 
@@ -95,5 +96,6 @@ export async function anularVentaEnEquipoInventarioYNube(params: {
     console.warn("Anulación local OK; no se pudo replicar en nube.", e);
   }
 
+  emitirMetasVentasActualizadas();
   return { ok: true, venta: actualizada, fallosSku };
 }
