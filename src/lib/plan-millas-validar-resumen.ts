@@ -127,8 +127,8 @@ const KEYS_NOMBRE = [
 ] as const;
 
 const KEYS_MILLAS = [
-  "millas",
   "millasAcumuladas",
+  "millas",
   "millasTotales",
   "millasDisponibles",
   "totalMillas",

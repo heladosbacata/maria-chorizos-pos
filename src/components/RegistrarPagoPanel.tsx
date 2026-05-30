@@ -8,6 +8,7 @@ import {
   millasSaldoProyectadoTrasCompra,
 } from "@/lib/club-millas-calculo-venta";
 import type { PlanMillasClienteResumen } from "@/lib/plan-millas-validar-resumen";
+import { consultarDocumentoPlanMillasWms } from "@/lib/wms-fidelizacion-consulta-documento";
 import type { ClientePosFirestoreDoc } from "@/types/clientes-pos";
 import { formatPesosCop, parsePesosCopInput } from "@/lib/pesos-cop-input";
 
@@ -107,6 +108,11 @@ export default function RegistrarPagoPanel({
   const [planMillasResumenTrasValidar, setPlanMillasResumenTrasValidar] = useState<PlanMillasClienteResumen | null>(null);
   const [documentoClienteFrecuenteValidado, setDocumentoClienteFrecuenteValidado] = useState("");
   const [socioIdClienteFrecuenteValidado, setSocioIdClienteFrecuenteValidado] = useState("");
+  /** Saldo WMS precargado si la venta ya tiene documento del cliente. */
+  const [resumenPlanMillasPrefetch, setResumenPlanMillasPrefetch] = useState<PlanMillasClienteResumen | null>(
+    null
+  );
+  const [prefetchPlanMillasListo, setPrefetchPlanMillasListo] = useState(false);
 
   const resetForm = useCallback(() => {
     setTab("contado");
@@ -121,11 +127,45 @@ export default function RegistrarPagoPanel({
     setPlanMillasResumenTrasValidar(null);
     setDocumentoClienteFrecuenteValidado("");
     setSocioIdClienteFrecuenteValidado("");
+    setResumenPlanMillasPrefetch(null);
+    setPrefetchPlanMillasListo(false);
   }, []);
 
   useEffect(() => {
     if (open) resetForm();
   }, [open, resetForm]);
+
+  useEffect(() => {
+    if (!open) return;
+    const docInicial =
+      clienteNumeroIdentificacion?.replace(/\s/g, "").replace(/[.\-]/g, "").trim() ?? "";
+    if (docInicial.replace(/\D/g, "").length < 5) {
+      setResumenPlanMillasPrefetch(null);
+      setPrefetchPlanMillasListo(true);
+      return;
+    }
+
+    let cancelled = false;
+    setPrefetchPlanMillasListo(false);
+    void (async () => {
+      const r = await consultarDocumentoPlanMillasWms(docInicial);
+      if (cancelled) return;
+      if (r.ok && r.registrado) {
+        const docNorm = docInicial.replace(/\D/g, "");
+        setResumenPlanMillasPrefetch({
+          ...(r.clientePlanMillas ?? {}),
+          ...(docNorm ? { documento: r.clientePlanMillas?.documento?.trim() || docNorm } : {}),
+        });
+      } else {
+        setResumenPlanMillasPrefetch(null);
+      }
+      setPrefetchPlanMillasListo(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, clienteNumeroIdentificacion]);
 
   const valorEfectivo = useMemo(() => parsePesosCopInput(efectivoStr), [efectivoStr]);
 
@@ -590,6 +630,10 @@ export default function RegistrarPagoPanel({
                 setDocumentoClienteFrecuenteValidado("");
                 setSocioIdClienteFrecuenteValidado("");
                 setPlanMillasResumenTrasValidar(null);
+                return;
+              }
+              if (resumenPlanMillasPrefetch && prefetchPlanMillasListo) {
+                void activarClienteFrecuenteTrasValidarWms(resumenPlanMillasPrefetch);
                 return;
               }
               setModalValidacionDocFrecuente(true);
