@@ -28,14 +28,15 @@ export type ModoContenidoQrClubMillas = "token" | "url";
 /** Textos del pie de tirilla (cliente frecuente). */
 export const MENSAJE_TIRILLA_CLUB_FRECUENTE_TITULO = "CLUB DE MILLAS — ACUMULA TUS MILLAS";
 export const MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO1 =
-  "1. Entrá a club-de-millas (web) con tu cédula y PIN";
+  "1. Escaneá el QR: abre club-de-millas (tu cédula va en el enlace)";
 export const MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO2 =
-  "2. En Mi plan, escaneá este QR (o el código de 6 letras)";
+  "2. Ingresá tu PIN de 4 dígitos; las millas se suman solas";
 export const MENSAJE_TIRILLA_CLUB_CODIGO_LABEL = "CODIGO CLUB (6 letras)";
 
 /**
- * token (defecto): BACATA-CLUB-V1-… en el QR — compatible con escáner «Mi plan» del WMS.
- * url: URL /club-de-millas?c=… (abre el navegador al escanear con la cámara del celular).
+ * Por defecto el QR lleva la URL del WMS (?c=BACATA…&documento=): sirve con la cámara (login)
+ * y con el escáner de Mi plan. El código de 6 letras va impreso aparte en la tirilla.
+ * Modo token (env): solo BACATA-CLUB-V1-… en el QR (solo Mi plan / pistola).
  */
 export function modoContenidoQrClubMillas(): ModoContenidoQrClubMillas {
   const m = process.env.NEXT_PUBLIC_CLUB_MILLAS_QR_MODO?.trim().toLowerCase();
@@ -151,8 +152,8 @@ export function contenidoQrEscaneableClubMillasDesdeTicket(
 }
 
 /**
- * Contenido del QR en tirilla: token BACATA (defecto, compatible con escáner Mi plan del WMS)
- * o URL de landing si NEXT_PUBLIC_CLUB_MILLAS_QR_MODO=url.
+ * Contenido del QR en tirilla. Prioridad: URL del WMS (un solo QR para login + acumular en Mi plan).
+ * El código de 6 letras no va en el QR; se imprime en texto grande como respaldo manual.
  */
 export function elegirContenidoQrTirillaClubMillas(
   qrPayload: string,
@@ -160,26 +161,25 @@ export function elegirContenidoQrTirillaClubMillas(
   documento?: string,
   codigoCorto?: string
 ): string {
-  const corto = codigoCorto?.replace(/\s+/g, "").trim().toUpperCase() ?? "";
-  if (esCodigoCortoTirillaClubMillas(corto)) return corto;
-
   const payload = qrPayload.replace(/\s+/g, "").trim();
   const urlWms = qrUrlPreferida?.trim();
 
+  if (urlWms && /^https?:\/\//i.test(urlWms)) return urlWms;
+
   if (payload && esTicketClubMillasPos(payload)) {
     if (modoContenidoQrClubMillas() === "url") {
-      return urlWms && /^https?:\/\//i.test(urlWms)
-        ? urlWms
-        : construirUrlPortalClubMillasConCodigo(payload, documento);
+      return construirUrlPortalClubMillasConCodigo(payload, documento);
     }
     return payload;
   }
+
+  const corto = codigoCorto?.replace(/\s+/g, "").trim().toUpperCase() ?? "";
+  if (esCodigoCortoTirillaClubMillas(corto)) return corto;
 
   if (payload && esCodigoCortoTirillaClubMillas(payload)) {
     return payload.toUpperCase();
   }
 
-  if (urlWms && /^https?:\/\//i.test(urlWms)) return urlWms;
   return contenidoQrImpresoClubMillas(payload);
 }
 
