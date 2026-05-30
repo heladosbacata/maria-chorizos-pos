@@ -33,6 +33,7 @@ type Props = {
 const POLL_ESTADO_MS = 30_000;
 const POLL_UNREAD_MS = 30_000;
 const POLL_HILO_ABIERTO_MS = 15_000;
+const EMOJIS_CHAT_RAPIDO = ["😀", "😊", "👍", "🙏", "🎉", "🔥", "❤️", "👏", "💪", "🏆", "✅", "📌"] as const;
 
 export default function PosBroadcastBell({ getIdToken, currentUid, visible = true }: Props) {
   const [sesion, setSesion] = useState<PosBroadcastSesionCliente | null>(null);
@@ -45,6 +46,7 @@ export default function PosBroadcastBell({ getIdToken, currentUid, visible = tru
   const [cargando, setCargando] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [texto, setTexto] = useState("");
+  const [emojiPickerAbierto, setEmojiPickerAbierto] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reactionMessageId, setReactionMessageId] = useState<string | null>(null);
   const [reaccionandoId, setReaccionandoId] = useState<string | null>(null);
@@ -75,8 +77,9 @@ export default function PosBroadcastBell({ getIdToken, currentUid, visible = tru
   useEffect(() => {
     if (typeof window === "undefined") return;
     const margin = 16;
+    const leftSeguro = window.innerWidth >= 768 ? 224 : margin;
     const y = Math.max(margin, window.innerHeight - 88);
-    const x = Math.max(margin, window.innerWidth - 320);
+    const x = leftSeguro;
     setPosicionFlotante((prev) => prev ?? { x, y });
   }, []);
 
@@ -85,10 +88,11 @@ export default function PosBroadcastBell({ getIdToken, currentUid, visible = tru
     const onResize = () => {
       setPosicionFlotante((prev) => {
         if (!prev) return prev;
+        const minX = window.innerWidth >= 768 ? 224 : 16;
         const maxX = Math.max(16, window.innerWidth - 320);
         const maxY = Math.max(16, window.innerHeight - 88);
         return {
-          x: Math.min(Math.max(16, prev.x), maxX),
+          x: Math.min(Math.max(minX, prev.x), maxX),
           y: Math.min(Math.max(16, prev.y), maxY),
         };
       });
@@ -118,10 +122,11 @@ export default function PosBroadcastBell({ getIdToken, currentUid, visible = tru
     if (!drag.moved && Math.abs(deltaX) + Math.abs(deltaY) > 6) {
       drag.moved = true;
     }
+    const minX = window.innerWidth >= 768 ? 224 : 16;
     const maxX = Math.max(16, window.innerWidth - 320);
     const maxY = Math.max(16, window.innerHeight - 88);
     setPosicionFlotante({
-      x: Math.min(Math.max(16, drag.originX + deltaX), maxX),
+      x: Math.min(Math.max(minX, drag.originX + deltaX), maxX),
       y: Math.min(Math.max(16, drag.originY + deltaY), maxY),
     });
   }, []);
@@ -326,12 +331,17 @@ export default function PosBroadcastBell({ getIdToken, currentUid, visible = tru
         return;
       }
       setTexto("");
+      setEmojiPickerAbierto(false);
       quitarImagenPendiente();
       await cargarHilo();
       await fetchUnread();
     } finally {
       setEnviando(false);
     }
+  };
+
+  const insertarEmoji = (emoji: string) => {
+    setTexto((prev) => `${prev}${prev && !prev.endsWith(" ") ? " " : ""}${emoji} `);
   };
 
   if (!visible || !sesion) return null;
@@ -404,7 +414,7 @@ export default function PosBroadcastBell({ getIdToken, currentUid, visible = tru
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6">
           <div className="absolute inset-0 bg-slate-950/45 backdrop-blur-[2px]" />
           <div
-            className="relative flex w-full max-w-md flex-col overflow-hidden rounded-3xl border border-indigo-200/50 bg-gradient-to-b from-[#15122a] via-[#1a1630] to-[#120f1c] text-indigo-50 shadow-[0_28px_90px_-20px_rgba(0,0,0,0.65)] ring-2 ring-indigo-500/20"
+            className="relative flex h-[min(88vh,780px)] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-indigo-200/50 bg-gradient-to-b from-[#15122a] via-[#1a1630] to-[#120f1c] text-indigo-50 shadow-[0_28px_90px_-20px_rgba(0,0,0,0.65)] ring-2 ring-indigo-500/20"
             role="dialog"
             aria-modal="true"
             aria-labelledby="pos-broadcast-title"
@@ -443,8 +453,7 @@ export default function PosBroadcastBell({ getIdToken, currentUid, visible = tru
 
             <div
               ref={listaRef}
-              className="relative flex-1 space-y-2.5 overflow-y-auto px-3 py-3"
-              style={{ maxHeight: "min(52vh, 420px)" }}
+              className="relative min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-4 sm:px-5"
             >
               {cargando && mensajes.length === 0 ? (
                 <div className="flex justify-center py-12 text-indigo-200/40">
@@ -623,6 +632,23 @@ export default function PosBroadcastBell({ getIdToken, currentUid, visible = tru
                   </button>
                 </div>
               ) : null}
+              {emojiPickerAbierto ? (
+                <div className="mb-2 rounded-2xl border border-indigo-500/20 bg-white/[0.07] p-2 shadow-inner">
+                  <div className="flex flex-wrap gap-1.5">
+                    {EMOJIS_CHAT_RAPIDO.map((emoji) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        onClick={() => insertarEmoji(emoji)}
+                        className="rounded-xl px-2.5 py-1.5 text-xl transition hover:bg-white/12"
+                        aria-label={`Agregar emoji ${emoji}`}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
               <div className="flex gap-2 rounded-2xl border border-indigo-500/25 bg-white/[0.06] p-1.5 focus-within:border-indigo-400/50">
                 <input
                   ref={inputImagenRef}
@@ -647,6 +673,15 @@ export default function PosBroadcastBell({ getIdToken, currentUid, visible = tru
                       d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
                     />
                   </svg>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEmojiPickerAbierto((v) => !v)}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center self-end rounded-xl border border-white/15 text-xl text-indigo-100/90 transition hover:bg-white/10"
+                  aria-label="Agregar emoji"
+                  title="Agregar emoji"
+                >
+                  😊
                 </button>
                 <textarea
                   value={texto}

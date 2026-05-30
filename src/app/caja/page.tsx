@@ -25,8 +25,8 @@ import CobroImpresionCelebracionOverlay from "@/components/CobroImpresionCelebra
 import TicketPrevisualizacionModal from "@/components/TicketPrevisualizacionModal";
 import ModalCobroSinInternet from "@/components/ModalCobroSinInternet";
 import ModalInformeCierreCorreo from "@/components/ModalInformeCierreCorreo";
-import PosCajaMensajesBell from "@/components/PosCajaMensajesBell";
-import PosBroadcastBell from "@/components/PosBroadcastBell";
+import PosMetaCumplidaCelebracion from "@/components/PosMetaCumplidaCelebracion";
+import PosChatFloatingDock from "@/components/PosChatFloatingDock";
 import PosAnunciosCajaWatcher from "@/components/PosAnunciosCajaWatcher";
 import PlanMillasPosModule from "@/components/PlanMillasPosModule";
 import PosDomiciliosModule from "@/components/PosDomiciliosModule";
@@ -2588,15 +2588,6 @@ export default function CajaPage() {
             <span className="text-xs font-medium text-primary-600">POS</span>
           </div>
           <div className="flex flex-col items-end gap-1.5 shrink-0" data-pos-tutorial="nav-admin-msgs">
-            {!esContador && (
-              <div className="flex flex-row items-center gap-1.5">
-                <PosCajaMensajesBell
-                  getIdToken={getIdTokenCajaMensajes}
-                  puntoVentaLabel={user.puntoVenta?.trim() || undefined}
-                />
-                <PosBroadcastBell getIdToken={getIdTokenCajaMensajes} currentUid={user?.uid} />
-              </div>
-            )}
             <button
               type="button"
               data-pos-tutorial="ayuda-icon"
@@ -3779,11 +3770,23 @@ export default function CajaPage() {
         onClose={() => setModalExitoCierreTurno(null)}
       />
 
+      <PosChatFloatingDock
+        visible={!esContador}
+        getIdToken={getIdTokenCajaMensajes}
+        currentUid={user?.uid}
+        puntoVentaLabel={user.puntoVenta?.trim() || undefined}
+      />
+
       {/* Área central + cuenta a cobrar (en columna en móvil, fila en escritorio) */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pl-52 lg:flex-row">
       <main className="min-h-0 min-w-0 flex-1 overflow-y-auto pt-0">
         <div className="p-4 sm:p-5 lg:p-4">
           <MetasRetosCajaProvider puntoVenta={user.puntoVenta} uid={user.uid}>
+            <PosMetaCumplidaCelebracion
+              puntoVenta={user.puntoVenta}
+              emailSesion={user.email}
+              getIdToken={getIdTokenCajaMensajes}
+            />
             <PosCajaPremiumHeader
               puntoVenta={user.puntoVenta}
               etiquetaModulo={tituloModulo}
