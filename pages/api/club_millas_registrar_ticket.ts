@@ -231,7 +231,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     totalCop: totalRedondeado,
     isoTimestamp,
     lineas,
-    ...(str(b.clienteDocumento) ? { clienteDocumento: str(b.clienteDocumento) } : {}),
+    ...(str(b.clienteDocumento)
+      ? {
+          documento: str(b.clienteDocumento).replace(/\D/g, ""),
+          clienteDocumento: str(b.clienteDocumento),
+        }
+      : {}),
     ...(facturaElectronica ? { facturaElectronica } : {}),
     ...(idFacturaPos ? { idFacturaPos } : {}),
     ...(cajaId ? { cajaId } : {}),

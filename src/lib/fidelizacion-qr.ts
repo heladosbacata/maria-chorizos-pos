@@ -17,7 +17,7 @@ export const MENSAJE_TIRILLA_CLUB_FRECUENTE_TITULO = "CLUB DE MILLAS — ACUMULA
 export const MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO1 =
   "1. Escanea el QR e ingresa en maria-chorizos-wms.vercel.app/club-de-millas";
 export const MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO2 =
-  "2. En Mi plan: escanea el QR o pega el codigo de 6 letras (escaner premium)";
+  "2. Ingresa con tu PIN: tus millas se acumulan solas al entrar a Mi plan";
 export const MENSAJE_TIRILLA_CLUB_CODIGO_LABEL = "CODIGO CLUB (6 letras)";
 
 /**

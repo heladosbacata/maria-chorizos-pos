@@ -131,7 +131,7 @@ import {
 } from "@/lib/turno-movimientos-caja";
 import {
   construirPayloadFidelizacionV1,
-  generarDataUrlQrFidelizacion,
+  generarQrTirillaClubMillas,
 } from "@/lib/fidelizacion-qr";
 import {
   enviarReporteVenta,
@@ -2218,6 +2218,8 @@ export default function CajaPage() {
                 codigo?: string;
                 message?: string;
                 qrPayload?: string;
+                qrUrl?: string;
+                codigoCorto?: string;
               };
               if (clubJson.ok === true && clubJson.omitido === true && clubJson.codigo === "monto_insuficiente") {
                 ticket = {
@@ -2231,11 +2233,14 @@ export default function CajaPage() {
                 };
               } else if (clubJson.ok === true && typeof clubJson.qrPayload === "string" && clubJson.qrPayload.trim()) {
                 const raw = clubJson.qrPayload.replace(/\s+/g, "").trim();
-                const dataUrl = await generarDataUrlQrFidelizacion(raw);
+                const { dataUrl } = await generarQrTirillaClubMillas(raw, clubJson.qrUrl);
                 ticket = {
                   ...ticket,
                   fidelizacionQrDataUrl: dataUrl,
                   fidelizacionPayloadTexto: raw,
+                  ...(clubJson.codigoCorto?.trim()
+                    ? { clubMillasCodigoCorto: clubJson.codigoCorto.trim().toUpperCase() }
+                    : {}),
                 };
               } else {
                 const msg =
@@ -2265,7 +2270,7 @@ export default function CajaPage() {
               })),
             });
             try {
-              const dataUrl = await generarDataUrlQrFidelizacion(payloadJson);
+              const { dataUrl } = await generarQrTirillaClubMillas(payloadJson);
               ticket = {
                 ...ticket,
                 fidelizacionQrDataUrl: dataUrl,
