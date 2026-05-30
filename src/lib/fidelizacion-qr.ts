@@ -141,13 +141,14 @@ export type QrTirillaClubMillasGenerado = {
 export function contenidoQrEscaneableClubMillasDesdeTicket(
   payload: Pick<TicketVentaPayload, "fidelizacionPayloadTexto" | "clubMillasCodigoCorto">
 ): string {
+  const t = payload.fidelizacionPayloadTexto?.trim() ?? "";
+  if (t && !/^data:/i.test(t)) {
+    if (/^https?:\/\//i.test(t)) return t;
+    if (/^BACATA-CLUB-V1-/i.test(t)) return t.replace(/\s+/g, "");
+    if (esCodigoCortoTirillaClubMillas(t)) return t.replace(/\s+/g, "").toUpperCase();
+  }
   const corto = payload.clubMillasCodigoCorto?.trim() ?? "";
   if (esCodigoCortoTirillaClubMillas(corto)) return corto.toUpperCase();
-  const t = payload.fidelizacionPayloadTexto?.trim() ?? "";
-  if (!t || /^data:/i.test(t)) return "";
-  if (/^https?:\/\//i.test(t)) return t;
-  if (/^BACATA-CLUB-V1-/i.test(t)) return t.replace(/\s+/g, "");
-  if (esCodigoCortoTirillaClubMillas(t)) return t.replace(/\s+/g, "").toUpperCase();
   return "";
 }
 

@@ -52,8 +52,15 @@ describe("fidelizacion-qr cliente frecuente", () => {
   });
 
   it("reconoce código corto de 6 letras del WMS", () => {
+    const urlCorto = `https://maria-chorizos-wms.vercel.app/club-de-millas?c=${TOKEN}`;
     expect(esCodigoCortoTirillaClubMillas("AB3K9M")).toBe(true);
     expect(extraerCodigoQrClubDesdeTextoLeido("ab3k9m")).toBe("AB3K9M");
+    expect(
+      contenidoQrEscaneableClubMillasDesdeTicket({
+        fidelizacionPayloadTexto: urlCorto,
+        clubMillasCodigoCorto: "AB3K9M",
+      })
+    ).toBe(urlCorto);
     expect(
       contenidoQrEscaneableClubMillasDesdeTicket({
         fidelizacionPayloadTexto: "",
