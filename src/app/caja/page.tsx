@@ -30,6 +30,7 @@ import PosBroadcastBell from "@/components/PosBroadcastBell";
 import PosAnunciosCajaWatcher from "@/components/PosAnunciosCajaWatcher";
 import PlanMillasPosModule from "@/components/PlanMillasPosModule";
 import PosDomiciliosModule from "@/components/PosDomiciliosModule";
+import PosAjustePantallaPanel from "@/components/PosAjustePantallaPanel";
 import RegistrarPagoPanel, { type DetallePagoConfirmado } from "@/components/RegistrarPagoPanel";
 import TurnoCierreExitoPremiumModal from "@/components/TurnoCierreExitoPremiumModal";
 import TurnosHistorialModule from "@/components/TurnosHistorialModule";
@@ -2542,7 +2543,7 @@ export default function CajaPage() {
                       : ETIQUETA_ESPACIO_FRANQUICIADOS;
 
   return (
-    <div className="flex h-dvh max-h-dvh min-h-0 overflow-hidden bg-gray-100/90">
+    <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
       {!esContador && user.puntoVenta?.trim() ? (
         <CajeroIdentificacionGateModal
           open={modalIdentificacionCajero}
@@ -3041,6 +3042,7 @@ export default function CajaPage() {
               )}
             </div>
           )}
+          <PosAjustePantallaPanel />
           {/* Perfil del cajero (avatar duplicado solo si no hay turno con cajero: la foto va en la tarjeta de turno) */}
           <div className="mb-3 flex flex-col items-center gap-2">
             <input

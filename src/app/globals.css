@@ -13,6 +13,14 @@ body {
   background: var(--background);
 }
 
+:root {
+  --pos-ui-scale: 1;
+}
+
+html.pos-viewport-scaled body {
+  overflow: hidden;
+}
+
 /* Optimizado para tablets: inputs y botones grandes */
 @layer components {
   .input-tablet {
