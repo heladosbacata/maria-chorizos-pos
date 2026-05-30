@@ -81,8 +81,37 @@ async function main() {
       console.log("\nFAIL: respuesta incompleta para tirilla.");
       process.exit(1);
     }
-    console.log("\nOK: WMS devuelve URL + token + código corto (contrato listo para tirilla).");
-    console.log("NOTA: este smoke creó un ticket de prueba en Firestore; no lo acumules en producción.");
+    console.log("\nOK: WMS devuelve URL + token + código corto.");
+    const socioId = env.SMOKE_CLUB_SOCIO_ID?.trim();
+    if (socioId && qrPayload) {
+      const acUrl = `${wmsBase}/api/club-de-millas/acumular-millas`;
+      const acRes = await fetch(acUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          socioId,
+          documento: body.documento,
+          qrCode: qrPayload,
+        }),
+      });
+      const acData = await acRes.json().catch(() => ({}));
+      console.log(`POST acumular-millas → HTTP ${acRes.status}`);
+      if (acRes.ok && acData.ok === true) {
+        console.log(`  puntosSumados: ${acData.puntosSumados}, saldoMillas: ${acData.saldoMillas}`);
+        console.log("\nOK: flujo registrar + acumular (igual que cobro cliente frecuente en POS).");
+      } else if (acRes.status === 409) {
+        console.log(`  ya acumulado / duplicado, saldo: ${acData.saldoMillas ?? "?"}`);
+        console.log("\nOK: acumular respondió 409 (ticket ya usado); contrato válido.");
+      } else {
+        console.log("  acumular:", JSON.stringify(acData).slice(0, 300));
+        process.exit(1);
+      }
+    } else {
+      console.log(
+        "\n(Opcional: SMOKE_CLUB_SOCIO_ID en .env.local para probar acumular-millas tras registrar.)"
+      );
+      console.log("NOTA: ticket de prueba en Firestore; no acumular en producción sin socio de prueba.");
+    }
   } catch (e) {
     console.log(`\nPOST registrar-ticket FAIL: ${e instanceof Error ? e.message : e}`);
     process.exit(1);

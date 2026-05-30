@@ -3,14 +3,25 @@ import {
   ticketTieneQrAcumulacionClubMillas,
 } from "@/lib/club-millas-invitacion-ticket";
 import { enriquecerTicketConQrDomicilios } from "@/lib/domicilios-qr-ticket";
+import { ticketTieneSaldoClubMillasEnTirilla } from "@/lib/club-millas-invitacion-ticket";
 import {
   contenidoQrEscaneableClubMillasDesdeTicket,
   generarDataUrlQrPng,
 } from "@/lib/fidelizacion-qr";
 import type { TicketVentaPayload } from "@/types/impresion-pos";
 
-/** Si el WMS devolvió URL/token pero falló la imagen PNG, la genera antes de imprimir. */
+/** PNG del QR de consulta Mi plan si solo vino la URL. */
+async function asegurarImagenQrConsultaClub(ticket: TicketVentaPayload): Promise<TicketVentaPayload> {
+  if (ticket.clubMillasConsultaQrDataUrl?.trim()) return ticket;
+  const url = ticket.clubMillasConsultaUrl?.trim();
+  if (!url) return ticket;
+  const dataUrl = await generarDataUrlQrPng(url);
+  return dataUrl ? { ...ticket, clubMillasConsultaQrDataUrl: dataUrl } : ticket;
+}
+
+/** Legacy: QR de acumulación manual si aún viene en el ticket. */
 async function asegurarImagenQrAcumulacionClub(ticket: TicketVentaPayload): Promise<TicketVentaPayload> {
+  if (ticketTieneSaldoClubMillasEnTirilla(ticket)) return ticket;
   if (ticket.fidelizacionQrDataUrl?.trim()) return ticket;
   const contenido = contenidoQrEscaneableClubMillasDesdeTicket(ticket);
   if (!contenido) return ticket;
@@ -36,6 +47,7 @@ export async function enriquecerTicketTirillaAlCobrar(
   origin?: string
 ): Promise<TicketVentaPayload> {
   let t = await enriquecerTicketConQrDomicilios(ticket, origin);
+  t = await asegurarImagenQrConsultaClub(t);
   t = await asegurarImagenQrAcumulacionClub(t);
   t = await aplicarPieClubMillasEnTicket(t);
   t = await asegurarImagenQrInvitacionClub(t);

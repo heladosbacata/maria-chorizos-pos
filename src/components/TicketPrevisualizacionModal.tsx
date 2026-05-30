@@ -10,7 +10,15 @@ import {
   INVITACION_CLUB_TIRILLA_TITULO,
   esAvisoErrorClubMillasEnTicket,
   ticketTieneQrAcumulacionClubMillas,
+  ticketTieneSaldoClubMillasEnTirilla,
 } from "@/lib/club-millas-invitacion-ticket";
+import {
+  MENSAJE_TIRILLA_CLUB_ACUMULADO_AUTO,
+  MENSAJE_TIRILLA_CLUB_CONSULTA_PASO,
+  MENSAJE_TIRILLA_CLUB_GANADAS_LABEL,
+  MENSAJE_TIRILLA_CLUB_SALDO_LABEL,
+  MENSAJE_TIRILLA_CLUB_SALDO_TITULO,
+} from "@/lib/club-millas-consulta-url";
 import {
   MENSAJE_TIRILLA_CLUB_CODIGO_LABEL,
   MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO1,
@@ -80,13 +88,16 @@ export default function TicketPrevisualizacionModal({
 
   if (!mounted || !open || !ticket) return null;
 
+  const tieneSaldoClub = ticketTieneSaldoClubMillasEnTirilla(ticket);
+  const qrConsultaClub = ticket.clubMillasConsultaQrDataUrl?.trim();
   const qr = ticket.fidelizacionQrDataUrl?.trim();
   const codigoClub = ticket.clubMillasCodigoCorto?.trim().toUpperCase() ?? "";
   const msgClubMillas = ticket.fidelizacionPayloadTexto?.trim() ?? "";
   const tieneAcumulacionClub = ticketTieneQrAcumulacionClubMillas(ticket);
   const esAvisoClub = esAvisoErrorClubMillasEnTicket(ticket);
   const qrInvitacionClub = ticket.clubMillasInvitacionQrDataUrl?.trim();
-  const mostrarClubFrecuente = Boolean(tieneAcumulacionClub || esAvisoClub);
+  const mostrarClubSaldo = tieneSaldoClub;
+  const mostrarClubFrecuente = Boolean(!tieneSaldoClub && (tieneAcumulacionClub || esAvisoClub));
   const mostrarInvitacionClub = Boolean(
     !tieneAcumulacionClub && (qrInvitacionClub || ticket.clubMillasInvitacionUrl?.trim())
   );
@@ -261,6 +272,47 @@ export default function TicketPrevisualizacionModal({
               <p className="mt-1 text-[12px] font-extrabold tracking-wide text-pink-700">@{MARIA_CHORIZOS_IG_HANDLE}</p>
               <p className="mt-1 text-[7px] tracking-[0.12em] text-slate-400">María Chorizos · POS GEB</p>
             </div>
+
+            {mostrarClubSaldo ? (
+              <div className="mt-4 rounded-xl border-2 border-amber-400 bg-gradient-to-b from-amber-50 to-white px-3 py-3 text-center">
+                <p className="text-[8px] font-extrabold uppercase tracking-wide text-amber-950">
+                  {MENSAJE_TIRILLA_CLUB_SALDO_TITULO}
+                </p>
+                <p className="mt-1 text-[7px] font-semibold leading-snug text-amber-900">
+                  {MENSAJE_TIRILLA_CLUB_ACUMULADO_AUTO}
+                </p>
+                <p className="mt-3 text-[7px] font-extrabold uppercase tracking-[0.2em] text-amber-800">
+                  {MENSAJE_TIRILLA_CLUB_SALDO_LABEL}
+                </p>
+                <p className="mt-1 text-[32px] font-black leading-none tabular-nums tracking-tight text-orange-700">
+                  {(ticket.clubMillasSaldoTotal ?? 0).toLocaleString("es-CO")}
+                </p>
+                {(ticket.clubMillasGanadasCompra ?? 0) > 0 ? (
+                  <>
+                    <p className="mt-2 text-[7px] font-bold uppercase text-amber-800">
+                      {MENSAJE_TIRILLA_CLUB_GANADAS_LABEL}
+                    </p>
+                    <p className="text-[18px] font-extrabold tabular-nums text-orange-600">
+                      + {(ticket.clubMillasGanadasCompra ?? 0).toLocaleString("es-CO")}
+                    </p>
+                  </>
+                ) : null}
+                <p className="mt-2 text-[7px] font-semibold leading-snug text-amber-900">
+                  {MENSAJE_TIRILLA_CLUB_CONSULTA_PASO}
+                </p>
+                {qrConsultaClub ? (
+                  /* eslint-disable-next-line @next/next/no-img-element -- data URL del QR */
+                  <img
+                    src={qrConsultaClub}
+                    width={150}
+                    height={150}
+                    alt="QR Mi plan Club de Millas"
+                    className="mx-auto mt-2 rounded-md border border-amber-200 bg-white p-1"
+                    style={{ imageRendering: "pixelated" }}
+                  />
+                ) : null}
+              </div>
+            ) : null}
 
             {mostrarClubFrecuente ? (
               <div className="mt-4 rounded-xl border border-amber-300 bg-gradient-to-b from-amber-50 to-white px-3 py-3 text-center">

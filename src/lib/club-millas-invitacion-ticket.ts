@@ -10,8 +10,18 @@ export const INVITACION_CLUB_TIRILLA_LLAMADO = "INSCRIBITE HOY";
 export const INVITACION_CLUB_TIRILLA_CUERPO =
   "Acumula millas en cada compra y reclama premios a nivel nacional. Escanea el QR y registrate gratis.";
 
+/** Cliente frecuente con saldo impreso tras acumulación automática al cobrar. */
+export function ticketTieneSaldoClubMillasEnTirilla(ticket: TicketVentaPayload): boolean {
+  const s = ticket.clubMillasSaldoTotal;
+  return s != null && Number.isFinite(s);
+}
+
 /** Ticket con QR/código/URL BACATA de acumulación (cliente frecuente exitoso). */
 export function ticketTieneQrAcumulacionClubMillas(ticket: TicketVentaPayload): boolean {
+  if (ticketTieneSaldoClubMillasEnTirilla(ticket)) return true;
+  if (ticket.clubMillasConsultaQrDataUrl?.trim() || ticket.clubMillasConsultaUrl?.trim()) {
+    return true;
+  }
   if (ticket.fidelizacionQrDataUrl?.trim()) return true;
   const cod = ticket.clubMillasCodigoCorto?.trim().toUpperCase() ?? "";
   if (esCodigoCortoTirillaClubMillas(cod)) return true;
@@ -22,6 +32,7 @@ export function ticketTieneQrAcumulacionClubMillas(ticket: TicketVentaPayload): 
 
 /** Mensaje de aviso/error del club (no es URL ni token escaneable). */
 export function esAvisoErrorClubMillasEnTicket(ticket: TicketVentaPayload): boolean {
+  if (ticketTieneSaldoClubMillasEnTirilla(ticket)) return false;
   const t = ticket.fidelizacionPayloadTexto?.trim() ?? "";
   if (!t || ticketTieneQrAcumulacionClubMillas(ticket)) return false;
   return /club de millas/i.test(t);

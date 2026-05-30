@@ -585,14 +585,14 @@ export default function RegistrarPagoPanel({
             {onAntesActivarClienteFrecuente
               ? stickerFidelizacionConfigurado
                 ? clienteFrecuenteActivo
-                  ? "El ticket llevará QR para sumar puntos en la app María Chorizos. Ya se descontó 1 sticker de fidelización en inventario."
-                  : "Primero validamos el documento en el plan de millas (WMS); si corresponde, se descuenta 1 sticker y el aviso recuerda qué decirle al cliente (app, tarjeta y QR)."
+                  ? "Al cobrar se suman las millas con la cédula. La tirilla muestra el saldo en grande y un QR para ver el plan. Ya se descontó 1 sticker de fidelización."
+                  : "Validamos el documento en el plan de millas (WMS); al cobrar se acumulan millas automáticamente y la tirilla muestra el saldo."
                 : clienteFrecuenteActivo
-                  ? "El ticket llevará QR para sumar puntos en la app María Chorizos."
-                  : "Primero validamos el documento en el plan de millas (WMS). Luego podés activar el QR de fidelización (sin descuento automático de sticker en este despliegue)."
+                  ? "Al cobrar se suman las millas con la cédula; la tirilla imprime el saldo y un QR para consultar el plan."
+                  : "Validamos el documento en el plan de millas (WMS). Al cobrar se acumulan millas y la tirilla muestra el saldo (sin descuento automático de sticker en este despliegue)."
               : clienteFrecuenteActivo
-                ? "El ticket llevará QR para sumar puntos en la app María Chorizos."
-                : "Primero validamos el documento en el plan de millas (WMS). Activá antes de cobrar si el cliente quiere acumular puntos."}
+                ? "Al cobrar se suman las millas con la cédula; la tirilla muestra el saldo y un QR para ver premios."
+                : "Validamos el documento en el plan de millas (WMS). Activá antes de cobrar para acumular millas automáticamente en la tirilla."}
           </p>
           {!cubreTotal && (
             <p className="mt-2 text-center text-xs text-amber-700">Registra pagos que sumen al menos el total a pagar.</p>

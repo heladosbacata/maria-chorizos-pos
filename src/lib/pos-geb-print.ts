@@ -13,8 +13,16 @@ import {
   esCodigoCortoTirillaClubMillas,
 } from "@/lib/fidelizacion-qr";
 import {
+  MENSAJE_TIRILLA_CLUB_CONSULTA_PASO,
+  MENSAJE_TIRILLA_CLUB_GANADAS_LABEL,
+  MENSAJE_TIRILLA_CLUB_SALDO_LABEL,
+  MENSAJE_TIRILLA_CLUB_SALDO_TITULO,
+  MENSAJE_TIRILLA_CLUB_ACUMULADO_AUTO,
+} from "@/lib/club-millas-consulta-url";
+import {
   esAvisoErrorClubMillasEnTicket,
   ticketTieneQrAcumulacionClubMillas,
+  ticketTieneSaldoClubMillasEnTirilla,
 } from "@/lib/club-millas-invitacion-ticket";
 import {
   MENSAJE_DOMICILIOS_TIRILLA_LINEA1,
@@ -52,6 +60,8 @@ export type OpcionesTextoTicketPlano = {
    * En impresión térmica directa (QZ) el QR va por comandos ESC/POS; no hace falta volcar el JSON en líneas de texto.
    */
   omitirBloqueFidelizacionTexto?: boolean;
+  /** En QZ el saldo + QR consulta van por ESC/POS; evita duplicar en texto plano. */
+  omitirBloqueClubSaldoTexto?: boolean;
   /** En QZ el bloque domicilios va por ESC/POS al inicio; evita duplicar el mensaje en texto plano. */
   omitirBloqueDomiciliosTexto?: boolean;
   /** En QZ el bloque invitacion club va por ESC/POS al final; evita duplicar en texto plano. */
@@ -123,7 +133,9 @@ export function construirTextoTicketPlano(
   rows.push(center("Seguinos en Instagram"));
   rows.push(center("Maria Chorizos POS GEB"));
   rows.push("");
-  if (payload.fidelizacionPayloadTexto?.trim() && !opciones?.omitirBloqueFidelizacionTexto) {
+  if (ticketTieneSaldoClubMillasEnTirilla(payload) && !opciones?.omitirBloqueClubSaldoTexto) {
+    rows.push(textoClubMillasSaldoTicketPlano(payload, W));
+  } else if (payload.fidelizacionPayloadTexto?.trim() && !opciones?.omitirBloqueFidelizacionTexto) {
     rows.push(
       textoFidelizacionTicketPlano(
         payload.fidelizacionPayloadTexto.trim(),
@@ -172,6 +184,78 @@ function escPosAlinearCentro(): string {
 
 function escPosAlinearIzq(): string {
   return "\x1B\x61\x00";
+}
+
+function escPosTextoGrande(): string {
+  return "\x1B\x21\x30";
+}
+
+function escPosTextoNormal(): string {
+  return "\x1B\x21\x00";
+}
+
+function formatoMillasTicket(n: number): string {
+  return Math.max(0, Math.round(n)).toLocaleString("es-CO");
+}
+
+function textoClubMillasSaldoTicketPlano(payload: TicketVentaPayload, ancho: number): string {
+  const center = (s: string) => {
+    const t = textoTicketSeguro(s).slice(0, ancho);
+    const pad = Math.max(0, Math.floor((ancho - t.length) / 2));
+    return " ".repeat(pad) + t;
+  };
+  const saldo = payload.clubMillasSaldoTotal ?? 0;
+  const ganadas = payload.clubMillasGanadasCompra ?? 0;
+  const rows: string[] = ["", center(MENSAJE_TIRILLA_CLUB_SALDO_TITULO)];
+  rows.push(center(MENSAJE_TIRILLA_CLUB_ACUMULADO_AUTO));
+  rows.push("");
+  rows.push(center(MENSAJE_TIRILLA_CLUB_SALDO_LABEL));
+  rows.push(center(formatoMillasTicket(saldo)));
+  if (ganadas > 0) {
+    rows.push(center(MENSAJE_TIRILLA_CLUB_GANADAS_LABEL));
+    rows.push(center(`+ ${formatoMillasTicket(ganadas)}`));
+  }
+  rows.push(center(MENSAJE_TIRILLA_CLUB_CONSULTA_PASO));
+  const pie = payload.clubMillasMensajePie?.trim();
+  if (pie) rows.push(center(textoTicketSeguro(pie).slice(0, ancho)));
+  rows.push("");
+  return rows.join("\n");
+}
+
+function escPosBloqueClubMillasSaldo(payload: TicketVentaPayload, columnas: number): string {
+  const W = columnas;
+  const center = (t: string) => {
+    const x = textoTicketSeguro(t).slice(0, W);
+    const pad = Math.max(0, Math.floor((W - x.length) / 2));
+    return " ".repeat(pad) + x;
+  };
+  const saldo = payload.clubMillasSaldoTotal ?? 0;
+  const ganadas = payload.clubMillasGanadasCompra ?? 0;
+  const url = payload.clubMillasConsultaUrl?.trim() ?? "";
+  let out = "\n";
+  out += escPosAlinearCentro();
+  out += center(textoTicketSeguro(MENSAJE_TIRILLA_CLUB_SALDO_TITULO)) + "\n";
+  out += center(textoTicketSeguro(MENSAJE_TIRILLA_CLUB_ACUMULADO_AUTO)) + "\n\n";
+  out += center(textoTicketSeguro(MENSAJE_TIRILLA_CLUB_SALDO_LABEL)) + "\n";
+  out += escPosTextoGrande();
+  out += center(formatoMillasTicket(saldo)) + "\n";
+  out += escPosTextoNormal();
+  if (ganadas > 0) {
+    out += center(textoTicketSeguro(MENSAJE_TIRILLA_CLUB_GANADAS_LABEL)) + "\n";
+    out += escPosTextoGrande();
+    out += center(`+ ${formatoMillasTicket(ganadas)}`) + "\n";
+    out += escPosTextoNormal();
+  }
+  out += "\n";
+  out += center(textoTicketSeguro(MENSAJE_TIRILLA_CLUB_CONSULTA_PASO)) + "\n";
+  if (url) {
+    out += "\n";
+    out += escPosQrCodigo(url);
+    out += "\n";
+  }
+  out += "\n";
+  out += escPosAlinearIzq();
+  return out;
 }
 
 /**
@@ -350,13 +434,44 @@ function construirHtmlTirillaTicket(
         <div class="rule"></div>`
       : "";
 
+  const tieneSaldoClub = ticketTieneSaldoClubMillasEnTirilla(p);
+  const saldoClub = p.clubMillasSaldoTotal ?? 0;
+  const ganadasClub = p.clubMillasGanadasCompra ?? 0;
+  const qrConsultaClub = p.clubMillasConsultaQrDataUrl?.trim();
+  const clubSaldoBlock = tieneSaldoClub
+    ? `<div class="qr club-saldo-promo">
+          <p class="qr-t">${escapeHtml(MENSAJE_TIRILLA_CLUB_SALDO_TITULO)}</p>
+          <p class="qr-paso">${escapeHtml(MENSAJE_TIRILLA_CLUB_ACUMULADO_AUTO)}</p>
+          <p class="club-saldo-label">${escapeHtml(MENSAJE_TIRILLA_CLUB_SALDO_LABEL)}</p>
+          <p class="club-saldo-valor">${escapeHtml(formatoMillasTicket(saldoClub))}</p>
+          ${
+            ganadasClub > 0
+              ? `<p class="club-ganadas-label">${escapeHtml(MENSAJE_TIRILLA_CLUB_GANADAS_LABEL)}</p>
+          <p class="club-ganadas-valor">+ ${escapeHtml(formatoMillasTicket(ganadasClub))}</p>`
+              : ""
+          }
+          ${
+            p.clubMillasMensajePie?.trim()
+              ? `<p class="qr-paso">${escapeHtml(p.clubMillasMensajePie.trim())}</p>`
+              : ""
+          }
+          <p class="qr-paso">${escapeHtml(MENSAJE_TIRILLA_CLUB_CONSULTA_PASO)}</p>
+          ${
+            qrConsultaClub
+              ? `<img src="${escapeHtml(qrConsultaClub)}" width="168" height="168" alt="QR Mi plan Club de Millas" />`
+              : ""
+          }
+          <p class="qr-s">Club de Millas Maria Chorizos</p>
+        </div>`
+    : "";
+
   const tieneQrFrecuenteImg = Boolean(payload.fidelizacionQrDataUrl?.trim());
   const codigoCortoFrec = p.clubMillasCodigoCorto?.trim().toUpperCase() ?? "";
   const msgClubFrec = p.fidelizacionPayloadTexto?.trim() ?? "";
   const tieneAcumulacionClub = ticketTieneQrAcumulacionClubMillas(p);
   const esAvisoClub = esAvisoErrorClubMillasEnTicket(p);
-  const esBloqueClubFrecuente = Boolean(tieneAcumulacionClub || esAvisoClub);
-  const qrFrecuenteBlock = esBloqueClubFrecuente
+  const esBloqueClubLegacy = Boolean(!tieneSaldoClub && (tieneAcumulacionClub || esAvisoClub));
+  const qrFrecuenteBlock = esBloqueClubLegacy
     ? `<div class="qr club-frecuente-promo">
           <p class="qr-t">${escapeHtml(MENSAJE_TIRILLA_CLUB_FRECUENTE_TITULO)}</p>
           ${
@@ -402,7 +517,7 @@ function construirHtmlTirillaTicket(
         </div>`
       : "";
 
-  const qrBlock = qrFrecuenteBlock || qrInvitacionBlock;
+  const qrBlock = clubSaldoBlock || qrFrecuenteBlock || qrInvitacionBlock;
 
   const logoHtml = showLogo
     ? `<div class="logo-wrap"><div class="logo"><img src="${escapeHtml(logoSrc)}" alt="María Chorizos" /></div><div class="brand-name">MARÍA CHORIZOS</div></div>`
@@ -634,6 +749,18 @@ function construirHtmlTirillaTicket(
   .qr-paso { margin: 0 0 4px; font-size: 7px; font-weight: 600; line-height: 1.35; color: #b45309; }
   .qr-codigo-label { margin: 6px 0 2px; font-size: 7px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: #92400e; }
   .qr-codigo-valor { margin: 0 0 8px; font-size: 18px; font-weight: 900; letter-spacing: 0.28em; color: #c2410c; }
+  .club-saldo-promo {
+    margin-top: 10px;
+    padding: 10px 8px;
+    border: 2px solid #f59e0b;
+    border-radius: 8px;
+    background: linear-gradient(180deg, #fffbeb 0%, #fff 100%);
+    text-align: center;
+  }
+  .club-saldo-label { margin: 8px 0 2px; font-size: 8px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: #92400e; }
+  .club-saldo-valor { margin: 0 0 6px; font-size: 28px; font-weight: 900; line-height: 1.1; letter-spacing: 0.04em; color: #c2410c; }
+  .club-ganadas-label { margin: 4px 0 2px; font-size: 7px; font-weight: 700; color: #b45309; }
+  .club-ganadas-valor { margin: 0 0 8px; font-size: 16px; font-weight: 800; color: #ea580c; }
   .qr-s { margin: 6px 0 0; font-size: 7px; font-weight: 700; color: #78350f; text-transform: uppercase; letter-spacing: 0.08em; }
   .qr img { image-rendering: pixelated; display: inline-block; }
   .fe-dian {
@@ -850,24 +977,30 @@ export async function imprimirTicketConQz(prefs: ImpresionPosPrefs, payload: Tic
     },
   });
   const cols = columnasTicketPorTamanoPapel(prefs.tamanoPapel);
+  const tieneSaldoClub = ticketTieneSaldoClubMillasEnTirilla(payload);
   const contenidoQrClub = contenidoQrEscaneableClubMillasDesdeTicket(payload);
   const domUrl = payload.domiciliosLandingUrl?.trim();
   const invUrl = payload.clubMillasInvitacionUrl?.trim();
   const tieneQrInvitacion = Boolean(payload.clubMillasInvitacionQrDataUrl?.trim());
   const plain = construirTextoTicketPlano(payload, cols, {
-    ...(contenidoQrClub ? { omitirBloqueFidelizacionTexto: true } : {}),
+    ...(tieneSaldoClub ? { omitirBloqueClubSaldoTexto: true } : {}),
+    ...(contenidoQrClub && !tieneSaldoClub ? { omitirBloqueFidelizacionTexto: true } : {}),
     ...(domUrl ? { omitirBloqueDomiciliosTexto: true } : {}),
     ...(invUrl && tieneQrInvitacion ? { omitirBloqueInvitacionClubTexto: true } : {}),
   });
   const bloqueDomicilios = domUrl ? escPosBloqueQrDomicilios(domUrl, cols) : "";
-  const bloqueQr = contenidoQrClub
-    ? escPosBloqueQrFidelizacion(contenidoQrClub, cols, payload.clubMillasCodigoCorto)
-    : "";
+  const bloqueSaldoClub = tieneSaldoClub ? escPosBloqueClubMillasSaldo(payload, cols) : "";
+  const bloqueQr =
+    !tieneSaldoClub && contenidoQrClub
+      ? escPosBloqueQrFidelizacion(contenidoQrClub, cols, payload.clubMillasCodigoCorto)
+      : "";
   const bloqueInvitacion =
-    invUrl && !contenidoQrClub ? escPosBloqueInvitacionClubMillas(invUrl, cols) : "";
+    invUrl && !contenidoQrClub && !tieneSaldoClub
+      ? escPosBloqueInvitacionClubMillas(invUrl, cols)
+      : "";
   const init = "\x1B\x40";
   const abrirCajon = escPosAbrirCajon();
-  const data = `${init}${bloqueDomicilios}${plain}${bloqueQr}${bloqueInvitacion}\n\n${abrirCajon}\n\x1D\x56\x00`;
+  const data = `${init}${bloqueDomicilios}${plain}${bloqueSaldoClub}${bloqueQr}${bloqueInvitacion}\n\n${abrirCajon}\n\x1D\x56\x00`;
   await qz.print(config, [data]);
 }
 

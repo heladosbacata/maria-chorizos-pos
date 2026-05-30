@@ -139,8 +139,13 @@ export type QrTirillaClubMillasGenerado = {
 
 /** URL o token BACATA para QR ESC/POS (no data: de imagen PNG). */
 export function contenidoQrEscaneableClubMillasDesdeTicket(
-  payload: Pick<TicketVentaPayload, "fidelizacionPayloadTexto" | "clubMillasCodigoCorto">
+  payload: Pick<
+    TicketVentaPayload,
+    "fidelizacionPayloadTexto" | "clubMillasCodigoCorto" | "clubMillasConsultaUrl"
+  >
 ): string {
+  const consulta = payload.clubMillasConsultaUrl?.trim() ?? "";
+  if (consulta && /^https?:\/\//i.test(consulta)) return consulta;
   const t = payload.fidelizacionPayloadTexto?.trim() ?? "";
   if (t && !/^data:/i.test(t)) {
     if (/^https?:\/\//i.test(t)) return t;
