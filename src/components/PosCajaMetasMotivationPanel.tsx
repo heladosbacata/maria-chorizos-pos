@@ -2,7 +2,8 @@
 
 import { useId, useMemo } from "react";
 import { useMetasRetosCaja } from "@/components/MetasRetosCajaProvider";
-import { avanceUnidadesReto } from "@/lib/metas-retos-avance-ventas";
+import { avanceUnidadesReto, etiquetaRangoPeriodo } from "@/lib/metas-retos-avance-ventas";
+import { formatPesosCop } from "@/lib/pesos-cop-input";
 import type { MetaRetoActiva } from "@/lib/wms-metas-retos-activas";
 
 function etiquetaCadenciaCorta(c: MetaRetoActiva["cadencia"]): string {
@@ -92,6 +93,20 @@ function IconSparkles({ className }: { className?: string }) {
   );
 }
 
+function IconWallet({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M20 7.5V6.8A2.8 2.8 0 0017.2 4H5.8A2.8 2.8 0 003 6.8v10.4A2.8 2.8 0 005.8 20h11.4a2.8 2.8 0 002.8-2.8v-.7"
+      />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12h4.25v4H16.5a2 2 0 010-4z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M17.5 14h.01" />
+    </svg>
+  );
+}
+
 function mensajeMotivacional(
   promedioPct: number,
   completados: number,
@@ -148,6 +163,33 @@ export default function PosCajaMetasMotivationPanel() {
     return { promedioPct, completados, total: n, detalles };
   }, [retos, ventas, ymdRef]);
 
+  const billetera = useMemo(() => {
+    const ganados = retos
+      .map((reto) => {
+        const { avance, rango } = avanceUnidadesReto(reto, ventas, ymdRef);
+        const meta = Math.max(0, Number(reto.metaUnidades) || 0);
+        if (meta <= 0 || avance < meta) return null;
+        return {
+          id: reto.id,
+          producto: reto.descripcionProducto.trim() || "Meta alcanzada",
+          bonoCOP: Math.max(0, Number(reto.bonoCOP) || 0),
+          avance,
+          meta,
+          periodo: rango ? etiquetaRangoPeriodo(rango.desde, rango.hasta) : ymdRef,
+        };
+      })
+      .filter(Boolean) as {
+      id: string;
+      producto: string;
+      bonoCOP: number;
+      avance: number;
+      meta: number;
+      periodo: string;
+    }[];
+    const totalCOP = ganados.reduce((sum, item) => sum + item.bonoCOP, 0);
+    return { ganados, totalCOP };
+  }, [retos, ventas, ymdRef]);
+
   const retoHoy = useMemo(() => retoDestacadoParaHoy(retos), [retos]);
   const avanceRetoHoy = useMemo(() => {
     if (!retoHoy) return null;
@@ -197,6 +239,57 @@ export default function PosCajaMetasMotivationPanel() {
           </div>
           <p className="mt-1.5 text-[11px] font-medium leading-snug text-[#F5E6C8]/92">{msg}</p>
         </div>
+      </div>
+
+      <div className="relative mt-3 overflow-hidden rounded-xl border border-emerald-300/25 bg-gradient-to-br from-emerald-950/55 via-[#11140d]/65 to-[#0d0b08]/70 px-3 py-2.5 shadow-inner ring-1 ring-black/20">
+        <div
+          className="pointer-events-none absolute -right-5 -top-8 h-20 w-20 rounded-full bg-[radial-gradient(circle,rgba(52,211,153,0.24),transparent_68%)] blur-2xl"
+          aria-hidden
+        />
+        <div className="relative flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-2">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-emerald-300/25 bg-emerald-400/10 text-emerald-200">
+              <IconWallet className="h-5 w-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[9px] font-black uppercase tracking-[0.18em] text-emerald-200/90">
+                Mi billetera de bonos
+              </p>
+              <p className="mt-1 text-[10px] leading-snug text-[#CDEEDB]/80">
+                {billetera.ganados.length > 0
+                  ? `${billetera.ganados.length} ${billetera.ganados.length === 1 ? "bono ganado" : "bonos ganados"} por metas cumplidas.`
+                  : "Aquí se acumulan los bonos cuando completas metas."}
+              </p>
+            </div>
+          </div>
+          <div className="shrink-0 text-right">
+            <p className="text-[8px] font-bold uppercase tracking-wide text-emerald-200/60">Ganado</p>
+            <p className="text-lg font-black tabular-nums leading-tight text-emerald-200">
+              ${formatPesosCop(billetera.totalCOP, false)}
+            </p>
+          </div>
+        </div>
+
+        {billetera.ganados.length > 0 ? (
+          <div className="relative mt-2 max-h-24 space-y-1 overflow-y-auto pr-1">
+            {billetera.ganados.map((item) => (
+              <div
+                key={`${item.id}:${item.periodo}`}
+                className="rounded-lg border border-emerald-300/15 bg-white/[0.055] px-2 py-1.5"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <p className="min-w-0 truncate text-[10px] font-bold text-[#F2FFF7]">{item.producto}</p>
+                  <span className="shrink-0 text-[10px] font-black tabular-nums text-emerald-200">
+                    ${formatPesosCop(item.bonoCOP, false)}
+                  </span>
+                </div>
+                <p className="mt-0.5 truncate text-[8px] font-medium text-emerald-100/55">
+                  {item.avance}/{item.meta} u. · {item.periodo}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
 
       <div className="relative mt-3 rounded-lg border border-[#FFE08A]/25 bg-[#0d0b08]/55 px-2.5 py-2 shadow-inner ring-1 ring-black/20">

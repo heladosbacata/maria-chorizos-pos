@@ -99,23 +99,36 @@ export default function PosChatFloatingDock({
   return (
     <div
       ref={dockRef}
-      className="fixed z-[170] flex max-w-[calc(100vw-1.5rem)] cursor-grab touch-none items-center gap-2 rounded-[1.35rem] border border-white/70 bg-gradient-to-br from-white/98 via-amber-50/95 to-indigo-50/95 px-3.5 py-2.5 shadow-[0_22px_60px_-20px_rgba(15,23,42,0.85)] ring-1 ring-slate-900/5 backdrop-blur-md active:cursor-grabbing"
+      className="fixed z-[170] flex max-w-[calc(100vw-1.5rem)] items-center gap-2 rounded-[1.35rem] border border-white/70 bg-gradient-to-br from-white/98 via-amber-50/95 to-indigo-50/95 px-3.5 py-2.5 shadow-[0_22px_60px_-20px_rgba(15,23,42,0.85)] ring-1 ring-slate-900/5"
       style={
         posicion
           ? { left: `${posicion.x}px`, top: `${posicion.y}px` }
           : { left: "0.75rem", bottom: "1.25rem" }
       }
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerCancel}
       role="navigation"
       aria-label="Chats del POS"
-      title="Arrastra para mover los chats"
     >
-      <div className="hidden min-w-0 pr-1 sm:block">
-        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Chats POS</p>
-        <p className="text-[11px] font-semibold text-slate-800">Privado y grupal</p>
+      <div
+        className="flex min-w-0 cursor-grab touch-none select-none items-center gap-2 pr-1 active:cursor-grabbing"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerCancel}
+        title="Arrastra desde aquí para mover los chats"
+        aria-label="Mover chats flotantes"
+      >
+        <span className="grid h-8 w-4 shrink-0 grid-cols-2 gap-0.5 text-slate-400" aria-hidden>
+          <span className="h-1 w-1 rounded-full bg-current" />
+          <span className="h-1 w-1 rounded-full bg-current" />
+          <span className="h-1 w-1 rounded-full bg-current" />
+          <span className="h-1 w-1 rounded-full bg-current" />
+          <span className="h-1 w-1 rounded-full bg-current" />
+          <span className="h-1 w-1 rounded-full bg-current" />
+        </span>
+        <div className="hidden min-w-0 sm:block">
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-500">Chats POS</p>
+          <p className="text-[11px] font-semibold text-slate-800">Privado y grupal</p>
+        </div>
       </div>
       <div className="h-9 w-px bg-slate-200/80" aria-hidden />
       <div className="flex items-center gap-2">
