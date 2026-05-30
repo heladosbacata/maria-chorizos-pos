@@ -17,7 +17,10 @@ const CHARSET_CODIGO_CORTO_CLIENTE = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 export function esCodigoCortoTirillaClubMillas(raw: string): boolean {
   const s = String(raw ?? "").replace(/\s+/g, "").trim().toUpperCase();
   if (s.length !== 6) return false;
-  return [...s].every((ch) => CHARSET_CODIGO_CORTO_CLIENTE.includes(ch));
+  for (let i = 0; i < s.length; i++) {
+    if (!CHARSET_CODIGO_CORTO_CLIENTE.includes(s.charAt(i))) return false;
+  }
+  return true;
 }
 
 export type ModoContenidoQrClubMillas = "token" | "url";
