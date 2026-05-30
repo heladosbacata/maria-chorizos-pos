@@ -15,13 +15,13 @@ export type ModoContenidoQrClubMillas = "token" | "url";
 /** Textos del pie de tirilla (cliente frecuente). */
 export const MENSAJE_TIRILLA_CLUB_FRECUENTE_TITULO = "CLUB DE MILLAS — ACUMULA TUS MILLAS";
 export const MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO1 =
-  "1. Escanea el QR e ingresa en maria-chorizos-wms.vercel.app/club-de-millas";
+  "1. Escanea el QR: tu cédula ya va en el enlace";
 export const MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO2 =
-  "2. Ingresa con tu PIN: tus millas se acumulan solas al entrar a Mi plan";
+  "2. Solo ingresa tu PIN de 4 dígitos; las millas se suman solas";
 export const MENSAJE_TIRILLA_CLUB_CODIGO_LABEL = "CODIGO CLUB (6 letras)";
 
 /**
- * url (defecto): abre /club-de-millas?c=BACATA-… (login y luego acumular en Mi plan).
+ * url (defecto): abre /club-de-millas?c=BACATA-… (&documento= si el POS lo envió al WMS).
  * token: solo BACATA-CLUB-V1-… para escaner premium que no lee URLs.
  */
 export function modoContenidoQrClubMillas(): ModoContenidoQrClubMillas {
