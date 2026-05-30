@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { filtrarClientesPorBusqueda, nombreDisplayCliente } from "@/lib/clientes-pos-firestore";
+import ReenviarClaveClubMillasButton from "@/components/ReenviarClaveClubMillasButton";
+import { emailValidoParaClubMillas } from "@/lib/reenviar-bienvenida-club-millas-cliente";
 import { CONSUMIDOR_FINAL_ID, type ClientePosFirestoreDoc, type ClienteVentaRef } from "@/types/clientes-pos";
 
 const consumidorFinalRef: ClienteVentaRef = {
@@ -130,6 +132,16 @@ export default function SeleccionClienteVenta({
           +
         </button>
       </div>
+      {clienteDocActivo && emailValidoParaClubMillas(clienteDocActivo.email) ? (
+        <div className="mt-2">
+          <ReenviarClaveClubMillasButton
+            clienteId={clienteDocActivo.id}
+            disabled={disabled}
+            variant="default"
+            className="w-full justify-center"
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

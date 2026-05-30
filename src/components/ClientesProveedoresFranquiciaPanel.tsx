@@ -15,7 +15,9 @@ import {
   nombreDisplayCliente,
 } from "@/lib/clientes-pos-firestore";
 import { fechaColombia } from "@/lib/fecha-colombia";
+import { emailValidoParaClubMillas } from "@/lib/reenviar-bienvenida-club-millas-cliente";
 import { POS_CONTADOR_ROLE } from "@/lib/auth-roles";
+import ReenviarClaveClubMillasButton from "@/components/ReenviarClaveClubMillasButton";
 import type { ClientePosFirestoreDoc } from "@/types/clientes-pos";
 
 export interface ClientesProveedoresFranquiciaPanelProps {
@@ -280,8 +282,8 @@ export default function ClientesProveedoresFranquiciaPanel({
         <section className="space-y-4 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-gray-600">
-              Listado de clientes que los cajeros registran en ventas. Podés exportar a CSV o, si está configurado en el
-              servidor, volcar filas a una pestaña de Google Sheets.
+              Listado de clientes que los cajeros registran en ventas. Con correo válido, el icono de sobre reenvía la
+              clave de 4 dígitos del Club de Millas. También podés exportar a CSV o volcar a Google Sheets.
             </p>
             <div className="flex flex-wrap gap-2">
               <button
@@ -364,6 +366,7 @@ export default function ClientesProveedoresFranquiciaPanel({
                     <th className="px-3 py-2">Contacto</th>
                     <th className="px-3 py-2">Registro</th>
                     <th className="px-3 py-2">Creado por</th>
+                    <th className="px-3 py-2 text-right">Plan de millas</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -385,6 +388,19 @@ export default function ClientesProveedoresFranquiciaPanel({
                         ) : (
                           <span className="font-mono text-xs" title={c.createdByUid}>
                             {c.createdByUid ? `…${c.createdByUid.slice(-8)}` : "—"}
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        {emailValidoParaClubMillas(c.email) ? (
+                          <ReenviarClaveClubMillasButton
+                            clienteId={c.id}
+                            disabled={esContador}
+                            variant="compact"
+                          />
+                        ) : (
+                          <span className="text-xs text-gray-400" title="Sin correo válido para el club de millas">
+                            —
                           </span>
                         )}
                       </td>
