@@ -129,8 +129,11 @@ import {
   type MovimientoCajaTurno,
   type TipoMovimientoCaja,
 } from "@/lib/turno-movimientos-caja";
+import { enriquecerTicketTirillaAlCobrar } from "@/lib/enriquecer-ticket-tirilla-cobro";
 import {
+  elegirContenidoQrTirillaClubMillas,
   extraerCodigoQrClubDesdeTextoLeido,
+  generarDataUrlQrPng,
   generarQrTirillaClubMillas,
 } from "@/lib/fidelizacion-qr";
 import {
@@ -1738,6 +1741,10 @@ export default function CajaPage() {
   }, []);
 
   const ejecutarImpresionPostCobro = useCallback(async (ticket: TicketVentaPayload) => {
+    const ticketImp =
+      typeof window !== "undefined"
+        ? await enriquecerTicketTirillaAlCobrar(ticket, window.location.origin)
+        : ticket;
     const prefs = loadImpresionPrefs();
     setCobroImpresionOverlayOpen(true);
     await new Promise<void>((resolve) => {
@@ -1749,13 +1756,13 @@ export default function CajaPage() {
     try {
       if (prefs.metodo === "directa") {
         try {
-          await imprimirTicketConQz(prefs, ticket);
+          await imprimirTicketConQz(prefs, ticketImp);
         } catch (qzErr) {
           console.warn("Ticket venta: QZ falló, intentando navegador.", qzErr);
-          imprimirTicketEnNavegador(ticket);
+          imprimirTicketEnNavegador(ticketImp);
         }
       } else {
-        imprimirTicketEnNavegador(ticket);
+        imprimirTicketEnNavegador(ticketImp);
       }
     } catch (printErr) {
       console.error(printErr);
@@ -2224,9 +2231,19 @@ export default function CajaPage() {
               omitido?: boolean;
               codigo?: string;
               message?: string;
+              error?: string;
               qrPayload?: string;
               qrUrl?: string;
               codigoCorto?: string;
+            };
+            const mensajeClubJson = (): string => {
+              const m =
+                typeof clubJson.message === "string"
+                  ? clubJson.message.trim()
+                  : typeof clubJson.error === "string"
+                    ? clubJson.error.trim()
+                    : "";
+              return m;
             };
             if (clubJson.ok === true && clubJson.omitido === true && clubJson.codigo === "monto_insuficiente") {
               ticket = {
@@ -2256,7 +2273,8 @@ export default function CajaPage() {
                 try {
                   const qrClub = await generarQrTirillaClubMillas(
                     raw || qrUrlWms,
-                    qrUrlWms || undefined
+                    qrUrlWms || undefined,
+                    docClienteFrecuente || undefined
                   );
                   ticket = {
                     ...ticket,
@@ -2266,9 +2284,16 @@ export default function CajaPage() {
                   };
                 } catch (qrErr) {
                   console.warn("[POS] generar QR Club de Millas:", qrErr);
+                  const contenido = elegirContenidoQrTirillaClubMillas(
+                    raw || qrUrlWms,
+                    qrUrlWms || undefined,
+                    docClienteFrecuente || undefined
+                  );
+                  const dataUrlFallback = contenido ? await generarDataUrlQrPng(contenido) : null;
                   ticket = {
                     ...ticket,
-                    fidelizacionPayloadTexto: qrUrlWms || raw,
+                    ...(dataUrlFallback ? { fidelizacionQrDataUrl: dataUrlFallback } : {}),
+                    fidelizacionPayloadTexto: contenido,
                     ...(codigoCorto.length === 6 ? { clubMillasCodigoCorto: codigoCorto } : {}),
                   };
                 }
@@ -2281,17 +2306,15 @@ export default function CajaPage() {
                 };
               } else {
                 const msg =
-                  typeof clubJson.message === "string" && clubJson.message.trim()
-                    ? clubJson.message.trim()
-                    : "Club de Millas: el WMS no devolvió QR ni código para esta compra.";
+                  mensajeClubJson() ||
+                  "Club de Millas: el WMS no devolvió QR ni código para esta compra.";
                 ticket = { ...ticket, fidelizacionPayloadTexto: msg };
                 console.warn("[POS] club_millas_registrar_ticket sin QR:", clubJson);
               }
             } else {
               const msg =
-                typeof clubJson.message === "string" && clubJson.message.trim()
-                  ? clubJson.message.trim()
-                  : "Club de Millas: no se pudo registrar el ticket para el QR. Revisá conexión y variables del POS.";
+                mensajeClubJson() ||
+                "Club de Millas: no se pudo registrar el ticket para el QR. Revisá conexión y variables del POS.";
               ticket = { ...ticket, fidelizacionPayloadTexto: msg };
               console.warn("[POS] club_millas_registrar_ticket:", clubJson);
             }
@@ -2304,6 +2327,9 @@ export default function CajaPage() {
             };
           }
         }
+
+        const originTirilla = typeof window !== "undefined" ? window.location.origin : undefined;
+        ticket = await enriquecerTicketTirillaAlCobrar(ticket, originTirilla);
 
         vaciarCuenta();
 

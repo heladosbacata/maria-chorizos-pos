@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   construirUrlPortalClubMillasConCodigo,
+  contenidoQrEscaneableClubMillasDesdeTicket,
   contenidoQrImpresoClubMillas,
+  elegirContenidoQrTirillaClubMillas,
+  esCodigoCortoTirillaClubMillas,
   extraerCodigoQrClubDesdeTextoLeido,
   parametroQueryQrClubMillas,
 } from "@/lib/fidelizacion-qr";
@@ -19,14 +22,44 @@ describe("fidelizacion-qr cliente frecuente", () => {
     expect(url).toContain(`c=${encodeURIComponent(TOKEN)}`);
   });
 
-  it("contenido impreso por defecto es URL (no token plano)", () => {
+  it("contenido impreso por defecto es token BACATA (modo token)", () => {
     const contenido = contenidoQrImpresoClubMillas(TOKEN);
-    expect(contenido).toMatch(/^https:\/\//);
-    expect(contenido).toContain("club-de-millas");
+    expect(contenido).toBe(TOKEN);
   });
 
   it("extrae token desde URL con ?c=", () => {
     const url = `https://maria-chorizos-wms.vercel.app/club-de-millas?c=${TOKEN}`;
     expect(extraerCodigoQrClubDesdeTextoLeido(url)).toBe(TOKEN);
+  });
+
+  it("contenido escaneable para ESC/POS es URL o token, no data:", () => {
+    const url = `https://maria-chorizos-wms.vercel.app/club-de-millas?c=${TOKEN}&documento=123`;
+    expect(contenidoQrEscaneableClubMillasDesdeTicket({ fidelizacionPayloadTexto: url })).toBe(url);
+    expect(
+      contenidoQrEscaneableClubMillasDesdeTicket({
+        fidelizacionPayloadTexto: "data:image/png;base64,abc",
+      })
+    ).toBe("");
+  });
+
+  it("por defecto imprime token BACATA (no URL larga) para escáner Mi plan", () => {
+    const url = `https://maria-chorizos-wms.vercel.app/club-de-millas?c=${TOKEN}&documento=123`;
+    expect(elegirContenidoQrTirillaClubMillas(TOKEN, url, "123")).toBe(TOKEN);
+  });
+
+  it("reconoce código corto de 6 letras del WMS", () => {
+    expect(esCodigoCortoTirillaClubMillas("AB3K9M")).toBe(true);
+    expect(extraerCodigoQrClubDesdeTextoLeido("ab3k9m")).toBe("AB3K9M");
+    expect(
+      contenidoQrEscaneableClubMillasDesdeTicket({
+        fidelizacionPayloadTexto: "",
+        clubMillasCodigoCorto: "AB3K9M",
+      })
+    ).toBe("AB3K9M");
+  });
+
+  it("URL de landing incluye documento cuando se construye desde el POS", () => {
+    const url = construirUrlPortalClubMillasConCodigo(TOKEN, "1234567890");
+    expect(url).toContain("documento=1234567890");
   });
 });

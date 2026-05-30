@@ -8,6 +8,8 @@ import {
   INVITACION_CLUB_TIRILLA_CUERPO,
   INVITACION_CLUB_TIRILLA_LLAMADO,
   INVITACION_CLUB_TIRILLA_TITULO,
+  esAvisoErrorClubMillasEnTicket,
+  ticketTieneQrAcumulacionClubMillas,
 } from "@/lib/club-millas-invitacion-ticket";
 import {
   MENSAJE_TIRILLA_CLUB_CODIGO_LABEL,
@@ -80,11 +82,12 @@ export default function TicketPrevisualizacionModal({
   const qr = ticket.fidelizacionQrDataUrl?.trim();
   const codigoClub = ticket.clubMillasCodigoCorto?.trim().toUpperCase() ?? "";
   const msgClubMillas = ticket.fidelizacionPayloadTexto?.trim() ?? "";
-  const esMsgClubMillas = /club de millas/i.test(msgClubMillas);
+  const tieneAcumulacionClub = ticketTieneQrAcumulacionClubMillas(ticket);
+  const esAvisoClub = esAvisoErrorClubMillasEnTicket(ticket);
   const qrInvitacionClub = ticket.clubMillasInvitacionQrDataUrl?.trim();
-  const mostrarClubFrecuente = Boolean(qr || codigoClub.length === 6 || esMsgClubMillas);
+  const mostrarClubFrecuente = Boolean(tieneAcumulacionClub || esAvisoClub);
   const mostrarInvitacionClub = Boolean(
-    !mostrarClubFrecuente && (qrInvitacionClub || ticket.clubMillasInvitacionUrl?.trim())
+    !tieneAcumulacionClub && (qrInvitacionClub || ticket.clubMillasInvitacionUrl?.trim())
   );
   const qrDomicilios = ticket.domiciliosQrDataUrl?.trim();
   const mostrarPromoDomicilios = Boolean(qrDomicilios || ticket.domiciliosLandingUrl?.trim());
@@ -263,7 +266,7 @@ export default function TicketPrevisualizacionModal({
                 <p className="text-[8px] font-extrabold uppercase tracking-wide text-amber-950">
                   {MENSAJE_TIRILLA_CLUB_FRECUENTE_TITULO}
                 </p>
-                {!qr && esMsgClubMillas ? (
+                {esAvisoClub ? (
                   <p className="mt-2 text-[7px] font-semibold leading-snug text-rose-800">{msgClubMillas}</p>
                 ) : (
                   <>

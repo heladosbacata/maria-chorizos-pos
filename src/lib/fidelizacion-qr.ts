@@ -1,5 +1,6 @@
 import QRCode from "qrcode";
 import { CLUB_MILLAS_PORTAL_URL } from "@/lib/wms-club-millas-premios";
+import type { TicketVentaPayload } from "@/types/impresion-pos";
 
 export interface FidelizacionLineaSku {
   sku: string;
@@ -10,23 +11,32 @@ export interface FidelizacionLineaSku {
 export const PREFIJO_TICKET_CLUB_MILLAS = "BACATA-CLUB-V1-";
 const RE_TICKET_CLUB_MILLAS = /^BACATA-CLUB-V1-[0-9a-fA-F]{32}$/;
 
+/** Mismo alfabeto que el WMS (`clubMillasPosTicket.ts`) para código de 6 letras en tirilla. */
+const CHARSET_CODIGO_CORTO_CLIENTE = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+
+export function esCodigoCortoTirillaClubMillas(raw: string): boolean {
+  const s = String(raw ?? "").replace(/\s+/g, "").trim().toUpperCase();
+  if (s.length !== 6) return false;
+  return [...s].every((ch) => CHARSET_CODIGO_CORTO_CLIENTE.includes(ch));
+}
+
 export type ModoContenidoQrClubMillas = "token" | "url";
 
 /** Textos del pie de tirilla (cliente frecuente). */
 export const MENSAJE_TIRILLA_CLUB_FRECUENTE_TITULO = "CLUB DE MILLAS — ACUMULA TUS MILLAS";
 export const MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO1 =
-  "1. Escanea el QR: tu cédula ya va en el enlace";
+  "1. Entrá a club-de-millas (web) con tu cédula y PIN";
 export const MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO2 =
-  "2. Solo ingresa tu PIN de 4 dígitos; las millas se suman solas";
+  "2. En Mi plan, escaneá este QR (o el código de 6 letras)";
 export const MENSAJE_TIRILLA_CLUB_CODIGO_LABEL = "CODIGO CLUB (6 letras)";
 
 /**
- * url (defecto): abre /club-de-millas?c=BACATA-… (&documento= si el POS lo envió al WMS).
- * token: solo BACATA-CLUB-V1-… para escaner premium que no lee URLs.
+ * token (defecto): BACATA-CLUB-V1-… en el QR — compatible con escáner «Mi plan» del WMS.
+ * url: URL /club-de-millas?c=… (abre el navegador al escanear con la cámara del celular).
  */
 export function modoContenidoQrClubMillas(): ModoContenidoQrClubMillas {
   const m = process.env.NEXT_PUBLIC_CLUB_MILLAS_QR_MODO?.trim().toLowerCase();
-  return m === "token" ? "token" : "url";
+  return m === "url" ? "url" : "token";
 }
 
 /** Query en landing WMS; el portal usa `c` (ver clubMillasPosTicket en WMS). */
@@ -51,6 +61,8 @@ export function esTicketClubMillasPos(payload: string): boolean {
 export function extraerCodigoQrClubDesdeTextoLeido(texto: string): string {
   const t = texto.replace(/\s+/g, " ").trim();
   if (!t) return "";
+  const compacto = t.replace(/\s+/g, "").toUpperCase();
+  if (esCodigoCortoTirillaClubMillas(compacto)) return compacto;
   if (esTicketClubMillasPos(t)) return t.replace(/\s+/g, "");
   try {
     if (/^https?:\/\//i.test(t)) {
@@ -73,11 +85,13 @@ export function extraerCodigoQrClubDesdeTextoLeido(texto: string): string {
 /**
  * URL del portal para flujo «abrir en navegador → login → acumular».
  */
-export function construirUrlPortalClubMillasConCodigo(qrPayload: string): string {
+export function construirUrlPortalClubMillasConCodigo(qrPayload: string, documento?: string): string {
   const limpio = extraerCodigoQrClubDesdeTextoLeido(qrPayload);
   if (!limpio) return baseUrlPortalClubMillas();
   const u = new URL(baseUrlPortalClubMillas());
   u.searchParams.set(parametroQueryQrClubMillas(), limpio);
+  const doc = String(documento ?? "").replace(/\D/g, "").trim();
+  if (doc.length >= 5) u.searchParams.set("documento", doc);
   return u.toString();
 }
 
@@ -119,22 +133,80 @@ export type QrTirillaClubMillasGenerado = {
   dataUrl: string;
 };
 
+/** URL o token BACATA para QR ESC/POS (no data: de imagen PNG). */
+export function contenidoQrEscaneableClubMillasDesdeTicket(
+  payload: Pick<TicketVentaPayload, "fidelizacionPayloadTexto" | "clubMillasCodigoCorto">
+): string {
+  const corto = payload.clubMillasCodigoCorto?.trim() ?? "";
+  if (esCodigoCortoTirillaClubMillas(corto)) return corto.toUpperCase();
+  const t = payload.fidelizacionPayloadTexto?.trim() ?? "";
+  if (!t || /^data:/i.test(t)) return "";
+  if (/^https?:\/\//i.test(t)) return t;
+  if (/^BACATA-CLUB-V1-/i.test(t)) return t.replace(/\s+/g, "");
+  if (esCodigoCortoTirillaClubMillas(t)) return t.replace(/\s+/g, "").toUpperCase();
+  return "";
+}
+
+/**
+ * Contenido del QR en tirilla: token BACATA (defecto, compatible con escáner Mi plan del WMS)
+ * o URL de landing si NEXT_PUBLIC_CLUB_MILLAS_QR_MODO=url.
+ */
+export function elegirContenidoQrTirillaClubMillas(
+  qrPayload: string,
+  qrUrlPreferida?: string,
+  documento?: string
+): string {
+  const payload = qrPayload.replace(/\s+/g, "").trim();
+  const urlWms = qrUrlPreferida?.trim();
+
+  if (payload && esTicketClubMillasPos(payload)) {
+    if (modoContenidoQrClubMillas() === "url") {
+      return urlWms && /^https?:\/\//i.test(urlWms)
+        ? urlWms
+        : construirUrlPortalClubMillasConCodigo(payload, documento);
+    }
+    return payload;
+  }
+
+  if (payload && esCodigoCortoTirillaClubMillas(payload)) {
+    return payload.toUpperCase();
+  }
+
+  if (urlWms && /^https?:\/\//i.test(urlWms)) return urlWms;
+  return contenidoQrImpresoClubMillas(payload);
+}
+
+export async function generarDataUrlQrPng(contenidoImpreso: string): Promise<string | null> {
+  const c = contenidoImpreso.trim();
+  if (!c) return null;
+  try {
+    return await QRCode.toDataURL(c, {
+      errorCorrectionLevel: "M",
+      margin: 2,
+      width: 220,
+      type: "image/png",
+    });
+  } catch (e) {
+    console.warn("[POS] generarDataUrlQrPng:", e);
+    return null;
+  }
+}
+
 export async function generarQrTirillaClubMillas(
   qrPayload: string,
-  qrUrlPreferida?: string
+  qrUrlPreferida?: string,
+  documento?: string
 ): Promise<QrTirillaClubMillasGenerado> {
   const payloadOriginal = qrPayload.replace(/\s+/g, "").trim();
-  const urlWms = qrUrlPreferida?.trim();
-  const contenidoImpreso =
-    urlWms && /^https?:\/\//i.test(urlWms)
-      ? urlWms
-      : contenidoQrImpresoClubMillas(payloadOriginal);
-  const dataUrl = await QRCode.toDataURL(contenidoImpreso, {
-    errorCorrectionLevel: "M",
-    margin: 2,
-    width: 220,
-    type: "image/png",
-  });
+  const contenidoImpreso = elegirContenidoQrTirillaClubMillas(
+    payloadOriginal,
+    qrUrlPreferida,
+    documento
+  );
+  const dataUrl = (await generarDataUrlQrPng(contenidoImpreso)) ?? "";
+  if (!dataUrl) {
+    throw new Error("No se pudo generar la imagen del QR del Club de Millas.");
+  }
   return { payloadOriginal, contenidoImpreso, dataUrl };
 }
 

@@ -9,13 +9,29 @@ export const INVITACION_CLUB_TIRILLA_LLAMADO = "INSCRIBITE HOY";
 export const INVITACION_CLUB_TIRILLA_CUERPO =
   "Acumula millas en cada compra y reclama premios a nivel nacional. Escanea el QR y registrate gratis.";
 
-/** Invitacion al club si el ticket no trae QR ni texto de acumulacion (p. ej. reimpresion). */
+/** Ticket con QR/código/URL BACATA de acumulación (cliente frecuente exitoso). */
+export function ticketTieneQrAcumulacionClubMillas(ticket: TicketVentaPayload): boolean {
+  if (ticket.fidelizacionQrDataUrl?.trim()) return true;
+  const cod = ticket.clubMillasCodigoCorto?.trim().toUpperCase() ?? "";
+  if (/^[A-Z0-9]{6}$/.test(cod)) return true;
+  const t = ticket.fidelizacionPayloadTexto?.trim() ?? "";
+  if (/^https?:\/\//i.test(t) || /^BACATA-CLUB-V1-/i.test(t)) return true;
+  return false;
+}
+
+/** Mensaje de aviso/error del club (no es URL ni token escaneable). */
+export function esAvisoErrorClubMillasEnTicket(ticket: TicketVentaPayload): boolean {
+  const t = ticket.fidelizacionPayloadTexto?.trim() ?? "";
+  if (!t || ticketTieneQrAcumulacionClubMillas(ticket)) return false;
+  return /club de millas/i.test(t);
+}
+
+/** Invitación al club si no hay QR de acumulación (los avisos de error no bloquean la invitación). */
 export async function aplicarPieClubMillasEnTicket(
   ticket: TicketVentaPayload
 ): Promise<TicketVentaPayload> {
   if (
-    ticket.fidelizacionQrDataUrl?.trim() ||
-    ticket.fidelizacionPayloadTexto?.trim() ||
+    ticketTieneQrAcumulacionClubMillas(ticket) ||
     ticket.clubMillasInvitacionQrDataUrl?.trim() ||
     ticket.clubMillasInvitacionUrl?.trim()
   ) {

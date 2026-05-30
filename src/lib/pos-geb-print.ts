@@ -9,7 +9,12 @@ import {
   MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO1,
   MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO2,
   MENSAJE_TIRILLA_CLUB_FRECUENTE_TITULO,
+  contenidoQrEscaneableClubMillasDesdeTicket,
 } from "@/lib/fidelizacion-qr";
+import {
+  esAvisoErrorClubMillasEnTicket,
+  ticketTieneQrAcumulacionClubMillas,
+} from "@/lib/club-millas-invitacion-ticket";
 import {
   MENSAJE_DOMICILIOS_TIRILLA_LINEA1,
   MENSAJE_DOMICILIOS_TIRILLA_LINEA2,
@@ -128,8 +133,7 @@ export function construirTextoTicketPlano(
   }
   if (
     !opciones?.omitirBloqueInvitacionClubTexto &&
-    !payload.fidelizacionQrDataUrl?.trim() &&
-    !payload.fidelizacionPayloadTexto?.trim() &&
+    !ticketTieneQrAcumulacionClubMillas(payload) &&
     (payload.clubMillasInvitacionUrl?.trim() || payload.clubMillasInvitacionQrDataUrl?.trim())
   ) {
     rows.push(textoInvitacionClubTicketPlano(W));
@@ -348,16 +352,14 @@ function construirHtmlTirillaTicket(
   const tieneQrFrecuenteImg = Boolean(payload.fidelizacionQrDataUrl?.trim());
   const codigoCortoFrec = p.clubMillasCodigoCorto?.trim().toUpperCase() ?? "";
   const msgClubFrec = p.fidelizacionPayloadTexto?.trim() ?? "";
-  const esBloqueClubFrecuente = Boolean(
-    tieneQrFrecuenteImg ||
-    codigoCortoFrec.length === 6 ||
-    /club de millas/i.test(msgClubFrec)
-  );
+  const tieneAcumulacionClub = ticketTieneQrAcumulacionClubMillas(p);
+  const esAvisoClub = esAvisoErrorClubMillasEnTicket(p);
+  const esBloqueClubFrecuente = Boolean(tieneAcumulacionClub || esAvisoClub);
   const qrFrecuenteBlock = esBloqueClubFrecuente
     ? `<div class="qr club-frecuente-promo">
           <p class="qr-t">${escapeHtml(MENSAJE_TIRILLA_CLUB_FRECUENTE_TITULO)}</p>
           ${
-            !tieneQrFrecuenteImg && /club de millas/i.test(msgClubFrec)
+            esAvisoClub
               ? `<p class="qr-paso">${escapeHtml(msgClubFrec)}</p>`
               : `<p class="qr-paso">${escapeHtml(MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO1)}</p>
           <p class="qr-paso">${escapeHtml(MENSAJE_TIRILLA_CLUB_FRECUENTE_PASO2)}</p>`
@@ -378,7 +380,7 @@ function construirHtmlTirillaTicket(
     : "";
 
   const qrInvitacionBlock =
-    !qrFrecuenteBlock &&
+    !tieneAcumulacionClub &&
     (p.clubMillasInvitacionQrDataUrl?.trim() || p.clubMillasInvitacionUrl?.trim())
       ? `<div class="club-invitacion-promo">
           <p class="club-invitacion-badge">Programa nacional</p>
@@ -842,23 +844,21 @@ export async function imprimirTicketConQz(prefs: ImpresionPosPrefs, payload: Tic
     },
   });
   const cols = columnasTicketPorTamanoPapel(prefs.tamanoPapel);
-  const fid = payload.fidelizacionPayloadTexto?.trim();
+  const contenidoQrClub = contenidoQrEscaneableClubMillasDesdeTicket(payload);
   const domUrl = payload.domiciliosLandingUrl?.trim();
   const invUrl = payload.clubMillasInvitacionUrl?.trim();
   const tieneQrInvitacion = Boolean(payload.clubMillasInvitacionQrDataUrl?.trim());
-  const tieneQrFrecuenteImgQz = Boolean(payload.fidelizacionQrDataUrl?.trim());
   const plain = construirTextoTicketPlano(payload, cols, {
-    ...(fid && tieneQrFrecuenteImgQz ? { omitirBloqueFidelizacionTexto: true } : {}),
+    ...(contenidoQrClub ? { omitirBloqueFidelizacionTexto: true } : {}),
     ...(domUrl ? { omitirBloqueDomiciliosTexto: true } : {}),
     ...(invUrl && tieneQrInvitacion ? { omitirBloqueInvitacionClubTexto: true } : {}),
   });
   const bloqueDomicilios = domUrl ? escPosBloqueQrDomicilios(domUrl, cols) : "";
-  const contenidoQrFid = fid || (tieneQrFrecuenteImgQz ? payload.fidelizacionQrDataUrl!.trim() : "");
-  const bloqueQr = contenidoQrFid
-    ? escPosBloqueQrFidelizacion(contenidoQrFid, cols, payload.clubMillasCodigoCorto)
+  const bloqueQr = contenidoQrClub
+    ? escPosBloqueQrFidelizacion(contenidoQrClub, cols, payload.clubMillasCodigoCorto)
     : "";
   const bloqueInvitacion =
-    invUrl && !fid ? escPosBloqueInvitacionClubMillas(invUrl, cols) : "";
+    invUrl && !contenidoQrClub ? escPosBloqueInvitacionClubMillas(invUrl, cols) : "";
   const init = "\x1B\x40";
   const abrirCajon = escPosAbrirCajon();
   const data = `${init}${bloqueDomicilios}${plain}${bloqueQr}${bloqueInvitacion}\n\n${abrirCajon}\n\x1D\x56\x00`;
