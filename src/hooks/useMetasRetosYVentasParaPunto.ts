@@ -47,10 +47,12 @@ export function useMetasRetosYVentasParaPunto(
   const [ventasTick, setVentasTick] = useState(0);
 
   const abortRef = useRef<AbortController | null>(null);
+  const loadGenRef = useRef(0);
 
   const refrescarVentas = useCallback(() => setVentasTick((t) => t + 1), []);
 
   const cargar = useCallback(async () => {
+    const gen = ++loadGenRef.current;
     abortRef.current?.abort();
     const ac = new AbortController();
     abortRef.current = ac;
@@ -58,6 +60,7 @@ export function useMetasRetosYVentasParaPunto(
     setError(null);
     try {
       const r = await fetchMetasRetosActivas(pv || null, ac.signal);
+      if (gen !== loadGenRef.current) return;
       if (!r.ok) {
         setError(r.message);
         setRetos([]);
@@ -70,10 +73,11 @@ export function useMetasRetosYVentasParaPunto(
       refrescarVentas();
     } catch (e) {
       if (e instanceof DOMException && e.name === "AbortError") return;
+      if (gen !== loadGenRef.current) return;
       setError("Error inesperado al cargar metas.");
       setRetos([]);
     } finally {
-      setCargando(false);
+      if (gen === loadGenRef.current) setCargando(false);
     }
   }, [pv, refrescarVentas]);
 

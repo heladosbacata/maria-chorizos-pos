@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import PosBodyPortal from "@/components/PosBodyPortal";
 import PosBroadcastBell from "@/components/PosBroadcastBell";
 import PosCajaMensajesBell from "@/components/PosCajaMensajesBell";
 
@@ -97,6 +98,7 @@ export default function PosChatFloatingDock({
   if (!visible) return null;
 
   return (
+    <PosBodyPortal open>
     <div
       ref={dockRef}
       className="fixed z-[170] flex max-w-[calc(100vw-1.5rem)] items-center gap-2 rounded-[1.35rem] border border-white/70 bg-gradient-to-br from-white/98 via-amber-50/95 to-indigo-50/95 px-3.5 py-2.5 shadow-[0_22px_60px_-20px_rgba(15,23,42,0.85)] ring-1 ring-slate-900/5"
@@ -139,5 +141,6 @@ export default function PosChatFloatingDock({
         <PosBroadcastBell getIdToken={getIdToken} currentUid={currentUid} />
       </div>
     </div>
+    </PosBodyPortal>
   );
 }

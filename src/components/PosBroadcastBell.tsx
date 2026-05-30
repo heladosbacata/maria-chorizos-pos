@@ -12,6 +12,7 @@ import {
   type PosBroadcastMensajeCliente,
   type PosBroadcastSesionCliente,
 } from "@/lib/wms-broadcast-client";
+import PosBodyPortal from "@/components/PosBodyPortal";
 import { comprimirImagenParaBroadcastChat } from "@/lib/pos-broadcast-chat-imagen";
 
 function formatHora(ms: number): string {
@@ -67,11 +68,22 @@ export default function PosBroadcastBell({ getIdToken, currentUid, visible = tru
   const abrirChat = useCallback(() => {
     setAbierto(true);
     setMinimizado(false);
+    setEmojiPickerAbierto(false);
+    setReactionMessageId(null);
   }, []);
 
   const minimizarChat = useCallback(() => {
     setAbierto(false);
     setMinimizado(true);
+    setEmojiPickerAbierto(false);
+    setReactionMessageId(null);
+  }, []);
+
+  const cerrarChat = useCallback(() => {
+    setAbierto(false);
+    setMinimizado(false);
+    setEmojiPickerAbierto(false);
+    setReactionMessageId(null);
   }, []);
 
   useEffect(() => {
@@ -370,57 +382,84 @@ export default function PosBroadcastBell({ getIdToken, currentUid, visible = tru
         ) : null}
       </button>
 
-      {minimizado ? (
-        <button
-          type="button"
-          onPointerDown={onPointerDownFlotante}
-          onPointerMove={onPointerMoveFlotante}
-          onPointerUp={onPointerUpFlotante}
-          onPointerCancel={onPointerCancelFlotante}
-          className="fixed z-[190] flex cursor-grab items-center gap-2 rounded-full border border-indigo-300/80 bg-gradient-to-br from-indigo-50 via-white to-violet-50 px-4 py-3 text-sm font-semibold text-indigo-950 shadow-[0_18px_40px_-16px_rgba(79,70,229,0.55)] transition hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-indigo-400/45 active:cursor-grabbing"
-          style={
-            posicionFlotante
-              ? {
-                  left: `${posicionFlotante.x}px`,
-                  top: `${posicionFlotante.y}px`,
-                }
-              : undefined
-          }
-          aria-label="Abrir chat grupal"
-        >
-          <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 text-indigo-900">
-            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
-              />
-            </svg>
-            {unread > 0 ? (
-              <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-gradient-to-br from-indigo-600 to-violet-600 px-1 text-[10px] font-bold text-white shadow-md ring-2 ring-white">
-                {unread > 9 ? "9+" : unread}
-              </span>
-            ) : null}
-          </span>
-          <span className="text-left leading-tight">
-            <span className="block">Chat grupal</span>
-            <span className="block text-[11px] font-medium text-indigo-800/80">Pendiente por responder</span>
-          </span>
-        </button>
-      ) : null}
-
-      {abierto ? (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6">
-          <div className="absolute inset-0 bg-slate-950/45 backdrop-blur-[2px]" />
+      <PosBodyPortal open={minimizado}>
+        {minimizado ? (
           <div
-            className="relative flex h-[min(88vh,780px)] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-indigo-200/50 bg-gradient-to-b from-[#15122a] via-[#1a1630] to-[#120f1c] text-indigo-50 shadow-[0_28px_90px_-20px_rgba(0,0,0,0.65)] ring-2 ring-indigo-500/20"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="pos-broadcast-title"
+            className="fixed z-[190] flex max-w-[calc(100vw-1rem)] items-center gap-1 rounded-full border border-indigo-300/80 bg-gradient-to-br from-indigo-50 via-white to-violet-50 py-2 pl-3 pr-1.5 text-sm font-semibold text-indigo-950 shadow-[0_18px_40px_-16px_rgba(79,70,229,0.55)] ring-1 ring-indigo-200/60"
+            style={
+              posicionFlotante
+                ? {
+                    left: `${posicionFlotante.x}px`,
+                    top: `${posicionFlotante.y}px`,
+                  }
+                : undefined
+            }
           >
-            <header className="relative flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3.5">
-              <div className="min-w-0">
+            <button
+              type="button"
+              onPointerDown={onPointerDownFlotante}
+              onPointerMove={onPointerMoveFlotante}
+              onPointerUp={onPointerUpFlotante}
+              onPointerCancel={onPointerCancelFlotante}
+              className="flex min-w-0 cursor-grab items-center gap-2 rounded-full pr-1 text-left transition hover:opacity-95 focus:outline-none focus:ring-2 focus:ring-indigo-400/45 active:cursor-grabbing"
+              aria-label="Abrir chat grupal"
+            >
+              <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-900">
+                <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                  />
+                </svg>
+                {unread > 0 ? (
+                  <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-gradient-to-br from-indigo-600 to-violet-600 px-1 text-[10px] font-bold text-white shadow-md ring-2 ring-white">
+                    {unread > 9 ? "9+" : unread}
+                  </span>
+                ) : null}
+              </span>
+              <span className="min-w-0 leading-tight">
+                <span className="block truncate">Chat grupal</span>
+                <span className="block text-[11px] font-medium text-indigo-800/80">Tocá para abrir</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                cerrarChat();
+              }}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-indigo-200/80 bg-white/90 text-indigo-900/80 transition hover:bg-white hover:text-indigo-950 focus:outline-none focus:ring-2 focus:ring-indigo-400/45"
+              aria-label="Cerrar chat minimizado"
+              title="Cerrar"
+            >
+              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        ) : null}
+      </PosBodyPortal>
+
+      <PosBodyPortal open={abierto} lockScroll onEscape={cerrarChat}>
+        {abierto ? (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6">
+            <button
+              type="button"
+              tabIndex={-1}
+              className="absolute inset-0 z-0 bg-slate-950/45 backdrop-blur-[2px]"
+              aria-label="Cerrar chat"
+              onClick={cerrarChat}
+            />
+            <div
+              className="relative z-10 flex h-[min(92vh,820px)] w-[min(100vw-1.5rem,56rem)] min-w-[min(100vw-1.5rem,20rem)] max-w-4xl flex-col overflow-hidden rounded-3xl border border-indigo-200/50 bg-gradient-to-b from-[#15122a] via-[#1a1630] to-[#120f1c] text-indigo-50 shadow-[0_28px_90px_-20px_rgba(0,0,0,0.65)] ring-2 ring-indigo-500/20"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="pos-broadcast-title"
+            >
+            <header className="relative flex shrink-0 flex-wrap items-start justify-between gap-2 border-b border-white/10 px-4 py-3.5 sm:flex-nowrap sm:gap-3">
+              <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 text-indigo-300/90">
                   <span className="text-[10px] font-bold uppercase tracking-[0.2em]">Todos los puntos</span>
                 </div>
@@ -429,20 +468,26 @@ export default function PosBroadcastBell({ getIdToken, currentUid, visible = tru
                 </h2>
                 <p className="mt-0.5 text-xs text-indigo-200/50">Administración abre y cierra este chat.</p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 <button
                   type="button"
-                  onClick={minimizarChat}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    minimizarChat();
+                  }}
                   className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-indigo-200/80 transition hover:bg-white/10 hover:text-white"
-                  aria-label="Minimizar"
+                  aria-label="Minimizar chat"
                 >
                   Minimizar
                 </button>
                 <button
                   type="button"
-                  onClick={() => setAbierto(false)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    cerrarChat();
+                  }}
                   className="rounded-xl border border-white/10 bg-white/5 p-2 text-indigo-200/80 transition hover:bg-white/10 hover:text-white"
-                  aria-label="Cerrar"
+                  aria-label="Cerrar chat"
                 >
                   <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -611,7 +656,7 @@ export default function PosBroadcastBell({ getIdToken, currentUid, visible = tru
               </p>
             ) : null}
 
-            <footer className="relative border-t border-white/10 bg-black/25 p-3">
+            <footer className="relative shrink-0 border-t border-white/10 bg-black/25 p-3">
               {imagenPendiente ? (
                 <div className="relative mb-2 inline-block">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -686,8 +731,15 @@ export default function PosBroadcastBell({ getIdToken, currentUid, visible = tru
                 <textarea
                   value={texto}
                   onChange={(e) => setTexto(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+                    e.preventDefault();
+                    if (enviando || (!texto.trim() && !imagenPendiente)) return;
+                    void enviar();
+                  }}
                   placeholder="Escribí al grupo…"
                   rows={2}
+                  title="Enter para enviar · Shift+Enter para nueva línea"
                   className="min-h-[44px] flex-1 resize-none bg-transparent px-2 py-2 text-sm text-white placeholder:text-indigo-200/35 focus:outline-none"
                   disabled={enviando}
                   maxLength={4000}
@@ -716,9 +768,10 @@ export default function PosBroadcastBell({ getIdToken, currentUid, visible = tru
                 </button>
               </div>
             </footer>
+            </div>
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </PosBodyPortal>
     </>
   );
 }

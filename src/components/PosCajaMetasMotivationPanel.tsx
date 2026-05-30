@@ -334,7 +334,9 @@ export default function PosCajaMetasMotivationPanel() {
             </div>
           </div>
         ) : tieneError ? (
-          <p className="mt-2 text-[10px] text-[#D4A574]">No se pudo cargar el reto. Reintentá al actualizar metas.</p>
+          <p className="mt-2 text-[10px] leading-snug text-[#D4A574]">
+            {error?.trim() || "No se pudo cargar el reto. Reintentá al actualizar metas."}
+          </p>
         ) : (
           <p className="mt-2 text-[10px] leading-snug text-[#9A8B74]">
             No hay reto diario ni campaña activa para tu punto en la fecha de hoy. Entrá a «Metas y bonificaciones» para

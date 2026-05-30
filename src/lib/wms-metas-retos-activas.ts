@@ -1,5 +1,7 @@
 import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
 
+const PATH_PROXY_POS = "/api/pos_metas_retos_activas";
+
 export type CadenciaReto = "diario" | "semanal" | "mensual";
 export type AlcancePuntoVentaReto = "todos" | "seleccion";
 
@@ -75,21 +77,50 @@ export type FetchMetasRetosActivasResult =
   | { ok: true; data: MetasRetosActivasPayload }
   | { ok: false; message: string };
 
+function buildMetasRetosActivasProxyUrl(puntoVenta: string | null | undefined): string {
+  const pv = (puntoVenta ?? "").replace(/\u00a0/g, " ").trim();
+  if (!pv) return PATH_PROXY_POS;
+  return `${PATH_PROXY_POS}?${new URLSearchParams({ puntoVenta: pv }).toString()}`;
+}
+
 /**
- * GET público del WMS (CORS). Sin Bearer. Sin caché del navegador.
+ * GET retos activos: primero proxy del propio POS (mismo origen); si falla, intenta WMS directo (CORS).
  */
 export async function fetchMetasRetosActivas(
   puntoVenta: string | null | undefined,
   signal?: AbortSignal
 ): Promise<FetchMetasRetosActivasResult> {
-  const url = buildMetasRetosActivasUrl(puntoVenta);
+  const urls = [buildMetasRetosActivasProxyUrl(puntoVenta), buildMetasRetosActivasUrl(puntoVenta)];
+  let lastNetworkMessage =
+    "No se pudo conectar con el WMS. Revisá NEXT_PUBLIC_WMS_URL y la conexión a internet.";
+
+  for (let i = 0; i < urls.length; i++) {
+    const url = urls[i]!;
+    try {
+      const res = await fetch(url, {
+        method: "GET",
+        cache: "no-store",
+        signal,
+        headers: { Accept: "application/json" },
+      });
+      const parsed = await parseMetasRetosActivasResponse(res);
+      if (parsed.ok) return parsed;
+      if (i === urls.length - 1) return parsed;
+      continue;
+    } catch (e) {
+      if (e instanceof DOMException && e.name === "AbortError") throw e;
+      lastNetworkMessage =
+        i === 0
+          ? "No se pudo consultar metas por el servidor del POS. Reintentá en unos segundos."
+          : "No se pudo conectar con el WMS (red, CORS o URL). Revisá NEXT_PUBLIC_WMS_URL.";
+    }
+  }
+
+  return { ok: false, message: lastNetworkMessage };
+}
+
+async function parseMetasRetosActivasResponse(res: Response): Promise<FetchMetasRetosActivasResult> {
   try {
-    const res = await fetch(url, {
-      method: "GET",
-      cache: "no-store",
-      signal,
-      headers: { Accept: "application/json" },
-    });
     const text = await res.text();
     let json: unknown;
     try {
@@ -131,8 +162,7 @@ export async function fetchMetasRetosActivas(
     if (e instanceof DOMException && e.name === "AbortError") throw e;
     return {
       ok: false,
-      message:
-        "No se pudo conectar con el WMS (red, CORS o URL). Revisá NEXT_PUBLIC_WMS_URL y que el origen del POS esté permitido en el WMS.",
+      message: "No se pudo leer la respuesta de metas activas.",
     };
   }
 }

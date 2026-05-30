@@ -8,6 +8,7 @@ import {
   wmsCajaMensajesUnread,
   type PosCajaMensajeCliente,
 } from "@/lib/wms-caja-mensajes-client";
+import PosBodyPortal from "@/components/PosBodyPortal";
 import { EVENT_OPEN_CAJA_CHAT } from "@/lib/pos-geb-chat-event";
 import {
   EVENT_DIAN_TEST_SET_REGISTRADO,
@@ -114,11 +115,19 @@ export default function PosCajaMensajesBell({ getIdToken, puntoVentaLabel, visib
   const abrirChat = useCallback(() => {
     setAbierto(true);
     setMinimizado(false);
+    setEmojiPickerAbierto(false);
   }, []);
 
   const minimizarChat = useCallback(() => {
     setAbierto(false);
     setMinimizado(true);
+    setEmojiPickerAbierto(false);
+  }, []);
+
+  const cerrarChat = useCallback(() => {
+    setAbierto(false);
+    setMinimizado(false);
+    setEmojiPickerAbierto(false);
   }, []);
 
   useEffect(() => {
@@ -345,53 +354,78 @@ export default function PosCajaMensajesBell({ getIdToken, puntoVentaLabel, visib
         ) : null}
       </button>
 
-      {minimizado ? (
-        <button
-          type="button"
-          onPointerDown={onPointerDownFlotante}
-          onPointerMove={onPointerMoveFlotante}
-          onPointerUp={onPointerUpFlotante}
-          onPointerCancel={onPointerCancelFlotante}
-          className="fixed z-[190] flex cursor-grab items-center gap-2 rounded-full border border-amber-300/80 bg-gradient-to-br from-amber-50 via-white to-yellow-50 px-4 py-3 text-sm font-semibold text-amber-950 shadow-[0_18px_40px_-16px_rgba(180,130,40,0.65)] transition hover:shadow-lg focus:outline-none focus:ring-2 focus:ring-brand-yellow/50 active:cursor-grabbing"
-          style={
-            posicionFlotante
-              ? {
-                  left: `${posicionFlotante.x}px`,
-                  top: `${posicionFlotante.y}px`,
-                }
-              : undefined
-          }
-          aria-label="Abrir chat con administración"
-        >
-          <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 text-amber-900">
-            <IconBell className="h-5 w-5" />
-            {unread > 0 ? (
-              <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-gradient-to-br from-red-500 to-amber-600 px-1 text-[10px] font-bold text-white shadow-md ring-2 ring-white">
-                {unread > 9 ? "9+" : unread}
-              </span>
-            ) : null}
-          </span>
-          <span className="text-left leading-tight">
-            <span className="block">Chat administración</span>
-            <span className="block text-[11px] font-medium text-amber-800/80">Pendiente por responder</span>
-          </span>
-        </button>
-      ) : null}
-
-      {abierto ? (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6">
-          <div className="absolute inset-0 bg-black/45 backdrop-blur-[2px]" />
+      <PosBodyPortal open={minimizado}>
+        {minimizado ? (
           <div
-            className="relative flex h-[min(88vh,780px)] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-amber-200/40 bg-gradient-to-b from-[#1c1410] via-[#231a14] to-[#181210] text-amber-50 shadow-[0_28px_90px_-20px_rgba(0,0,0,0.65),inset_0_1px_0_rgba(255,255,255,0.05)] ring-2 ring-amber-500/25"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="pos-caja-msg-title"
+            className="fixed z-[190] flex max-w-[calc(100vw-1rem)] items-center gap-1 rounded-full border border-amber-300/80 bg-gradient-to-br from-amber-50 via-white to-yellow-50 py-2 pl-3 pr-1.5 text-sm font-semibold text-amber-950 shadow-[0_18px_40px_-16px_rgba(180,130,40,0.65)] ring-1 ring-amber-200/60"
+            style={
+              posicionFlotante
+                ? {
+                    left: `${posicionFlotante.x}px`,
+                    top: `${posicionFlotante.y}px`,
+                  }
+                : undefined
+            }
           >
+            <button
+              type="button"
+              onPointerDown={onPointerDownFlotante}
+              onPointerMove={onPointerMoveFlotante}
+              onPointerUp={onPointerUpFlotante}
+              onPointerCancel={onPointerCancelFlotante}
+              className="flex min-w-0 cursor-grab items-center gap-2 rounded-full pr-1 text-left transition hover:opacity-95 focus:outline-none focus:ring-2 focus:ring-brand-yellow/50 active:cursor-grabbing"
+              aria-label="Abrir chat con administración"
+            >
+              <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-900">
+                <IconBell className="h-5 w-5" />
+                {unread > 0 ? (
+                  <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-gradient-to-br from-red-500 to-amber-600 px-1 text-[10px] font-bold text-white shadow-md ring-2 ring-white">
+                    {unread > 9 ? "9+" : unread}
+                  </span>
+                ) : null}
+              </span>
+              <span className="min-w-0 leading-tight">
+                <span className="block truncate">Chat administración</span>
+                <span className="block text-[11px] font-medium text-amber-800/80">Tocá para abrir</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                cerrarChat();
+              }}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-amber-200/80 bg-white/90 text-amber-900/80 transition hover:bg-white hover:text-amber-950 focus:outline-none focus:ring-2 focus:ring-brand-yellow/50"
+              aria-label="Cerrar chat minimizado"
+              title="Cerrar"
+            >
+              <IconX className="h-4 w-4" />
+            </button>
+          </div>
+        ) : null}
+      </PosBodyPortal>
+
+      <PosBodyPortal open={abierto} lockScroll onEscape={cerrarChat}>
+        {abierto ? (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6">
+            <button
+              type="button"
+              tabIndex={-1}
+              className="absolute inset-0 z-0 bg-black/45 backdrop-blur-[2px]"
+              aria-label="Cerrar chat"
+              onClick={cerrarChat}
+            />
+            <div
+              className="relative z-10 flex h-[min(92vh,820px)] w-[min(100vw-1.5rem,56rem)] min-w-[min(100vw-1.5rem,20rem)] max-w-4xl flex-col overflow-hidden rounded-3xl border border-amber-200/40 bg-gradient-to-b from-[#1c1410] via-[#231a14] to-[#181210] text-amber-50 shadow-[0_28px_90px_-20px_rgba(0,0,0,0.65),inset_0_1px_0_rgba(255,255,255,0.05)] ring-2 ring-amber-500/25"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="pos-caja-msg-title"
+            >
             <div className="pointer-events-none absolute -left-16 -top-20 h-48 w-48 rounded-full bg-amber-500/20 blur-3xl" />
             <div className="pointer-events-none absolute -bottom-12 -right-10 h-40 w-40 rounded-full bg-yellow-400/10 blur-3xl" />
 
-            <header className="relative flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3.5">
-              <div className="min-w-0">
+            <header className="relative flex shrink-0 flex-wrap items-start justify-between gap-2 border-b border-white/10 px-4 py-3.5 sm:flex-nowrap sm:gap-3">
+              <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 text-amber-400/90">
                   <IconSparkles className="h-4 w-4 shrink-0" />
                   <span className="text-[10px] font-bold uppercase tracking-[0.22em]">Administración</span>
@@ -403,20 +437,26 @@ export default function PosCajaMensajesBell({ getIdToken, puntoVentaLabel, visib
                   <p className="mt-0.5 truncate text-xs text-amber-200/50">{puntoVentaLabel}</p>
                 ) : null}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 <button
                   type="button"
-                  onClick={minimizarChat}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    minimizarChat();
+                  }}
                   className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-amber-200/80 transition hover:bg-white/10 hover:text-white"
-                  aria-label="Minimizar"
+                  aria-label="Minimizar chat"
                 >
                   Minimizar
                 </button>
                 <button
                   type="button"
-                  onClick={() => setAbierto(false)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    cerrarChat();
+                  }}
                   className="rounded-xl border border-white/10 bg-white/5 p-2 text-amber-200/80 transition hover:bg-white/10 hover:text-white"
-                  aria-label="Cerrar"
+                  aria-label="Cerrar chat"
                 >
                   <IconX className="h-5 w-5" />
                 </button>
@@ -486,7 +526,7 @@ export default function PosCajaMensajesBell({ getIdToken, puntoVentaLabel, visib
               </p>
             ) : null}
 
-            <footer className="relative border-t border-white/10 bg-black/25 p-3">
+            <footer className="relative shrink-0 border-t border-white/10 bg-black/25 p-3">
               {emojiPickerAbierto ? (
                 <div className="mb-2 rounded-2xl border border-amber-500/20 bg-white/[0.07] p-2 shadow-inner">
                   <div className="flex flex-wrap gap-1.5">
@@ -517,8 +557,15 @@ export default function PosCajaMensajesBell({ getIdToken, puntoVentaLabel, visib
                 <textarea
                   value={texto}
                   onChange={(e) => setTexto(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+                    e.preventDefault();
+                    if (enviando || !texto.trim()) return;
+                    void enviar();
+                  }}
                   placeholder="Responder a administración…"
                   rows={2}
+                  title="Enter para enviar · Shift+Enter para nueva línea"
                   className="min-h-[44px] flex-1 resize-none bg-transparent px-2 py-2 text-sm text-white placeholder:text-amber-200/35 focus:outline-none"
                   disabled={enviando}
                   maxLength={4000}
@@ -534,9 +581,10 @@ export default function PosCajaMensajesBell({ getIdToken, puntoVentaLabel, visib
                 </button>
               </div>
             </footer>
+            </div>
           </div>
-        </div>
-      ) : null}
+        ) : null}
+      </PosBodyPortal>
     </>
   );
 }
