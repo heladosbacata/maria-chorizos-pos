@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import type { ResultadoEnvioClaveClubMillas } from "@/components/EnviarClaveClubMillasDocumentoButton";
 import {
   millasGanadasPorMontoCop,
   millasSaldoProyectadoTrasCompra,
 } from "@/lib/club-millas-calculo-venta";
+import EnviarClaveClubMillasDocumentoButton from "@/components/EnviarClaveClubMillasDocumentoButton";
+import { documentoListoParaClubMillas } from "@/lib/recuperar-clave-club-millas-documento";
 import type { PlanMillasClienteResumen } from "@/lib/plan-millas-validar-resumen";
 
 export interface ClienteFrecuenteAvisoModalProps {
@@ -31,10 +34,42 @@ export default function ClienteFrecuenteAvisoModal({
   totalCompraCop = 0,
 }: ClienteFrecuenteAvisoModalProps) {
   const [mounted, setMounted] = useState(false);
+  const [avisoCorreo, setAvisoCorreo] = useState<ResultadoEnvioClaveClubMillas | null>(null);
+  const cerrarTrasCorreoRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (!open) {
+      setAvisoCorreo(null);
+      if (cerrarTrasCorreoRef.current) {
+        clearTimeout(cerrarTrasCorreoRef.current);
+        cerrarTrasCorreoRef.current = null;
+      }
+    }
+  }, [open]);
+
+  useEffect(() => {
+    return () => {
+      if (cerrarTrasCorreoRef.current) clearTimeout(cerrarTrasCorreoRef.current);
+    };
+  }, []);
+
+  const onResultadoCorreo = useCallback(
+    (r: ResultadoEnvioClaveClubMillas) => {
+      setAvisoCorreo(r);
+      if (r.ok) {
+        if (cerrarTrasCorreoRef.current) clearTimeout(cerrarTrasCorreoRef.current);
+        cerrarTrasCorreoRef.current = setTimeout(() => {
+          cerrarTrasCorreoRef.current = null;
+          onCerrar();
+        }, 1600);
+      }
+    },
+    [onCerrar]
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -48,7 +83,8 @@ export default function ClienteFrecuenteAvisoModal({
   if (!mounted || !open) return null;
 
   const nombre = planMillasResumen?.nombre?.trim();
-  const documento = planMillasResumen?.documento?.trim();
+  const documento = planMillasResumen?.documento?.trim() ?? "";
+  const docListoClave = documentoListoParaClubMillas(documento);
   const puntos = planMillasResumen?.millas;
   const tienePuntos = typeof puntos === "number";
   const millasActuales = tienePuntos ? Math.trunc(puntos) : undefined;
@@ -131,10 +167,40 @@ export default function ClienteFrecuenteAvisoModal({
             <p className="mt-6 text-center text-sm text-slate-400">No hay datos del cliente para mostrar.</p>
           )}
 
+          {docListoClave ? (
+            <div className="mt-6">
+              <p className="mb-2 text-center text-[11px] leading-snug text-emerald-200/80">
+                Si el cliente olvidó su clave del Club de Millas, reenviala al correo registrado con este documento.
+              </p>
+              {avisoCorreo ? (
+                <div
+                  role="status"
+                  className={`mb-3 rounded-xl border px-3 py-2.5 text-center text-xs font-semibold leading-snug ${
+                    avisoCorreo.ok
+                      ? "border-emerald-400/50 bg-emerald-500/25 text-emerald-50"
+                      : "border-amber-400/45 bg-amber-500/15 text-amber-50"
+                  }`}
+                >
+                  {avisoCorreo.message}
+                  {avisoCorreo.ok ? (
+                    <p className="mt-1 text-[10px] font-medium text-emerald-100/90">
+                      Podés seguir con la venta…
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+              <EnviarClaveClubMillasDocumentoButton
+                documento={documento}
+                variant="dark"
+                onResultado={onResultadoCorreo}
+              />
+            </div>
+          ) : null}
+
           <button
             type="button"
             onClick={onCerrar}
-            className="mt-8 w-full rounded-2xl bg-gradient-to-r from-emerald-500 to-emerald-400 py-3.5 text-sm font-bold text-slate-900 shadow-lg shadow-emerald-900/30 transition-transform hover:scale-[1.01] active:scale-[0.99]"
+            className="mt-6 w-full rounded-2xl bg-gradient-to-r from-emerald-500 to-emerald-400 py-3.5 text-sm font-bold text-slate-900 shadow-lg shadow-emerald-900/30 transition-transform hover:scale-[1.01] active:scale-[0.99]"
           >
             Entendido
           </button>

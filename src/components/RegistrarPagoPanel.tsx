@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import ClienteFrecuenteAvisoModal from "@/components/ClienteFrecuenteAvisoModal";
 import ClienteFrecuenteDocumentoModal from "@/components/ClienteFrecuenteDocumentoModal";
-import EnviarClaveClubMillasDocumentoButton from "@/components/EnviarClaveClubMillasDocumentoButton";
 import {
   millasGanadasPorMontoCop,
   millasSaldoProyectadoTrasCompra,
@@ -676,18 +675,6 @@ export default function RegistrarPagoPanel({
                   </p>
                 </>
               ) : null}
-            </div>
-          ) : null}
-          {clienteFrecuenteActivo && documentoClienteFrecuenteValidado ? (
-            <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50/90 px-3 py-3">
-              <p className="text-[10px] leading-snug text-emerald-950">
-                Si el cliente olvidó su clave del Club de Millas, reenviala al correo registrado en el plan (solo tras validar el documento).
-              </p>
-              <EnviarClaveClubMillasDocumentoButton
-                documento={documentoClienteFrecuenteValidado}
-                disabled={cobrando}
-                className="mt-2"
-              />
             </div>
           ) : null}
           <p className="mt-1.5 text-center text-[11px] leading-snug text-slate-500">

@@ -77,7 +77,7 @@ export async function enviarBienvenidaClienteClubMillasPorCorreo(opts: {
   to: string;
   nombreDisplay: string;
   pin: string;
-}): Promise<{ ok: true; via: "smtp" | "zoho" | "resend" } | { ok: false; error: string }> {
+}): Promise<{ ok: true; via: string } | { ok: false; error: string }> {
   const { subject, text, html } = construirCorreoBienvenidaClubMillas({
     nombreDisplay: opts.nombreDisplay,
     pin: opts.pin,
