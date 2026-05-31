@@ -8,6 +8,7 @@ export type PosCajaMensajeCliente = {
   direction: "admin_to_pos" | "pos_to_admin";
   read: boolean;
   text: string;
+  imageUrl?: string;
   senderUid: string;
 };
 
@@ -15,6 +16,7 @@ const PATH_LISTAR = "/api/pos_caja_mensajes_listar";
 const PATH_UNREAD = "/api/pos_caja_mensajes_unread";
 const PATH_RESPONDER = "/api/pos_caja_mensajes_responder";
 const PATH_MARCAR = "/api/pos_caja_mensajes_marcar_leido";
+const PATH_SUBIR_IMAGEN = "/api/pos_caja_mensajes_subir_imagen";
 
 export async function wmsCajaMensajesListar(idToken: string): Promise<
   { ok: true; mensajes: PosCajaMensajeCliente[] } | { ok: false; error: string }
@@ -65,9 +67,34 @@ export async function wmsCajaMensajesUnread(idToken: string): Promise<
   }
 }
 
+export async function wmsCajaMensajesSubirImagen(
+  idToken: string,
+  file: File
+): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  const t = idToken?.trim();
+  if (!t) return { ok: false, error: "Sin sesión." };
+  try {
+    const fd = new FormData();
+    fd.append("imagen", file);
+    const res = await fetch(PATH_SUBIR_IMAGEN, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${t}`, Accept: "application/json" },
+      body: fd,
+    });
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; url?: string; error?: string };
+    if (!res.ok || !data.ok || !data.url) {
+      return { ok: false, error: data.error || `Error ${res.status}` };
+    }
+    return { ok: true, url: data.url };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Red" };
+  }
+}
+
 export async function wmsCajaMensajesResponder(
   idToken: string,
-  text: string
+  text: string,
+  imageUrl?: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const t = idToken?.trim();
   if (!t) return { ok: false, error: "Sin sesión." };
@@ -79,7 +106,10 @@ export async function wmsCajaMensajesResponder(
         "Content-Type": "application/json",
         Accept: "application/json",
       },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({
+        text,
+        ...(imageUrl ? { imageUrl } : {}),
+      }),
     });
     const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
     if (!res.ok || !data.ok) {

@@ -5,10 +5,17 @@ import {
   wmsCajaMensajesListar,
   wmsCajaMensajesMarcarLeido,
   wmsCajaMensajesResponder,
+  wmsCajaMensajesSubirImagen,
   wmsCajaMensajesUnread,
   type PosCajaMensajeCliente,
 } from "@/lib/wms-caja-mensajes-client";
 import PosBodyPortal from "@/components/PosBodyPortal";
+import {
+  IconImagePlus,
+  IconXSmall,
+  PosCajaMensajeContenido,
+  validarImagenChat,
+} from "@/lib/pos-caja-mensajes-ui";
 import { EVENT_OPEN_CAJA_CHAT } from "@/lib/pos-geb-chat-event";
 import {
   EVENT_DIAN_TEST_SET_REGISTRADO,
@@ -103,11 +110,17 @@ export default function PosCajaMensajesBell({
   const [mensajes, setMensajes] = useState<PosCajaMensajeCliente[]>([]);
   const [cargando, setCargando] = useState(false);
   const [enviando, setEnviando] = useState(false);
+  const [subiendoImagen, setSubiendoImagen] = useState(false);
   const [texto, setTexto] = useState("");
   const [emojiPickerAbierto, setEmojiPickerAbierto] = useState(false);
+  const [imagenPendiente, setImagenPendiente] = useState<{ file: File; previewUrl: string } | null>(
+    null
+  );
   const [error, setError] = useState<string | null>(null);
   const [avisoSistema, setAvisoSistema] = useState<string | null>(null);
   const listaRef = useRef<HTMLDivElement>(null);
+  const inputImagenRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const prevUnreadRef = useRef(0);
   const autoAbiertoInicialRef = useRef(false);
   const dragRef = useRef<{
@@ -118,6 +131,56 @@ export default function PosCajaMensajesBell({
     originY: number;
     moved: boolean;
   } | null>(null);
+
+  const quitarImagenPendiente = useCallback(() => {
+    setImagenPendiente((prev) => {
+      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+      return null;
+    });
+    if (inputImagenRef.current) inputImagenRef.current.value = "";
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (imagenPendiente?.previewUrl) URL.revokeObjectURL(imagenPendiente.previewUrl);
+    };
+  }, [imagenPendiente?.previewUrl]);
+
+  const onElegirImagen = (file: File | null) => {
+    if (!file) return;
+    const err = validarImagenChat(file);
+    if (err) {
+      setError(err);
+      return;
+    }
+    quitarImagenPendiente();
+    setImagenPendiente({ file, previewUrl: URL.createObjectURL(file) });
+    setError(null);
+  };
+
+  const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const clipboardData = e.clipboardData;
+    if (!clipboardData) return;
+    let file: File | null = null;
+    if (clipboardData.files?.length) {
+      file = clipboardData.files[0];
+    } else if (clipboardData.items?.length) {
+      for (let i = 0; i < clipboardData.items.length; i++) {
+        const item = clipboardData.items[i];
+        if (item.kind === "file") {
+          const f = item.getAsFile();
+          if (f) {
+            file = f;
+            break;
+          }
+        }
+      }
+    }
+    if (file && file.size > 0 && (file.type.startsWith("image/") || !file.type)) {
+      e.preventDefault();
+      onElegirImagen(file);
+    }
+  };
 
   const abrirChat = useCallback(() => {
     setAbierto(true);
@@ -320,7 +383,7 @@ export default function PosCajaMensajesBell({
 
   const enviar = async () => {
     const t = texto.trim();
-    if (!t) return;
+    if (!t && !imagenPendiente) return;
     setEnviando(true);
     setError(null);
     try {
@@ -329,22 +392,36 @@ export default function PosCajaMensajesBell({
         setError("Sesión inválida.");
         return;
       }
-      const r = await wmsCajaMensajesResponder(token, t);
+      let imageUrl: string | undefined;
+      if (imagenPendiente) {
+        setSubiendoImagen(true);
+        const up = await wmsCajaMensajesSubirImagen(token, imagenPendiente.file);
+        if (!up.ok) {
+          setError(up.error);
+          return;
+        }
+        imageUrl = up.url;
+      }
+      const r = await wmsCajaMensajesResponder(token, t, imageUrl);
       if (!r.ok) {
         setError(r.error);
         return;
       }
       setTexto("");
       setEmojiPickerAbierto(false);
+      quitarImagenPendiente();
       await cargarHilo();
     } finally {
       setEnviando(false);
+      setSubiendoImagen(false);
     }
   };
 
   const insertarEmoji = (emoji: string) => {
     setTexto((prev) => `${prev}${prev && !prev.endsWith(" ") ? " " : ""}${emoji} `);
   };
+
+  const puedeEnviar = Boolean(texto.trim() || imagenPendiente);
 
   if (!visible) return null;
 
@@ -516,7 +593,7 @@ export default function PosCajaMensajesBell({
                             : "rounded-tr-md bg-gradient-to-br from-emerald-700 to-teal-800 text-white"
                         }`}
                       >
-                        <p className="whitespace-pre-wrap break-words">{m.text}</p>
+                        <PosCajaMensajeContenido mensaje={m} />
                         <p
                           className={`mt-1 text-[10px] font-semibold uppercase tracking-wide ${
                             deAdmin ? "text-amber-900/45" : "text-emerald-100/75"
@@ -537,9 +614,27 @@ export default function PosCajaMensajesBell({
               </p>
             ) : null}
 
-            <footer className="relative shrink-0 border-t border-white/10 bg-black/25 p-3">
+            <footer className="relative shrink-0 space-y-2 border-t border-white/10 bg-black/25 p-3">
+              {imagenPendiente ? (
+                <div className="relative inline-block">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={imagenPendiente.previewUrl}
+                    alt="Vista previa"
+                    className="h-20 w-auto max-w-[200px] rounded-lg border border-amber-400/30 object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={quitarImagenPendiente}
+                    className="absolute -right-2 -top-2 rounded-full bg-gray-900 p-1 text-white shadow hover:bg-gray-800"
+                    aria-label="Quitar imagen"
+                  >
+                    <IconXSmall className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ) : null}
               {emojiPickerAbierto ? (
-                <div className="mb-2 rounded-2xl border border-amber-500/20 bg-white/[0.07] p-2 shadow-inner">
+                <div className="rounded-2xl border border-amber-500/20 bg-white/[0.07] p-2 shadow-inner">
                   <div className="flex flex-wrap gap-1.5">
                     {EMOJIS_CHAT_RAPIDO.map((emoji) => (
                       <button
@@ -555,23 +650,42 @@ export default function PosCajaMensajesBell({
                   </div>
                 </div>
               ) : null}
-              <div className="flex gap-2 rounded-2xl border border-amber-500/20 bg-white/[0.06] p-1.5 focus-within:border-brand-yellow/50 focus-within:ring-1 focus-within:ring-brand-yellow/30">
+              <div className="flex gap-1.5 rounded-2xl border border-amber-500/20 bg-white/[0.06] p-1.5 focus-within:border-brand-yellow/50 focus-within:ring-1 focus-within:ring-brand-yellow/30">
+                <input
+                  ref={inputImagenRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/*"
+                  className="hidden"
+                  onChange={(e) => onElegirImagen(e.target.files?.[0] ?? null)}
+                />
                 <button
                   type="button"
                   onClick={() => setEmojiPickerAbierto((v) => !v)}
-                  className="flex h-11 w-11 shrink-0 items-center justify-center self-end rounded-xl border border-white/15 text-xl text-amber-100/90 transition hover:bg-white/10"
+                  className="flex h-10 w-10 shrink-0 items-center justify-center self-end rounded-xl border border-white/15 text-xl text-amber-100/90 transition hover:bg-white/10"
                   aria-label="Agregar emoji"
                   title="Agregar emoji"
                 >
                   😊
                 </button>
+                <button
+                  type="button"
+                  disabled={enviando}
+                  onClick={() => inputImagenRef.current?.click()}
+                  className="flex h-10 w-10 shrink-0 items-center justify-center self-end rounded-xl border border-white/10 bg-white/5 text-amber-200/80 transition hover:bg-white/10 hover:text-white disabled:opacity-40"
+                  aria-label="Adjuntar foto"
+                  title="Adjuntar foto (o pegar con Ctrl+V)"
+                >
+                  {subiendoImagen ? <Spinner className="h-5 w-5" /> : <IconImagePlus className="h-5 w-5" />}
+                </button>
                 <textarea
+                  ref={textareaRef}
                   value={texto}
                   onChange={(e) => setTexto(e.target.value)}
+                  onPaste={onPaste}
                   onKeyDown={(e) => {
                     if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
                     e.preventDefault();
-                    if (enviando || !texto.trim()) return;
+                    if (enviando || !puedeEnviar) return;
                     void enviar();
                   }}
                   placeholder="Responder a administración…"
@@ -583,7 +697,7 @@ export default function PosCajaMensajesBell({
                 />
                 <button
                   type="button"
-                  disabled={enviando || !texto.trim()}
+                  disabled={enviando || !puedeEnviar}
                   onClick={() => void enviar()}
                   className="flex h-11 w-11 shrink-0 items-center justify-center self-end rounded-xl bg-gradient-to-br from-brand-yellow to-amber-600 text-gray-900 shadow-lg transition hover:brightness-105 disabled:opacity-40"
                   aria-label="Enviar respuesta"

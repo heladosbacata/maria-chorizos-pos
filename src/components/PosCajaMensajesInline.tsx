@@ -5,8 +5,15 @@ import {
   wmsCajaMensajesListar,
   wmsCajaMensajesMarcarLeido,
   wmsCajaMensajesResponder,
+  wmsCajaMensajesSubirImagen,
   type PosCajaMensajeCliente,
 } from "@/lib/wms-caja-mensajes-client";
+import {
+  IconImagePlus,
+  IconXSmall,
+  PosCajaMensajeContenido,
+  validarImagenChat,
+} from "@/lib/pos-caja-mensajes-ui";
 import { EVENT_OPEN_CAJA_CHAT } from "@/lib/pos-geb-chat-event";
 
 const PREVIEW_COUNT = 2;
@@ -56,9 +63,40 @@ export default function PosCajaMensajesInline({ getIdToken, className = "" }: Pr
   const [mensajes, setMensajes] = useState<PosCajaMensajeCliente[]>([]);
   const [cargando, setCargando] = useState(false);
   const [enviando, setEnviando] = useState(false);
+  const [subiendoImagen, setSubiendoImagen] = useState(false);
   const [texto, setTexto] = useState("");
+  const [imagenPendiente, setImagenPendiente] = useState<{ file: File; previewUrl: string } | null>(
+    null
+  );
   const [error, setError] = useState<string | null>(null);
   const listaRef = useRef<HTMLDivElement>(null);
+  const inputImagenRef = useRef<HTMLInputElement>(null);
+
+  const quitarImagenPendiente = useCallback(() => {
+    setImagenPendiente((prev) => {
+      if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl);
+      return null;
+    });
+    if (inputImagenRef.current) inputImagenRef.current.value = "";
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (imagenPendiente?.previewUrl) URL.revokeObjectURL(imagenPendiente.previewUrl);
+    };
+  }, [imagenPendiente?.previewUrl]);
+
+  const onElegirImagen = (file: File | null) => {
+    if (!file) return;
+    const err = validarImagenChat(file);
+    if (err) {
+      setError(err);
+      return;
+    }
+    quitarImagenPendiente();
+    setImagenPendiente({ file, previewUrl: URL.createObjectURL(file) });
+    setError(null);
+  };
 
   const ultimosMensajes = useMemo(() => mensajes.slice(-PREVIEW_COUNT), [mensajes]);
 
@@ -98,7 +136,7 @@ export default function PosCajaMensajesInline({ getIdToken, className = "" }: Pr
 
   const enviar = async () => {
     const t = texto.trim();
-    if (!t) return;
+    if (!t && !imagenPendiente) return;
     setEnviando(true);
     setError(null);
     try {
@@ -107,17 +145,31 @@ export default function PosCajaMensajesInline({ getIdToken, className = "" }: Pr
         setError("Sesión inválida.");
         return;
       }
-      const r = await wmsCajaMensajesResponder(token, t);
+      let imageUrl: string | undefined;
+      if (imagenPendiente) {
+        setSubiendoImagen(true);
+        const up = await wmsCajaMensajesSubirImagen(token, imagenPendiente.file);
+        if (!up.ok) {
+          setError(up.error);
+          return;
+        }
+        imageUrl = up.url;
+      }
+      const r = await wmsCajaMensajesResponder(token, t, imageUrl);
       if (!r.ok) {
         setError(r.error);
         return;
       }
       setTexto("");
+      quitarImagenPendiente();
       await cargarHilo();
     } finally {
       setEnviando(false);
+      setSubiendoImagen(false);
     }
   };
+
+  const puedeEnviar = Boolean(texto.trim() || imagenPendiente);
 
   return (
     <div
@@ -160,7 +212,10 @@ export default function PosCajaMensajesInline({ getIdToken, className = "" }: Pr
                       : "rounded-tr-sm bg-gradient-to-br from-emerald-700 to-teal-800 text-white"
                   }`}
                 >
-                  <p className="whitespace-pre-wrap break-words">{m.text}</p>
+                  <PosCajaMensajeContenido
+                    mensaje={m}
+                    classNameImagen="max-h-16 max-w-full rounded object-cover"
+                  />
                   <p
                     className={`mt-0.5 text-[8px] font-semibold uppercase tracking-wide ${
                       deAdmin ? "text-amber-900/50" : "text-emerald-100/75"
@@ -181,8 +236,43 @@ export default function PosCajaMensajesInline({ getIdToken, className = "" }: Pr
         </p>
       ) : null}
 
-      <div className="border-t border-white/10 bg-black/20 p-1.5">
+      <div className="border-t border-white/10 bg-black/20 p-1.5 space-y-1.5">
+        {imagenPendiente ? (
+          <div className="relative inline-block">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={imagenPendiente.previewUrl}
+              alt="Vista previa"
+              className="h-14 w-auto max-w-[120px] rounded border border-amber-400/30 object-cover"
+            />
+            <button
+              type="button"
+              onClick={quitarImagenPendiente}
+              className="absolute -right-1.5 -top-1.5 rounded-full bg-gray-900 p-0.5 text-white"
+              aria-label="Quitar imagen"
+            >
+              <IconXSmall className="h-3 w-3" />
+            </button>
+          </div>
+        ) : null}
         <div className="flex gap-1.5 rounded-lg border border-amber-500/25 bg-white/[0.07] p-1 focus-within:border-[#FFC81C]/45">
+          <input
+            ref={inputImagenRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/*"
+            className="hidden"
+            onChange={(e) => onElegirImagen(e.target.files?.[0] ?? null)}
+          />
+          <button
+            type="button"
+            disabled={enviando}
+            onClick={() => inputImagenRef.current?.click()}
+            className="flex h-8 w-8 shrink-0 items-center justify-center self-end rounded-md border border-white/10 text-[#FFE9A8]/80 hover:bg-white/10 disabled:opacity-40"
+            aria-label="Adjuntar foto"
+            title="Adjuntar foto"
+          >
+            {subiendoImagen ? <Spinner className="h-4 w-4" /> : <IconImagePlus className="h-4 w-4" />}
+          </button>
           <textarea
             value={texto}
             onChange={(e) => setTexto(e.target.value)}
@@ -194,7 +284,7 @@ export default function PosCajaMensajesInline({ getIdToken, className = "" }: Pr
           />
           <button
             type="button"
-            disabled={enviando || !texto.trim()}
+            disabled={enviando || !puedeEnviar}
             onClick={() => void enviar()}
             className="flex h-8 w-8 shrink-0 items-center justify-center self-end rounded-md bg-gradient-to-br from-[#FFC81C] to-amber-600 text-gray-900 shadow-md transition hover:brightness-105 disabled:opacity-40"
             aria-label="Enviar"
