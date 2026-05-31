@@ -118,19 +118,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const totalCopRaw = typeof b.totalCop === "number" ? b.totalCop : Number(b.totalCop);
   const isoTimestamp = str(b.isoTimestamp);
   const documento = str(b.clienteDocumento).replace(/\D/g, "");
-  const socioId = str(b.socioId) || str(b.clienteFrecuenteSocioId);
+  let socioId = str(b.socioId) || str(b.clienteFrecuenteSocioId);
 
   if (!puntoVenta || !isoTimestamp) {
     return res.status(400).json({ ok: false, message: "Faltan puntoVenta o isoTimestamp." });
   }
   if (!documento || documento.length < 5) {
     return res.status(400).json({ ok: false, message: "Falta documento del cliente frecuente validado." });
-  }
-  if (!socioId) {
-    return res.status(400).json({
-      ok: false,
-      message: "Falta socioId del club. Volvé a validar el documento en «Cliente frecuente» antes de cobrar.",
-    });
   }
 
   const montoTotalCop =
@@ -178,6 +172,40 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const primaryBase = getWmsPublicBaseUrl().replace(/\/$/, "");
   const fallbackBase = (process.env.WMS_CATALOGO_FALLBACK_URL?.trim() || WMS_VERCEL_URL).replace(/\/$/, "");
   const secretHeaders = headersClubMillasPosSecretHaciaWms(clubMillasSecret);
+
+  async function resolverSocioIdPorDocumento(base: string): Promise<string> {
+    const path = `/api/club-de-millas/pos/validar-documento?documento=${encodeURIComponent(documento)}`;
+    try {
+      const res = await fetch(`${base.replace(/\/$/, "")}${path}`, {
+        method: "GET",
+        headers: { Accept: "application/json" },
+        cache: "no-store",
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        registrado?: boolean;
+        socioId?: string;
+        data?: { socioId?: string; registrado?: boolean };
+      };
+      if (!res.ok || data.registrado !== true) return "";
+      return str(data.socioId) || str(data.data?.socioId);
+    } catch {
+      return "";
+    }
+  }
+
+  if (!socioId) {
+    socioId = await resolverSocioIdPorDocumento(primaryBase);
+    if (!socioId && fallbackBase.toLowerCase() !== primaryBase.toLowerCase()) {
+      socioId = await resolverSocioIdPorDocumento(fallbackBase);
+    }
+  }
+  if (!socioId) {
+    return res.status(400).json({
+      ok: false,
+      message: "Falta socioId del club. Volvé a validar el documento en «Cliente frecuente» antes de cobrar.",
+    });
+  }
+  wmsBody.socioId = socioId;
 
   let regOutcome = await postWms(primaryBase, CLUB_REGISTRAR_PATH, wmsBody, secretHeaders);
   if (

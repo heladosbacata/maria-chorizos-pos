@@ -2,8 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { filtrarClientesPorBusqueda, nombreDisplayCliente } from "@/lib/clientes-pos-firestore";
-import ReenviarClaveClubMillasButton from "@/components/ReenviarClaveClubMillasButton";
-import { emailValidoParaClubMillas } from "@/lib/reenviar-bienvenida-club-millas-cliente";
 import { CONSUMIDOR_FINAL_ID, type ClientePosFirestoreDoc, type ClienteVentaRef } from "@/types/clientes-pos";
 
 const consumidorFinalRef: ClienteVentaRef = {
@@ -31,14 +29,6 @@ export default function SeleccionClienteVenta({
   const rootRef = useRef<HTMLDivElement>(null);
 
   const filtrados = useMemo(() => filtrarClientesPorBusqueda(clientesGuardados, busqueda), [clientesGuardados, busqueda]);
-
-  const clienteDocActivo = useMemo(
-    () =>
-      clienteActivo.id !== CONSUMIDOR_FINAL_ID
-        ? clientesGuardados.find((c) => c.id === clienteActivo.id)
-        : undefined,
-    [clienteActivo.id, clientesGuardados]
-  );
 
   useEffect(() => {
     if (!abierto) return;
@@ -140,16 +130,6 @@ export default function SeleccionClienteVenta({
           +
         </button>
       </div>
-      {clienteDocActivo && emailValidoParaClubMillas(clienteDocActivo.email) ? (
-        <div className="mt-2">
-          <ReenviarClaveClubMillasButton
-            clienteId={clienteDocActivo.id}
-            disabled={disabled}
-            variant="default"
-            className="w-full justify-center"
-          />
-        </div>
-      ) : null}
     </div>
   );
 }

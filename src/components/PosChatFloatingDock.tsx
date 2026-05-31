@@ -1,9 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import PosBodyPortal from "@/components/PosBodyPortal";
 import PosBroadcastBell from "@/components/PosBroadcastBell";
 import PosCajaMensajesBell from "@/components/PosCajaMensajesBell";
+import {
+  cargarPosicionDockChat,
+  clampPosicionDockChat,
+  guardarPosicionDockChat,
+  posicionInicialDockChat,
+} from "@/lib/pos-chat-dock-layout";
 
 type Props = {
   getIdToken: () => Promise<string | null>;
@@ -13,8 +26,8 @@ type Props = {
 };
 
 /**
- * Acceso flotante a los chats del POS.
- * Mantiene los mismos hilos y notificaciones: privado administración + grupal.
+ * Acceso flotante a los chats del POS (arrastrable).
+ * Solo en la franja entre el menú izquierdo y «Cuenta a cobrar», sin tapar la operación.
  */
 export default function PosChatFloatingDock({
   getIdToken,
@@ -26,6 +39,7 @@ export default function PosChatFloatingDock({
   const [posicion, setPosicion] = useState<{ x: number; y: number } | null>(null);
   const [unreadCaja, setUnreadCaja] = useState(0);
   const [unreadGrupal, setUnreadGrupal] = useState(0);
+  const [grupalActivo, setGrupalActivo] = useState(false);
   const totalUnread = unreadCaja + unreadGrupal;
   const dragRef = useRef<{
     pointerId: number;
@@ -35,26 +49,38 @@ export default function PosChatFloatingDock({
     originY: number;
   } | null>(null);
 
-  const clampPos = useCallback((x: number, y: number) => {
-    if (typeof window === "undefined") return { x, y };
-    const minX = window.innerWidth >= 768 ? 224 : 12;
-    const margin = 12;
-    const w = dockRef.current?.offsetWidth ?? 300;
+  const medidasDock = useCallback(() => {
+    const w = dockRef.current?.offsetWidth ?? 280;
     const h = dockRef.current?.offsetHeight ?? 68;
-    const maxX = Math.max(minX, window.innerWidth - w - margin);
-    const maxY = Math.max(margin, window.innerHeight - h - margin);
-    return {
-      x: Math.min(Math.max(minX, x), maxX),
-      y: Math.min(Math.max(margin, y), maxY),
-    };
+    return { w, h };
   }, []);
 
+  const clampPos = useCallback(
+    (x: number, y: number) => {
+      const { w, h } = medidasDock();
+      return clampPosicionDockChat(x, y, w, h);
+    },
+    [medidasDock]
+  );
+
+  const fijarPosicionInicial = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const { w, h } = medidasDock();
+    const guardada = cargarPosicionDockChat();
+    const base = guardada ? clampPos(guardada.x, guardada.y) : posicionInicialDockChat(w, h);
+    setPosicion((prev) => prev ?? base);
+  }, [clampPos, medidasDock]);
+
+  useLayoutEffect(() => {
+    if (!visible) return;
+    fijarPosicionInicial();
+  }, [visible, fijarPosicionInicial]);
+
   useEffect(() => {
-    if (typeof window === "undefined" || !visible) return;
-    const minX = window.innerWidth >= 768 ? 224 : 12;
-    const h = dockRef.current?.offsetHeight ?? 68;
-    setPosicion((prev) => prev ?? clampPos(minX, window.innerHeight - h - 20));
-  }, [clampPos, visible]);
+    if (!visible) return;
+    const id = window.requestAnimationFrame(() => fijarPosicionInicial());
+    return () => window.cancelAnimationFrame(id);
+  }, [visible, fijarPosicionInicial]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -85,12 +111,19 @@ export default function PosChatFloatingDock({
     setPosicion(clampPos(nextX, nextY));
   }, [clampPos]);
 
-  const onPointerUp = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
-    if (dragRef.current?.pointerId === event.pointerId) {
-      dragRef.current = null;
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-  }, []);
+  const onPointerUp = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (dragRef.current?.pointerId === event.pointerId) {
+        dragRef.current = null;
+        event.currentTarget.releasePointerCapture(event.pointerId);
+        setPosicion((p) => {
+          if (p) guardarPosicionDockChat(p);
+          return p;
+        });
+      }
+    },
+    []
+  );
 
   const onPointerCancel = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (dragRef.current?.pointerId === event.pointerId) {
@@ -104,11 +137,12 @@ export default function PosChatFloatingDock({
     <PosBodyPortal open>
     <div
       ref={dockRef}
-      className="relative fixed z-[170] flex max-w-[calc(100vw-1.5rem)] items-center gap-2 rounded-[1.35rem] border border-white/70 bg-gradient-to-br from-white/98 via-amber-50/95 to-indigo-50/95 px-3.5 py-2.5 shadow-[0_22px_60px_-20px_rgba(15,23,42,0.85)] ring-1 ring-slate-900/5"
+      data-pos-chat-dock="1"
+      className="fixed z-[215] flex max-w-[calc(100vw-1.5rem)] items-center gap-2 rounded-[1.35rem] border-2 border-amber-300/80 bg-gradient-to-br from-white via-amber-50/95 to-indigo-50/95 px-3.5 py-2.5 shadow-[0_22px_60px_-12px_rgba(15,23,42,0.75)] ring-2 ring-amber-400/40"
       style={
         posicion
-          ? { left: `${posicion.x}px`, top: `${posicion.y}px` }
-          : { left: "0.75rem", bottom: "1.25rem" }
+          ? { left: `${posicion.x}px`, top: `${posicion.y}px`, right: "auto", bottom: "auto" }
+          : { right: "1.25rem", bottom: "1.25rem", left: "auto", top: "auto" }
       }
       role="navigation"
       aria-label={
@@ -131,7 +165,7 @@ export default function PosChatFloatingDock({
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerCancel}
-        title="Arrastra desde aquí para mover los chats"
+        title="Arrastrá para mover. Queda entre el menú y la cuenta a cobrar, sin tapar la venta."
         aria-label="Mover chats flotantes"
       >
         <span className="grid h-8 w-4 shrink-0 grid-cols-2 gap-0.5 text-slate-400" aria-hidden>
@@ -158,7 +192,17 @@ export default function PosChatFloatingDock({
           getIdToken={getIdToken}
           currentUid={currentUid}
           onUnreadChange={setUnreadGrupal}
+          onSesionActivaChange={setGrupalActivo}
+          mostrarBotonSiInactivo
         />
+        {!grupalActivo ? (
+          <span
+            className="sr-only"
+            aria-live="polite"
+          >
+            Chat grupal: canal no abierto por administración
+          </span>
+        ) : null}
       </div>
     </div>
     </PosBodyPortal>

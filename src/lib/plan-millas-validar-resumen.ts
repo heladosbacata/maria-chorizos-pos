@@ -160,7 +160,8 @@ const KEYS_MILLAS = [
 
 const KEYS_DOC = ["documento", "numeroDocumento", "numeroIdentificacion", "cedula", "nit", "identificacion"] as const;
 
-const KEYS_SOCIO_ID = ["socioId", "idSocio", "id", "uid", "socio_id"] as const;
+/** Solo ids del socio en club; no usar `id` genérico (puede ser id de venta/ticket). */
+const KEYS_SOCIO_ID = ["socioId", "idSocio", "socio_id"] as const;
 
 /**
  * Interpreta el JSON del WMS (estructuras habituales) y devuelve nombre / millas / documento si vienen en la respuesta.

@@ -53,9 +53,13 @@ export async function recuperarClaveClubMillasPorDocumento(
       ...(data.pinRenovado ? { pinRenovado: true } : {}),
     };
   } catch (e) {
+    const msg = e instanceof Error ? e.message : "Error de red.";
     return {
       ok: false,
-      message: e instanceof Error ? e.message : "Error de red.",
+      message:
+        msg.includes("fetch failed") || msg.includes("Failed to fetch")
+          ? "Sin conexión con el servidor POS. Reintentá en unos segundos."
+          : msg,
     };
   }
 }

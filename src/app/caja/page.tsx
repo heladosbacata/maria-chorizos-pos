@@ -3747,13 +3747,6 @@ export default function CajaPage() {
         onClose={() => setModalExitoCierreTurno(null)}
       />
 
-      <PosChatFloatingDock
-        visible={!esContador}
-        getIdToken={getIdTokenCajaMensajes}
-        currentUid={user?.uid}
-        puntoVentaLabel={user.puntoVenta?.trim() || undefined}
-      />
-
       {/* Área central + cuenta a cobrar (en columna en móvil, fila en escritorio) */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pl-52 lg:flex-row">
       <main className="min-h-0 min-w-0 flex-1 overflow-y-auto pt-0">
@@ -4714,6 +4707,13 @@ export default function CajaPage() {
         turnoAbierto={turnoAbierto}
         getIdToken={getIdTokenCajaMensajes}
         ventaCompletadaTick={ventaCompletadaAnuncioTick}
+      />
+
+      <PosChatFloatingDock
+        visible={!esContador}
+        getIdToken={getIdTokenCajaMensajes}
+        currentUid={user?.uid}
+        puntoVentaLabel={user.puntoVenta?.trim() || undefined}
       />
     </div>
   );

@@ -31,6 +31,10 @@ type Props = {
   visible?: boolean;
   /** Notifica al contenedor (dock flotante) cuántos mensajes sin leer hay. */
   onUnreadChange?: (count: number) => void;
+  /** Para el dock: el canal grupal está abierto en WMS. */
+  onSesionActivaChange?: (activo: boolean) => void;
+  /** En el dock, muestra botón deshabilitado si el canal aún no está abierto. */
+  mostrarBotonSiInactivo?: boolean;
 };
 
 const POLL_ESTADO_MS = 30_000;
@@ -43,6 +47,8 @@ export default function PosBroadcastBell({
   currentUid,
   visible = true,
   onUnreadChange,
+  onSesionActivaChange,
+  mostrarBotonSiInactivo = false,
 }: Props) {
   const [sesion, setSesion] = useState<PosBroadcastSesionCliente | null>(null);
   const [abierto, setAbierto] = useState(false);
@@ -250,6 +256,10 @@ export default function PosBroadcastBell({
   }, [unread, visible, sesion, onUnreadChange]);
 
   useEffect(() => {
+    onSesionActivaChange?.(Boolean(visible && sesion));
+  }, [visible, sesion, onSesionActivaChange]);
+
+  useEffect(() => {
     if (!abierto || !sesion) return;
     void (async () => {
       const token = await getIdToken();
@@ -367,7 +377,28 @@ export default function PosBroadcastBell({
     setTexto((prev) => `${prev}${prev && !prev.endsWith(" ") ? " " : ""}${emoji} `);
   };
 
-  if (!visible || !sesion) return null;
+  if (!visible) return null;
+
+  if (!sesion && mostrarBotonSiInactivo) {
+    return (
+      <span
+        className="relative flex h-10 w-10 flex-shrink-0 cursor-not-allowed items-center justify-center rounded-2xl border border-dashed border-indigo-200/90 bg-indigo-50/60 text-indigo-400/80"
+        title="Chat grupal: administración aún no abrió el canal en vivo"
+        aria-label="Chat grupal no disponible"
+      >
+        <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"
+          />
+        </svg>
+      </span>
+    );
+  }
+
+  if (!sesion) return null;
 
   return (
     <>

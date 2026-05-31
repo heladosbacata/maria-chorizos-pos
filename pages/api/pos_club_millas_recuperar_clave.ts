@@ -64,48 +64,64 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const path = "/api/club-de-millas/recuperar-clave";
   const body = JSON.stringify({ documento, numeroDocumento: documento, numeroIdentificacion: documento });
 
-  async function llamar(base: string) {
+  async function llamar(base: string): Promise<{ status: number; data: Record<string, unknown> }> {
     const url = `${base.replace(/\/$/, "")}${path}`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
-      body,
-      cache: "no-store",
-    });
-    const data = (await response.json().catch(() => ({}))) as {
-      ok?: boolean;
-      error?: string;
-      message?: string;
-      correoEnmascarado?: string;
-      pinRenovado?: boolean;
-    };
-    return { status: response.status, data };
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body,
+        cache: "no-store",
+      });
+      const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      return { status: response.status, data };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Error de red";
+      return { status: 0, data: { message: msg } };
+    }
   }
 
   try {
     let { status, data } = await llamar(primaryBase);
-    if (
-      (status === 0 || status >= 500 || status === 404) &&
-      wmsHostIsLocalhost(primaryBase) &&
-      fallbackBase.toLowerCase() !== primaryBase.toLowerCase()
-    ) {
+    const puedeFallback =
+      fallbackBase.toLowerCase() !== primaryBase.toLowerCase() &&
+      (status === 0 || status === 404 || status >= 500);
+    if (puedeFallback && (status === 0 || (wmsHostIsLocalhost(primaryBase) && status >= 500))) {
       const second = await llamar(fallbackBase);
       if (second.status >= 200 && second.status < 300) {
+        status = second.status;
+        data = second.data;
+      } else if (status === 0 && second.status > 0) {
         status = second.status;
         data = second.data;
       }
     }
 
-    if (data.ok !== true) {
+    if (status === 0) {
+      const red = typeof data.message === "string" ? data.message : "";
       return res.status(200).json({
         ok: false,
-        message: data.error || data.message || `El WMS respondió HTTP ${status}.`,
+        message:
+          red.includes("fetch failed") || red.includes("Failed to fetch")
+            ? "No se pudo contactar al WMS (red o URL). Revisá NEXT_PUBLIC_WMS_URL o probá de nuevo en unos segundos."
+            : red || "No hubo respuesta del WMS al enviar la recuperación de clave.",
       });
     }
 
-    const correo = data.correoEnmascarado?.trim();
+    if (data.ok !== true) {
+      const err =
+        (typeof data.error === "string" && data.error) ||
+        (typeof data.message === "string" && data.message) ||
+        `El WMS respondió HTTP ${status}.`;
+      return res.status(200).json({
+        ok: false,
+        message: err,
+      });
+    }
+
+    const correo = typeof data.correoEnmascarado === "string" ? data.correoEnmascarado.trim() : "";
     const msg =
-      data.message?.trim() ||
+      (typeof data.message === "string" ? data.message.trim() : "") ||
       (correo
         ? `Se envió la clave de acceso al correo ${correo}. Pedile al cliente que revise bandeja y spam.`
         : "Se envió la clave de acceso al correo registrado del cliente.");
@@ -114,12 +130,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       ok: true,
       message: msg,
       ...(correo ? { correoEnmascarado: correo } : {}),
-      ...(data.pinRenovado ? { pinRenovado: true } : {}),
+      ...(data.pinRenovado === true ? { pinRenovado: true } : {}),
     });
   } catch (e) {
-    return res.status(500).json({
+    const msg = e instanceof Error ? e.message : "No se pudo contactar al WMS.";
+    return res.status(200).json({
       ok: false,
-      message: e instanceof Error ? e.message : "No se pudo contactar al WMS.",
+      message:
+        msg.includes("fetch failed") || msg.includes("Failed to fetch")
+          ? "No se pudo contactar al WMS (red o URL). Revisá NEXT_PUBLIC_WMS_URL."
+          : msg,
     });
   }
 }
