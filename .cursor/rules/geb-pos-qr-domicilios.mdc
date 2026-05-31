@@ -1,0 +1,11 @@
+---
+description: QR pedidos a domicilio — URL pública y tirilla
+globs: "**/*domicilios*,src/lib/pos-domicilios-landing-url.ts,src/components/PosDomicilios*"
+alwaysApply: false
+---
+
+# QR domicilios por punto de venta
+
+- URL por defecto: **`https://pedidos.mariachorizos.com/domicilios/<slug>?puntoVenta=…&canal=qr`** (`src/lib/pos-domicilios-landing-url.ts`).
+- **No** usar `localhost` ni `mariachorizos.app` en QR impreso (dominio roto); override con `NEXT_PUBLIC_POS_LANDING_PEDIDOS_URL` si hace falta.
+- Misma función para módulo domicilios y tirilla (`domicilios-qr-ticket`, `enriquecer-ticket-tirilla-cobro`).

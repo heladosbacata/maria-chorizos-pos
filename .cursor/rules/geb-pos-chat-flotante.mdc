@@ -1,0 +1,27 @@
+---
+description: Chat flotante POS (dock privado + grupal, notificaciones)
+globs: src/components/PosChat*.tsx,src/components/PosCajaMensajes*.tsx,src/components/PosBroadcast*.tsx,src/app/caja/**
+alwaysApply: false
+---
+
+# Chat flotante del POS
+
+## Diseño acordado (no revertir sin pedido explícito)
+
+- Acceso principal: **`PosChatFloatingDock`** en `/caja` (arrastrable; posición guardada en `localStorage`).
+- **Zona permitida:** solo la franja entre el sidebar (`data-pos-tutorial="sidebar"`) y el panel «Cuenta a cobrar» (`data-pos-tutorial="cuenta-cobrar"`). No debe tapar catálogo ni cobro. Lógica en `src/lib/pos-chat-dock-layout.ts`.
+- Agrupa:
+  - **Privado:** `PosCajaMensajesBell` (caja ↔ administración WMS).
+  - **Grupal:** `PosBroadcastBell` (canal masivo / broadcast).
+- Cada uno mantiene su **ventana flotante**, badges de no leídos y minimizar.
+- Los accesos **no** deben volver al sidebar; el dock es el menú único en caja.
+- Ocultar dock para rol **contador** (`visible={!esContador}` en caja).
+
+## WMS
+
+- UI inspirada en `ChatWidget` del WMS; la lógica de datos sigue en APIs proxy `pages/api/pos_caja_mensajes_*` y `pos_broadcast_*`.
+
+## Al tocar chat
+
+- Preservar emojis, pegado/adjunto de imágenes si ya están en los componentes.
+- No duplicar polling agresivo; respetar pausas tras errores de red.

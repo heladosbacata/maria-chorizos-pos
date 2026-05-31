@@ -1,0 +1,25 @@
+---
+description: Club de Millas — cobro con cédula, tirilla, QR consulta
+globs: "**/*club*millas*,**/*fidelizacion*,pages/api/club_millas*,src/app/caja/**,src/components/RegistrarPagoPanel.tsx,src/components/TicketPrevisualizacionModal.tsx,src/lib/pos-geb-print.ts"
+alwaysApply: false
+---
+
+# Club de Millas (cliente frecuente)
+
+## Flujo actual (POS)
+
+1. Cajero activa **Soy cliente frecuente** y valida documento en WMS (`socioId` + millas actuales).
+2. Al cobrar: `POST /api/club_millas_cobro_cliente_frecuente` → WMS `registrar-ticket` + `acumular-millas` en servidor (sin QR de acumulación para el cliente).
+3. Tirilla: **Millas ahora** y **Quedas con** en grande, millas de esta compra, **QR a Mi plan** (solo consulta, no acumular).
+4. Proyección en panel: `millasGanadasPorMontoCop` = `floor(totalCop / 9000)` (`src/lib/club-millas-calculo-venta.ts`).
+
+## Archivos clave
+
+- `pages/api/club_millas_cobro_cliente_frecuente.ts`
+- `src/lib/club-millas-ticket-tras-cobro.ts`, `club-millas-consulta-url.ts`
+- `src/app/caja/page.tsx`, `RegistrarPagoPanel.tsx`, `pos-geb-print.ts`
+
+## No regresar sin motivo
+
+- No volver al flujo “solo QR para que el cliente escanee y acumule” como único camino.
+- `CLUB_MILLAS_POS_SECRET` obligatorio en Vercel/local para el cobro con millas.

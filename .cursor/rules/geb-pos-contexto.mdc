@@ -1,0 +1,26 @@
+---
+description: Contexto del POS GEB María Chorizos (stack, WMS, idioma)
+alwaysApply: true
+---
+
+# POS GEB — María Chorizos
+
+## Proyecto
+
+- **Repo:** `maria-chorizos-pos` (Next.js 14, React, Tailwind, Firebase).
+- **Dev local:** `npm run dev:restart` → **http://localhost:3040** (puerto 3040, ver `package.json`).
+- **Pantalla principal de caja:** `/caja`.
+- **Responder al usuario en español.**
+
+## Integración WMS
+
+- Muchas APIs del POS son **proxies** hacia `maria-chorizos-wms` (Vercel): broadcast, caja-mensajes, club de millas, anuncios, catálogo, etc.
+- Secretos (`CLUB_MILLAS_POS_SECRET`, Firebase admin) **solo en servidor** (`pages/api/*`), nunca en el cliente.
+- La carpeta `maria-chorizos-wms-temp` (si existe) es referencia/copia del WMS; las reglas de Cursor del WMS **no aplican** aquí salvo que abras ese repo como raíz.
+- Contrato Club de Millas POS↔WMS: ver `maria-chorizos-wms-temp/docs/POS-CLUB-DE-MILLAS-WMS.md` o el repo WMS en `docs/`.
+
+## Convenciones de código
+
+- Cambios mínimos y acotados; reutilizar libs existentes (`wms-*-client`, `pos-geb-print`, etc.).
+- No commitear `.env.local` ni secretos.
+- Tras cambios relevantes, validar con `npm run build` o tests en `src/lib/*.test.ts`.

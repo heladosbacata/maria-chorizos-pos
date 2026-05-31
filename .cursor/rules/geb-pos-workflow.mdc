@@ -1,0 +1,22 @@
+---
+description: Flujo de trabajo y commits en el POS GEB
+alwaysApply: true
+---
+
+# Flujo de trabajo — POS GEB
+
+## Antes de cambios grandes
+
+Preguntar si el usuario quiere un **commit de respaldo** antes de refactors, auth, Firestore o borrado de archivos.
+
+## Commits
+
+- **No** crear commit ni push salvo que el usuario lo pida explícitamente.
+- Si pide commit: `git status` + `git diff`, mensaje claro en español o convención `feat:` / `fix:`.
+- Si pide commit y respaldo: después del commit hacer **`git push origin main`** (o la rama que indique).
+- No usar `git commit --amend` salvo reglas del usuario; no force-push a main.
+
+## Deploy
+
+- Producción suele ser **Vercel** (`maria-chorizos-pos`); push a `main` dispara deploy.
+- Recordar al usuario redeploy si el cambio es solo en servidor/API y la caja en tienda usa build antigua.
