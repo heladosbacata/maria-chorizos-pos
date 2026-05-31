@@ -32,6 +32,14 @@ export default function SeleccionClienteVenta({
 
   const filtrados = useMemo(() => filtrarClientesPorBusqueda(clientesGuardados, busqueda), [clientesGuardados, busqueda]);
 
+  const clienteDocActivo = useMemo(
+    () =>
+      clienteActivo.id !== CONSUMIDOR_FINAL_ID
+        ? clientesGuardados.find((c) => c.id === clienteActivo.id)
+        : undefined,
+    [clienteActivo.id, clientesGuardados]
+  );
+
   useEffect(() => {
     if (!abierto) return;
     const onDoc = (e: MouseEvent) => {
