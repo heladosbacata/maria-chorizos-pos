@@ -21,6 +21,8 @@ import {
   totalGastos,
   type PygGastosMensuales,
 } from "@/lib/pyg-franquicia-storage";
+import { PYG_FEE_MENSUAL_DEFAULT, resolverFeeMensualPyg } from "@/lib/pyg-constants";
+import { guardarPygGastosWms, leerPygGastosWms } from "@/lib/wms-pyg-gastos-client";
 
 export interface PygFranquiciaPanelProps {
   puntoVenta: string | null;
@@ -105,19 +107,57 @@ export default function PygFranquiciaPanel({
   const [ventasTick, setVentasTick] = useState(0);
   const [nubeAviso, setNubeAviso] = useState<string | null>(null);
   const [cgTick, setCgTick] = useState(0);
+  const [syncWmsAviso, setSyncWmsAviso] = useState<string | null>(null);
+  const [costoInsumos, setCostoInsumos] = useState(0);
+  const [feeMensual, setFeeMensual] = useState(PYG_FEE_MENSUAL_DEFAULT);
 
   useEffect(() => suscripcionCambiosComprasGastos(() => setCgTick((t) => t + 1)), []);
 
   useEffect(() => {
     if (!pv) return;
-    setGastos(leerGastosPyg(pv, ym));
+    let cancel = false;
+    (async () => {
+      const local = leerGastosPyg(pv, ym);
+      setGastos(local);
+      setCostoInsumos(0);
+      setFeeMensual(PYG_FEE_MENSUAL_DEFAULT);
+      const token = await auth?.currentUser?.getIdToken();
+      if (!token || cancel) return;
+      const remoto = await leerPygGastosWms(token, ym);
+      if (cancel) return;
+      if (remoto.ok) {
+        setGastos(remoto.gastos);
+        setCostoInsumos(remoto.costoInsumos);
+        setFeeMensual(resolverFeeMensualPyg(remoto.feeMensual));
+        guardarGastosPyg(pv, ym, remoto.gastos);
+        setSyncWmsAviso("Gastos sincronizados con administración.");
+      }
+    })();
+    return () => {
+      cancel = true;
+    };
   }, [pv, ym]);
 
   useEffect(() => {
     if (!pv) return;
-    const t = window.setTimeout(() => guardarGastosPyg(pv, ym, gastos), 250);
+    const t = window.setTimeout(() => {
+      guardarGastosPyg(pv, ym, gastos);
+      void (async () => {
+        const token = await auth?.currentUser?.getIdToken();
+        if (!token) return;
+        const res = await guardarPygGastosWms(
+          token,
+          ym,
+          { ...gastos, feeMensual: feeMensual > 0 ? feeMensual : PYG_FEE_MENSUAL_DEFAULT },
+          pv
+        );
+        setSyncWmsAviso(
+          res.ok ? "Guardado en WMS (dashboard y utilidad)." : res.error ?? "Sin sincronizar con WMS."
+        );
+      })();
+    }, 600);
     return () => window.clearTimeout(t);
-  }, [pv, ym, gastos]);
+  }, [pv, ym, gastos, feeMensual]);
 
   useEffect(() => {
     if (!u || !pv) {
@@ -178,7 +218,8 @@ export default function PygFranquiciaPanel({
     if (!pv) return 0;
     return totalRegistradoComprasGastosEnMes(pv, ym);
   }, [pv, ym, cgTick]);
-  const gastosTot = Math.round((gastosCategorias + gastosRegistroMes) * 100) / 100;
+  const gastosTot =
+    Math.round((gastosCategorias + gastosRegistroMes + costoInsumos + feeMensual) * 100) / 100;
   const resultado = Math.round((ingresos - gastosTot) * 100) / 100;
   const margenPct = ingresos > 0 ? Math.min(100, Math.round((resultado / ingresos) * 1000) / 10) : null;
   const ratioGasto = ingresos > 0 ? Math.min(100, Math.round((gastosTot / ingresos) * 1000) / 10) : 0;
@@ -194,6 +235,8 @@ export default function PygFranquiciaPanel({
     { key: "servicios", label: "Servicios públicos", hint: "Luz, agua, gas, internet…", icon: "⚡" },
     { key: "otros", label: "Otros gastos fijos", hint: "Mercadeo, logística, mantenimiento…", icon: "📋" },
   ];
+
+  const feeHint = `Por defecto ${PYG_FEE_MENSUAL_DEFAULT.toLocaleString("es-CO")} COP`;
 
   if (!pv) {
     return (
@@ -245,6 +288,9 @@ export default function PygFranquiciaPanel({
                 Ingresos desde ventas en el POS · Gastos por categoría y registro de compras/gastos ·{" "}
                 <span className="font-medium text-slate-700">Resultado del mes</span>
               </p>
+              {syncWmsAviso ? (
+                <p className="mt-1 text-xs text-teal-700">{syncWmsAviso}</p>
+              ) : null}
             </div>
           </div>
         </div>
@@ -323,6 +369,12 @@ export default function PygFranquiciaPanel({
               </p>
               <p className="mt-2 text-xs text-rose-800/90">
                 Categorías: ${formatCop(gastosCategorias)}
+                {costoInsumos > 0 ? (
+                  <>
+                    {" "}
+                    · Insumos (pedidos verificados): ${formatCop(costoInsumos)}
+                  </>
+                ) : null}
                 {gastosRegistroMes > 0 ? (
                   <>
                     {" "}
@@ -452,6 +504,29 @@ export default function PygFranquiciaPanel({
           </div>
         ) : null}
         <div className="grid gap-5 sm:grid-cols-2">
+          <label className="group block rounded-xl border border-gray-200/90 bg-white p-4 shadow-sm transition-all duration-200 hover:border-primary-200 hover:shadow-md sm:col-span-2">
+            <span className="flex items-center gap-2 text-sm font-semibold text-gray-900">
+              <span className="text-lg" aria-hidden>
+                📣
+              </span>
+              Fee mensual publicidad
+            </span>
+            <span className="mt-0.5 block text-xs text-gray-500">{feeHint}</span>
+            <div className="relative mt-3">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm font-semibold text-gray-400">
+                $
+              </span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={feeMensual === 0 ? "" : formatCop(feeMensual)}
+                onChange={(e) => setFeeMensual(parsePesosCopInput(e.target.value))}
+                placeholder={formatCop(PYG_FEE_MENSUAL_DEFAULT)}
+                className="w-full rounded-xl border-2 border-gray-200 py-3 pl-7 pr-3 text-base font-semibold tabular-nums text-gray-900 transition-colors focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-200"
+                autoComplete="off"
+              />
+            </div>
+          </label>
           {camposGasto.map((c) => (
             <label
               key={c.key}
