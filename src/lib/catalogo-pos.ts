@@ -19,6 +19,28 @@ type CatalogoPosCache = {
   productos: ProductoPOS[];
 };
 
+export function claveCacheCatalogoPos(uid: string, puntoVenta: string): string {
+  const pv = String(puntoVenta ?? "").trim();
+  return `${CATALOGO_CACHE_PREFIX}:${uid || "anon"}:${pv || "_sin_pv_"}`;
+}
+
+/** Lectura síncrona del cache local (pintar grid al instante mientras revalida en red). */
+export function leerCatalogoCacheSync(uid: string, puntoVenta: string): ProductoPOS[] | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(claveCacheCatalogoPos(uid, puntoVenta));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CatalogoPosCache;
+    const age = typeof parsed?.savedAtMs === "number" ? Date.now() - parsed.savedAtMs : Infinity;
+    if (parsed && Array.isArray(parsed.productos) && age <= CATALOGO_STALE_TTL_MS) {
+      return parsed.productos;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
 /** Item devuelto por GET /api/pos/productos/listar (WMS). Acepta variaciones de nombres de campo. */
 interface PosProductoItem {
   sku?: string;
@@ -184,22 +206,21 @@ export async function getCatalogoPOS(
   }
   const forceRefresh = opts?.forceRefresh === true;
   const cacheUid = isBrowser ? auth?.currentUser?.uid ?? "anon" : "ssr";
-  const cacheKey = `${CATALOGO_CACHE_PREFIX}:${cacheUid}:${pv || "_sin_pv_"}`;
+  const cacheKey = claveCacheCatalogoPos(cacheUid, pv);
   if (isBrowser && !forceRefresh) {
-    try {
-      const raw = window.localStorage.getItem(cacheKey);
-      if (raw) {
-        const parsed = JSON.parse(raw) as CatalogoPosCache;
-        const age = typeof parsed?.savedAtMs === "number" ? Date.now() - parsed.savedAtMs : Infinity;
-        if (parsed && Array.isArray(parsed.productos) && age <= CATALOGO_STALE_TTL_MS) {
-          if (age > CATALOGO_CACHE_TTL_MS) {
-            void getCatalogoPOS(idToken, puntoVenta, { forceRefresh: true }).catch(() => {});
-          }
-          return { ok: true, productos: parsed.productos };
+    const cached = leerCatalogoCacheSync(cacheUid, pv);
+    if (cached?.length) {
+      try {
+        const raw = window.localStorage.getItem(cacheKey);
+        const parsed = raw ? (JSON.parse(raw) as CatalogoPosCache) : null;
+        const age = parsed?.savedAtMs ? Date.now() - parsed.savedAtMs : Infinity;
+        if (age > CATALOGO_CACHE_TTL_MS) {
+          void getCatalogoPOS(idToken, puntoVenta, { forceRefresh: true }).catch(() => {});
         }
+      } catch {
+        void getCatalogoPOS(idToken, puntoVenta, { forceRefresh: true }).catch(() => {});
       }
-    } catch {
-      // ignore cache read errors
+      return { ok: true, productos: cached };
     }
   }
   const headers: HeadersInit = {};
@@ -208,7 +229,7 @@ export async function getCatalogoPOS(
   try {
     const res = await fetch(url, {
       headers,
-      cache: "no-store",
+      cache: forceRefresh ? "no-store" : "default",
     });
     const data = await res.json().catch(() => ({}));
 

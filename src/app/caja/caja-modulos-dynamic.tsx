@@ -44,3 +44,12 @@ export const PosLigaTurnoYMotivacion = dynamic(() => import("@/components/PosLig
   ssr: false,
   loading: () => null,
 });
+export const PosCajaPremiumHeader = dynamic(() => import("@/components/PosCajaPremiumHeader"), {
+  loading: () => <div className="mb-5 h-24 animate-pulse rounded-2xl bg-neutral-200/80" />,
+});
+export const RegistrarPagoPanel = dynamic(() => import("@/components/RegistrarPagoPanel"), {
+  loading: () => null,
+});
+export const SeleccionClienteVenta = dynamic(() => import("@/components/SeleccionClienteVenta"), {
+  loading: () => null,
+});

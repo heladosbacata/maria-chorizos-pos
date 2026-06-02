@@ -14,7 +14,6 @@ import PerfilUsuarioModal from "@/components/PerfilUsuarioModal";
 import PosGebAyudaMotorModal from "@/components/PosGebAyudaMotorModal";
 import PosGebBienvenidaModal from "@/components/PosGebBienvenidaModal";
 import PosGebTutorialOverlay from "@/components/PosGebTutorialOverlay";
-import PosCajaPremiumHeader from "@/components/PosCajaPremiumHeader";
 import CobroImpresionCelebracionOverlay from "@/components/CobroImpresionCelebracionOverlay";
 import TicketPrevisualizacionModal from "@/components/TicketPrevisualizacionModal";
 import ModalCobroSinInternet from "@/components/ModalCobroSinInternet";
@@ -22,9 +21,8 @@ import ModalInformeCierreCorreo from "@/components/ModalInformeCierreCorreo";
 import PosMetaCumplidaCelebracion from "@/components/PosMetaCumplidaCelebracion";
 import PosAnunciosCajaWatcher from "@/components/PosAnunciosCajaWatcher";
 import PosAjustePantallaPanel from "@/components/PosAjustePantallaPanel";
-import RegistrarPagoPanel, { type DetallePagoConfirmado } from "@/components/RegistrarPagoPanel";
+import type { DetallePagoConfirmado } from "@/components/RegistrarPagoPanel";
 import TurnoCierreExitoPremiumModal from "@/components/TurnoCierreExitoPremiumModal";
-import SeleccionClienteVenta from "@/components/SeleccionClienteVenta";
 import {
   CajeroReportesDashboard,
   CargueInventarioManualPanel,
@@ -36,7 +34,10 @@ import {
   TurnosHistorialModule,
   UltimosRecibosModule,
   PosChatFloatingDock,
+  PosCajaPremiumHeader,
   PosLigaTurnoYMotivacion,
+  RegistrarPagoPanel,
+  SeleccionClienteVenta,
 } from "@/app/caja/caja-modulos-dynamic";
 import {
   buildLineIdPos,
@@ -70,7 +71,7 @@ import {
   reservarVentanaTicketNavegador,
 } from "@/lib/pos-geb-print";
 import { fetchCatalogoInsumosDesdeSheet } from "@/lib/catalogo-insumos-sheet-client";
-import { getCatalogoPOS } from "@/lib/catalogo-pos";
+import { getCatalogoPOS, leerCatalogoCacheSync } from "@/lib/catalogo-pos";
 import { solicitarCambioPrecioProductoPos } from "@/lib/pos-solicitud-cambio-precio";
 import { mergeCatalogoInventarioBase, mergeCatalogoInventarioConProductosPos } from "@/lib/inventario-pos-catalogo";
 import {
@@ -337,6 +338,8 @@ type TipoComprobante = TipoComprobanteVenta;
 /** Revalidación de documento del cajero cada 4 horas en la misma sesión (sin F5). */
 const IDENTIFICACION_CAJERO_CADA_MS = 4 * 60 * 60 * 1000;
 const IDENTIFICACION_CAJERO_REVISAR_MS = 60 * 1000;
+/** Colas WMS/FE: no competir con catálogo y primer paint de /caja. */
+const COLAS_WMS_DEFER_MS = 12_000;
 
 export default function CajaPageClient() {
   const { user, signOut, loading } = useAuth();
@@ -357,13 +360,14 @@ export default function CajaPageClient() {
       void procesarColaAplicarEnsamblePendiente(async () => (await auth?.currentUser?.getIdToken()) ?? null);
       void procesarColaFeEmitir(async () => (await auth?.currentUser?.getIdToken()) ?? null);
     };
-    run();
+    const defer = window.setTimeout(run, COLAS_WMS_DEFER_MS);
     const onVis = () => {
       if (document.visibilityState === "visible") run();
     };
     document.addEventListener("visibilitychange", onVis);
     const t = window.setInterval(run, 120_000);
     return () => {
+      window.clearTimeout(defer);
       document.removeEventListener("visibilitychange", onVis);
       window.clearInterval(t);
     };
@@ -846,18 +850,26 @@ export default function CajaPageClient() {
     if (user && esContadorInvitado(user.role)) return;
     if (moduloActivo !== "ventas") return;
     let cancelled = false;
-    setCatalogoLoading(true);
+    const pv = user?.puntoVenta?.trim() ?? "";
+    const uid = user?.uid ?? "anon";
+    const cached = leerCatalogoCacheSync(uid, pv);
+    if (cached?.length) {
+      setCatalogoProductos(cached);
+      setCatalogoLoading(false);
+    } else {
+      setCatalogoLoading(true);
+    }
     setCatalogoError(null);
     const tokenPromise = auth?.currentUser ? auth.currentUser.getIdToken() : Promise.resolve(null);
     tokenPromise
-      .then((token) => getCatalogoPOS(token, user?.puntoVenta?.trim() ?? ""))
+      .then((token) => getCatalogoPOS(token, pv))
       .then((res) => {
         if (cancelled) return;
         if (res.ok && res.productos) setCatalogoProductos(res.productos ?? []);
-        else setCatalogoError(res.message ?? "No se pudo cargar el catálogo");
+        else if (!cached?.length) setCatalogoError(res.message ?? "No se pudo cargar el catálogo");
       })
       .catch(() => {
-        if (!cancelled) setCatalogoError("Error al cargar el catálogo");
+        if (!cancelled && !cached?.length) setCatalogoError("Error al cargar el catálogo");
       })
       .finally(() => {
         if (!cancelled) setCatalogoLoading(false);
@@ -865,7 +877,7 @@ export default function CajaPageClient() {
     return () => {
       cancelled = true;
     };
-  }, [moduloActivo, user?.role, user, user?.puntoVenta]);
+  }, [moduloActivo, user?.role, user, user?.puntoVenta, user?.uid]);
 
   /** Chat y liga WMS: diferidos para no competir con catálogo al abrir caja. */
   useEffect(() => {
@@ -876,6 +888,7 @@ export default function CajaPageClient() {
   }, [user]);
 
   useEffect(() => {
+    if (!serviciosSecundarios) return;
     if (!user?.puntoVenta?.trim() || esContadorInvitado(user.role)) return;
     if (moduloActivo !== "ventas") return;
     let cancelled = false;
@@ -885,7 +898,7 @@ export default function CajaPageClient() {
     return () => {
       cancelled = true;
     };
-  }, [moduloActivo, user?.puntoVenta, user?.role]);
+  }, [serviciosSecundarios, moduloActivo, user?.puntoVenta, user?.role]);
 
   useEffect(() => {
     if (!showModalAbrirTurno || !user?.puntoVenta?.trim()) return;
@@ -3771,6 +3784,7 @@ export default function CajaPageClient() {
               puntoVenta={user.puntoVenta}
               etiquetaModulo={tituloModulo}
               mostrarAccesoChatAdmin={!esContador}
+              mostrarPanelMetas={serviciosSecundarios && metasActivas}
               getIdToken={getIdTokenCajaMensajes}
             />
             {!esContador && serviciosSecundarios && turnoAbierto && moduloActivo === "ventas" ? (

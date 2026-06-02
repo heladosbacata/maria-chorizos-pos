@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { getWmsPublicBaseUrl, WMS_VERCEL_URL } from "@/lib/wms-public-base";
+import { catalogoApiCacheKey, withCatalogoApiCache } from "@/lib/pos-catalogo-api-cache";
 
 /** Reenvía al WMS con el Bearer del cliente. El WMS debe rechazar o acotar por rol (p. ej. pos_contador sin listados globales). */
 
@@ -12,8 +13,8 @@ const ENDPOINT_CANDIDATES_LEGACY = [
   "/api/productos/listar",
 ] as const;
 
-const FETCH_TIMEOUT_LOCAL_MS = 4_000;
-const FETCH_TIMEOUT_REMOTE_MS = 25_000;
+const FETCH_TIMEOUT_LOCAL_MS = 8_000;
+const FETCH_TIMEOUT_REMOTE_MS = 12_000;
 
 function mensajeErrorRedCatalogo(code: string, rawMessage: string): string {
   if (code === "ECONNREFUSED" || code === "ENOTFOUND") {
@@ -175,6 +176,54 @@ async function resolverCatalogoDesdeBases(
   };
 }
 
+async function fetchCatalogoBody(
+  primaryBase: string,
+  headers: HeadersInit,
+  puntoVenta: string
+): Promise<unknown> {
+  const fallbackBase = (process.env.WMS_CATALOGO_FALLBACK_URL?.trim() || WMS_VERCEL_URL).replace(
+    /\/$/,
+    ""
+  );
+
+  const bases: string[] = [primaryBase];
+  const primaryNorm = primaryBase.replace(/\/$/, "").toLowerCase();
+  const skipFallback =
+    process.env.POS_CATALOGO_SOLO_ORIGEN === "1" || isLocalWmsHost(primaryBase);
+  if (!skipFallback && fallbackBase.toLowerCase() !== primaryNorm) {
+    bases.push(fallbackBase);
+  }
+
+  const { outcome, usedFallback } = await resolverCatalogoDesdeBases(bases, headers, puntoVenta);
+
+  if (outcome.kind === "network") {
+    const msg = mensajeErrorRedCatalogo(outcome.code, outcome.message);
+    return { ok: false, message: msg, productos: [] };
+  }
+
+  const { response, data } = outcome;
+
+  if (!response.ok) {
+    const d = data as { message?: string; error?: string };
+    const detalle = d?.message || d?.error || `El servidor de catálogo respondió con error ${response.status}.`;
+    const msg = isLocalWmsHost(primaryBase)
+      ? `${detalle} Si tenés el WMS local abierto, revisá la consola del WMS.`
+      : detalle;
+    return {
+      ok: false,
+      message: msg,
+      productos: [],
+    };
+  }
+
+  return data && typeof data === "object"
+    ? {
+        ...(data as Record<string, unknown>),
+        ...(usedFallback ? { catalogoOrigen: "wms_respaldo" as const } : {}),
+      }
+    : data;
+}
+
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== "GET") {
     return res.status(405).json({ ok: false, message: "Method not allowed" });
@@ -191,45 +240,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         : "";
   if (auth) headers.Authorization = auth;
 
-  const fallbackBase = (process.env.WMS_CATALOGO_FALLBACK_URL?.trim() || WMS_VERCEL_URL).replace(
-    /\/$/,
-    ""
+  const cacheKey = catalogoApiCacheKey(puntoVenta, typeof auth === "string" ? auth : undefined);
+  const body = await withCatalogoApiCache(cacheKey, () =>
+    fetchCatalogoBody(primaryBase, headers, puntoVenta)
   );
-
-  const bases: string[] = [primaryBase];
-  if (fallbackBase.toLowerCase() !== primaryBase.replace(/\/$/, "").toLowerCase()) {
-    bases.push(fallbackBase);
-  }
-
-  const { outcome, usedFallback } = await resolverCatalogoDesdeBases(bases, headers, puntoVenta);
-
-  if (outcome.kind === "network") {
-    const msg = mensajeErrorRedCatalogo(outcome.code, outcome.message);
-    return sendJson(res, 200, { ok: false, message: msg, productos: [] });
-  }
-
-  const { response, data } = outcome;
-
-  if (!response.ok) {
-    const d = data as { message?: string; error?: string };
-    const detalle = d?.message || d?.error || `El servidor de catálogo respondió con error ${response.status}.`;
-    const msg = isLocalWmsHost(primaryBase)
-      ? `${detalle} Si tenés el WMS local abierto, revisá la consola del WMS; el POS intentó también el servidor de respaldo.`
-      : detalle;
-    return sendJson(res, 200, {
-      ok: false,
-      message: msg,
-      productos: [],
-    });
-  }
-
-  const body =
-    data && typeof data === "object"
-      ? {
-          ...(data as Record<string, unknown>),
-          ...(usedFallback ? { catalogoOrigen: "wms_respaldo" as const } : {}),
-        }
-      : data;
 
   return sendJson(res, 200, body);
 }

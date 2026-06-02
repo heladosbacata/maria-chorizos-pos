@@ -10,6 +10,8 @@ type Props = {
   etiquetaModulo: string;
   /** Muestra el banner de anuncio de cajeros en la cabecera. */
   mostrarAccesoChatAdmin?: boolean;
+  /** Panel de metas en cabecera (fetch + animaciones); diferir al abrir caja. */
+  mostrarPanelMetas?: boolean;
   getIdToken?: () => Promise<string | null>;
 };
 
@@ -145,6 +147,7 @@ export default function PosCajaPremiumHeader({
   puntoVenta,
   etiquetaModulo,
   mostrarAccesoChatAdmin = false,
+  mostrarPanelMetas = true,
 }: Props) {
   const pv = puntoVenta?.trim() || "Sin punto asignado";
 
@@ -221,7 +224,7 @@ export default function PosCajaPremiumHeader({
               <span className="text-xs font-medium text-[#F5E6C8]/70">Módulo: {etiquetaModulo}</span>
             </div>
           </div>
-          <PosCajaMetasMotivationPanel />
+          {mostrarPanelMetas ? <PosCajaMetasMotivationPanel /> : null}
         </div>
       </div>
 
