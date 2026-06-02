@@ -11,13 +11,16 @@ const MetasRetosCajaContext = createContext<UseMetasRetosYVentasParaPuntoResult 
 export function MetasRetosCajaProvider({
   puntoVenta,
   uid,
+  enabled = true,
   children,
 }: {
   puntoVenta: string | null | undefined;
   uid: string | null | undefined;
+  /** false = no consulta WMS ni ventas nube hasta abrir ventas/metas. */
+  enabled?: boolean;
   children: ReactNode;
 }) {
-  const value = useMetasRetosYVentasParaPunto(puntoVenta, uid);
+  const value = useMetasRetosYVentasParaPunto(puntoVenta, uid, { enabled });
   return <MetasRetosCajaContext.Provider value={value}>{children}</MetasRetosCajaContext.Provider>;
 }
 

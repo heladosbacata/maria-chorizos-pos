@@ -31,12 +31,14 @@ export type UseMetasRetosYVentasParaPuntoResult = {
  */
 export function useMetasRetosYVentasParaPunto(
   puntoVenta: string | null | undefined,
-  uid: string | null | undefined
+  uid: string | null | undefined,
+  opts?: { enabled?: boolean }
 ): UseMetasRetosYVentasParaPuntoResult {
+  const enabled = opts?.enabled !== false;
   const pv = (puntoVenta ?? "").replace(/\u00a0/g, " ").trim();
   const u = (uid ?? "").trim();
 
-  const [cargando, setCargando] = useState(true);
+  const [cargando, setCargando] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
   const [retos, setRetos] = useState<MetaRetoActiva[]>([]);
   const [fechaRef, setFechaRef] = useState<string | null>(null);
@@ -69,6 +71,7 @@ export function useMetasRetosYVentasParaPunto(
   }, [u, pv]);
 
   const cargar = useCallback(async () => {
+    if (!enabled) return;
     const gen = ++loadGenRef.current;
     abortRef.current?.abort();
     const ac = new AbortController();
@@ -96,58 +99,67 @@ export function useMetasRetosYVentasParaPunto(
     } finally {
       if (gen === loadGenRef.current) setCargando(false);
     }
-  }, [pv, refrescarVentas]);
+  }, [pv, refrescarVentas, enabled]);
 
   useEffect(() => {
+    if (!enabled) {
+      setCargando(false);
+      setRetos([]);
+      setError(null);
+      return;
+    }
     void cargar();
     return () => abortRef.current?.abort();
-  }, [cargar]);
+  }, [cargar, enabled]);
 
   useEffect(() => {
+    if (!enabled) return;
     const id = window.setInterval(() => {
       if (document.visibilityState === "visible") void cargar();
     }, POLL_METAS_MS);
     return () => window.clearInterval(id);
-  }, [cargar]);
+  }, [cargar, enabled]);
 
   useEffect(() => {
+    if (!enabled) return;
     const onVis = () => {
       if (document.visibilityState === "visible") void cargar();
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
-  }, [cargar]);
+  }, [cargar, enabled]);
 
   useEffect(() => {
+    if (!enabled) return;
     void cargarVentasNube();
-  }, [cargarVentasNube, ventasTick]);
+  }, [cargarVentasNube, ventasTick, enabled]);
 
   useEffect(() => {
-    if (!u || !pv) return;
+    if (!enabled || !u || !pv) return;
     const id = window.setInterval(() => {
       if (document.visibilityState === "visible") refrescarVentas();
     }, POLL_VENTAS_MS);
     return () => window.clearInterval(id);
-  }, [u, pv, refrescarVentas]);
+  }, [u, pv, refrescarVentas, enabled]);
 
   useEffect(() => {
-    if (!u || !pv) return;
+    if (!enabled || !u || !pv) return;
     const onVis = () => {
       if (document.visibilityState === "visible") refrescarVentas();
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
-  }, [u, pv, refrescarVentas]);
+  }, [u, pv, refrescarVentas, enabled]);
 
   useEffect(() => {
-    if (!pv) return;
+    if (!enabled || !pv) return;
     const onVenta = () => {
       refrescarVentas();
       void cargarVentasNube();
     };
     window.addEventListener(EVENT_POS_VENTA_LOCAL_REGISTRADA, onVenta);
     return () => window.removeEventListener(EVENT_POS_VENTA_LOCAL_REGISTRADA, onVenta);
-  }, [pv, refrescarVentas, cargarVentasNube]);
+  }, [pv, refrescarVentas, cargarVentasNube, enabled]);
 
   const ventas = useMemo(() => {
     void ventasTick;

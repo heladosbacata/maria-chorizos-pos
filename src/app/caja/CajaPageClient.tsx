@@ -15,13 +15,11 @@ import PosGebAyudaMotorModal from "@/components/PosGebAyudaMotorModal";
 import PosGebBienvenidaModal from "@/components/PosGebBienvenidaModal";
 import PosGebTutorialOverlay from "@/components/PosGebTutorialOverlay";
 import PosCajaPremiumHeader from "@/components/PosCajaPremiumHeader";
-import PosLigaTurnoYMotivacion from "@/components/PosLigaTurnoYMotivacion";
 import CobroImpresionCelebracionOverlay from "@/components/CobroImpresionCelebracionOverlay";
 import TicketPrevisualizacionModal from "@/components/TicketPrevisualizacionModal";
 import ModalCobroSinInternet from "@/components/ModalCobroSinInternet";
 import ModalInformeCierreCorreo from "@/components/ModalInformeCierreCorreo";
 import PosMetaCumplidaCelebracion from "@/components/PosMetaCumplidaCelebracion";
-import PosChatFloatingDock from "@/components/PosChatFloatingDock";
 import PosAnunciosCajaWatcher from "@/components/PosAnunciosCajaWatcher";
 import PosAjustePantallaPanel from "@/components/PosAjustePantallaPanel";
 import RegistrarPagoPanel, { type DetallePagoConfirmado } from "@/components/RegistrarPagoPanel";
@@ -37,6 +35,8 @@ import {
   PosDomiciliosModule,
   TurnosHistorialModule,
   UltimosRecibosModule,
+  PosChatFloatingDock,
+  PosLigaTurnoYMotivacion,
 } from "@/app/caja/caja-modulos-dynamic";
 import {
   buildLineIdPos,
@@ -370,6 +370,8 @@ export default function CajaPageClient() {
   }, [user]);
 
   const [moduloActivo, setModuloActivo] = useState<ModuloActivo>("ventas");
+  const metasActivas = moduloActivo === "ventas" || moduloActivo === "metasBonificaciones";
+  const [serviciosSecundarios, setServiciosSecundarios] = useState(false);
   const [posGebBienvenidaAbierta, setPosGebBienvenidaAbierta] = useState(false);
   const [posGebTutorialAbierto, setPosGebTutorialAbierto] = useState(false);
   const [posGebTutorialPaso, setPosGebTutorialPaso] = useState(0);
@@ -864,6 +866,14 @@ export default function CajaPageClient() {
       cancelled = true;
     };
   }, [moduloActivo, user?.role, user, user?.puntoVenta]);
+
+  /** Chat y liga WMS: diferidos para no competir con catálogo al abrir caja. */
+  useEffect(() => {
+    setServiciosSecundarios(false);
+    if (!user || esContadorInvitado(user.role)) return;
+    const t = window.setTimeout(() => setServiciosSecundarios(true), 3500);
+    return () => window.clearTimeout(t);
+  }, [user]);
 
   useEffect(() => {
     if (!user?.puntoVenta?.trim() || esContadorInvitado(user.role)) return;
@@ -3751,7 +3761,7 @@ export default function CajaPageClient() {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pl-52 lg:flex-row">
       <main className="min-h-0 min-w-0 flex-1 overflow-y-auto pt-0">
         <div className="p-4 sm:p-5 lg:p-4">
-          <MetasRetosCajaProvider puntoVenta={user.puntoVenta} uid={user.uid}>
+          <MetasRetosCajaProvider puntoVenta={user.puntoVenta} uid={user.uid} enabled={metasActivas}>
             <PosMetaCumplidaCelebracion
               puntoVenta={user.puntoVenta}
               emailSesion={user.email}
@@ -3763,7 +3773,7 @@ export default function CajaPageClient() {
               mostrarAccesoChatAdmin={!esContador}
               getIdToken={getIdTokenCajaMensajes}
             />
-            {!esContador && turnoAbierto ? (
+            {!esContador && serviciosSecundarios && turnoAbierto && moduloActivo === "ventas" ? (
               <PosLigaTurnoYMotivacion
                 apiBaseUrl={getWmsPublicBaseUrl()}
                 puntoVenta={user.puntoVenta ?? undefined}
@@ -4709,12 +4719,14 @@ export default function CajaPageClient() {
         ventaCompletadaTick={ventaCompletadaAnuncioTick}
       />
 
-      <PosChatFloatingDock
-        visible={!esContador}
-        getIdToken={getIdTokenCajaMensajes}
-        currentUid={user?.uid}
-        puntoVentaLabel={user.puntoVenta?.trim() || undefined}
-      />
+      {serviciosSecundarios && !esContador ? (
+        <PosChatFloatingDock
+          visible
+          getIdToken={getIdTokenCajaMensajes}
+          currentUid={user?.uid}
+          puntoVentaLabel={user.puntoVenta?.trim() || undefined}
+        />
+      ) : null}
     </div>
   );
 }

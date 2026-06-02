@@ -37,3 +37,10 @@ export const ConfiguracionMasModule = dynamic(() => import("@/components/Configu
 export const UltimosRecibosModule = dynamic(() => import("@/components/UltimosRecibosModule"), {
   loading: () => <ModuloSpinner />,
 });
+export const PosChatFloatingDock = dynamic(() => import("@/components/PosChatFloatingDock"), {
+  ssr: false,
+});
+export const PosLigaTurnoYMotivacion = dynamic(() => import("@/components/PosLigaTurnoYMotivacion"), {
+  ssr: false,
+  loading: () => null,
+});
