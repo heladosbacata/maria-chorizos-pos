@@ -4,6 +4,8 @@
 import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
 import type { PygGastosMensuales } from "@/lib/pyg-franquicia-storage";
 
+export type PygGastosConFee = PygGastosMensuales & { feeMensual: number };
+
 function base(): string {
   return getWmsPublicBaseUrl().replace(/\/$/, "");
 }
