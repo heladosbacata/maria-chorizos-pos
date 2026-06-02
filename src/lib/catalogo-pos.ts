@@ -8,7 +8,10 @@ export interface CatalogoPOSResult {
   message?: string;
 }
 
-const CATALOGO_CACHE_TTL_MS = 90_000;
+/** Catálogo fresco (revalidación en segundo plano tras este umbral). */
+const CATALOGO_CACHE_TTL_MS = 300_000;
+/** Catálogo obsoleto aún usable mientras se actualiza (servidor propio / red lenta). */
+const CATALOGO_STALE_TTL_MS = 86_400_000;
 const CATALOGO_CACHE_PREFIX = "pos_mc_catalogo_pos_cache_v1";
 
 type CatalogoPosCache = {
@@ -187,12 +190,11 @@ export async function getCatalogoPOS(
       const raw = window.localStorage.getItem(cacheKey);
       if (raw) {
         const parsed = JSON.parse(raw) as CatalogoPosCache;
-        if (
-          parsed &&
-          Array.isArray(parsed.productos) &&
-          typeof parsed.savedAtMs === "number" &&
-          Date.now() - parsed.savedAtMs <= CATALOGO_CACHE_TTL_MS
-        ) {
+        const age = typeof parsed?.savedAtMs === "number" ? Date.now() - parsed.savedAtMs : Infinity;
+        if (parsed && Array.isArray(parsed.productos) && age <= CATALOGO_STALE_TTL_MS) {
+          if (age > CATALOGO_CACHE_TTL_MS) {
+            void getCatalogoPOS(idToken, puntoVenta, { forceRefresh: true }).catch(() => {});
+          }
           return { ok: true, productos: parsed.productos };
         }
       }

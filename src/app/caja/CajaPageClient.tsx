@@ -7,14 +7,9 @@ import { useRouter } from "next/navigation";
 import CajeroIdentificacionGateModal, {
   type CajeroIdentificacionMotivo,
 } from "@/components/CajeroIdentificacionGateModal";
-import CajeroReportesDashboard from "@/components/CajeroReportesDashboard";
-import MetasBonificacionesModule from "@/components/MetasBonificacionesModule";
 import { MetasRetosCajaProvider } from "@/components/MetasRetosCajaProvider";
-import CargueInventarioManualPanel from "@/components/CargueInventarioManualPanel";
-import ConfiguracionMasModule from "@/components/ConfiguracionMasModule";
 import CrearClientePosModal from "@/components/CrearClientePosModal";
 import EdicionItemCuentaModal from "@/components/EdicionItemCuentaModal";
-import InventarioPosModule from "@/components/InventarioPosModule";
 import PerfilUsuarioModal from "@/components/PerfilUsuarioModal";
 import PosGebAyudaMotorModal from "@/components/PosGebAyudaMotorModal";
 import PosGebBienvenidaModal from "@/components/PosGebBienvenidaModal";
@@ -28,14 +23,21 @@ import ModalInformeCierreCorreo from "@/components/ModalInformeCierreCorreo";
 import PosMetaCumplidaCelebracion from "@/components/PosMetaCumplidaCelebracion";
 import PosChatFloatingDock from "@/components/PosChatFloatingDock";
 import PosAnunciosCajaWatcher from "@/components/PosAnunciosCajaWatcher";
-import PlanMillasPosModule from "@/components/PlanMillasPosModule";
-import PosDomiciliosModule from "@/components/PosDomiciliosModule";
 import PosAjustePantallaPanel from "@/components/PosAjustePantallaPanel";
 import RegistrarPagoPanel, { type DetallePagoConfirmado } from "@/components/RegistrarPagoPanel";
 import TurnoCierreExitoPremiumModal from "@/components/TurnoCierreExitoPremiumModal";
-import TurnosHistorialModule from "@/components/TurnosHistorialModule";
-import UltimosRecibosModule from "@/components/UltimosRecibosModule";
 import SeleccionClienteVenta from "@/components/SeleccionClienteVenta";
+import {
+  CajeroReportesDashboard,
+  CargueInventarioManualPanel,
+  ConfiguracionMasModule,
+  InventarioPosModule,
+  MetasBonificacionesModule,
+  PlanMillasPosModule,
+  PosDomiciliosModule,
+  TurnosHistorialModule,
+  UltimosRecibosModule,
+} from "@/app/caja/caja-modulos-dynamic";
 import {
   buildLineIdPos,
   etiquetaArepaCombo,
@@ -118,10 +120,7 @@ import {
 } from "@/lib/turno-pos-persist";
 import { appendTurnoCerrado, type TurnoCerradoV1 } from "@/lib/turno-historial-local";
 import { nombreArchivoInformeTurno, textoInformeTurno, triggerDescargaTexto } from "@/lib/turno-informe-texto";
-import {
-  crearPdfDetalleTurno,
-  nombreArchivoDetalleTurnoPdf,
-} from "@/lib/turno-informe-pdf";
+import { nombreArchivoDetalleTurnoPdf } from "@/lib/turno-informe-pdf";
 import { textoResumenCorreoCierreTurno } from "@/lib/turno-informe-correo-resumen";
 import {
   acumularMovimientosCaja,
@@ -1178,6 +1177,7 @@ export default function CajaPageClient() {
     appendTurnoCerrado(uid, pv, registro);
     const txt = textoInformeTurno(registro);
     triggerDescargaTexto(nombreArchivoInformeTurno(registro), txt);
+    const { crearPdfDetalleTurno } = await import("@/lib/turno-informe-pdf");
     const pdfDoc = crearPdfDetalleTurno(registro);
     const pdfBase64 = pdfDoc.output("datauristring").split(",", 2)[1] || "";
     const textoCorreo = textoResumenCorreoCierreTurno(registro);
