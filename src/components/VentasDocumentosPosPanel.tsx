@@ -777,10 +777,10 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
                 ? "No hay ventas guardadas para este punto"
                 : filas.length === 0
                   ? "Ampliá el rango de fechas o usá «Ver todo el historial»"
-                  : "Generar reporte PDF o Excel del período filtrado"
+                  : "Generar reporte PDF del período filtrado"
             }
           >
-            Reporte
+            {reporteBusy === "pdf" ? "Generando PDF…" : "Reporte PDF"}
           </button>
           <button
             type="button"
@@ -792,10 +792,10 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
               void descargarReporteVentasExcel();
             }}
             disabled={cargando || reporteBusy !== "idle" || (filas.length === 0 && todasFilas.length === 0)}
-            className="rounded-xl border border-emerald-600 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
-            title="Descargar Excel con el filtro y nivel de detalle actuales"
+            className="rounded-xl border border-emerald-600 bg-gradient-to-r from-emerald-50 to-emerald-100/80 px-4 py-2 text-sm font-semibold text-emerald-950 shadow-sm hover:from-emerald-100 hover:to-emerald-200/80 disabled:opacity-50"
+            title="Descargar reporte en Excel (.xlsx) con el filtro y nivel de detalle actuales"
           >
-            {reporteBusy === "excel" ? "Excel…" : "Excel"}
+            {reporteBusy === "excel" ? "Generando Excel…" : "Reporte en Excel"}
           </button>
           <button
             type="button"
@@ -980,7 +980,7 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
                   onClick={abrirModalReporte}
                   className="underline-offset-2 hover:underline"
                 >
-                  Reporte PDF →
+                  Generar reporte PDF →
                 </button>
                 <span className="text-gray-300" aria-hidden>
                   |
@@ -991,7 +991,7 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
                   disabled={reporteBusy !== "idle"}
                   className="underline-offset-2 hover:underline disabled:opacity-50"
                 >
-                  {reporteBusy === "excel" ? "Generando Excel…" : "Exportar Excel →"}
+                  {reporteBusy === "excel" ? "Generando Excel…" : "Generar reporte en Excel →"}
                 </button>
               </span>
             ) : null}
