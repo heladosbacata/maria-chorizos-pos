@@ -65,6 +65,50 @@ export function sumarMediosPagoVentas(rows: MediosPagoVentaGuardados[]): MediosP
  * Ajusta medios para que no superen el total de la venta cuando hubo cambio.
  * Regla: el excedente se descuenta primero de efectivo (cambio entregado).
  */
+const fmtCopMedio = (n: number) =>
+  n.toLocaleString("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
+
+/** Etiquetas cortas y detalle con montos para reportes / tabla de ventas. */
+export function etiquetasMediosPagoVenta(
+  medios?: MediosPagoVentaGuardados | null,
+  pagoResumen?: string | null
+): { corto: string; detalle: string } {
+  if (medios) {
+    const tipos = new Set<string>();
+    const partes: string[] = [];
+    if (medios.efectivo > 0.009) {
+      tipos.add("Efectivo");
+      partes.push(`Efectivo ${fmtCopMedio(medios.efectivo)}`);
+    }
+    if (medios.tarjeta > 0.009) {
+      tipos.add("Datáfono");
+      partes.push(`Datáfono ${fmtCopMedio(medios.tarjeta)}`);
+    }
+    for (const d of medios.detalleLineas ?? []) {
+      if (d.monto <= 0.009) continue;
+      const t = d.tipo.trim() || "Otro";
+      tipos.add(t);
+      partes.push(`${t} ${fmtCopMedio(d.monto)}`);
+    }
+    if (medios.otros > 0.009) {
+      tipos.add("Otro");
+      partes.push(`Otro ${fmtCopMedio(medios.otros)}`);
+    }
+    if (tipos.size > 0) {
+      return {
+        corto: Array.from(tipos).join(", "),
+        detalle: partes.join(" · "),
+      };
+    }
+  }
+  const resumen = pagoResumen?.trim();
+  if (resumen) {
+    const unaLinea = resumen.replace(/\s+/g, " ").slice(0, 120);
+    return { corto: unaLinea.length > 56 ? `${unaLinea.slice(0, 53)}…` : unaLinea, detalle: resumen };
+  }
+  return { corto: "—", detalle: "Sin registro de medio de pago" };
+}
+
 export function normalizarMediosPagoVenta(
   medios: MediosPagoVentaGuardados,
   totalVenta: number

@@ -1,6 +1,7 @@
 import { fechaColombia, finDiaColombiaMs, inicioDiaColombiaMs, mediodiaColombiaDesdeYmd } from "@/lib/fecha-colombia";
 import type { DocumentoComercialFirestoreDoc } from "@/lib/documentos-comerciales-firestore";
 import type { VentaGuardadaLocal } from "@/lib/pos-ventas-local-storage";
+import { etiquetasMediosPagoVenta } from "@/lib/medios-pago-venta";
 
 export type TabDocumentoPosVenta =
   | "todos"
@@ -38,6 +39,10 @@ export type FilaDocumentoPosVenta = {
   emailDestino?: string;
   emailSugerido?: string;
   puedeEnviarCorreo: boolean;
+  /** Medios usados al cobrar (ej. Efectivo, Nequi). */
+  medioPagoLabel: string;
+  /** Detalle con montos para tooltip / PDF. */
+  medioPagoDetalle: string;
   venta?: VentaGuardadaLocal;
   documento?: DocumentoComercialFirestoreDoc;
 };
@@ -108,6 +113,8 @@ function ventaAFila(v: VentaGuardadaLocal): FilaDocumentoPosVenta {
     alegraEstadoLabel = "Documento interno: no se envía a Alegra como factura electrónica.";
   }
 
+  const medios = etiquetasMediosPagoVenta(v.mediosPago, v.pagoResumen);
+
   return {
     id: `venta:${v.id}`,
     fuente: "venta",
@@ -134,6 +141,8 @@ function ventaAFila(v: VentaGuardadaLocal): FilaDocumentoPosVenta {
     ...(emailDestino ? { emailDestino } : {}),
     ...(v.clienteEmailVenta?.trim() ? { emailSugerido: v.clienteEmailVenta.trim() } : {}),
     puedeEnviarCorreo: !anulada,
+    medioPagoLabel: medios.corto,
+    medioPagoDetalle: medios.detalle,
     venta: v,
   };
 }
@@ -162,6 +171,8 @@ function documentoAFila(d: DocumentoComercialFirestoreDoc): FilaDocumentoPosVent
     correoClienteCorto: "Sin correo",
     emailEnviado: false,
     puedeEnviarCorreo: true,
+    medioPagoLabel: "—",
+    medioPagoDetalle: "Cotización o remisión (sin cobro en POS)",
     documento: d,
   };
 }
@@ -255,7 +266,9 @@ export function filtrarFilasDocumentosPos(
       f.tipoLabel.toLowerCase().includes(q) ||
       f.tipoComprobanteBadge.toLowerCase().includes(q) ||
       f.alegraEstadoCorto.toLowerCase().includes(q) ||
-      f.alegraEstadoLabel.toLowerCase().includes(q);
+      f.alegraEstadoLabel.toLowerCase().includes(q) ||
+      f.medioPagoLabel.toLowerCase().includes(q) ||
+      f.medioPagoDetalle.toLowerCase().includes(q);
     return hay;
   });
 }

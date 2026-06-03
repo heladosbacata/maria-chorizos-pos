@@ -223,20 +223,24 @@ export async function crearPdfReporteVentasPos(
 
     autoTable(doc, {
       startY: y,
-      head: [["Fecha", "Comprobante", "Tipo", "Cliente", "Total"]],
+      head: [["Fecha", "Comprobante", "Tipo", "Cliente", "Medio de pago", "Total"]],
       body: transaccionesPdf.map((t) => [
         t.fechaLabel,
         t.comprobante.length > 22 ? `${t.comprobante.slice(0, 19)}…` : t.comprobante,
         t.tipoLabel.length > 28 ? `${t.tipoLabel.slice(0, 25)}…` : t.tipoLabel,
-        t.cliente.length > 32 ? `${t.cliente.slice(0, 29)}…` : t.cliente,
+        t.cliente.length > 28 ? `${t.cliente.slice(0, 25)}…` : t.cliente,
+        (t.medioPagoDetalle || t.medioPago).length > 36
+          ? `${(t.medioPagoDetalle || t.medioPago).slice(0, 33)}…`
+          : t.medioPagoDetalle || t.medioPago,
         t.anulada ? `${formatoMonedaCop(t.total)} (anul.)` : formatoMonedaCop(t.total),
       ]),
       headStyles: { fillColor: BRAND_GREEN, fontSize: 7 },
       styles: { fontSize: 7, cellPadding: 1.8, overflow: "linebreak" },
       columnStyles: {
-        0: { cellWidth: 24 },
-        1: { cellWidth: 28 },
-        4: { halign: "right", cellWidth: 26 },
+        0: { cellWidth: 22 },
+        1: { cellWidth: 24 },
+        4: { cellWidth: 32 },
+        5: { halign: "right", cellWidth: 24 },
       },
       margin: { left: margin, right: margin },
       didParseCell: (data) => {
@@ -316,7 +320,17 @@ export async function crearPdfReporteVentasPos(
       doc.setTextColor(90, 90, 90);
       const cli = venta.cliente.length > 70 ? `${venta.cliente.slice(0, 67)}…` : venta.cliente;
       doc.text(cli, margin, y);
-      y += 4;
+      y += 3.5;
+      if (venta.medioPagoDetalle && venta.medioPagoDetalle !== "—") {
+        const mp =
+          venta.medioPagoDetalle.length > 95
+            ? `${venta.medioPagoDetalle.slice(0, 92)}…`
+            : venta.medioPagoDetalle;
+        doc.text(`Medio de pago: ${mp}`, margin, y);
+        y += 4;
+      } else {
+        y += 0.5;
+      }
 
       autoTable(doc, {
         startY: y,

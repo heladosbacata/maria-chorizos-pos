@@ -9,6 +9,8 @@ export type FilaTransaccionReporte = {
   fechaLabel: string;
   tipoLabel: string;
   cliente: string;
+  medioPago: string;
+  medioPagoDetalle: string;
   total: number;
   anulada: boolean;
 };
@@ -25,6 +27,7 @@ export type DetalleVentaReporte = {
   comprobante: string;
   fechaLabel: string;
   cliente: string;
+  medioPagoDetalle: string;
   total: number;
   lineas: { descripcion: string; cantidad: number; subtotal: number }[];
 };
@@ -111,6 +114,8 @@ export function construirDatosReporteVentasPos(params: {
       fechaLabel: formatoFechaTabla(f.fechaYmd, f.fechaMs),
       tipoLabel: f.tipoLabel,
       cliente: f.clienteNombre,
+      medioPago: f.medioPagoLabel,
+      medioPagoDetalle: f.medioPagoDetalle,
       total: f.total,
       anulada: f.anulada,
     });
@@ -166,6 +171,7 @@ export function construirDatosReporteVentasPos(params: {
         comprobante: f.comprobante,
         fechaLabel: formatoFechaTabla(f.fechaYmd, f.fechaMs),
         cliente: f.clienteNombre,
+        medioPagoDetalle: f.medioPagoDetalle,
         total: f.total,
         lineas: lineasDetalle,
       });

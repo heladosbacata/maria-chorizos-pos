@@ -146,6 +146,10 @@ function DetalleFila({ f }: { f: FilaDocumentoPosVenta }) {
               </dd>
             </div>
           ) : null}
+          <div className="sm:col-span-2">
+            <dt className="font-semibold text-gray-600">Medio de pago</dt>
+            <dd className="mt-0.5 text-xs text-gray-800">{f.medioPagoDetalle}</dd>
+          </div>
         </dl>
         <div className="mt-3 overflow-x-auto rounded-lg border border-gray-200 bg-white">
           <table className="min-w-full text-left text-xs">
@@ -966,6 +970,7 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
                   <th className="px-4 py-3">Comprobante</th>
                   <th className="px-4 py-3">Cliente</th>
                   <th className="px-4 py-3 text-right">Total</th>
+                  <th className="px-4 py-3">Medio de pago</th>
                   <th className="px-4 py-3">Saldo</th>
                   <th className="px-4 py-3">DIAN</th>
                   <th className="px-4 py-3">Alegra</th>
@@ -978,9 +983,9 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
                   const abierto = expandidoId === f.id;
                   return (
                     <tr key={f.id} className={f.anulada ? "bg-rose-50/40" : "bg-white hover:bg-gray-50/80"}>
-                      <td colSpan={10} className="p-0">
+                      <td colSpan={11} className="p-0">
                         <div className="grid grid-cols-[minmax(0,1fr)]">
-                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 md:grid md:grid-cols-[6.5rem_4.25rem_minmax(0,1fr)_minmax(0,1fr)_5.5rem_4.5rem_4.75rem_5rem_5.5rem_9.5rem] md:items-center md:gap-x-2">
+                          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-3 md:grid md:grid-cols-[6.5rem_4.25rem_minmax(0,1fr)_minmax(0,1fr)_5.5rem_minmax(5.5rem,7rem)_4.5rem_4.75rem_5rem_5.5rem_9.5rem] md:items-center md:gap-x-2">
                             <span className="text-gray-800 tabular-nums">
                               {formatoFechaTabla(f.fechaYmd, f.fechaMs)}
                             </span>
@@ -1024,6 +1029,12 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
                               }`}
                             >
                               {formatoPesos(f.total)}
+                            </span>
+                            <span
+                              className="min-w-0 text-xs text-gray-700"
+                              title={f.medioPagoDetalle}
+                            >
+                              <span className="block truncate font-medium">{f.medioPagoLabel}</span>
                             </span>
                             <span>
                               <span
