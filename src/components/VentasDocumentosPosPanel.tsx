@@ -53,6 +53,7 @@ import {
   type NivelDetalleReporteVentas,
 } from "@/lib/ventas-reporte-pos-data";
 import { descargarPdfReporteVentasPos } from "@/lib/ventas-reporte-pos-pdf";
+import { descargarExcelReporteVentasPos } from "@/lib/ventas-reporte-pos-excel";
 import { enviarReporteVentasPosPorCorreo } from "@/lib/ventas-reporte-pos-correo";
 
 const TABS: { id: TabDocumentoPosVenta; label: string }[] = [
@@ -372,7 +373,7 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
   const [nivelReporte, setNivelReporte] = useState<NivelDetalleReporteVentas>("transacciones");
   const [reporteEmailPara, setReporteEmailPara] = useState("");
   const [reporteEmailCc, setReporteEmailCc] = useState("");
-  const [reporteBusy, setReporteBusy] = useState<"idle" | "pdf" | "correo">("idle");
+  const [reporteBusy, setReporteBusy] = useState<"idle" | "pdf" | "excel" | "correo">("idle");
   const [reporteError, setReporteError] = useState<string | null>(null);
   const [reporteExito, setReporteExito] = useState<string | null>(null);
 
@@ -623,6 +624,21 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
     }
   }, [filas.length, datosReporteActual]);
 
+  const descargarReporteVentasExcel = useCallback(async () => {
+    if (filas.length === 0) return;
+    setReporteBusy("excel");
+    setReporteError(null);
+    setReporteExito(null);
+    try {
+      await descargarExcelReporteVentasPos(datosReporteActual());
+      setReporteExito("Excel descargado en tu equipo.");
+    } catch (e) {
+      setReporteError(e instanceof Error ? e.message : "No se pudo generar el Excel.");
+    } finally {
+      setReporteBusy("idle");
+    }
+  }, [filas.length, datosReporteActual]);
+
   const enviarReporteVentasCorreo = useCallback(async () => {
     if (filas.length === 0 || !reporteEmailPara.trim()) return;
     setReporteBusy("correo");
@@ -761,10 +777,25 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
                 ? "No hay ventas guardadas para este punto"
                 : filas.length === 0
                   ? "Ampliá el rango de fechas o usá «Ver todo el historial»"
-                  : "Generar reporte PDF del período filtrado"
+                  : "Generar reporte PDF o Excel del período filtrado"
             }
           >
-            Reporte PDF
+            Reporte
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (filas.length === 0 && todasFilas.length > 0) {
+                abrirModalReporte();
+                return;
+              }
+              void descargarReporteVentasExcel();
+            }}
+            disabled={cargando || reporteBusy !== "idle" || (filas.length === 0 && todasFilas.length === 0)}
+            className="rounded-xl border border-emerald-600 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-900 hover:bg-emerald-100 disabled:opacity-50"
+            title="Descargar Excel con el filtro y nivel de detalle actuales"
+          >
+            {reporteBusy === "excel" ? "Excel…" : "Excel"}
           </button>
           <button
             type="button"
@@ -943,13 +974,26 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
               Total vigente en lista: {formatoPesos(totalFiltrado)}
             </span>
             {filas.length > 0 ? (
-              <button
-                type="button"
-                onClick={abrirModalReporte}
-                className="text-xs font-semibold text-emerald-800 underline-offset-2 hover:underline"
-              >
-                Generar reporte PDF →
-              </button>
+              <span className="flex flex-wrap items-center gap-2 text-xs font-semibold text-emerald-800">
+                <button
+                  type="button"
+                  onClick={abrirModalReporte}
+                  className="underline-offset-2 hover:underline"
+                >
+                  Reporte PDF →
+                </button>
+                <span className="text-gray-300" aria-hidden>
+                  |
+                </span>
+                <button
+                  type="button"
+                  onClick={() => void descargarReporteVentasExcel()}
+                  disabled={reporteBusy !== "idle"}
+                  className="underline-offset-2 hover:underline disabled:opacity-50"
+                >
+                  {reporteBusy === "excel" ? "Generando Excel…" : "Exportar Excel →"}
+                </button>
+              </span>
             ) : null}
           </div>
         </div>
@@ -1178,6 +1222,7 @@ export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: 
         onEmailCcChange={setReporteEmailCc}
         busy={reporteBusy}
         onDescargarPdf={() => void descargarReporteVentas()}
+        onDescargarExcel={() => void descargarReporteVentasExcel()}
         onEnviarCorreo={() => void enviarReporteVentasCorreo()}
         errorMsg={reporteError}
         exitoMsg={reporteExito}

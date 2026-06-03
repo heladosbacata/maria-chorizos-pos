@@ -22,7 +22,7 @@ const NIVELES: {
     id: "detallado",
     titulo: "Detallado con productos",
     descripcion:
-      "Todo lo anterior más ranking de productos vendidos y el detalle de ítems por cada documento. Para muchas ventas, el correo puede enviar una versión reducida (usá Descargar PDF para el archivo completo).",
+      "Todo lo anterior más ranking de productos vendidos y el detalle de ítems por cada documento. Disponible en PDF y Excel.",
   },
 ];
 
@@ -42,8 +42,9 @@ export interface ModalReporteVentasPosProps {
   onEmailParaChange: (v: string) => void;
   emailCc: string;
   onEmailCcChange: (v: string) => void;
-  busy: "idle" | "pdf" | "correo";
+  busy: "idle" | "pdf" | "excel" | "correo";
   onDescargarPdf: () => void;
+  onDescargarExcel: () => void;
   onEnviarCorreo: () => void;
   errorMsg: string | null;
   exitoMsg: string | null;
@@ -66,6 +67,7 @@ export default function ModalReporteVentasPos({
   onEmailCcChange,
   busy,
   onDescargarPdf,
+  onDescargarExcel,
   onEnviarCorreo,
   errorMsg,
   exitoMsg,
@@ -88,8 +90,9 @@ export default function ModalReporteVentasPos({
             <div>
               <p className="text-[10px] font-bold uppercase tracking-widest text-[#FFC81C]">Reporte premium</p>
               <h2 id="modal-reporte-ventas-titulo" className="mt-1 text-lg font-bold">
-                Reporte de ventas en PDF
+                Reporte de ventas
               </h2>
+              <p className="mt-0.5 text-[11px] text-white/65">PDF o Excel para franquiciados</p>
               <p className="mt-1 text-xs text-white/75">
                 {puntoVenta} · {desdeYmd === hastaYmd ? desdeYmd : `${desdeYmd} → ${hastaYmd}`}
               </p>
@@ -118,7 +121,7 @@ export default function ModalReporteVentasPos({
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           <p className="text-sm font-semibold text-gray-900">Nivel de detalle</p>
-          <p className="mt-0.5 text-xs text-gray-600">Elegí cuánta información incluir en el PDF.</p>
+          <p className="mt-0.5 text-xs text-gray-600">Elegí cuánta información incluir en el reporte (PDF o Excel).</p>
           {cantidadEnRango > 120 ? (
             <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-950">
               Hay {cantidadEnRango} documentos: por correo solo se envía resumen ejecutivo + top productos. Usá «Descargar
@@ -203,30 +206,40 @@ export default function ModalReporteVentasPos({
           ) : null}
         </div>
 
-        <div className="flex shrink-0 flex-col gap-2 border-t border-gray-200 bg-gray-50 px-5 py-4 sm:flex-row">
-          <button
-            type="button"
-            disabled={ocupado}
-            onClick={onClose}
-            className="rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50 sm:flex-1"
-          >
-            Cerrar
-          </button>
-          <button
-            type="button"
-            disabled={ocupado || cantidadEnRango === 0}
-            onClick={onDescargarPdf}
-            className="rounded-xl border border-emerald-700 bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50 sm:flex-1"
-          >
-            {busy === "pdf" ? "Generando PDF…" : "Descargar PDF"}
-          </button>
+        <div className="flex shrink-0 flex-col gap-2 border-t border-gray-200 bg-gray-50 px-5 py-4">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              disabled={ocupado}
+              onClick={onClose}
+              className="rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-800 hover:bg-gray-50 disabled:opacity-50 sm:flex-1"
+            >
+              Cerrar
+            </button>
+            <button
+              type="button"
+              disabled={ocupado || cantidadEnRango === 0}
+              onClick={onDescargarPdf}
+              className="rounded-xl border border-emerald-700 bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800 disabled:opacity-50 sm:flex-1"
+            >
+              {busy === "pdf" ? "Generando PDF…" : "Descargar PDF"}
+            </button>
+            <button
+              type="button"
+              disabled={ocupado || cantidadEnRango === 0}
+              onClick={onDescargarExcel}
+              className="rounded-xl border border-emerald-600 bg-white px-4 py-2.5 text-sm font-semibold text-emerald-800 hover:bg-emerald-50 disabled:opacity-50 sm:flex-1"
+            >
+              {busy === "excel" ? "Generando Excel…" : "Descargar Excel"}
+            </button>
+          </div>
           <button
             type="button"
             disabled={ocupado || cantidadEnRango === 0 || !emailPara.trim()}
             onClick={onEnviarCorreo}
-            className="rounded-xl bg-[#FFC81C] px-4 py-2.5 text-sm font-semibold text-gray-900 hover:opacity-90 disabled:opacity-50 sm:flex-1"
+            className="w-full rounded-xl bg-[#FFC81C] px-4 py-2.5 text-sm font-semibold text-gray-900 hover:opacity-90 disabled:opacity-50"
           >
-            {busy === "correo" ? "Enviando…" : "Enviar por correo"}
+            {busy === "correo" ? "Enviando…" : "Enviar PDF por correo"}
           </button>
         </div>
       </div>

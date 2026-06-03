@@ -294,3 +294,31 @@ export function nombreArchivoReporteVentasPdf(d: DatosReporteVentasPos): string 
   const slugPv = d.puntoVenta.replace(/[^\w.-]+/g, "_").slice(0, 32);
   return `Reporte-ventas-${slugPv}-${d.desdeYmd}_${d.hastaYmd}.pdf`;
 }
+
+export function nombreArchivoReporteVentasExcel(d: DatosReporteVentasPos): string {
+  const slugPv = d.puntoVenta.replace(/[^\w.-]+/g, "_").slice(0, 32);
+  return `Reporte-ventas-${slugPv}-${d.desdeYmd}_${d.hastaYmd}.xlsx`;
+}
+
+function fechaRangoLegibleExport(desdeYmd: string, hastaYmd: string): string {
+  if (desdeYmd === hastaYmd) return desdeYmd;
+  return `${desdeYmd} — ${hastaYmd}`;
+}
+
+/** Metadatos del reporte en filas clave-valor (Excel / export). */
+export function filasMetaReporteVentasPos(d: DatosReporteVentasPos): string[][] {
+  return [
+    ["Reporte de ventas — Maria Chorizos POS"],
+    [],
+    ["Punto de venta", d.puntoVenta],
+    ["Período", fechaRangoLegibleExport(d.desdeYmd, d.hastaYmd)],
+    ["Filtro de lista", d.filtroTabLabel],
+    ["Nivel de detalle", etiquetaNivelDetalle(d.nivel)],
+    ["Generado", new Date(d.generadoIso).toLocaleString("es-CO")],
+    [],
+    ["Documentos en período", String(d.cantidadDocumentos)],
+    ["Total ventas vigentes", String(d.totalVigente)],
+    ["Documentos anulados", String(d.cantidadAnuladas)],
+    ["Total anulado (referencia)", String(d.totalAnulado)],
+  ];
+}
