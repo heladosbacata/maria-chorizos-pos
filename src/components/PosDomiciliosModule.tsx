@@ -6,6 +6,11 @@ import QRCode from "qrcode";
 import { auth } from "@/lib/firebase";
 import { domicilioCambiarEstado, domicilioCrear, domiciliosListar } from "@/lib/pos-domicilios-api";
 import { enviarMensajeChatDomicilio, listarMensajesChatDomicilio } from "@/lib/pos-domicilios-chat-api";
+import {
+  textoRechazoPedidoParaCliente,
+  textoResumenPedidoParaConfirmacion,
+} from "@/lib/pos-domicilios-resumen-chat";
+import { reproducirTonoDomiciliosPos, type VolumenSonidoDomicilios } from "@/lib/pos-domicilios-sonidos";
 import { construirLandingPedidosUrl } from "@/lib/pos-domicilios-landing-url";
 import { DEFAULT_COSTO_DOMICILIO_COP, DEFAULT_UMBRAL_GRATIS_COP } from "@/lib/pos-domicilios-tarifa-defaults";
 import {
@@ -36,7 +41,7 @@ type Props = {
 
 type FiltroEstado = "todos" | EstadoDomicilio;
 type FiltroCanal = "todos" | PedidoDomicilio["canal"];
-type VolumenSonido = "bajo" | "medio";
+type VolumenSonido = VolumenSonidoDomicilios;
 type UnreadPorPedido = Record<string, number>;
 
 type FormNuevoPedido = {
@@ -171,40 +176,6 @@ function etiquetaEstado(estado: EstadoDomicilio): string {
   return "Rechazado";
 }
 
-const MAX_CHARS_CHAT_DOMICILIO = 800;
-
-/** Mensaje inicial del chat POS con resumen del pedido (máx. API). */
-function textoResumenPedidoParaConfirmacion(p: PedidoDomicilio): string {
-  const nom = p.cliente.trim() || "Cliente";
-  const lineasItems = p.items.map((x) => x.trim()).filter(Boolean);
-  const itemsBloque =
-    lineasItems.length > 0
-      ? `Items:\n${lineasItems.map((x) => `• ${x}`).join("\n")}`
-      : "Items: (sin detalle en el sistema)";
-  const ref = p.referencia?.trim();
-  const partes = [
-    `Hola ${nom}, te enviamos el resumen del pedido ${p.id} para que lo confirmes.`,
-    "",
-    itemsBloque,
-    "",
-    `Total: ${formatoMoneda(p.total)}`,
-    `Pago: ${etiquetaPago(p.metodoPago)}`,
-    `Entrega: ${p.direccion.trim()}`,
-    ref ? `Referencia: ${ref}` : null,
-    `Teléfono: ${p.telefono.trim()}`,
-    `Canal: ${etiquetaCanal(p.canal)}`,
-    "",
-    "Por favor confirmá que todo es correcto o indicanos cualquier cambio. ¡Gracias!",
-  ].filter((x): x is string => x != null && x !== "");
-  let msg = partes.join("\n");
-  if (msg.length > MAX_CHARS_CHAT_DOMICILIO) {
-    const sufijo = "\n…(mensaje acortado; hay más ítems en el pedido.)";
-    const max = MAX_CHARS_CHAT_DOMICILIO - sufijo.length;
-    msg = `${msg.slice(0, Math.max(0, max)).trimEnd()}${sufijo}`;
-  }
-  return msg;
-}
-
 function keySonidosDomicilios(puntoVenta: string): string {
   return `pos_mc_domicilios_sonido_v1:${puntoVenta.trim().toLowerCase() || "global"}`;
 }
@@ -238,34 +209,6 @@ function guardarMapaVistoChat(puntoVenta: string, mapa: Record<string, string>):
     localStorage.setItem(keyChatSeenDomicilios(puntoVenta), JSON.stringify(mapa));
   } catch {
     /* ignore */
-  }
-}
-
-function gananciaMaximaVolumen(volumen: VolumenSonido): number {
-  return volumen === "bajo" ? 0.03 : 0.06;
-}
-
-function reproducirTonoPos(tipo: "crear" | "reabrir", volumen: VolumenSonido): void {
-  if (typeof window === "undefined" || typeof window.AudioContext === "undefined") return;
-  try {
-    const ctx = new window.AudioContext();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = "sine";
-    osc.frequency.value = tipo === "crear" ? 880 : 740;
-    const gananciaObjetivo = gananciaMaximaVolumen(volumen);
-    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(gananciaObjetivo, ctx.currentTime + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + (tipo === "crear" ? 0.2 : 0.16));
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    osc.stop(ctx.currentTime + (tipo === "crear" ? 0.22 : 0.18));
-    window.setTimeout(() => {
-      void ctx.close().catch(() => undefined);
-    }, 260);
-  } catch {
-    /* sin audio disponible */
   }
 }
 
@@ -488,18 +431,6 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
         const llegados = nuevosActuales.filter((id) => !prev.includes(id));
         if (prev.length > 0 && llegados.length > 0) {
           setSyncInfo(`Llegaron ${llegados.length} pedido(s) nuevo(s) desde el landing.`);
-          if (sonidosActivos) reproducirTonoPos("crear", volumenSonido);
-          const pedidosRecien = res.data.filter((p) => llegados.includes(p.id));
-          if (pedidosRecien.length > 0) {
-            const masReciente = [...pedidosRecien].sort(
-              (a, b) => new Date(b.creadoEnIso).getTime() - new Date(a.creadoEnIso).getTime()
-            )[0];
-            pedidosResumenAutoPendienteRef.current.add(masReciente.id);
-            setChatPedidoAbierto(masReciente);
-            setChatTextoPos("");
-            setMarcoEntradaNuevoPedido(true);
-            window.setTimeout(() => setMarcoEntradaNuevoPedido(false), 8000);
-          }
         }
         pedidosNuevosPrevRef.current = nuevosActuales;
       }
@@ -542,7 +473,7 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
       if (typeof j.costoDomicilioCop === "number") setTarifaCostoInput(String(Math.max(0, Math.round(j.costoDomicilioCop))));
       if (typeof j.umbralGratisCop === "number") setTarifaUmbralInfo(Math.max(5000, Math.round(j.umbralGratisCop)));
       setSyncInfo("Tarifa de domicilio actualizada. Los clientes verán el nuevo valor en el pedido web/QR.");
-      if (sonidosActivos) reproducirTonoPos("crear", volumenSonido);
+      if (sonidosActivos) reproducirTonoDomiciliosPos("crear", volumenSonido);
     } catch {
       setSyncInfo("Error de red al guardar la tarifa.");
     } finally {
@@ -593,7 +524,7 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
         setHorarioSemanalUi(normalizarHorarioSemanalDomicilios(j.domiciliosHorarioSemanal, horarioSemanalUi));
       }
       setSyncInfo("Horario, recepción y modos de entrega actualizados. El landing aplicará los cambios en segundos.");
-      if (sonidosActivos) reproducirTonoPos("crear", volumenSonido);
+      if (sonidosActivos) reproducirTonoDomiciliosPos("crear", volumenSonido);
     } catch {
       setSyncInfo("Error de red al guardar horario de domicilios.");
     } finally {
@@ -659,7 +590,7 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
       setMediosTransferenciaDraft(norm);
       setModalEditarMediosTransferencia(false);
       setSyncInfo("Medios de transferencia actualizados. Los clientes los verán al elegir transferencia.");
-      if (sonidosActivos) reproducirTonoPos("crear", volumenSonido);
+      if (sonidosActivos) reproducirTonoDomiciliosPos("crear", volumenSonido);
     } catch {
       setSyncInfo("Error de red al guardar medios de transferencia.");
     } finally {
@@ -909,7 +840,7 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
       canal: "web",
     });
     setSyncInfo(resp.message ?? `Pedido ${resp.pedido.id} creado.`);
-    if (sonidosActivos) reproducirTonoPos("crear", volumenSonido);
+    if (sonidosActivos) reproducirTonoDomiciliosPos("crear", volumenSonido);
     setCreandoPedido(false);
   };
 
@@ -922,7 +853,17 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
       setSyncInfo("Debes indicar un motivo para rechazar el pedido.");
       return;
     }
-    await moverPedido(pedido.id, "RECHAZADO", motivoTrim);
+    const ok = await moverPedido(pedido.id, "RECHAZADO", motivoTrim);
+    if (ok) {
+      await enviarMensajeChatDomicilio({
+        puntoVenta: pedido.puntoVenta,
+        pedidoId: pedido.id,
+        autor: "pos",
+        autorLabel: "POS",
+        texto: textoRechazoPedidoParaCliente(motivoTrim),
+        tipoMensaje: "texto",
+      });
+    }
   };
 
   const enfocarPedidoEnNuevo = (pedidoId: string) => {
@@ -945,7 +886,7 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
     const ok = await moverPedido(pedidoId, "NUEVO");
     if (ok) {
       enfocarPedidoEnNuevo(pedidoId);
-      if (sonidosActivos) reproducirTonoPos("reabrir", volumenSonido);
+      if (sonidosActivos) reproducirTonoDomiciliosPos("reabrir", volumenSonido);
     }
   };
 

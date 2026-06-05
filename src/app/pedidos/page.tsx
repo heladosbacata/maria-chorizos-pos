@@ -266,7 +266,10 @@ function rangoEtaEstado(estado: EstadoPedidoDomicilio | null, minutosTranscurrid
 
 type VarianteMotivacionEstado = "exito" | "entrega" | "rechazo";
 
-function textoMotivacionCambioEstado(estado: EstadoPedidoDomicilio): {
+function textoMotivacionCambioEstado(
+  estado: EstadoPedidoDomicilio,
+  rechazoMotivo?: string | null
+): {
   titulo: string;
   subtitulo: string;
   variante: VarianteMotivacionEstado;
@@ -313,7 +316,9 @@ function textoMotivacionCambioEstado(estado: EstadoPedidoDomicilio): {
     case "RECHAZADO":
       return {
         titulo: "Pedido no disponible",
-        subtitulo: "Si tenés dudas, escribinos por el chat.",
+        subtitulo: rechazoMotivo?.trim()
+          ? `Motivo: ${rechazoMotivo.trim()}`
+          : "Si tenés dudas, escribinos por el chat.",
         variante: "rechazo",
         confeti: false,
       };
@@ -488,6 +493,7 @@ function PedidosLandingClient() {
   const [pedidoCreadoId, setPedidoCreadoId] = useState<string | null>(null);
   const [pedidoCreadoEnIso, setPedidoCreadoEnIso] = useState<string | null>(null);
   const [estadoPedido, setEstadoPedido] = useState<EstadoPedidoDomicilio | null>(null);
+  const [rechazoMotivoPedido, setRechazoMotivoPedido] = useState<string | null>(null);
   const [estadoPedidoLoading, setEstadoPedidoLoading] = useState(false);
   const [ahoraMs, setAhoraMs] = useState(Date.now());
   const [busqueda, setBusqueda] = useState("");
@@ -515,6 +521,7 @@ function PedidosLandingClient() {
   const [pushPedidosNavOk, setPushPedidosNavOk] = useState(false);
   const [modalPushPedidoAbierto, setModalPushPedidoAbierto] = useState(false);
   const [carritoModalAbierto, setCarritoModalAbierto] = useState(false);
+  const [modalConfirmarSoloRecogida, setModalConfirmarSoloRecogida] = useState(false);
   const [chatMensajesNoLeidos, setChatMensajesNoLeidos] = useState(0);
   const [pedidoResumenChat, setPedidoResumenChat] = useState<ResumenPedidoChatCliente | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
@@ -523,6 +530,7 @@ function PedidosLandingClient() {
   const chatFotoCamaraInputRef = useRef<HTMLInputElement | null>(null);
   const chatFotoGaleriaInputRef = useRef<HTMLInputElement | null>(null);
   const checkoutRef = useRef<HTMLDivElement | null>(null);
+  const tipoEntregaSectionRef = useRef<HTMLElement | null>(null);
   const estadoPedidoAnteriorRef = useRef<EstadoPedidoDomicilio | null>(null);
   const [tarifaDomicilio, setTarifaDomicilio] = useState({
     costoDomicilioCop: DEFAULT_COSTO_DOMICILIO_COP,
@@ -654,12 +662,24 @@ function PedidosLandingClient() {
   const mostrarOpcionRecogida = tarifaDomicilio.recogerEnTiendaHabilitado;
   const mostrarOpcionDomicilio = tarifaDomicilio.domicilioConDomiciliarioHabilitado;
   const elegirTipoEntrega = mostrarOpcionRecogida && mostrarOpcionDomicilio;
+  const soloRecogidaEnTienda = mostrarOpcionRecogida && !mostrarOpcionDomicilio;
+  const soloDomicilio = !mostrarOpcionRecogida && mostrarOpcionDomicilio;
+
+  const subtituloLandingPedidos = soloRecogidaEnTienda
+    ? "Elige productos y recógelos en nuestro punto. Por ahora solo tenemos habilitada la recogida en tienda."
+    : soloDomicilio
+      ? "Elige productos y te los llevamos a tu dirección."
+      : "Elige productos, confirma cómo quieres recibir tu pedido y listo.";
 
   useEffect(() => {
     if (tipoEntrega === "domicilio" && metodoPago === "datafono") {
       setMetodoPago("efectivo");
     }
   }, [tipoEntrega, metodoPago]);
+
+  useEffect(() => {
+    if (tipoEntrega === "recogida") setDireccion("");
+  }, [tipoEntrega]);
 
   const cambiarMetodoPagoCliente = useCallback((valor: MetodoPago) => {
     setMetodoPago(valor);
@@ -979,40 +999,57 @@ function PedidosLandingClient() {
     });
   };
 
-  const enviarPedido = async () => {
-    if (enviando) return;
+  const validarPedidoAntesDeEnviar = (): boolean => {
     if (!recepcionPedidosWebOk) {
       setMensaje(avisoBloqueoRecepcion ?? "En este momento no podemos recibir tu pedido.");
-      return;
+      return false;
     }
     if (!itemsCarrito.length) {
       setMensaje("Agrega al menos un producto al carrito.");
-      return;
+      return false;
     }
     if (!cliente.trim() || !telefono.trim()) {
       setMensaje("Completa nombre y teléfono para continuar.");
-      return;
+      return false;
     }
     const telefonoDigitos = telefono.replace(/\D/g, "");
     if (telefonoDigitos.length !== 10) {
       setMensaje("El teléfono debe tener 10 dígitos (ej. celular en Colombia).");
-      return;
+      return false;
     }
     if (tipoEntrega === "recogida" && !tarifaDomicilio.recogerEnTiendaHabilitado) {
       setMensaje("En este momento solo aceptamos envío a domicilio en este punto.");
-      return;
+      return false;
     }
     if (tipoEntrega === "domicilio" && !tarifaDomicilio.domicilioConDomiciliarioHabilitado) {
       setMensaje("En este momento solo aceptamos recoger en tienda en este punto.");
-      return;
+      return false;
     }
     if (tipoEntrega === "domicilio" && !direccion.trim()) {
       setMensaje("Indica la dirección de entrega o elige recoger en la tienda.");
+      return false;
+    }
+    return true;
+  };
+
+  const enviarPedido = async () => {
+    if (enviando) return;
+    if (!validarPedidoAntesDeEnviar()) return;
+    if (soloRecogidaEnTienda) {
+      setModalConfirmarSoloRecogida(true);
       return;
     }
+    await ejecutarEnvioPedido();
+  };
+
+  const ejecutarEnvioPedido = async () => {
+    if (enviando) return;
+    if (!validarPedidoAntesDeEnviar()) return;
+    setModalConfirmarSoloRecogida(false);
     setEnviando(true);
     setMensaje(null);
     setPedidoCreadoId(null);
+    const telefonoDigitos = telefono.replace(/\D/g, "");
     const direccionFinal =
       tipoEntrega === "recogida"
         ? `Recoger en tienda — ${puntoVenta}`
@@ -1111,6 +1148,7 @@ function PedidosLandingClient() {
       setChatMensajes([]);
       setChatError(null);
       setEstadoPedido(null);
+      setRechazoMotivoPedido(null);
       setEtiquetaClienteChat("");
       setPedidoResumenChat(null);
       setChatEstadoVisible(false);
@@ -1202,12 +1240,13 @@ function PedidosLandingClient() {
       const res = await fetch(url, { method: "GET" });
       const json = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
-        data?: Array<{ id?: string; estado?: EstadoPedidoDomicilio; creadoEnIso?: string }>;
+        data?: Array<{ id?: string; estado?: EstadoPedidoDomicilio; creadoEnIso?: string; rechazoMotivo?: string }>;
       };
       const row = (json.data ?? []).find((x) => x.id === pid);
       const estado = row?.estado ?? null;
       if (estado) setEstadoPedido(estado);
       if (row?.creadoEnIso) setPedidoCreadoEnIso(row.creadoEnIso);
+      setRechazoMotivoPedido(typeof row?.rechazoMotivo === "string" && row.rechazoMotivo.trim() ? row.rechazoMotivo.trim() : null);
     } finally {
       setEstadoPedidoLoading(false);
     }
@@ -1234,13 +1273,14 @@ function PedidosLandingClient() {
         const res = await fetch(url, { method: "GET" });
         const json = (await res.json().catch(() => ({}))) as {
           ok?: boolean;
-          data?: Array<{ id?: string; estado?: EstadoPedidoDomicilio; creadoEnIso?: string }>;
+          data?: Array<{ id?: string; estado?: EstadoPedidoDomicilio; creadoEnIso?: string; rechazoMotivo?: string }>;
         };
         if (!activo) return;
         const row = (json.data ?? []).find((x) => x.id === pedidoCreadoId);
         const estado = row?.estado ?? null;
         if (estado) setEstadoPedido(estado);
         if (row?.creadoEnIso) setPedidoCreadoEnIso(row.creadoEnIso);
+        setRechazoMotivoPedido(typeof row?.rechazoMotivo === "string" && row.rechazoMotivo.trim() ? row.rechazoMotivo.trim() : null);
       } finally {
         if (activo && !silencioso) setEstadoPedidoLoading(false);
       }
@@ -1266,7 +1306,7 @@ function PedidosLandingClient() {
     estadoPedidoAnteriorRef.current = estadoPedido;
     setResaltarTarjetaEstadoPedido(true);
     const tPulse = window.setTimeout(() => setResaltarTarjetaEstadoPedido(false), 1400);
-    const copy = textoMotivacionCambioEstado(estadoPedido);
+    const copy = textoMotivacionCambioEstado(estadoPedido, rechazoMotivoPedido);
     let tOverlay: number | undefined;
     if (copy) {
       const reduceMotion =
@@ -1284,7 +1324,7 @@ function PedidosLandingClient() {
       window.clearTimeout(tPulse);
       if (tOverlay) window.clearTimeout(tOverlay);
     };
-  }, [estadoPedido, pedidoCreadoId]);
+  }, [estadoPedido, pedidoCreadoId, rechazoMotivoPedido]);
 
   useEffect(() => {
     if (chatVista !== "expandido") return;
@@ -1499,10 +1539,10 @@ function PedidosLandingClient() {
           <strong>{formatoMoneda(subtotal)}</strong>
         </div>
         <div className="flex items-center justify-between">
-          <span>{tipoEntrega === "recogida" ? "Envío a domicilio" : "Domicilio"}</span>
+          <span>{tipoEntrega === "recogida" ? "Recogida en tienda" : "Envío a domicilio"}</span>
           <strong>
             {tipoEntrega === "recogida"
-              ? "No aplica"
+              ? "Sin costo"
               : costoDomicilio === 0
                 ? "Gratis"
                 : formatoMoneda(costoDomicilio)}
@@ -1685,6 +1725,107 @@ function PedidosLandingClient() {
     </ul>
   );
 
+  const renderResumenModoEntregaCheckout = () => (
+    <div className="mt-3 rounded-xl border border-cyan-200 bg-cyan-50/60 px-3 py-2.5">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wide text-cyan-700">Modo de entrega</p>
+          <p className="mt-0.5 text-sm font-extrabold text-cyan-950">
+            {tipoEntrega === "recogida" ? "Recoger en la tienda" : "Envío a domicilio"}
+          </p>
+          <p className="mt-0.5 text-[11px] text-cyan-900/85">
+            {tipoEntrega === "recogida"
+              ? `Pasas por: ${puntoVenta}`
+              : "Te llevamos el pedido a la dirección que indiques abajo."}
+          </p>
+        </div>
+        {elegirTipoEntrega ? (
+          <button
+            type="button"
+            onClick={() =>
+              tipoEntregaSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+            }
+            className="shrink-0 rounded-lg border border-cyan-300 bg-white px-2 py-1 text-[10px] font-bold text-cyan-800 hover:bg-cyan-100"
+          >
+            Cambiar
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+
+  const renderPasoTipoEntrega = () => (
+    <section
+      ref={tipoEntregaSectionRef}
+      className="scroll-mt-4 overflow-hidden rounded-2xl border-2 border-cyan-200 bg-white p-4 shadow-md sm:p-5"
+    >
+      <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-cyan-700">Paso 1</p>
+      <h2 className="mt-1 text-xl font-black text-gray-900 sm:text-2xl">¿Cómo quieres recibir tu pedido?</h2>
+      <p className="mt-1 text-sm text-gray-600">Definilo antes de armar el carrito para evitar confusiones.</p>
+
+      {soloRecogidaEnTienda ? (
+        <div className="mt-4 rounded-2xl border-2 border-amber-300 bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50 p-4 shadow-inner">
+          <p className="text-lg font-black text-amber-950">🏪 Por ahora, solo recogida en tienda</p>
+          <p className="mt-2 text-sm font-medium leading-relaxed text-amber-900/95">
+            En este momento <strong>no tenemos domicilio a tu dirección</strong> en este punto. Preparamos tu pedido
+            para que lo recojas en <strong>{puntoVenta}</strong>. ¡Así sabés exactamente dónde pasar y evitás esperar un
+            envío que no está disponible!
+          </p>
+        </div>
+      ) : null}
+
+      {soloDomicilio ? (
+        <div className="mt-4 rounded-2xl border-2 border-sky-300 bg-gradient-to-br from-sky-50 via-cyan-50 to-white p-4 shadow-inner">
+          <p className="text-lg font-black text-sky-950">🛵 Envío a domicilio habilitado</p>
+          <p className="mt-2 text-sm font-medium leading-relaxed text-sky-900/95">
+            En este punto recibimos pedidos con <strong>entrega a tu dirección</strong>. Indica dónde te llevamos el
+            pedido al finalizar la compra.
+          </p>
+        </div>
+      ) : null}
+
+      {elegirTipoEntrega ? (
+        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={() => setTipoEntrega("recogida")}
+            className={`rounded-2xl border-2 px-4 py-4 text-left transition ${
+              tipoEntrega === "recogida"
+                ? "border-cyan-600 bg-cyan-50 text-cyan-950 shadow-md ring-2 ring-cyan-300/60"
+                : "border-gray-200 bg-white text-gray-800 hover:border-gray-300 hover:bg-gray-50"
+            }`}
+          >
+            <span className="text-2xl" aria-hidden>
+              🏪
+            </span>
+            <p className="mt-2 text-base font-extrabold">Recoger en la tienda</p>
+            <p className="mt-1 text-xs font-medium text-gray-600">
+              Pasas por el punto <strong>{puntoVenta}</strong>. Sin costo de envío.
+            </p>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setTipoEntrega("domicilio");
+              setMetodoPago((m) => (m === "datafono" ? "efectivo" : m));
+            }}
+            className={`rounded-2xl border-2 px-4 py-4 text-left transition ${
+              tipoEntrega === "domicilio"
+                ? "border-cyan-600 bg-cyan-50 text-cyan-950 shadow-md ring-2 ring-cyan-300/60"
+                : "border-gray-200 bg-white text-gray-800 hover:border-gray-300 hover:bg-gray-50"
+            }`}
+          >
+            <span className="text-2xl" aria-hidden>
+              🛵
+            </span>
+            <p className="mt-2 text-base font-extrabold">Envío a domicilio</p>
+            <p className="mt-1 text-xs font-medium text-gray-600">Te llevamos el pedido a tu dirección.</p>
+          </button>
+        </div>
+      ) : null}
+    </section>
+  );
+
   if (!tienePedidoActivo) {
     if (turnoCajaAbierto === null) {
       return (
@@ -1708,9 +1849,7 @@ function PedidosLandingClient() {
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-100">App de pedidos Maria Chorizos</p>
               <h1 className="mt-1 text-2xl font-black leading-tight sm:text-3xl md:text-4xl">Pide como en una app de delivery</h1>
-              <p className="mt-2 max-w-2xl text-sm text-cyan-50">
-                Elige productos, confirma tu direccion y recibe tu pedido rapido. Atencion directa del punto POS.
-              </p>
+              <p className="mt-2 max-w-2xl text-sm text-cyan-50">{subtituloLandingPedidos}</p>
               <div className="mt-3 inline-flex max-w-full items-center gap-2 rounded-full border border-white/35 bg-white/15 px-3 py-1.5 text-xs font-semibold">
                 <span className="inline-block h-2 w-2 rounded-full bg-lime-300" />
                 <span className="truncate">Punto de venta: {puntoVenta}</span>
@@ -1764,8 +1903,14 @@ function PedidosLandingClient() {
             <p className="mt-1 text-lg font-extrabold text-gray-900">35 - 45 min</p>
           </article>
           <article className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Cobertura</p>
-            <p className="mt-1 text-lg font-extrabold text-gray-900">Zona urbana activa</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Modo de entrega</p>
+            <p className="mt-1 text-lg font-extrabold text-gray-900">
+              {soloRecogidaEnTienda
+                ? "Solo recogida en tienda"
+                : soloDomicilio
+                  ? "Solo envío a domicilio"
+                  : "Recogida o domicilio"}
+            </p>
           </article>
           <article className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Pago seguro</p>
@@ -1783,11 +1928,14 @@ function PedidosLandingClient() {
           </article>
         </section>
 
+        {renderPasoTipoEntrega()}
+
         <div className="grid gap-4 lg:grid-cols-[1fr_360px] lg:gap-5">
           <section className="min-w-0 space-y-4">
             <div className="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm sm:p-4">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Paso 2</p>
                   <h2 className="text-lg font-bold text-gray-900">Catalogo de productos</h2>
                   <p className="text-sm text-gray-500">Explora como en una app: busca, filtra y agrega al instante.</p>
                 </div>
@@ -1972,8 +2120,13 @@ function PedidosLandingClient() {
             </section>
 
             <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm sm:p-4">
-              <h3 className="text-base font-bold text-gray-900">Datos de entrega</h3>
-              <p className="mt-1 text-xs text-gray-500">Elige cómo quieres recibir tu pedido.</p>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Paso 3</p>
+              <h3 className="text-base font-bold text-gray-900">Tus datos y confirmación</h3>
+              <p className="mt-1 text-xs text-gray-500">
+                {tipoEntrega === "domicilio"
+                  ? "Completa tus datos y la dirección de entrega."
+                  : "Completa tus datos. No necesitamos dirección: recoges en el punto."}
+              </p>
               {avisoBloqueoRecepcion ? (
                 <div
                   role="alert"
@@ -1982,63 +2135,13 @@ function PedidosLandingClient() {
                   {avisoBloqueoRecepcion}
                 </div>
               ) : null}
-              {elegirTipoEntrega ? (
-                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  {mostrarOpcionDomicilio ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setTipoEntrega("domicilio");
-                        setMetodoPago((m) => (m === "datafono" ? "efectivo" : m));
-                      }}
-                      className={`rounded-xl border-2 px-3 py-2.5 text-left text-sm font-semibold transition ${
-                        tipoEntrega === "domicilio"
-                          ? "border-cyan-600 bg-cyan-50 text-cyan-950 shadow-sm"
-                          : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
-                      }`}
-                    >
-                      Envío a domicilio
-                      <span className="mt-0.5 block text-[11px] font-normal text-gray-600">
-                        Te llevamos el pedido a tu dirección.
-                      </span>
-                    </button>
-                  ) : null}
-                  {mostrarOpcionRecogida ? (
-                    <button
-                      type="button"
-                      onClick={() => setTipoEntrega("recogida")}
-                      className={`rounded-xl border-2 px-3 py-2.5 text-left text-sm font-semibold transition ${
-                        tipoEntrega === "recogida"
-                          ? "border-cyan-600 bg-cyan-50 text-cyan-950 shadow-sm"
-                          : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
-                      }`}
-                    >
-                      Recoger en la tienda
-                      <span className="mt-0.5 block text-[11px] font-normal text-gray-600">
-                        Pasas por el punto: {puntoVenta}
-                      </span>
-                    </button>
-                  ) : null}
+              {renderResumenModoEntregaCheckout()}
+              {soloRecogidaEnTienda ? (
+                <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/90 px-3 py-2.5 text-xs font-semibold leading-relaxed text-amber-950">
+                  Recuerda: este pedido es <strong>solo para recoger en tienda</strong>. No enviamos domicilio a tu
+                  dirección en este momento.
                 </div>
-              ) : (
-                <div className="mt-3 rounded-xl border-2 border-cyan-200 bg-cyan-50/70 px-3 py-2.5 text-sm font-semibold text-cyan-950">
-                  {mostrarOpcionRecogida ? (
-                    <>
-                      Recoger en la tienda
-                      <span className="mt-0.5 block text-[11px] font-normal text-cyan-900/80">
-                        Pasas por el punto: {puntoVenta}
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      Envío a domicilio
-                      <span className="mt-0.5 block text-[11px] font-normal text-cyan-900/80">
-                        Te llevamos el pedido a tu dirección.
-                      </span>
-                    </>
-                  )}
-                </div>
-              )}
+              ) : null}
               <div className="mt-3 min-w-0 space-y-2">
                 <input
                   value={cliente}
@@ -2063,11 +2166,7 @@ function PedidosLandingClient() {
                     placeholder="Dirección de entrega"
                     className="block w-full max-w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
                   />
-                ) : (
-                  <div className="rounded-lg border border-dashed border-cyan-300 bg-cyan-50/60 px-3 py-2.5 text-xs text-cyan-900">
-                    <strong className="font-semibold">Recogida en tienda.</strong> Indica en referencia si vienes en un vehículo o nombre de quien recoge, si lo deseas.
-                  </div>
-                )}
+                ) : null}
                 <input
                   value={referencia}
                   onChange={(e) => setReferencia(e.target.value)}
@@ -2312,6 +2411,48 @@ function PedidosLandingClient() {
           </div>
         </div>
       ) : null}
+      {modalConfirmarSoloRecogida ? (
+        <div className="fixed inset-0 z-[115] flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label="Cerrar confirmación"
+            className="absolute inset-0 bg-slate-950/65 backdrop-blur-[2px]"
+            onClick={() => setModalConfirmarSoloRecogida(false)}
+          />
+          <div className="relative z-10 w-full max-w-md overflow-hidden rounded-3xl border-2 border-amber-300 bg-gradient-to-br from-amber-50 via-white to-orange-50 p-5 shadow-2xl sm:p-6">
+            <p className="text-center text-4xl" aria-hidden>
+              🏪
+            </p>
+            <h2 className="mt-2 text-center text-xl font-black text-amber-950 sm:text-2xl">¡Casi listo!</h2>
+            <p className="mt-3 text-center text-sm font-semibold leading-relaxed text-amber-900/95">
+              Por ahora en <strong>{puntoVenta}</strong> solo tenemos habilitada la{" "}
+              <strong>recogida en tienda</strong>. Tu pedido quedará listo para que pases por el punto —{" "}
+              <strong>no enviaremos domicilio a tu dirección</strong> con este pedido.
+            </p>
+            <p className="mt-2 text-center text-xs font-medium text-amber-800/90">
+              Si esto es lo que buscabas, confirmá y te avisamos cuando esté en marcha.
+            </p>
+            <div className="mt-5 space-y-2">
+              <button
+                type="button"
+                onClick={() => void ejecutarEnvioPedido()}
+                disabled={enviando}
+                className="w-full rounded-xl bg-gradient-to-r from-cyan-700 to-teal-700 px-4 py-3 text-sm font-black text-white shadow-lg transition hover:from-cyan-800 hover:to-teal-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {enviando ? "Enviando pedido..." : "Entendido, confirmar pedido"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalConfirmarSoloRecogida(false)}
+                disabled={enviando}
+                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+              >
+                Revisar mi pedido
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {modalPushPedidoAbierto && pedidoCreadoId ? (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
           <button
@@ -2405,6 +2546,11 @@ function PedidosLandingClient() {
                           {estadoPedidoLoading ? "Consultando..." : estadoEtiqueta(estadoPedido)}
                         </p>
                         <p className="mt-1 text-[11px] font-semibold text-cyan-800">ETA: {etaPedido}</p>
+                        {estadoPedido === "RECHAZADO" && rechazoMotivoPedido ? (
+                          <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] font-semibold leading-snug text-rose-900">
+                            Motivo: {rechazoMotivoPedido}
+                          </p>
+                        ) : null}
                       </div>
                       <button
                         type="button"
@@ -2468,10 +2614,17 @@ function PedidosLandingClient() {
                       Pago: {etiquetaMetodoPagoCliente(pedidoResumenChat.metodoPago)} ·{" "}
                       {pedidoResumenChat.tipoEntrega === "recogida" ? "Recogida en tienda" : "Envío a domicilio"}
                     </p>
-                    <p className="mt-1 text-[11px] text-slate-700">
-                      <span className="font-semibold text-slate-800">Entrega: </span>
-                      {pedidoResumenChat.direccion}
-                    </p>
+                    {pedidoResumenChat.tipoEntrega === "domicilio" ? (
+                      <p className="mt-1 text-[11px] text-slate-700">
+                        <span className="font-semibold text-slate-800">Dirección: </span>
+                        {pedidoResumenChat.direccion}
+                      </p>
+                    ) : (
+                      <p className="mt-1 text-[11px] text-slate-700">
+                        <span className="font-semibold text-slate-800">Recoger en: </span>
+                        {pedidoResumenChat.puntoVenta}
+                      </p>
+                    )}
                     {pedidoResumenChat.referencia ? (
                       <p className="mt-0.5 text-[11px] text-slate-600">
                         <span className="font-semibold">Referencia: </span>

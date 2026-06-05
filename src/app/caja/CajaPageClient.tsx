@@ -20,6 +20,7 @@ import ModalCobroSinInternet from "@/components/ModalCobroSinInternet";
 import ModalInformeCierreCorreo from "@/components/ModalInformeCierreCorreo";
 import PosMetaCumplidaCelebracion from "@/components/PosMetaCumplidaCelebracion";
 import PosAnunciosCajaWatcher from "@/components/PosAnunciosCajaWatcher";
+import PosDomiciliosNuevoPedidoAlerta from "@/components/PosDomiciliosNuevoPedidoAlerta";
 import PosAjustePantallaPanel from "@/components/PosAjustePantallaPanel";
 import type { DetallePagoConfirmado } from "@/components/RegistrarPagoPanel";
 import TurnoCierreExitoPremiumModal from "@/components/TurnoCierreExitoPremiumModal";
@@ -4733,6 +4734,10 @@ export default function CajaPageClient() {
         ventaCompletadaTick={ventaCompletadaAnuncioTick}
         suprimido={moduloActivo === "domicilios"}
       />
+
+      {!esContador ? (
+        <PosDomiciliosNuevoPedidoAlerta puntoVenta={user?.puntoVenta} habilitado />
+      ) : null}
 
       {serviciosSecundarios && !esContador ? (
         <PosChatFloatingDock
