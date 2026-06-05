@@ -531,6 +531,7 @@ function PedidosLandingClient() {
   const chatFotoGaleriaInputRef = useRef<HTMLInputElement | null>(null);
   const checkoutRef = useRef<HTMLDivElement | null>(null);
   const tipoEntregaSectionRef = useRef<HTMLElement | null>(null);
+  const rastreadorPedidoRef = useRef<HTMLElement | null>(null);
   const estadoPedidoAnteriorRef = useRef<EstadoPedidoDomicilio | null>(null);
   const [tarifaDomicilio, setTarifaDomicilio] = useState({
     costoDomicilioCop: DEFAULT_COSTO_DOMICILIO_COP,
@@ -550,6 +551,12 @@ function PedidosLandingClient() {
   const [turnoCajaAbierto, setTurnoCajaAbierto] = useState<boolean | null>(null);
 
   const tienePedidoActivo = Boolean(pedidoCreadoId || pedidoIdEnUrl);
+
+  const pedidoEnCurso = useMemo(() => {
+    if (!pedidoCreadoId) return false;
+    if (!estadoPedido) return true;
+    return estadoPedido !== "ENTREGADO" && estadoPedido !== "RECHAZADO";
+  }, [pedidoCreadoId, estadoPedido]);
 
   const vapidPublicPedidos = useMemo(() => process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim() ?? "", []);
 
@@ -1117,8 +1124,13 @@ function PedidosLandingClient() {
       if (nuevoId) sincronizarPedidoEnUrl(nuevoId);
       setPedidoCreadoEnIso(new Date().toISOString());
       setEtiquetaClienteChat(cliente.trim() || "Cliente");
-      setChatVista("expandido");
+      setChatVista("minimizado");
       ultimoMensajePosIdRef.current = null;
+      window.setTimeout(() => {
+        rastreadorPedidoRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        setResaltarTarjetaEstadoPedido(true);
+        window.setTimeout(() => setResaltarTarjetaEstadoPedido(false), 2400);
+      }, 350);
       setChatMensajesNoLeidos(0);
       if (
         pedidosPushSoportadoEnEsteNavegador() &&
@@ -1441,6 +1453,12 @@ function PedidosLandingClient() {
     });
   };
 
+  const abrirRastreadorPedido = useCallback(() => {
+    setResaltarTarjetaEstadoPedido(true);
+    window.setTimeout(() => setResaltarTarjetaEstadoPedido(false), 2200);
+    rastreadorPedidoRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, []);
+
   useEffect(() => {
     if (chatVista === "expandido") setChatMensajesNoLeidos(0);
   }, [chatVista]);
@@ -1754,6 +1772,71 @@ function PedidosLandingClient() {
     </div>
   );
 
+  const renderRastreadorPedido = () => {
+    if (!pedidoCreadoId) return null;
+    return (
+      <section
+        ref={rastreadorPedidoRef}
+        className={`scroll-mt-4 overflow-hidden rounded-2xl border-2 border-cyan-300 bg-gradient-to-br from-cyan-50 via-white to-sky-50 p-4 shadow-md transition-shadow sm:p-5 ${
+          resaltarTarjetaEstadoPedido ? "animate-pedidos-estado-tarjeta-pulse ring-2 ring-cyan-400/80" : ""
+        }`}
+        aria-label="Rastreador de pedido"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-cyan-700">Tu pedido en curso</p>
+            <h2 className="mt-1 text-xl font-black text-cyan-950 sm:text-2xl">Estado de mi pedido</h2>
+            <p className="mt-1 text-sm font-semibold text-cyan-800">
+              {pedidoCreadoId} · {pedidoResumenChat?.tipoEntrega === "recogida" ? "Recogida en tienda" : "Envío a domicilio"}
+            </p>
+          </div>
+          <div className="flex flex-col items-end gap-2">
+            <span className="rounded-full bg-cyan-600 px-3 py-1 text-xs font-bold text-white shadow-sm">
+              {estadoPedidoLoading ? "Actualizando..." : estadoEtiqueta(estadoPedido)}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setAhoraMs(Date.now());
+                void refrescarEstadoPedidoConSpinner();
+              }}
+              disabled={estadoPedidoLoading}
+              className="rounded-lg border border-cyan-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-cyan-900 hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Actualizar estado
+            </button>
+          </div>
+        </div>
+        <p className="mt-3 text-sm font-semibold text-cyan-900">ETA estimada: {etaPedido}</p>
+        <div className="mt-4 grid grid-cols-6 gap-1.5">
+          {Array.from({ length: 6 }).map((_, idx) => {
+            const paso = idx + 1;
+            const activo = estadoPaso(estadoPedido) >= paso;
+            return (
+              <span
+                key={`rastreador-paso-${paso}`}
+                className={`h-2.5 rounded-full transition ${activo ? "bg-cyan-600" : "bg-cyan-100"}`}
+              />
+            );
+          })}
+        </div>
+        <div className="mt-2 grid grid-cols-3 gap-2 text-[11px] font-medium text-cyan-800">
+          <span>Recibido</span>
+          <span className="text-center">Preparación</span>
+          <span className="text-right">En camino</span>
+        </div>
+        {estadoPedido === "RECHAZADO" && rechazoMotivoPedido ? (
+          <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold leading-snug text-rose-900">
+            Motivo: {rechazoMotivoPedido}
+          </p>
+        ) : null}
+        <p className="mt-3 text-[11px] text-slate-500">
+          El estado se actualiza automáticamente cada pocos segundos. También podés usar el chat con el punto.
+        </p>
+      </section>
+    );
+  };
+
   const renderPasoTipoEntrega = () => (
     <section
       ref={tipoEntregaSectionRef}
@@ -1840,7 +1923,9 @@ function PedidosLandingClient() {
   }
 
   return (
-    <main className="min-h-screen w-full overflow-x-hidden bg-slate-50 pb-28 lg:pb-0">
+    <main
+      className={`min-h-screen w-full overflow-x-hidden bg-slate-50 lg:pb-0 ${pedidoEnCurso ? "pb-40" : "pb-28"}`}
+    >
       <section className="mx-auto max-w-6xl space-y-4 px-3 py-4 sm:px-4 sm:py-5 md:space-y-5 md:px-6 md:py-6">
         <header className="relative overflow-hidden rounded-2xl border border-cyan-200 bg-gradient-to-br from-cyan-700 via-sky-700 to-sky-600 p-4 text-white shadow-xl md:rounded-3xl md:p-6">
           <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/15 blur-2xl" />
@@ -1896,6 +1981,8 @@ function PedidosLandingClient() {
             </div>
           </div>
         </header>
+
+        {renderRastreadorPedido()}
 
         <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <article className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
@@ -2209,37 +2296,6 @@ function PedidosLandingClient() {
 
             {pedidoCreadoId ? (
               <>
-                <section
-                  className={`rounded-2xl border border-cyan-200 bg-cyan-50/50 p-3.5 shadow-sm transition-shadow sm:p-4 ${
-                    resaltarTarjetaEstadoPedido ? "animate-pedidos-estado-tarjeta-pulse ring-2 ring-cyan-400/70" : ""
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-base font-bold text-cyan-900">Estado de tu pedido</h3>
-                    <span className="rounded-full bg-cyan-100 px-2 py-0.5 text-[11px] font-semibold text-cyan-800">
-                      {estadoPedidoLoading ? "Actualizando..." : estadoEtiqueta(estadoPedido)}
-                    </span>
-                  </div>
-                  <p className="mt-1 text-xs text-cyan-700">Pedido {pedidoCreadoId}</p>
-                  <p className="mt-1 text-xs font-semibold text-cyan-800">ETA estimada: {etaPedido}</p>
-                  <div className="mt-3 grid grid-cols-6 gap-1">
-                    {Array.from({ length: 6 }).map((_, idx) => {
-                      const paso = idx + 1;
-                      const activo = estadoPaso(estadoPedido) >= paso;
-                      return (
-                        <span
-                          key={`paso-${paso}`}
-                          className={`h-2 rounded-full transition ${activo ? "bg-cyan-600" : "bg-cyan-100"}`}
-                        />
-                      );
-                    })}
-                  </div>
-                  <div className="mt-2 grid grid-cols-3 gap-2 text-[10px] text-cyan-700">
-                    <span>Recibido</span>
-                    <span className="text-center">Preparacion</span>
-                    <span className="text-right">En camino</span>
-                  </div>
-                </section>
                 <section className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-3.5 shadow-sm sm:p-4">
                   <h3 className="text-base font-bold text-indigo-950">Avisos en tu celular</h3>
                   <p className="mt-1 text-xs text-indigo-900/90">
@@ -2342,6 +2398,21 @@ function PedidosLandingClient() {
           </section>
         ) : null}
       </section>
+      {pedidoEnCurso ? (
+        <button
+          type="button"
+          onClick={abrirRastreadorPedido}
+          className="fixed inset-x-3 bottom-[4.65rem] z-40 flex items-center justify-center gap-2 rounded-xl border-2 border-cyan-400 bg-gradient-to-r from-cyan-600 to-sky-600 px-4 py-3 text-sm font-bold text-white shadow-lg transition hover:from-cyan-700 hover:to-sky-700 active:scale-[0.99] lg:hidden"
+        >
+          <svg className="h-5 w-5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+          </svg>
+          Estado de mi pedido
+          <span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-bold">
+            {estadoPedidoLoading ? "…" : estadoEtiqueta(estadoPedido)}
+          </span>
+        </button>
+      ) : null}
       <div className="fixed inset-x-3 bottom-3 z-40 flex gap-2 lg:hidden">
         <button
           type="button"
@@ -2363,18 +2434,35 @@ function PedidosLandingClient() {
           ) : null}
         </button>
       </div>
-      <button
-        type="button"
-        onClick={toggleChatCliente}
-        className="fixed bottom-5 right-5 z-40 hidden rounded-full bg-cyan-700 px-4 py-2 text-sm font-semibold text-white shadow-lg transition hover:bg-cyan-800 active:scale-[0.98] lg:inline-flex"
-      >
-        {chatVista === "expandido" ? "Minimizar chat" : chatVista === "minimizado" ? "Abrir chat" : "Chat con el punto"}
-        {chatMensajesNoLeidos > 0 && chatVista !== "expandido" ? (
-          <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold">
-            {chatMensajesNoLeidos > 9 ? "9+" : chatMensajesNoLeidos}
-          </span>
+      <div className="fixed bottom-5 right-5 z-40 hidden flex-col items-end gap-2 lg:flex">
+        {pedidoEnCurso ? (
+          <button
+            type="button"
+            onClick={abrirRastreadorPedido}
+            className="inline-flex items-center gap-2 rounded-full border-2 border-cyan-400 bg-gradient-to-r from-cyan-600 to-sky-600 px-4 py-2.5 text-sm font-bold text-white shadow-lg transition hover:from-cyan-700 hover:to-sky-700 active:scale-[0.98]"
+          >
+            <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+            </svg>
+            Estado de mi pedido
+            <span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px]">
+              {estadoPedidoLoading ? "…" : estadoEtiqueta(estadoPedido)}
+            </span>
+          </button>
         ) : null}
-      </button>
+        <button
+          type="button"
+          onClick={toggleChatCliente}
+          className="inline-flex items-center rounded-full bg-cyan-700 px-4 py-2 text-sm font-semibold text-white shadow-lg transition hover:bg-cyan-800 active:scale-[0.98]"
+        >
+          {chatVista === "expandido" ? "Minimizar chat" : chatVista === "minimizado" ? "Abrir chat" : "Chat con el punto"}
+          {chatMensajesNoLeidos > 0 && chatVista !== "expandido" ? (
+            <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold">
+              {chatMensajesNoLeidos > 9 ? "9+" : chatMensajesNoLeidos}
+            </span>
+          ) : null}
+        </button>
+      </div>
       {carritoModalAbierto ? (
         <div className="fixed inset-0 z-[95] flex items-center justify-center p-4 lg:hidden">
           <button
@@ -2816,7 +2904,11 @@ function PedidosLandingClient() {
         </div>
       ) : null}
       {chatVista === "minimizado" ? (
-        <div className="fixed inset-x-3 bottom-24 z-50 md:inset-x-auto md:bottom-20 md:right-5 md:w-[340px] md:max-w-[calc(100vw-2rem)]">
+        <div
+          className={`fixed inset-x-3 z-50 md:inset-x-auto md:right-5 md:w-[340px] md:max-w-[calc(100vw-2rem)] ${
+            pedidoEnCurso ? "bottom-[8.5rem] md:bottom-28" : "bottom-24 md:bottom-20"
+          }`}
+        >
           <div className="flex overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-2xl ring-1 ring-cyan-500/15">
             <button
               type="button"
