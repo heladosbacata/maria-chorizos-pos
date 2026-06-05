@@ -11,6 +11,8 @@ import { comprimirComprobanteTransferenciaParaChat } from "@/lib/pos-domicilios-
 import { enviarMensajeChatDomicilio, listarMensajesChatDomicilio } from "@/lib/pos-domicilios-chat-api";
 import { LOGO_ORG_URL } from "@/lib/brand";
 import MediosTransferenciaClienteModal from "@/components/MediosTransferenciaClienteModal";
+import PuntoCerradoPremiumView from "@/components/PuntoCerradoPremiumView";
+import { consultarTurnoCajaAbiertoWms } from "@/lib/wms-punto-turno-abierto";
 import { PosDomiciliosChatBurbuja } from "@/components/PosDomiciliosChatBurbuja";
 import { normalizarMediosTransferencia } from "@/lib/pos-domicilios-medios-transferencia";
 import { activarNotificacionesPedidoDomicilio, pedidosPushSoportadoEnEsteNavegador } from "@/lib/pedidos-push-client";
@@ -525,6 +527,10 @@ function PedidosLandingClient() {
   const [modalMediosTransferenciaCliente, setModalMediosTransferenciaCliente] = useState(false);
   /** Fuerza reevaluación del horario local (Colombia) sin depender solo del fetch periódico. */
   const [tickHorarioRecepcion, setTickHorarioRecepcion] = useState(0);
+  /** null = consultando al WMS; true/false = turno de caja abierto/cerrado. */
+  const [turnoCajaAbierto, setTurnoCajaAbierto] = useState<boolean | null>(null);
+
+  const tienePedidoActivo = Boolean(pedidoCreadoId || pedidoIdEnUrl);
 
   const vapidPublicPedidos = useMemo(() => process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim() ?? "", []);
 
@@ -618,12 +624,34 @@ function PedidosLandingClient() {
     return () => window.clearInterval(id);
   }, []);
 
+  useEffect(() => {
+    if (tienePedidoActivo) return;
+    let cancel = false;
+    const verificarTurno = async () => {
+      try {
+        const abierto = await consultarTurnoCajaAbiertoWms(puntoVenta);
+        if (!cancel) setTurnoCajaAbierto(abierto);
+      } catch {
+        if (!cancel) setTurnoCajaAbierto(false);
+      }
+    };
+    setTurnoCajaAbierto(null);
+    void verificarTurno();
+    const t = window.setInterval(() => void verificarTurno(), 30_000);
+    return () => {
+      cancel = true;
+      window.clearInterval(t);
+    };
+  }, [puntoVenta, tienePedidoActivo]);
+
   const recepcionPedidosWebOk = useMemo(() => {
     void tickHorarioRecepcion;
+    if (turnoCajaAbierto === false) return false;
     if (!tarifaDomicilio.domiciliosHabilitados) return false;
     return estaEnVentanaHoraria(tarifaDomicilio.domiciliosHoraInicio, tarifaDomicilio.domiciliosHoraFin);
   }, [
     tickHorarioRecepcion,
+    turnoCajaAbierto,
     tarifaDomicilio.domiciliosHabilitados,
     tarifaDomicilio.domiciliosHoraInicio,
     tarifaDomicilio.domiciliosHoraFin,
@@ -1597,6 +1625,19 @@ function PedidosLandingClient() {
       })}
     </ul>
   );
+
+  if (!tienePedidoActivo) {
+    if (turnoCajaAbierto === null) {
+      return (
+        <main className="flex min-h-screen items-center justify-center bg-[#0a0e1a] px-6">
+          <p className="text-center text-sm text-slate-400 animate-pulse">Verificando disponibilidad del punto…</p>
+        </main>
+      );
+    }
+    if (!turnoCajaAbierto) {
+      return <PuntoCerradoPremiumView puntoVenta={puntoVenta} />;
+    }
+  }
 
   return (
     <main className="min-h-screen w-full overflow-x-hidden bg-slate-50 pb-28 lg:pb-0">
