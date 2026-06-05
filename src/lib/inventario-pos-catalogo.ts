@@ -112,3 +112,14 @@ export function mergeCatalogoInventarioConProductosPos(
   const items = Array.from(merged.values()).sort((a, b) => a.descripcion.localeCompare(b.descripcion, "es"));
   return { items, agregados };
 }
+
+/** Todas las líneas de inventario derivadas de productos POS (variantes incluidas), sin fusionar con el catálogo base. */
+export function expandirItemsInventarioDesdeProductosPos(productos: ProductoPOS[]): InsumoKitItem[] {
+  const out: InsumoKitItem[] = [];
+  for (const producto of productos) {
+    for (const { item } of itemsInventarioDesdeProductoPos(producto)) {
+      out.push(item);
+    }
+  }
+  return out;
+}

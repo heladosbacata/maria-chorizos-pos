@@ -623,10 +623,19 @@ export function saldoMostradoYFuenteParaInsumoKit(
 export async function listarSaldosInventarioConFuentePorPuntoVenta(puntoVenta: string): Promise<{
   saldoRows: InventarioSaldoRow[];
   porClave: Map<string, InventarioSaldoConFuente>;
+  legacyRows: InventarioSaldoRow[];
+  ensambleRows: InventarioSaldoRow[];
 }> {
-  const empty = (): { saldoRows: InventarioSaldoRow[]; porClave: Map<string, InventarioSaldoConFuente> } => ({
+  const empty = (): {
+    saldoRows: InventarioSaldoRow[];
+    porClave: Map<string, InventarioSaldoConFuente>;
+    legacyRows: InventarioSaldoRow[];
+    ensambleRows: InventarioSaldoRow[];
+  } => ({
     saldoRows: [],
     porClave: new Map(),
+    legacyRows: [],
+    ensambleRows: [],
   });
   if (!db) return empty();
   const pv = puntoVenta.replace(/\u00a0/g, " ").trim();
@@ -677,6 +686,8 @@ export async function listarSaldosInventarioConFuentePorPuntoVenta(puntoVenta: s
   return {
     saldoRows: Array.from(porClave.values()).map((v) => v.row),
     porClave,
+    legacyRows,
+    ensambleRows: ensRows,
   };
 }
 

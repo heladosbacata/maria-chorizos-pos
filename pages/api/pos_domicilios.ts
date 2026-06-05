@@ -39,6 +39,7 @@ function asBody(body: unknown): DomicilioCrearPayload {
           ? o.metodoPago
           : "efectivo",
       canal: o.canal === "web" || o.canal === "whatsapp" || o.canal === "qr" ? o.canal : "web",
+      tipoEntrega: o.tipoEntrega === "recogida" || o.tipoEntrega === "domicilio" ? o.tipoEntrega : undefined,
       items: Array.isArray(o.items) ? o.items.filter((x): x is string => typeof x === "string") : [],
       tiempoObjetivoMin: typeof o.tiempoObjetivoMin === "number" ? o.tiempoObjetivoMin : undefined,
     };
@@ -84,6 +85,21 @@ export default async function handler(
       return res.status(400).json({
         ok: false,
         message: `Estamos fuera del horario de domicilios. ${textoHorarioAtencionCliente(cfg.domiciliosHoraInicio, cfg.domiciliosHoraFin)}`,
+      });
+    }
+    const tipoEntrega =
+      payload.tipoEntrega ??
+      (payload.direccion.trim().toLowerCase().startsWith("recoger en tienda") ? "recogida" : "domicilio");
+    if (tipoEntrega === "recogida" && !cfg.recogerEnTiendaHabilitado) {
+      return res.status(400).json({
+        ok: false,
+        message: "En este momento solo aceptamos pedidos con envío a domicilio. Elegí esa opción o contactá al local.",
+      });
+    }
+    if (tipoEntrega === "domicilio" && !cfg.domicilioConDomiciliarioHabilitado) {
+      return res.status(400).json({
+        ok: false,
+        message: "En este momento solo aceptamos pedidos para recoger en tienda. Elegí esa opción o contactá al local.",
       });
     }
     const pedido = await crearPedidoDomicilioPersistente(payload);

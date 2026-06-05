@@ -474,7 +474,7 @@ function PedidosLandingClient() {
   const [direccion, setDireccion] = useState("");
   const [referencia, setReferencia] = useState("");
   const [metodoPago, setMetodoPago] = useState<MetodoPago>("efectivo");
-  const [tipoEntrega, setTipoEntrega] = useState<TipoEntregaPedido>("domicilio");
+  const [tipoEntrega, setTipoEntrega] = useState<TipoEntregaPedido>("recogida");
   const [enviando, setEnviando] = useState(false);
   const [mensaje, setMensaje] = useState<string | null>(null);
   const [pedidoCreadoId, setPedidoCreadoId] = useState<string | null>(null);
@@ -520,6 +520,8 @@ function PedidosLandingClient() {
     costoDomicilioCop: DEFAULT_COSTO_DOMICILIO_COP,
     umbralGratisCop: DEFAULT_UMBRAL_GRATIS_COP,
     domiciliosHabilitados: true,
+    recogerEnTiendaHabilitado: true,
+    domicilioConDomiciliarioHabilitado: false,
     domiciliosHoraInicio: "07:00",
     domiciliosHoraFin: "22:00",
     mediosTransferencia: { ...MEDIOS_TRANSFERENCIA_VACIOS } as MediosTransferenciaConfig,
@@ -565,6 +567,8 @@ function PedidosLandingClient() {
         costoDomicilioCop?: number;
         umbralGratisCop?: number;
         domiciliosHabilitados?: boolean;
+        recogerEnTiendaHabilitado?: boolean;
+        domicilioConDomiciliarioHabilitado?: boolean;
         domiciliosHoraInicio?: string;
         domiciliosHoraFin?: string;
         mediosTransferencia?: MediosTransferenciaConfig;
@@ -579,6 +583,12 @@ function PedidosLandingClient() {
           ? Math.round(json.umbralGratisCop)
           : DEFAULT_UMBRAL_GRATIS_COP;
       const domiciliosHabilitados = typeof json.domiciliosHabilitados === "boolean" ? json.domiciliosHabilitados : true;
+      const recogerEnTiendaHabilitado =
+        typeof json.recogerEnTiendaHabilitado === "boolean" ? json.recogerEnTiendaHabilitado : true;
+      const domicilioConDomiciliarioHabilitado =
+        typeof json.domicilioConDomiciliarioHabilitado === "boolean"
+          ? json.domicilioConDomiciliarioHabilitado
+          : false;
       const domiciliosHoraInicio =
         typeof json.domiciliosHoraInicio === "string" && json.domiciliosHoraInicio.trim() ? json.domiciliosHoraInicio.trim() : "07:00";
       const domiciliosHoraFin =
@@ -587,6 +597,8 @@ function PedidosLandingClient() {
         costoDomicilioCop: costo,
         umbralGratisCop: umbral,
         domiciliosHabilitados,
+        recogerEnTiendaHabilitado,
+        domicilioConDomiciliarioHabilitado,
         domiciliosHoraInicio,
         domiciliosHoraFin,
         mediosTransferencia: normalizarMediosTransferencia(json.mediosTransferencia),
@@ -603,6 +615,30 @@ function PedidosLandingClient() {
     }, 45000);
     return () => window.clearInterval(t);
   }, [refrescarTarifaDomicilio]);
+
+  const tipoEntregaPreferidoPorConfig = useCallback((): TipoEntregaPedido => {
+    if (tarifaDomicilio.recogerEnTiendaHabilitado) return "recogida";
+    if (tarifaDomicilio.domicilioConDomiciliarioHabilitado) return "domicilio";
+    return "recogida";
+  }, [tarifaDomicilio.recogerEnTiendaHabilitado, tarifaDomicilio.domicilioConDomiciliarioHabilitado]);
+
+  useEffect(() => {
+    if (tipoEntrega === "recogida" && !tarifaDomicilio.recogerEnTiendaHabilitado) {
+      setTipoEntrega(tarifaDomicilio.domicilioConDomiciliarioHabilitado ? "domicilio" : "recogida");
+      return;
+    }
+    if (tipoEntrega === "domicilio" && !tarifaDomicilio.domicilioConDomiciliarioHabilitado) {
+      setTipoEntrega(tarifaDomicilio.recogerEnTiendaHabilitado ? "recogida" : "domicilio");
+    }
+  }, [
+    tipoEntrega,
+    tarifaDomicilio.recogerEnTiendaHabilitado,
+    tarifaDomicilio.domicilioConDomiciliarioHabilitado,
+  ]);
+
+  const mostrarOpcionRecogida = tarifaDomicilio.recogerEnTiendaHabilitado;
+  const mostrarOpcionDomicilio = tarifaDomicilio.domicilioConDomiciliarioHabilitado;
+  const elegirTipoEntrega = mostrarOpcionRecogida && mostrarOpcionDomicilio;
 
   useEffect(() => {
     if (tipoEntrega === "domicilio" && metodoPago === "datafono") {
@@ -948,6 +984,14 @@ function PedidosLandingClient() {
       setMensaje("El teléfono debe tener 10 dígitos (ej. celular en Colombia).");
       return;
     }
+    if (tipoEntrega === "recogida" && !tarifaDomicilio.recogerEnTiendaHabilitado) {
+      setMensaje("En este momento solo aceptamos envío a domicilio en este punto.");
+      return;
+    }
+    if (tipoEntrega === "domicilio" && !tarifaDomicilio.domicilioConDomiciliarioHabilitado) {
+      setMensaje("En este momento solo aceptamos recoger en tienda en este punto.");
+      return;
+    }
     if (tipoEntrega === "domicilio" && !direccion.trim()) {
       setMensaje("Indica la dirección de entrega o elige recoger en la tienda.");
       return;
@@ -979,6 +1023,7 @@ function PedidosLandingClient() {
           : `${x.cantidad}x ${x.p.descripcion}`
       ),
       tiempoObjetivoMin: 35,
+      tipoEntrega,
     };
     try {
       const res = await fetch("/api/pos_domicilios", {
@@ -1039,7 +1084,7 @@ function PedidosLandingClient() {
       setDireccion("");
       setReferencia("");
       setMetodoPago("efectivo");
-      setTipoEntrega("domicilio");
+      setTipoEntrega(tipoEntregaPreferidoPorConfig());
       setEnviando(false);
     } catch {
       setMensaje("No se pudo enviar el pedido. Intenta nuevamente.");
@@ -1923,35 +1968,63 @@ function PedidosLandingClient() {
                   {avisoBloqueoRecepcion}
                 </div>
               ) : null}
-              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTipoEntrega("domicilio");
-                    setMetodoPago((m) => (m === "datafono" ? "efectivo" : m));
-                  }}
-                  className={`rounded-xl border-2 px-3 py-2.5 text-left text-sm font-semibold transition ${
-                    tipoEntrega === "domicilio"
-                      ? "border-cyan-600 bg-cyan-50 text-cyan-950 shadow-sm"
-                      : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
-                  }`}
-                >
-                  Envío a domicilio
-                  <span className="mt-0.5 block text-[11px] font-normal text-gray-600">Te llevamos el pedido a tu dirección.</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTipoEntrega("recogida")}
-                  className={`rounded-xl border-2 px-3 py-2.5 text-left text-sm font-semibold transition ${
-                    tipoEntrega === "recogida"
-                      ? "border-cyan-600 bg-cyan-50 text-cyan-950 shadow-sm"
-                      : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
-                  }`}
-                >
-                  Recoger en la tienda
-                  <span className="mt-0.5 block text-[11px] font-normal text-gray-600">Pasas por el punto: {puntoVenta}</span>
-                </button>
-              </div>
+              {elegirTipoEntrega ? (
+                <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {mostrarOpcionDomicilio ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTipoEntrega("domicilio");
+                        setMetodoPago((m) => (m === "datafono" ? "efectivo" : m));
+                      }}
+                      className={`rounded-xl border-2 px-3 py-2.5 text-left text-sm font-semibold transition ${
+                        tipoEntrega === "domicilio"
+                          ? "border-cyan-600 bg-cyan-50 text-cyan-950 shadow-sm"
+                          : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
+                      }`}
+                    >
+                      Envío a domicilio
+                      <span className="mt-0.5 block text-[11px] font-normal text-gray-600">
+                        Te llevamos el pedido a tu dirección.
+                      </span>
+                    </button>
+                  ) : null}
+                  {mostrarOpcionRecogida ? (
+                    <button
+                      type="button"
+                      onClick={() => setTipoEntrega("recogida")}
+                      className={`rounded-xl border-2 px-3 py-2.5 text-left text-sm font-semibold transition ${
+                        tipoEntrega === "recogida"
+                          ? "border-cyan-600 bg-cyan-50 text-cyan-950 shadow-sm"
+                          : "border-gray-200 bg-white text-gray-700 hover:border-gray-300"
+                      }`}
+                    >
+                      Recoger en la tienda
+                      <span className="mt-0.5 block text-[11px] font-normal text-gray-600">
+                        Pasas por el punto: {puntoVenta}
+                      </span>
+                    </button>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="mt-3 rounded-xl border-2 border-cyan-200 bg-cyan-50/70 px-3 py-2.5 text-sm font-semibold text-cyan-950">
+                  {mostrarOpcionRecogida ? (
+                    <>
+                      Recoger en la tienda
+                      <span className="mt-0.5 block text-[11px] font-normal text-cyan-900/80">
+                        Pasas por el punto: {puntoVenta}
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      Envío a domicilio
+                      <span className="mt-0.5 block text-[11px] font-normal text-cyan-900/80">
+                        Te llevamos el pedido a tu dirección.
+                      </span>
+                    </>
+                  )}
+                </div>
+              )}
               <div className="mt-3 min-w-0 space-y-2">
                 <input
                   value={cliente}

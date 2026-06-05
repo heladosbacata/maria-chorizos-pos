@@ -9,6 +9,7 @@ export type EstadoDomicilio =
 
 export type MetodoPagoDomicilio = "efectivo" | "transferencia" | "datafono";
 export type CanalDomicilio = "web" | "whatsapp" | "qr";
+export type TipoEntregaDomicilio = "domicilio" | "recogida";
 
 export interface PedidoDomicilio {
   id: string;
@@ -58,6 +59,7 @@ export interface DomicilioCrearPayload {
   canal: CanalDomicilio;
   items: string[];
   tiempoObjetivoMin?: number;
+  tipoEntrega?: TipoEntregaDomicilio;
 }
 
 export interface DomicilioCrearResponse {

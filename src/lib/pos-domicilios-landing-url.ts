@@ -1,7 +1,8 @@
 /** URL del landing de pedidos web/QR para un punto de venta. */
 import { slugDomiciliosPuntoVenta } from "@/lib/pos-domicilios-slug";
 
-const POS_DOMICILIOS_PUBLIC_URL = "https://pedidos.mariachorizos.com/domicilios";
+/** Dominio del proyecto POS (no WMS). pedidos.* hoy puede apuntar mal en DNS. */
+const POS_DOMICILIOS_PUBLIC_URL = "https://pos.mariachorizos.com/domicilios";
 
 function esUrlLocalhost(url: string): boolean {
   try {

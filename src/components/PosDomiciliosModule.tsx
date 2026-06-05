@@ -289,6 +289,8 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
   const [tarifaCargando, setTarifaCargando] = useState(false);
   const [tarifaGuardando, setTarifaGuardando] = useState(false);
   const [domiciliosHabilitadosUi, setDomiciliosHabilitadosUi] = useState(true);
+  const [recogerEnTiendaUi, setRecogerEnTiendaUi] = useState(true);
+  const [domicilioConDomiciliarioUi, setDomicilioConDomiciliarioUi] = useState(false);
   const [domiciliosHoraIni, setDomiciliosHoraIni] = useState("07:00");
   const [domiciliosHoraFin, setDomiciliosHoraFin] = useState("22:00");
   const [operacionGuardando, setOperacionGuardando] = useState(false);
@@ -416,6 +418,8 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
           costoDomicilioCop?: number;
           umbralGratisCop?: number;
           domiciliosHabilitados?: boolean;
+          recogerEnTiendaHabilitado?: boolean;
+          domicilioConDomiciliarioHabilitado?: boolean;
           domiciliosHoraInicio?: string;
           domiciliosHoraFin?: string;
           mediosTransferencia?: MediosTransferenciaConfig;
@@ -432,6 +436,12 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
         }
         if (res.ok && typeof j.domiciliosHabilitados === "boolean") {
           setDomiciliosHabilitadosUi(j.domiciliosHabilitados);
+        }
+        if (res.ok && typeof j.recogerEnTiendaHabilitado === "boolean") {
+          setRecogerEnTiendaUi(j.recogerEnTiendaHabilitado);
+        }
+        if (res.ok && typeof j.domicilioConDomiciliarioHabilitado === "boolean") {
+          setDomicilioConDomiciliarioUi(j.domicilioConDomiciliarioHabilitado);
         }
         if (res.ok && typeof j.domiciliosHoraInicio === "string" && j.domiciliosHoraInicio.trim()) {
           setDomiciliosHoraIni(j.domiciliosHoraInicio.trim());
@@ -549,6 +559,8 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
         body: JSON.stringify({
           puntoVenta: puntoVentaActivo,
           domiciliosHabilitados: domiciliosHabilitadosUi,
+          recogerEnTiendaHabilitado: recogerEnTiendaUi,
+          domicilioConDomiciliarioHabilitado: domicilioConDomiciliarioUi,
           domiciliosHoraInicio: domiciliosHoraIni,
           domiciliosHoraFin: domiciliosHoraFin,
         }),
@@ -557,6 +569,8 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
         ok?: boolean;
         message?: string;
         domiciliosHabilitados?: boolean;
+        recogerEnTiendaHabilitado?: boolean;
+        domicilioConDomiciliarioHabilitado?: boolean;
         domiciliosHoraInicio?: string;
         domiciliosHoraFin?: string;
       };
@@ -566,9 +580,13 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
         return;
       }
       if (typeof j.domiciliosHabilitados === "boolean") setDomiciliosHabilitadosUi(j.domiciliosHabilitados);
+      if (typeof j.recogerEnTiendaHabilitado === "boolean") setRecogerEnTiendaUi(j.recogerEnTiendaHabilitado);
+      if (typeof j.domicilioConDomiciliarioHabilitado === "boolean") {
+        setDomicilioConDomiciliarioUi(j.domicilioConDomiciliarioHabilitado);
+      }
       if (typeof j.domiciliosHoraInicio === "string") setDomiciliosHoraIni(j.domiciliosHoraInicio);
       if (typeof j.domiciliosHoraFin === "string") setDomiciliosHoraFin(j.domiciliosHoraFin);
-      setSyncInfo("Horario y estado de domicilios actualizados. El landing aplicará los cambios en segundos.");
+      setSyncInfo("Horario, recepción y modos de entrega actualizados. El landing aplicará los cambios en segundos.");
       if (sonidosActivos) reproducirTonoPos("crear", volumenSonido);
     } catch {
       setSyncInfo("Error de red al guardar horario de domicilios.");
@@ -578,6 +596,8 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
   }, [
     puntoVentaActivo,
     domiciliosHabilitadosUi,
+    recogerEnTiendaUi,
+    domicilioConDomiciliarioUi,
     domiciliosHoraIni,
     domiciliosHoraFin,
     sonidosActivos,
@@ -1154,24 +1174,65 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
               Al abrir turno en caja, los domicilios se habilitan solos (podés volver a pausarlos acá).
             </p>
           </div>
-          <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-            <span className="text-xs font-semibold text-slate-700">Recibir pedidos</span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={domiciliosHabilitadosUi}
-              disabled={operacionGuardando || tarifaCargando || !puntoVentaActivo}
-              onClick={() => setDomiciliosHabilitadosUi((v) => !v)}
-              className={`relative h-8 w-14 shrink-0 rounded-full transition-colors ${
-                domiciliosHabilitadosUi ? "bg-emerald-600" : "bg-slate-300"
-              } disabled:cursor-not-allowed disabled:opacity-50`}
-            >
-              <span
-                className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition-transform ${
-                  domiciliosHabilitadosUi ? "left-7" : "left-1"
-                }`}
-              />
-            </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {(
+              [
+                {
+                  id: "recibir",
+                  label: "Recibir pedidos",
+                  checked: domiciliosHabilitadosUi,
+                  onToggle: () => setDomiciliosHabilitadosUi((v) => !v),
+                },
+                {
+                  id: "recoger",
+                  label: "Recoger en tienda",
+                  checked: recogerEnTiendaUi,
+                  onToggle: () => {
+                    if (recogerEnTiendaUi && !domicilioConDomiciliarioUi) {
+                      setSyncInfo("Debe quedar al menos un modo de entrega habilitado para el cliente.");
+                      return;
+                    }
+                    setRecogerEnTiendaUi((v) => !v);
+                  },
+                },
+                {
+                  id: "domiciliario",
+                  label: "Domicilios con domiciliario",
+                  checked: domicilioConDomiciliarioUi,
+                  onToggle: () => {
+                    if (domicilioConDomiciliarioUi && !recogerEnTiendaUi) {
+                      setSyncInfo("Debe quedar al menos un modo de entrega habilitado para el cliente.");
+                      return;
+                    }
+                    setDomicilioConDomiciliarioUi((v) => !v);
+                  },
+                },
+              ] as const
+            ).map((opt) => (
+              <div
+                key={opt.id}
+                className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2"
+              >
+                <span className="text-xs font-semibold text-slate-700">{opt.label}</span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={opt.checked}
+                  aria-label={opt.label}
+                  disabled={operacionGuardando || tarifaCargando || !puntoVentaActivo}
+                  onClick={opt.onToggle}
+                  className={`relative h-8 w-14 shrink-0 rounded-full transition-colors ${
+                    opt.checked ? "bg-emerald-600" : "bg-slate-300"
+                  } disabled:cursor-not-allowed disabled:opacity-50`}
+                >
+                  <span
+                    className={`absolute top-1 h-6 w-6 rounded-full bg-white shadow transition-transform ${
+                      opt.checked ? "left-7" : "left-1"
+                    }`}
+                  />
+                </button>
+              </div>
+            ))}
           </div>
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -1211,7 +1272,8 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
         </div>
         <p className="mt-3 text-[10px] text-slate-500">
           Horario en zona <strong>America/Bogota</strong>. Fuera de rango o con recepción apagada, el cliente verá un
-          aviso y no podrá confirmar el pedido.
+          aviso y no podrá confirmar el pedido. Los modos de entrega se sincronizan con el landing/QR: si solo dejás
+          «Recoger en tienda», el cliente no verá envío a domicilio.
         </p>
       </section>
 

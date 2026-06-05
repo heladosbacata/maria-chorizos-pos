@@ -32,6 +32,13 @@ import {
   type InventarioSaldoConFuente,
   type InventarioSaldoRow,
 } from "@/lib/inventario-pos-firestore";
+import ModalAuditoriaInventarioPos from "@/components/ModalAuditoriaInventarioPos";
+import { cargarDatosAuditoriaInventarioPos, type DatosAuditoriaInventarioPos } from "@/lib/inventario-auditoria-pos-data";
+import {
+  descargarPdfAuditoriaInventarioPos,
+  revocarUrlPdfAuditoriaInventario,
+  urlPdfAuditoriaInventarioPos,
+} from "@/lib/inventario-auditoria-pos-pdf";
 import {
   leerUltimoEnsambleSesion,
   skuBaseDesdeSkuProductoEnsamble,
@@ -179,6 +186,11 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
   const [avisoCatalogo, setAvisoCatalogo] = useState<string | null>(null);
   const [avisoPvHoja, setAvisoPvHoja] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
+  const [modalAuditoriaAbierto, setModalAuditoriaAbierto] = useState(false);
+  const [auditoriaBusy, setAuditoriaBusy] = useState(false);
+  const [auditoriaDatos, setAuditoriaDatos] = useState<DatosAuditoriaInventarioPos | null>(null);
+  const [auditoriaPdfUrl, setAuditoriaPdfUrl] = useState<string | null>(null);
+  const [auditoriaError, setAuditoriaError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [mensajeOk, setMensajeOk] = useState<string | null>(null);
   const [guardandoMinimoSku, setGuardandoMinimoSku] = useState<string | null>(null);
@@ -212,6 +224,59 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
   const [detalleMovsError, setDetalleMovsError] = useState<string | null>(null);
 
   const pv = (puntoVenta ?? "").replace(/\u00a0/g, " ").trim();
+
+  const cerrarModalAuditoria = useCallback(() => {
+    if (auditoriaBusy) return;
+    revocarUrlPdfAuditoriaInventario(auditoriaPdfUrl);
+    setAuditoriaPdfUrl(null);
+    setAuditoriaDatos(null);
+    setAuditoriaError(null);
+    setModalAuditoriaAbierto(false);
+  }, [auditoriaBusy, auditoriaPdfUrl]);
+
+  const cargarAuditoriaParaVista = useCallback(async () => {
+    if (!pv || auditoriaBusy) return;
+    setAuditoriaBusy(true);
+    setAuditoriaError(null);
+    revocarUrlPdfAuditoriaInventario(auditoriaPdfUrl);
+    setAuditoriaPdfUrl(null);
+    try {
+      const datos = await cargarDatosAuditoriaInventarioPos(pv);
+      const url = await urlPdfAuditoriaInventarioPos(datos);
+      setAuditoriaDatos(datos);
+      setAuditoriaPdfUrl(url);
+      setMensajeOk(
+        `Auditoría lista (${datos.resumen.criticos} críticos, ${datos.resumen.advertencias} advertencias).`
+      );
+    } catch {
+      setAuditoriaError("No se pudo generar el informe de auditoría de inventario.");
+      setAuditoriaDatos(null);
+    } finally {
+      setAuditoriaBusy(false);
+    }
+  }, [pv, auditoriaBusy, auditoriaPdfUrl]);
+
+  const abrirModalAuditoria = useCallback(() => {
+    if (!pv || insumos.length === 0) return;
+    setMensajeOk(null);
+    setModalAuditoriaAbierto(true);
+    void cargarAuditoriaParaVista();
+  }, [pv, insumos.length, cargarAuditoriaParaVista]);
+
+  const descargarAuditoriaPdf = useCallback(async () => {
+    if (!auditoriaDatos) return;
+    try {
+      await descargarPdfAuditoriaInventarioPos(auditoriaDatos);
+    } catch {
+      setAuditoriaError("No se pudo descargar el PDF.");
+    }
+  }, [auditoriaDatos]);
+
+  useEffect(() => {
+    return () => {
+      revocarUrlPdfAuditoriaInventario(auditoriaPdfUrl);
+    };
+  }, [auditoriaPdfUrl]);
 
   const refrescarDiagEnsamble = useCallback(() => {
     setDiagEnsamble(leerUltimoEnsambleSesion());
@@ -886,14 +951,25 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
             </details>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => void cargarTodo()}
-          disabled={cargando}
-          className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-800 shadow-sm hover:bg-gray-50 disabled:opacity-50"
-        >
-          {cargando ? "Actualizando…" : "Actualizar stock"}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={abrirModalAuditoria}
+            disabled={cargando || insumos.length === 0}
+            className="rounded-lg border border-primary-600 bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-primary-700 disabled:opacity-50"
+            title="Abre el informe PDF en pantalla (duplicados, saldos y recomendaciones)"
+          >
+            Ver auditoría PDF
+          </button>
+          <button
+            type="button"
+            onClick={() => void cargarTodo()}
+            disabled={cargando}
+            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-800 shadow-sm hover:bg-gray-50 disabled:opacity-50"
+          >
+            {cargando ? "Actualizando…" : "Actualizar stock"}
+          </button>
+        </div>
       </div>
 
       {mensajeOk && (
@@ -1710,6 +1786,18 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
           </div>
         </div>
       )}
+
+      <ModalAuditoriaInventarioPos
+        open={modalAuditoriaAbierto}
+        onClose={cerrarModalAuditoria}
+        puntoVenta={pv}
+        datos={auditoriaDatos}
+        pdfUrl={auditoriaPdfUrl}
+        busy={auditoriaBusy}
+        errorMsg={auditoriaError}
+        onRegenerar={() => void cargarAuditoriaParaVista()}
+        onDescargar={() => void descargarAuditoriaPdf()}
+      />
     </div>
   );
 }

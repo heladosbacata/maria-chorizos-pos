@@ -14,6 +14,8 @@ type GetOk = {
   costoDomicilioCop: number;
   umbralGratisCop: number;
   domiciliosHabilitados: boolean;
+  recogerEnTiendaHabilitado: boolean;
+  domicilioConDomiciliarioHabilitado: boolean;
   domiciliosHoraInicio: string;
   domiciliosHoraFin: string;
   mediosTransferencia: ReturnType<typeof normalizarMediosTransferencia>;
@@ -104,6 +106,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const domHab = body.domiciliosHabilitados;
   const domiciliosHabilitados = typeof domHab === "boolean" ? domHab : undefined;
 
+  const recTienda = body.recogerEnTiendaHabilitado;
+  const recogerEnTiendaHabilitado = typeof recTienda === "boolean" ? recTienda : undefined;
+
+  const domDomiciliario = body.domicilioConDomiciliarioHabilitado;
+  const domicilioConDomiciliarioHabilitado =
+    typeof domDomiciliario === "boolean" ? domDomiciliario : undefined;
+
   const hi = typeof body.domiciliosHoraInicio === "string" ? body.domiciliosHoraInicio : undefined;
   const hf = typeof body.domiciliosHoraFin === "string" ? body.domiciliosHoraFin : undefined;
 
@@ -122,7 +131,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const tieneTarifa = costoParsed !== undefined;
   const tieneOperacion =
-    domiciliosHabilitados !== undefined || hi !== undefined || hf !== undefined || umbralParsed !== undefined;
+    domiciliosHabilitados !== undefined ||
+    recogerEnTiendaHabilitado !== undefined ||
+    domicilioConDomiciliarioHabilitado !== undefined ||
+    hi !== undefined ||
+    hf !== undefined ||
+    umbralParsed !== undefined;
 
   if (!tieneTarifa && !tieneOperacion && !tieneMediosBody) {
     return res.status(400).json({ ok: false, message: "Indicá costo, umbral u operación de domicilios para guardar." });
@@ -133,6 +147,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     ...(Number.isFinite(costoParsed) ? { costoDomicilioCop: costoParsed as number } : {}),
     ...(Number.isFinite(umbralParsed) ? { umbralGratisCop: umbralParsed } : {}),
     ...(domiciliosHabilitados !== undefined ? { domiciliosHabilitados } : {}),
+    ...(recogerEnTiendaHabilitado !== undefined ? { recogerEnTiendaHabilitado } : {}),
+    ...(domicilioConDomiciliarioHabilitado !== undefined ? { domicilioConDomiciliarioHabilitado } : {}),
     ...(hi !== undefined ? { domiciliosHoraInicio: hi } : {}),
     ...(hf !== undefined ? { domiciliosHoraFin: hf } : {}),
     ...(tieneMediosBody ? { mediosTransferencia: normalizarMediosTransferencia(mediosBody) } : {}),

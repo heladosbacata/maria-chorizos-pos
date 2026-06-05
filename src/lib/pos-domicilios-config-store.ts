@@ -21,6 +21,8 @@ type MemVal = {
   costoDomicilioCop: number;
   umbralGratisCop: number;
   domiciliosHabilitados: boolean;
+  recogerEnTiendaHabilitado: boolean;
+  domicilioConDomiciliarioHabilitado: boolean;
   domiciliosHoraInicio: string;
   domiciliosHoraFin: string;
   mediosTransferencia: MediosTransferenciaConfig;
@@ -42,6 +44,8 @@ function defaultsMem(): MemVal {
     costoDomicilioCop: DEFAULT_COSTO_DOMICILIO_COP,
     umbralGratisCop: DEFAULT_UMBRAL_GRATIS_COP,
     domiciliosHabilitados: true,
+    recogerEnTiendaHabilitado: true,
+    domicilioConDomiciliarioHabilitado: false,
     domiciliosHoraInicio: DEFAULT_HORA_INICIO,
     domiciliosHoraFin: DEFAULT_HORA_FIN,
     mediosTransferencia: { ...MEDIOS_TRANSFERENCIA_VACIOS },
@@ -53,6 +57,10 @@ export type DomicilioTarifaPublica = {
   costoDomicilioCop: number;
   umbralGratisCop: number;
   domiciliosHabilitados: boolean;
+  /** Por defecto true: el cliente puede elegir recoger en el punto. */
+  recogerEnTiendaHabilitado: boolean;
+  /** Por defecto false: envío con domiciliario desactivado hasta que el cajero lo habilite. */
+  domicilioConDomiciliarioHabilitado: boolean;
   domiciliosHoraInicio: string;
   domiciliosHoraFin: string;
   mediosTransferencia: MediosTransferenciaConfig;
@@ -95,11 +103,15 @@ export async function getDomicilioTarifaConfig(puntoVenta: string): Promise<Domi
       : DEFAULT_UMBRAL_GRATIS_COP;
   const domRaw = d.domiciliosHabilitados;
   const domiciliosHabilitados = domRaw === false ? false : true;
+  const recogerEnTiendaHabilitado = d.recogerEnTiendaHabilitado === false ? false : true;
+  const domicilioConDomiciliarioHabilitado = d.domicilioConDomiciliarioHabilitado === true;
   const { ini, fin } = leerHorarioDeDoc(d);
   return {
     costoDomicilioCop: costo,
     umbralGratisCop: umbral,
     domiciliosHabilitados,
+    recogerEnTiendaHabilitado,
+    domicilioConDomiciliarioHabilitado,
     domiciliosHoraInicio: ini,
     domiciliosHoraFin: fin,
     mediosTransferencia: normalizarMediosTransferencia(d.mediosTransferencia),
@@ -111,6 +123,8 @@ export async function setDomicilioTarifaConfig(params: {
   costoDomicilioCop?: number;
   umbralGratisCop?: number;
   domiciliosHabilitados?: boolean;
+  recogerEnTiendaHabilitado?: boolean;
+  domicilioConDomiciliarioHabilitado?: boolean;
   domiciliosHoraInicio?: string;
   domiciliosHoraFin?: string;
   mediosTransferencia?: MediosTransferenciaConfig;
@@ -121,6 +135,8 @@ export async function setDomicilioTarifaConfig(params: {
   const tieneTarifa = params.costoDomicilioCop !== undefined;
   const tieneOperacion =
     params.domiciliosHabilitados !== undefined ||
+    params.recogerEnTiendaHabilitado !== undefined ||
+    params.domicilioConDomiciliarioHabilitado !== undefined ||
     params.domiciliosHoraInicio !== undefined ||
     params.domiciliosHoraFin !== undefined ||
     params.umbralGratisCop !== undefined;
@@ -157,6 +173,19 @@ export async function setDomicilioTarifaConfig(params: {
 
   const domiciliosHabilitados =
     params.domiciliosHabilitados !== undefined ? params.domiciliosHabilitados : actual.domiciliosHabilitados;
+  const recogerEnTiendaHabilitado =
+    params.recogerEnTiendaHabilitado !== undefined
+      ? params.recogerEnTiendaHabilitado
+      : actual.recogerEnTiendaHabilitado;
+  const domicilioConDomiciliarioHabilitado =
+    params.domicilioConDomiciliarioHabilitado !== undefined
+      ? params.domicilioConDomiciliarioHabilitado
+      : actual.domicilioConDomiciliarioHabilitado;
+
+  if (!recogerEnTiendaHabilitado && !domicilioConDomiciliarioHabilitado) {
+    return { ok: false, message: "Habilitá al menos recoger en tienda o domicilio con domiciliario." };
+  }
+
   const mediosTransferencia =
     params.mediosTransferencia !== undefined
       ? normalizarMediosTransferencia(params.mediosTransferencia)
@@ -170,6 +199,8 @@ export async function setDomicilioTarifaConfig(params: {
       costoDomicilioCop: costo,
       umbralGratisCop: umbral,
       domiciliosHabilitados,
+      recogerEnTiendaHabilitado,
+      domicilioConDomiciliarioHabilitado,
       domiciliosHoraInicio,
       domiciliosHoraFin,
       mediosTransferencia,
@@ -184,6 +215,8 @@ export async function setDomicilioTarifaConfig(params: {
       costoDomicilioCop: costo,
       umbralGratisCop: umbral,
       domiciliosHabilitados,
+      recogerEnTiendaHabilitado,
+      domicilioConDomiciliarioHabilitado,
       domiciliosHoraInicio,
       domiciliosHoraFin,
       mediosTransferencia,
