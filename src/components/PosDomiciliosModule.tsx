@@ -8,6 +8,14 @@ import { domicilioCambiarEstado, domicilioCrear, domiciliosListar } from "@/lib/
 import { enviarMensajeChatDomicilio, listarMensajesChatDomicilio } from "@/lib/pos-domicilios-chat-api";
 import { construirLandingPedidosUrl } from "@/lib/pos-domicilios-landing-url";
 import { DEFAULT_COSTO_DOMICILIO_COP, DEFAULT_UMBRAL_GRATIS_COP } from "@/lib/pos-domicilios-tarifa-defaults";
+import {
+  aplicarFranjaATodosLosDias,
+  DIAS_SEMANA_DOMICILIOS_UI,
+  horarioSemanalVacioDefault,
+  normalizarHorarioSemanalDomicilios,
+  type DiaSemanaDomicilio,
+  type HorarioSemanalDomicilios,
+} from "@/lib/pos-domicilios-horario-semanal";
 import { PosDomiciliosChatBurbuja } from "@/components/PosDomiciliosChatBurbuja";
 import {
   CLAVE_ESPACIO_FRANQUICIADOS,
@@ -291,8 +299,7 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
   const [domiciliosHabilitadosUi, setDomiciliosHabilitadosUi] = useState(true);
   const [recogerEnTiendaUi, setRecogerEnTiendaUi] = useState(true);
   const [domicilioConDomiciliarioUi, setDomicilioConDomiciliarioUi] = useState(false);
-  const [domiciliosHoraIni, setDomiciliosHoraIni] = useState("07:00");
-  const [domiciliosHoraFin, setDomiciliosHoraFin] = useState("22:00");
+  const [horarioSemanalUi, setHorarioSemanalUi] = useState<HorarioSemanalDomicilios>(horarioSemanalVacioDefault());
   const [operacionGuardando, setOperacionGuardando] = useState(false);
   const [mediosTransferencia, setMediosTransferencia] = useState<MediosTransferenciaConfig>({
     ...MEDIOS_TRANSFERENCIA_VACIOS,
@@ -422,6 +429,7 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
           domicilioConDomiciliarioHabilitado?: boolean;
           domiciliosHoraInicio?: string;
           domiciliosHoraFin?: string;
+          domiciliosHorarioSemanal?: HorarioSemanalDomicilios;
           mediosTransferencia?: MediosTransferenciaConfig;
         };
         if (cancelled) return;
@@ -443,11 +451,10 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
         if (res.ok && typeof j.domicilioConDomiciliarioHabilitado === "boolean") {
           setDomicilioConDomiciliarioUi(j.domicilioConDomiciliarioHabilitado);
         }
-        if (res.ok && typeof j.domiciliosHoraInicio === "string" && j.domiciliosHoraInicio.trim()) {
-          setDomiciliosHoraIni(j.domiciliosHoraInicio.trim());
-        }
-        if (res.ok && typeof j.domiciliosHoraFin === "string" && j.domiciliosHoraFin.trim()) {
-          setDomiciliosHoraFin(j.domiciliosHoraFin.trim());
+        if (res.ok) {
+          setHorarioSemanalUi(
+            normalizarHorarioSemanalDomicilios(j.domiciliosHorarioSemanal, horarioSemanalVacioDefault())
+          );
         }
       } catch {
         /* ignore */
@@ -561,8 +568,7 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
           domiciliosHabilitados: domiciliosHabilitadosUi,
           recogerEnTiendaHabilitado: recogerEnTiendaUi,
           domicilioConDomiciliarioHabilitado: domicilioConDomiciliarioUi,
-          domiciliosHoraInicio: domiciliosHoraIni,
-          domiciliosHoraFin: domiciliosHoraFin,
+          domiciliosHorarioSemanal: horarioSemanalUi,
         }),
       });
       const j = (await res.json().catch(() => ({}))) as {
@@ -571,8 +577,7 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
         domiciliosHabilitados?: boolean;
         recogerEnTiendaHabilitado?: boolean;
         domicilioConDomiciliarioHabilitado?: boolean;
-        domiciliosHoraInicio?: string;
-        domiciliosHoraFin?: string;
+        domiciliosHorarioSemanal?: HorarioSemanalDomicilios;
       };
       if (!res.ok || j.ok === false) {
         setSyncInfo(j.message ?? "No se pudo guardar la operación de domicilios.");
@@ -584,8 +589,9 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
       if (typeof j.domicilioConDomiciliarioHabilitado === "boolean") {
         setDomicilioConDomiciliarioUi(j.domicilioConDomiciliarioHabilitado);
       }
-      if (typeof j.domiciliosHoraInicio === "string") setDomiciliosHoraIni(j.domiciliosHoraInicio);
-      if (typeof j.domiciliosHoraFin === "string") setDomiciliosHoraFin(j.domiciliosHoraFin);
+      if (j.domiciliosHorarioSemanal) {
+        setHorarioSemanalUi(normalizarHorarioSemanalDomicilios(j.domiciliosHorarioSemanal, horarioSemanalUi));
+      }
       setSyncInfo("Horario, recepción y modos de entrega actualizados. El landing aplicará los cambios en segundos.");
       if (sonidosActivos) reproducirTonoPos("crear", volumenSonido);
     } catch {
@@ -598,8 +604,7 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
     domiciliosHabilitadosUi,
     recogerEnTiendaUi,
     domicilioConDomiciliarioUi,
-    domiciliosHoraIni,
-    domiciliosHoraFin,
+    horarioSemanalUi,
     sonidosActivos,
     volumenSonido,
   ]);
@@ -1170,8 +1175,7 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Horario y recepción</p>
             <h3 className="mt-1 text-base font-bold text-slate-900">Domicilios en el landing (web / QR)</h3>
             <p className="mt-1 max-w-2xl text-xs text-slate-600">
-              Definí el rango horario en hora Colombia. El interruptor permite cortar pedidos sin cambiar el horario.
-              Al abrir turno en caja, los domicilios se habilitan solos (podés volver a pausarlos acá).
+              Horario por día (Colombia). Los interruptores de entrega se sincronizan con el landing/QR del cliente.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -1235,46 +1239,94 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
             ))}
           </div>
         </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <label className="block text-[11px] font-semibold text-slate-600" htmlFor="dom-hora-ini">
-            Desde (HH:mm)
-          </label>
-          <label className="block text-[11px] font-semibold text-slate-600 sm:col-start-2" htmlFor="dom-hora-fin">
-            Hasta (HH:mm)
-          </label>
-          <div className="lg:col-span-2" />
-          <input
-            id="dom-hora-ini"
-            type="time"
-            disabled={tarifaCargando || !puntoVentaActivo}
-            value={domiciliosHoraIni.length === 5 ? domiciliosHoraIni : "07:00"}
-            onChange={(e) => setDomiciliosHoraIni(e.target.value || "07:00")}
-            className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm font-semibold outline-none ring-cyan-200 focus:border-cyan-600 focus:ring-2 disabled:opacity-60"
-          />
-          <input
-            id="dom-hora-fin"
-            type="time"
-            disabled={tarifaCargando || !puntoVentaActivo}
-            value={domiciliosHoraFin.length === 5 ? domiciliosHoraFin : "22:00"}
-            onChange={(e) => setDomiciliosHoraFin(e.target.value || "22:00")}
-            className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm font-semibold outline-none ring-cyan-200 focus:border-cyan-600 focus:ring-2 disabled:opacity-60"
-          />
-          <div className="flex items-end lg:col-span-2">
-            <button
-              type="button"
-              disabled={operacionGuardando || tarifaCargando || !puntoVentaActivo}
-              onClick={() => void guardarOperacionDomicilios()}
-              className="w-full rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
-            >
-              {operacionGuardando ? "Guardando..." : "Guardar horario y estado"}
-            </button>
-          </div>
+        <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
+          <table className="min-w-full text-left text-sm">
+            <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
+              <tr>
+                <th className="px-3 py-2">Día</th>
+                <th className="px-3 py-2">Activo</th>
+                <th className="px-3 py-2">Desde</th>
+                <th className="px-3 py-2">Hasta</th>
+                <th className="px-3 py-2" />
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {DIAS_SEMANA_DOMICILIOS_UI.map(({ key, label }) => {
+                const franja = horarioSemanalUi[key];
+                return (
+                  <tr key={key} className={franja.activo ? "" : "bg-slate-50/80"}>
+                    <td className="whitespace-nowrap px-3 py-2 font-medium text-slate-800">{label}</td>
+                    <td className="px-3 py-2">
+                      <input
+                        type="checkbox"
+                        checked={franja.activo}
+                        disabled={tarifaCargando || !puntoVentaActivo}
+                        onChange={(e) =>
+                          setHorarioSemanalUi((prev) => ({
+                            ...prev,
+                            [key]: { ...prev[key], activo: e.target.checked },
+                          }))
+                        }
+                        className="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500"
+                        aria-label={`${label} activo`}
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <input
+                        type="time"
+                        disabled={!franja.activo || tarifaCargando || !puntoVentaActivo}
+                        value={franja.horaInicio}
+                        onChange={(e) =>
+                          setHorarioSemanalUi((prev) => ({
+                            ...prev,
+                            [key]: { ...prev[key], horaInicio: e.target.value || "07:00" },
+                          }))
+                        }
+                        className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-cyan-200 focus:border-cyan-600 focus:ring-2 disabled:opacity-50"
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <input
+                        type="time"
+                        disabled={!franja.activo || tarifaCargando || !puntoVentaActivo}
+                        value={franja.horaFin}
+                        onChange={(e) =>
+                          setHorarioSemanalUi((prev) => ({
+                            ...prev,
+                            [key]: { ...prev[key], horaFin: e.target.value || "22:00" },
+                          }))
+                        }
+                        className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none ring-cyan-200 focus:border-cyan-600 focus:ring-2 disabled:opacity-50"
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <button
+                        type="button"
+                        disabled={tarifaCargando || !puntoVentaActivo}
+                        onClick={() =>
+                          setHorarioSemanalUi((prev) => aplicarFranjaATodosLosDias(prev, key as DiaSemanaDomicilio))
+                        }
+                        className="text-[11px] font-semibold text-cyan-800 hover:text-cyan-950 disabled:opacity-50"
+                      >
+                        Copiar a todos
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
         </div>
-        <p className="mt-3 text-[10px] text-slate-500">
-          Horario en zona <strong>America/Bogota</strong>. Fuera de rango o con recepción apagada, el cliente verá un
-          aviso y no podrá confirmar el pedido. Los modos de entrega se sincronizan con el landing/QR: si solo dejás
-          «Recoger en tienda», el cliente no verá envío a domicilio.
-        </p>
+        <div className="mt-3 flex justify-end">
+          <button
+            type="button"
+            disabled={operacionGuardando || tarifaCargando || !puntoVentaActivo}
+            onClick={() => void guardarOperacionDomicilios()}
+            className="rounded-lg bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {operacionGuardando ? "Guardando..." : "Guardar horario y estado"}
+          </button>
+        </div>
       </section>
 
       <form onSubmit={crearPedido} className="rounded-2xl border border-cyan-200 bg-cyan-50/40 p-4 shadow-sm">

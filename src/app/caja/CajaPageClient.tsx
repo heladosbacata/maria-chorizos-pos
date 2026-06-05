@@ -3783,7 +3783,7 @@ export default function CajaPageClient() {
             <PosCajaPremiumHeader
               puntoVenta={user.puntoVenta}
               etiquetaModulo={tituloModulo}
-              mostrarAccesoChatAdmin={!esContador}
+              mostrarAccesoChatAdmin={!esContador && moduloActivo !== "domicilios"}
               mostrarPanelMetas={serviciosSecundarios && metasActivas}
               getIdToken={getIdTokenCajaMensajes}
             />
@@ -4731,6 +4731,7 @@ export default function CajaPageClient() {
         turnoAbierto={turnoAbierto}
         getIdToken={getIdTokenCajaMensajes}
         ventaCompletadaTick={ventaCompletadaAnuncioTick}
+        suprimido={moduloActivo === "domicilios"}
       />
 
       {serviciosSecundarios && !esContador ? (

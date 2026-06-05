@@ -6,7 +6,15 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { pedidoIdChatClave } from "@/lib/pos-domicilios-pv-clave";
 import { getCatalogoPOS } from "@/lib/catalogo-pos";
 import { DEFAULT_COSTO_DOMICILIO_COP, DEFAULT_UMBRAL_GRATIS_COP } from "@/lib/pos-domicilios-tarifa-defaults";
-import { estaEnVentanaHoraria, textoHorarioAtencionCliente } from "@/lib/pos-domicilios-horario";
+import {
+  estaEnHorarioDomiciliosConfig,
+  textoHorarioDomiciliosCliente,
+} from "@/lib/pos-domicilios-horario";
+import {
+  horarioSemanalVacioDefault,
+  normalizarHorarioSemanalDomicilios,
+  type HorarioSemanalDomicilios,
+} from "@/lib/pos-domicilios-horario-semanal";
 import { comprimirComprobanteTransferenciaParaChat } from "@/lib/pos-domicilios-chat-imagen";
 import { enviarMensajeChatDomicilio, listarMensajesChatDomicilio } from "@/lib/pos-domicilios-chat-api";
 import { LOGO_ORG_URL } from "@/lib/brand";
@@ -524,6 +532,7 @@ function PedidosLandingClient() {
     domicilioConDomiciliarioHabilitado: false,
     domiciliosHoraInicio: "07:00",
     domiciliosHoraFin: "22:00",
+    domiciliosHorarioSemanal: horarioSemanalVacioDefault(),
     mediosTransferencia: { ...MEDIOS_TRANSFERENCIA_VACIOS } as MediosTransferenciaConfig,
   });
   const [modalMediosTransferenciaCliente, setModalMediosTransferenciaCliente] = useState(false);
@@ -571,6 +580,7 @@ function PedidosLandingClient() {
         domicilioConDomiciliarioHabilitado?: boolean;
         domiciliosHoraInicio?: string;
         domiciliosHoraFin?: string;
+        domiciliosHorarioSemanal?: HorarioSemanalDomicilios;
         mediosTransferencia?: MediosTransferenciaConfig;
       };
       if (!res.ok || json.ok === false) return;
@@ -593,6 +603,10 @@ function PedidosLandingClient() {
         typeof json.domiciliosHoraInicio === "string" && json.domiciliosHoraInicio.trim() ? json.domiciliosHoraInicio.trim() : "07:00";
       const domiciliosHoraFin =
         typeof json.domiciliosHoraFin === "string" && json.domiciliosHoraFin.trim() ? json.domiciliosHoraFin.trim() : "22:00";
+      const domiciliosHorarioSemanal = normalizarHorarioSemanalDomicilios(
+        json.domiciliosHorarioSemanal,
+        horarioSemanalVacioDefault()
+      );
       setTarifaDomicilio({
         costoDomicilioCop: costo,
         umbralGratisCop: umbral,
@@ -601,6 +615,7 @@ function PedidosLandingClient() {
         domicilioConDomiciliarioHabilitado,
         domiciliosHoraInicio,
         domiciliosHoraFin,
+        domiciliosHorarioSemanal,
         mediosTransferencia: normalizarMediosTransferencia(json.mediosTransferencia),
       });
     } catch {
@@ -684,11 +699,12 @@ function PedidosLandingClient() {
     void tickHorarioRecepcion;
     if (turnoCajaAbierto === false) return false;
     if (!tarifaDomicilio.domiciliosHabilitados) return false;
-    return estaEnVentanaHoraria(tarifaDomicilio.domiciliosHoraInicio, tarifaDomicilio.domiciliosHoraFin);
+    return estaEnHorarioDomiciliosConfig(tarifaDomicilio);
   }, [
     tickHorarioRecepcion,
     turnoCajaAbierto,
     tarifaDomicilio.domiciliosHabilitados,
+    tarifaDomicilio.domiciliosHorarioSemanal,
     tarifaDomicilio.domiciliosHoraInicio,
     tarifaDomicilio.domiciliosHoraFin,
   ]);
@@ -699,14 +715,12 @@ function PedidosLandingClient() {
     if (!tarifaDomicilio.domiciliosHabilitados) {
       return "En este momento no estamos recibiendo pedidos por web ni QR. Podés intentar más tarde o contactar directamente al local.";
     }
-    return `Estamos fuera del horario de atención para pedidos en línea. ${textoHorarioAtencionCliente(
-      tarifaDomicilio.domiciliosHoraInicio,
-      tarifaDomicilio.domiciliosHoraFin
-    )}`;
+    return `Estamos fuera del horario de atención para pedidos en línea. ${textoHorarioDomiciliosCliente(tarifaDomicilio)}`;
   }, [
     tickHorarioRecepcion,
     recepcionPedidosWebOk,
     tarifaDomicilio.domiciliosHabilitados,
+    tarifaDomicilio.domiciliosHorarioSemanal,
     tarifaDomicilio.domiciliosHoraInicio,
     tarifaDomicilio.domiciliosHoraFin,
   ]);

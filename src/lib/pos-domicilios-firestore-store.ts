@@ -1,7 +1,7 @@
 import { getFirestore } from "firebase-admin/firestore";
 import { getFirebaseAdminApp } from "@/lib/firebase-admin-server";
 import { pedidoIdChatClave, puntoVentaFirestoreClave as normPv } from "@/lib/pos-domicilios-pv-clave";
-import { buildPedidosSemillaDomicilios } from "@/lib/pos-domicilios-seed";
+import { esPedidoDemoDomicilio, filtrarPedidosDemoDomicilios } from "@/lib/pos-domicilios-seed";
 import { getMensajesChatMemory, appendMensajeChatMemory } from "@/lib/pos-domicilios-chat-memory-store";
 import { getPedidosMemory, setPedidosMemory } from "@/lib/pos-domicilios-memory-store";
 import type { DomicilioCrearPayload, EstadoDomicilio, PedidoDomicilio } from "@/types/pos-domicilios";
@@ -183,23 +183,26 @@ export async function listarPedidosDomiciliosPersistente(puntoVenta: string): Pr
   if (!app) return getPedidosMemory(pv);
   const db = getFirestore(app);
   const snaps = await db.collection(COLL_PEDIDOS).where("puntoVentaNorm", "==", normPv(pv)).get();
-  if (snaps.empty) {
-    const seed = buildPedidosSemillaDomicilios(pv);
+  if (snaps.empty) return [];
+
+  const demoRefs = snaps.docs.filter((doc) => {
+    const id = typeof doc.data().id === "string" ? doc.data().id : "";
+    return esPedidoDemoDomicilio(id);
+  });
+  if (demoRefs.length > 0) {
     const batch = db.batch();
-    for (const p of seed) {
-      const ref = db.collection(COLL_PEDIDOS).doc(pedidoDocId(pv, p.id));
-      batch.set(ref, { ...p, puntoVentaNorm: normPv(pv) }, { merge: true });
-    }
+    for (const doc of demoRefs) batch.delete(doc.ref);
     await batch.commit();
-    return seed;
   }
+
   const out: PedidoDomicilio[] = [];
   for (const doc of snaps.docs) {
+    if (demoRefs.some((d) => d.id === doc.id)) continue;
     const p = toPedido(doc.data() as Record<string, unknown>);
-    if (p) out.push(p);
+    if (p && !esPedidoDemoDomicilio(p.id)) out.push(p);
   }
   out.sort((a, b) => new Date(b.creadoEnIso).getTime() - new Date(a.creadoEnIso).getTime());
-  return out;
+  return filtrarPedidosDemoDomicilios(out);
 }
 
 export async function crearPedidoDomicilioPersistente(payload: DomicilioCrearPayload): Promise<PedidoDomicilio | null> {

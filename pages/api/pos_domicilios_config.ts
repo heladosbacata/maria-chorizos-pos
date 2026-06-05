@@ -3,6 +3,7 @@ import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 import { getFirebaseAdminApp } from "@/lib/firebase-admin-server";
 import { getDomicilioTarifaConfig, setDomicilioTarifaConfig } from "@/lib/pos-domicilios-config-store";
+import type { HorarioSemanalDomicilios } from "@/lib/pos-domicilios-horario-semanal";
 import {
   CLAVE_ESPACIO_FRANQUICIADOS,
   normalizarMediosTransferencia,
@@ -18,6 +19,7 @@ type GetOk = {
   domicilioConDomiciliarioHabilitado: boolean;
   domiciliosHoraInicio: string;
   domiciliosHoraFin: string;
+  domiciliosHorarioSemanal: HorarioSemanalDomicilios;
   mediosTransferencia: ReturnType<typeof normalizarMediosTransferencia>;
 };
 
@@ -115,6 +117,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const hi = typeof body.domiciliosHoraInicio === "string" ? body.domiciliosHoraInicio : undefined;
   const hf = typeof body.domiciliosHoraFin === "string" ? body.domiciliosHoraFin : undefined;
+  const horarioSemanalBody = body.domiciliosHorarioSemanal;
+  const domiciliosHorarioSemanal =
+    horarioSemanalBody && typeof horarioSemanalBody === "object"
+      ? (horarioSemanalBody as HorarioSemanalDomicilios)
+      : undefined;
 
   const mediosBody = body.mediosTransferencia;
   const tieneMediosBody = mediosBody !== undefined && mediosBody !== null;
@@ -136,6 +143,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     domicilioConDomiciliarioHabilitado !== undefined ||
     hi !== undefined ||
     hf !== undefined ||
+    domiciliosHorarioSemanal !== undefined ||
     umbralParsed !== undefined;
 
   if (!tieneTarifa && !tieneOperacion && !tieneMediosBody) {
@@ -151,6 +159,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     ...(domicilioConDomiciliarioHabilitado !== undefined ? { domicilioConDomiciliarioHabilitado } : {}),
     ...(hi !== undefined ? { domiciliosHoraInicio: hi } : {}),
     ...(hf !== undefined ? { domiciliosHoraFin: hf } : {}),
+    ...(domiciliosHorarioSemanal !== undefined ? { domiciliosHorarioSemanal } : {}),
     ...(tieneMediosBody ? { mediosTransferencia: normalizarMediosTransferencia(mediosBody) } : {}),
   });
   if (!result.ok) {

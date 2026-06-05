@@ -1,5 +1,11 @@
 /** Reglas de horario de domicilios (zona horaria Colombia). */
 
+import {
+  DIAS_SEMANA_DOMICILIOS_UI,
+  type DiaSemanaDomicilio,
+  type HorarioSemanalDomicilios,
+} from "@/lib/pos-domicilios-horario-semanal";
+
 export const ZONA_HORARIA_DOMICILIOS_DEFAULT = "America/Bogota";
 
 export function minutosRelojEnZona(d: Date, timeZone: string): number {
@@ -47,6 +53,65 @@ export function estaEnVentanaHoraria(
 
 export function textoHorarioAtencionCliente(horaInicio: string, horaFin: string): string {
   return `Los domicilios de este punto se toman de ${horaInicio} a ${horaFin} (hora Colombia, ${ZONA_HORARIA_DOMICILIOS_DEFAULT}).`;
+}
+
+/** Día de la semana en Colombia: 0 = domingo … 6 = sábado. */
+export function diaSemanaColombia(d: Date, timeZone = ZONA_HORARIA_DOMICILIOS_DEFAULT): DiaSemanaDomicilio {
+  const fmt = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" });
+  const wd = fmt.format(d).toLowerCase();
+  const map: Record<string, DiaSemanaDomicilio> = {
+    sun: 0,
+    mon: 1,
+    tue: 2,
+    wed: 3,
+    thu: 4,
+    fri: 5,
+    sat: 6,
+  };
+  return map[wd] ?? 0;
+}
+
+export function estaEnHorarioSemanalDomicilios(
+  horario: HorarioSemanalDomicilios,
+  ahora = new Date(),
+  timeZone = ZONA_HORARIA_DOMICILIOS_DEFAULT
+): boolean {
+  const dow = diaSemanaColombia(ahora, timeZone);
+  const franja = horario[dow];
+  if (!franja?.activo) return false;
+  return estaEnVentanaHoraria(franja.horaInicio, franja.horaFin, ahora, timeZone);
+}
+
+export function textoHorarioSemanalCliente(horario: HorarioSemanalDomicilios): string {
+  const partes: string[] = [];
+  for (const { key, corto } of DIAS_SEMANA_DOMICILIOS_UI) {
+    const f = horario[key];
+    if (!f?.activo) continue;
+    partes.push(`${corto} ${f.horaInicio}–${f.horaFin}`);
+  }
+  if (!partes.length) {
+    return "Este punto no tiene días habilitados para pedidos en línea.";
+  }
+  return `Horario de pedidos (Colombia): ${partes.join(", ")}.`;
+}
+
+export function estaEnHorarioDomiciliosConfig(
+  cfg: {
+    domiciliosHorarioSemanal: HorarioSemanalDomicilios;
+    domiciliosHoraInicio: string;
+    domiciliosHoraFin: string;
+  },
+  ahora = new Date()
+): boolean {
+  return estaEnHorarioSemanalDomicilios(cfg.domiciliosHorarioSemanal, ahora);
+}
+
+export function textoHorarioDomiciliosCliente(cfg: {
+  domiciliosHorarioSemanal: HorarioSemanalDomicilios;
+  domiciliosHoraInicio: string;
+  domiciliosHoraFin: string;
+}): string {
+  return textoHorarioSemanalCliente(cfg.domiciliosHorarioSemanal);
 }
 
 /** Normaliza a "HH:mm" o null si no es una hora válida. */

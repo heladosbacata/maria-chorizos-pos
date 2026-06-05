@@ -17,6 +17,8 @@ type Props = {
   turnoAbierto: boolean;
   getIdToken: () => Promise<string | null>;
   ventaCompletadaTick?: number;
+  /** Oculta popup de campaña (p. ej. módulo Domicilios). */
+  suprimido?: boolean;
 };
 
 const backdropVariants: Variants = {
@@ -49,6 +51,7 @@ export default function PosAnunciosCajaWatcher({
   turnoAbierto,
   getIdToken,
   ventaCompletadaTick = 0,
+  suprimido = false,
 }: Props) {
   const [campana, setCampana] = useState<PosAnuncioCampanaCliente | null>(null);
   const [visible, setVisible] = useState(false);
@@ -74,6 +77,10 @@ export default function PosAnunciosCajaWatcher({
   }, []);
 
   useEffect(() => {
+    if (suprimido) {
+      setVisible(false);
+      return;
+    }
     if (!turnoAbierto) {
       setVisible(false);
       mostradoAlInicioRef.current = false;
@@ -89,10 +96,10 @@ export default function PosAnunciosCajaWatcher({
     return () => {
       cancelled = true;
     };
-  }, [turnoAbierto, cargarCampana]);
+  }, [turnoAbierto, cargarCampana, suprimido]);
 
   useEffect(() => {
-    if (!turnoAbierto || ventaCompletadaTick <= 0) return;
+    if (suprimido || !turnoAbierto || ventaCompletadaTick <= 0) return;
     if (ventaCompletadaTick === ultimoTickVentaRef.current) return;
     ultimoTickVentaRef.current = ventaCompletadaTick;
 
@@ -107,7 +114,7 @@ export default function PosAnunciosCajaWatcher({
     }
     const n = incrementarVentasDesdeLectura(c.id);
     if (n >= c.cadaNVentas) setVisible(true);
-  }, [ventaCompletadaTick, turnoAbierto, cargarCampana]);
+  }, [ventaCompletadaTick, turnoAbierto, cargarCampana, suprimido]);
 
   const onConfirmar = async () => {
     const c = campanaRef.current;
@@ -128,7 +135,7 @@ export default function PosAnunciosCajaWatcher({
 
   return (
     <AnimatePresence mode="wait">
-      {visible && campana?.imageUrl ? (
+      {!suprimido && visible && campana?.imageUrl ? (
         <motion.div
           key={campana.id}
           className="fixed inset-0 z-[200] flex items-center justify-center p-4 sm:p-6"

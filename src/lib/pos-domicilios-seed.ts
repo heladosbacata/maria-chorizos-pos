@@ -1,83 +1,23 @@
 import type { PedidoDomicilio } from "@/types/pos-domicilios";
 
-function baseIso(minutosAtras: number): string {
-  return new Date(Date.now() - minutosAtras * 60_000).toISOString();
+/** IDs fijos de pedidos demo que se insertaban al abrir Domicilios sin datos reales. */
+export const IDS_PEDIDOS_DEMO_DOMICILIOS = new Set([
+  "DOM-9012",
+  "DOM-9011",
+  "DOM-9010",
+  "DOM-9009",
+  "DOM-9008",
+]);
+
+export function esPedidoDemoDomicilio(pedidoId: string): boolean {
+  return IDS_PEDIDOS_DEMO_DOMICILIOS.has(pedidoId.trim().toUpperCase());
 }
 
-export function buildPedidosSemillaDomicilios(puntoVenta: string): PedidoDomicilio[] {
-  return [
-    {
-      id: "DOM-9012",
-      puntoVenta,
-      cliente: "Valentina Ruiz",
-      telefono: "310 458 9911",
-      direccion: "Cra 31 # 43A-18",
-      referencia: "Apto 302, torre azul",
-      total: 48200,
-      metodoPago: "transferencia",
-      canal: "web",
-      estado: "NUEVO",
-      creadoEnIso: baseIso(8),
-      items: ["2x Chorizo premium", "1x Arepa rellena", "1x Gaseosa 1.5L"],
-      tiempoObjetivoMin: 38,
-    },
-    {
-      id: "DOM-9011",
-      puntoVenta,
-      cliente: "Camilo Becerra",
-      telefono: "320 778 1200",
-      direccion: "Calle 14 Sur # 65-10",
-      referencia: "Casa esquinera color crema",
-      total: 33600,
-      metodoPago: "efectivo",
-      canal: "whatsapp",
-      estado: "ACEPTADO",
-      creadoEnIso: baseIso(14),
-      items: ["1x Combo doble chorizo", "2x Papas criollas"],
-      tiempoObjetivoMin: 35,
-    },
-    {
-      id: "DOM-9010",
-      puntoVenta,
-      cliente: "Adriana Mena",
-      telefono: "315 447 1122",
-      direccion: "Transv 5B Este # 78-44",
-      total: 55900,
-      metodoPago: "datafono",
-      canal: "qr",
-      estado: "EN_PREPARACION",
-      creadoEnIso: baseIso(20),
-      items: ["3x Chorizo ranchero", "1x Mazorca", "2x Limonada natural"],
-      tiempoObjetivoMin: 42,
-    },
-    {
-      id: "DOM-9009",
-      puntoVenta,
-      cliente: "Laura Ospina",
-      telefono: "312 003 9009",
-      direccion: "Av Boyacá # 12-60",
-      referencia: "Portería principal, preguntar por Laura",
-      total: 42100,
-      metodoPago: "transferencia",
-      canal: "web",
-      estado: "LISTO_PARA_DESPACHO",
-      creadoEnIso: baseIso(28),
-      items: ["2x Choripán especial", "1x Jugo de mora"],
-      tiempoObjetivoMin: 32,
-    },
-    {
-      id: "DOM-9008",
-      puntoVenta,
-      cliente: "Dani Forero",
-      telefono: "317 881 4430",
-      direccion: "Calle 8 # 11-22",
-      total: 27800,
-      metodoPago: "efectivo",
-      canal: "whatsapp",
-      estado: "EN_ENTREGA",
-      creadoEnIso: baseIso(35),
-      items: ["1x Combo personal", "1x Soda saborizada"],
-      tiempoObjetivoMin: 30,
-    },
-  ];
+export function filtrarPedidosDemoDomicilios(pedidos: PedidoDomicilio[]): PedidoDomicilio[] {
+  return pedidos.filter((p) => !esPedidoDemoDomicilio(p.id));
+}
+
+/** Ya no genera pedidos de prueba; todos los PV inician en cero. */
+export function buildPedidosSemillaDomicilios(_puntoVenta: string): PedidoDomicilio[] {
+  return [];
 }

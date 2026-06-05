@@ -6,6 +6,14 @@ import {
   DEFAULT_UMBRAL_GRATIS_COP,
 } from "@/lib/pos-domicilios-tarifa-defaults";
 import { normalizarHoraConfig } from "@/lib/pos-domicilios-horario";
+import {
+  horarioSemanalDesdeLegacy,
+  horarioSemanalVacioDefault,
+  legacyHorarioDesdeSemanal,
+  normalizarHorarioSemanalDomicilios,
+  validarHorarioSemanalDomicilios,
+  type HorarioSemanalDomicilios,
+} from "@/lib/pos-domicilios-horario-semanal";
 import { normalizarMediosTransferencia } from "@/lib/pos-domicilios-medios-transferencia";
 import type { MediosTransferenciaConfig } from "@/types/pos-domicilios-medios-transferencia";
 import { MEDIOS_TRANSFERENCIA_VACIOS } from "@/types/pos-domicilios-medios-transferencia";
@@ -25,6 +33,7 @@ type MemVal = {
   domicilioConDomiciliarioHabilitado: boolean;
   domiciliosHoraInicio: string;
   domiciliosHoraFin: string;
+  domiciliosHorarioSemanal: HorarioSemanalDomicilios;
   mediosTransferencia: MediosTransferenciaConfig;
 };
 
@@ -40,6 +49,7 @@ function memMap(): Map<string, MemVal> {
 }
 
 function defaultsMem(): MemVal {
+  const domiciliosHorarioSemanal = horarioSemanalVacioDefault();
   return {
     costoDomicilioCop: DEFAULT_COSTO_DOMICILIO_COP,
     umbralGratisCop: DEFAULT_UMBRAL_GRATIS_COP,
@@ -48,6 +58,7 @@ function defaultsMem(): MemVal {
     domicilioConDomiciliarioHabilitado: false,
     domiciliosHoraInicio: DEFAULT_HORA_INICIO,
     domiciliosHoraFin: DEFAULT_HORA_FIN,
+    domiciliosHorarioSemanal,
     mediosTransferencia: { ...MEDIOS_TRANSFERENCIA_VACIOS },
   };
 }
@@ -63,15 +74,51 @@ export type DomicilioTarifaPublica = {
   domicilioConDomiciliarioHabilitado: boolean;
   domiciliosHoraInicio: string;
   domiciliosHoraFin: string;
+  domiciliosHorarioSemanal: HorarioSemanalDomicilios;
   mediosTransferencia: MediosTransferenciaConfig;
 };
 
-function leerHorarioDeDoc(d: Record<string, unknown>): { ini: string; fin: string } {
+function leerHorarioDeDoc(d: Record<string, unknown>): {
+  ini: string;
+  fin: string;
+  semanal: HorarioSemanalDomicilios;
+} {
   const hiRaw = typeof d.domiciliosHoraInicio === "string" ? d.domiciliosHoraInicio : "";
   const hfRaw = typeof d.domiciliosHoraFin === "string" ? d.domiciliosHoraFin : "";
   const hi = normalizarHoraConfig(hiRaw) ?? DEFAULT_HORA_INICIO;
   const hf = normalizarHoraConfig(hfRaw) ?? DEFAULT_HORA_FIN;
-  return { ini: hi, fin: hf };
+  const legacy = horarioSemanalDesdeLegacy(hi, hf);
+  const semanal = normalizarHorarioSemanalDomicilios(d.domiciliosHorarioSemanal, legacy);
+  return { ini: hi, fin: hf, semanal };
+}
+
+function configDesdeDoc(d: Record<string, unknown>): DomicilioTarifaPublica {
+  const costoRaw = d.costoDomicilioCop;
+  const costo =
+    typeof costoRaw === "number" && Number.isFinite(costoRaw) && costoRaw >= 0
+      ? Math.round(costoRaw)
+      : DEFAULT_COSTO_DOMICILIO_COP;
+  const umbralRaw = d.umbralGratisCop;
+  const umbral =
+    typeof umbralRaw === "number" && Number.isFinite(umbralRaw) && umbralRaw >= 5000
+      ? Math.round(umbralRaw)
+      : DEFAULT_UMBRAL_GRATIS_COP;
+  const domRaw = d.domiciliosHabilitados;
+  const domiciliosHabilitados = domRaw === false ? false : true;
+  const recogerEnTiendaHabilitado = d.recogerEnTiendaHabilitado === false ? false : true;
+  const domicilioConDomiciliarioHabilitado = d.domicilioConDomiciliarioHabilitado === true;
+  const { ini, fin, semanal } = leerHorarioDeDoc(d);
+  return {
+    costoDomicilioCop: costo,
+    umbralGratisCop: umbral,
+    domiciliosHabilitados,
+    recogerEnTiendaHabilitado,
+    domicilioConDomiciliarioHabilitado,
+    domiciliosHoraInicio: ini,
+    domiciliosHoraFin: fin,
+    domiciliosHorarioSemanal: semanal,
+    mediosTransferencia: normalizarMediosTransferencia(d.mediosTransferencia),
+  };
 }
 
 export async function getDomicilioTarifaConfig(puntoVenta: string): Promise<DomicilioTarifaPublica> {
@@ -90,32 +137,7 @@ export async function getDomicilioTarifaConfig(puntoVenta: string): Promise<Domi
   if (!snap.exists) {
     return defaultsMem();
   }
-  const d = snap.data() as Record<string, unknown>;
-  const costoRaw = d.costoDomicilioCop;
-  const costo =
-    typeof costoRaw === "number" && Number.isFinite(costoRaw) && costoRaw >= 0
-      ? Math.round(costoRaw)
-      : DEFAULT_COSTO_DOMICILIO_COP;
-  const umbralRaw = d.umbralGratisCop;
-  const umbral =
-    typeof umbralRaw === "number" && Number.isFinite(umbralRaw) && umbralRaw >= 5000
-      ? Math.round(umbralRaw)
-      : DEFAULT_UMBRAL_GRATIS_COP;
-  const domRaw = d.domiciliosHabilitados;
-  const domiciliosHabilitados = domRaw === false ? false : true;
-  const recogerEnTiendaHabilitado = d.recogerEnTiendaHabilitado === false ? false : true;
-  const domicilioConDomiciliarioHabilitado = d.domicilioConDomiciliarioHabilitado === true;
-  const { ini, fin } = leerHorarioDeDoc(d);
-  return {
-    costoDomicilioCop: costo,
-    umbralGratisCop: umbral,
-    domiciliosHabilitados,
-    recogerEnTiendaHabilitado,
-    domicilioConDomiciliarioHabilitado,
-    domiciliosHoraInicio: ini,
-    domiciliosHoraFin: fin,
-    mediosTransferencia: normalizarMediosTransferencia(d.mediosTransferencia),
-  };
+  return configDesdeDoc(snap.data() as Record<string, unknown>);
 }
 
 export async function setDomicilioTarifaConfig(params: {
@@ -127,6 +149,7 @@ export async function setDomicilioTarifaConfig(params: {
   domicilioConDomiciliarioHabilitado?: boolean;
   domiciliosHoraInicio?: string;
   domiciliosHoraFin?: string;
+  domiciliosHorarioSemanal?: HorarioSemanalDomicilios;
   mediosTransferencia?: MediosTransferenciaConfig;
 }): Promise<{ ok: boolean; message?: string }> {
   const pv = params.puntoVenta.trim();
@@ -139,6 +162,7 @@ export async function setDomicilioTarifaConfig(params: {
     params.domicilioConDomiciliarioHabilitado !== undefined ||
     params.domiciliosHoraInicio !== undefined ||
     params.domiciliosHoraFin !== undefined ||
+    params.domiciliosHorarioSemanal !== undefined ||
     params.umbralGratisCop !== undefined;
   const tieneMedios = params.mediosTransferencia !== undefined;
 
@@ -158,18 +182,31 @@ export async function setDomicilioTarifaConfig(params: {
     return { ok: false, message: "Umbral de domicilio gratis inválido." };
   }
 
-  let domiciliosHoraInicio = actual.domiciliosHoraInicio;
-  let domiciliosHoraFin = actual.domiciliosHoraFin;
-  if (params.domiciliosHoraInicio !== undefined) {
-    const n = normalizarHoraConfig(params.domiciliosHoraInicio);
-    if (!n) return { ok: false, message: "Hora de inicio inválida (usá HH:mm, 24 h)." };
-    domiciliosHoraInicio = n;
+  let domiciliosHorarioSemanal = { ...actual.domiciliosHorarioSemanal };
+  if (params.domiciliosHorarioSemanal !== undefined) {
+    domiciliosHorarioSemanal = normalizarHorarioSemanalDomicilios(
+      params.domiciliosHorarioSemanal,
+      actual.domiciliosHorarioSemanal
+    );
+    const errSem = validarHorarioSemanalDomicilios(domiciliosHorarioSemanal);
+    if (errSem) return { ok: false, message: errSem };
+  } else if (params.domiciliosHoraInicio !== undefined || params.domiciliosHoraFin !== undefined) {
+    const hi =
+      params.domiciliosHoraInicio !== undefined
+        ? normalizarHoraConfig(params.domiciliosHoraInicio)
+        : actual.domiciliosHoraInicio;
+    const hf =
+      params.domiciliosHoraFin !== undefined
+        ? normalizarHoraConfig(params.domiciliosHoraFin)
+        : actual.domiciliosHoraFin;
+    if (!hi) return { ok: false, message: "Hora de inicio inválida (usá HH:mm, 24 h)." };
+    if (!hf) return { ok: false, message: "Hora de cierre inválida (usá HH:mm, 24 h)." };
+    domiciliosHorarioSemanal = horarioSemanalDesdeLegacy(hi, hf);
   }
-  if (params.domiciliosHoraFin !== undefined) {
-    const n = normalizarHoraConfig(params.domiciliosHoraFin);
-    if (!n) return { ok: false, message: "Hora de cierre inválida (usá HH:mm, 24 h)." };
-    domiciliosHoraFin = n;
-  }
+
+  const legacy = legacyHorarioDesdeSemanal(domiciliosHorarioSemanal);
+  const domiciliosHoraInicio = legacy.horaInicio;
+  const domiciliosHoraFin = legacy.horaFin;
 
   const domiciliosHabilitados =
     params.domiciliosHabilitados !== undefined ? params.domiciliosHabilitados : actual.domiciliosHabilitados;
@@ -203,6 +240,7 @@ export async function setDomicilioTarifaConfig(params: {
       domicilioConDomiciliarioHabilitado,
       domiciliosHoraInicio,
       domiciliosHoraFin,
+      domiciliosHorarioSemanal,
       mediosTransferencia,
     });
     return { ok: true };
@@ -219,6 +257,7 @@ export async function setDomicilioTarifaConfig(params: {
       domicilioConDomiciliarioHabilitado,
       domiciliosHoraInicio,
       domiciliosHoraFin,
+      domiciliosHorarioSemanal,
       mediosTransferencia,
       actualizadoEnIso: now,
     },

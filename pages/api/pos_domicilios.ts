@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from "next";
 import { crearPedidoDomicilioPersistente, listarPedidosDomiciliosPersistente } from "@/lib/pos-domicilios-firestore-store";
 import { getDomicilioTarifaConfig } from "@/lib/pos-domicilios-config-store";
-import { estaEnVentanaHoraria, textoHorarioAtencionCliente } from "@/lib/pos-domicilios-horario";
+import { estaEnHorarioDomiciliosConfig, textoHorarioDomiciliosCliente } from "@/lib/pos-domicilios-horario";
 import type {
   DomicilioCrearPayload,
   DomicilioCrearResponse,
@@ -81,10 +81,10 @@ export default async function handler(
           "En este momento el punto no está recibiendo pedidos por domicilio. Volvé a intentar más tarde o contactá directamente al local.",
       });
     }
-    if (!estaEnVentanaHoraria(cfg.domiciliosHoraInicio, cfg.domiciliosHoraFin)) {
+    if (!estaEnHorarioDomiciliosConfig(cfg)) {
       return res.status(400).json({
         ok: false,
-        message: `Estamos fuera del horario de domicilios. ${textoHorarioAtencionCliente(cfg.domiciliosHoraInicio, cfg.domiciliosHoraFin)}`,
+        message: `Estamos fuera del horario de domicilios. ${textoHorarioDomiciliosCliente(cfg)}`,
       });
     }
     const tipoEntrega =

@@ -1,4 +1,4 @@
-import { buildPedidosSemillaDomicilios } from "@/lib/pos-domicilios-seed";
+import { filtrarPedidosDemoDomicilios } from "@/lib/pos-domicilios-seed";
 import type { DomicilioCrearPayload, EstadoDomicilio, PedidoDomicilio } from "@/types/pos-domicilios";
 
 const STORAGE_PREFIX = "pos_mc_domicilios_v1:";
@@ -39,10 +39,9 @@ export function ensurePedidosDomiciliosLocal(puntoVenta: string): PedidoDomicili
   const pv = puntoVenta.trim();
   if (!pv) return [];
   const prev = leerRaw(pv);
-  if (prev.length > 0) return prev;
-  const seed = buildPedidosSemillaDomicilios(pv);
-  escribir(pv, seed);
-  return seed;
+  const limpio = filtrarPedidosDemoDomicilios(prev);
+  if (limpio.length !== prev.length) escribir(pv, limpio);
+  return limpio;
 }
 
 export function listarPedidosDomiciliosLocal(puntoVenta: string): PedidoDomicilio[] {
