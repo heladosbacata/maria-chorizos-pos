@@ -80,3 +80,16 @@ export interface DomicilioCrearResponse {
   pedido?: PedidoDomicilio;
   message?: string;
 }
+
+export interface DomicilioEliminarRechazadoPayload {
+  puntoVenta: string;
+  pedidoId?: string;
+  limpiarTodosRechazados?: boolean;
+  claveEspacioFranquiciados: string;
+}
+
+export interface DomicilioEliminarRechazadoResponse {
+  ok: boolean;
+  eliminados?: number;
+  message?: string;
+}

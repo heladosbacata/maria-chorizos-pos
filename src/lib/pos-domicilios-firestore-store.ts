@@ -1,4 +1,4 @@
-import { getFirestore } from "firebase-admin/firestore";
+import { getFirestore, type Firestore } from "firebase-admin/firestore";
 import { getFirebaseAdminApp } from "@/lib/firebase-admin-server";
 import { pedidoIdChatClave, puntoVentaFirestoreClave as normPv } from "@/lib/pos-domicilios-pv-clave";
 import {
@@ -293,6 +293,69 @@ export async function actualizarEstadoPedidoPersistente(params: {
     { merge: true }
   );
   return next;
+}
+
+async function eliminarMensajesChatPedido(db: Firestore, puntoVenta: string, pedidoId: string): Promise<void> {
+  const pv = puntoVenta.trim();
+  const pid = pedidoIdChatClave(pedidoId);
+  if (!pv || !pid) return;
+  const key = chatKey(pv, pid);
+  let snaps = await db.collection(COLL_CHAT).where("chatKey", "==", key).get();
+  if (snaps.empty) {
+    snaps = await db.collection(COLL_CHAT).where("puntoVenta", "==", pv).where("pedidoId", "==", pid).get();
+  }
+  if (snaps.empty) return;
+  const batch = db.batch();
+  for (const doc of snaps.docs) batch.delete(doc.ref);
+  await batch.commit();
+}
+
+/** Elimina pedido(s) rechazado(s) y su chat. Solo estado RECHAZADO. */
+export async function eliminarPedidosRechazadosPersistente(params: {
+  puntoVenta: string;
+  pedidoId?: string;
+  limpiarTodos?: boolean;
+}): Promise<number> {
+  const pv = params.puntoVenta.trim();
+  if (!pv) return 0;
+  const app = getFirebaseAdminApp();
+  if (!app) {
+    const pedidos = getPedidosMemory(pv);
+    if (params.limpiarTodos) {
+      const restantes = pedidos.filter((p) => p.estado !== "RECHAZADO");
+      const n = pedidos.length - restantes.length;
+      if (n > 0) setPedidosMemory(pv, restantes);
+      return n;
+    }
+    const id = params.pedidoId?.trim();
+    if (!id) return 0;
+    const p = pedidos.find((x) => x.id === id);
+    if (!p || p.estado !== "RECHAZADO") return 0;
+    setPedidosMemory(
+      pv,
+      pedidos.filter((x) => x.id !== id)
+    );
+    return 1;
+  }
+  const db = getFirestore(app);
+  const snaps = await db.collection(COLL_PEDIDOS).where("puntoVentaNorm", "==", normPv(pv)).get();
+  const idsEliminar: string[] = [];
+  for (const doc of snaps.docs) {
+    const p = toPedido(doc.data() as Record<string, unknown>);
+    if (!p || p.estado !== "RECHAZADO") continue;
+    if (params.limpiarTodos) {
+      idsEliminar.push(p.id);
+    } else if (params.pedidoId?.trim() && p.id === params.pedidoId.trim()) {
+      idsEliminar.push(p.id);
+      break;
+    }
+  }
+  if (idsEliminar.length === 0) return 0;
+  for (const id of idsEliminar) {
+    await db.collection(COLL_PEDIDOS).doc(pedidoDocId(pv, id)).delete();
+    await eliminarMensajesChatPedido(db, pv, id);
+  }
+  return idsEliminar.length;
 }
 
 export async function listarMensajesChatPersistente(puntoVenta: string, pedidoId: string): Promise<MensajeChatDomicilio[]> {

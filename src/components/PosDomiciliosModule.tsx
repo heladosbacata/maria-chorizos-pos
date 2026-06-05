@@ -1,17 +1,18 @@
 "use client";
 
 import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { motion } from "framer-motion";
 import QRCode from "qrcode";
 import { auth } from "@/lib/firebase";
 import { domicilioCambiarEstado, domicilioCrear, domiciliosListar } from "@/lib/pos-domicilios-api";
 import { enviarMensajeChatDomicilio, listarMensajesChatDomicilio } from "@/lib/pos-domicilios-chat-api";
+import { emitirDomiciliosAbrirChat } from "@/lib/pos-domicilios-chat-event";
+import { leerMapaVistoChatDomicilios, marcarChatDomicilioLeido } from "@/lib/pos-domicilios-chat-utils";
 import {
   textoRechazoPedidoParaCliente,
-  textoResumenPedidoParaConfirmacion,
 } from "@/lib/pos-domicilios-resumen-chat";
 import { reproducirTonoDomiciliosPos, type VolumenSonidoDomicilios } from "@/lib/pos-domicilios-sonidos";
 import { construirLandingPedidosUrl } from "@/lib/pos-domicilios-landing-url";
+import { emitirDomiciliosContadorNuevos, EVENT_DOMICILIOS_FORZAR_REFRESH } from "@/lib/pos-domicilios-nuevos-event";
 import { DEFAULT_COSTO_DOMICILIO_COP, DEFAULT_UMBRAL_GRATIS_COP } from "@/lib/pos-domicilios-tarifa-defaults";
 import {
   aplicarFranjaATodosLosDias,
@@ -21,7 +22,6 @@ import {
   type DiaSemanaDomicilio,
   type HorarioSemanalDomicilios,
 } from "@/lib/pos-domicilios-horario-semanal";
-import { PosDomiciliosChatBurbuja } from "@/components/PosDomiciliosChatBurbuja";
 import {
   CLAVE_ESPACIO_FRANQUICIADOS,
   normalizarMediosTransferencia,
@@ -33,7 +33,6 @@ import {
   type MediosTransferenciaConfig,
 } from "@/types/pos-domicilios-medios-transferencia";
 import type { EstadoDomicilio, PedidoDomicilio } from "@/types/pos-domicilios";
-import type { MensajeChatDomicilio } from "@/types/pos-domicilios-chat";
 
 type Props = {
   puntoVenta?: string | null;
@@ -113,20 +112,6 @@ const COLUMNAS_DOMICILIO: ColumnaDomicilio[] = [
   },
 ];
 
-/** Textos listos para el chat POS → cliente (domicilios). */
-const RESPUESTAS_RAPIDAS_CHAT_DOMICILIO: readonly { id: string; etiqueta: string; texto: string }[] = [
-  { id: "confirmar", etiqueta: "Confirmar orden", texto: "Buenas, ¿nos confirmás tu orden por favor? Gracias." },
-  { id: "aceptado", etiqueta: "Pedido aceptado", texto: "Tu pedido fue aceptado. En breve comenzamos la preparación." },
-  { id: "preparacion", etiqueta: "En preparación", texto: "Tu pedido está en preparación. Te avisamos cuando salga a entrega." },
-  { id: "en-camino", etiqueta: "En camino", texto: "Tu pedido va en camino hacia tu dirección. ¡Gracias por tu compra!" },
-  { id: "listo-recoger", etiqueta: "Listo para recoger", texto: "Tu pedido está listo para recoger en el punto. Te esperamos." },
-  { id: "demora", etiqueta: "Demora", texto: "Te informamos que hay una demora un poco mayor de lo habitual. Gracias por tu paciencia." },
-  { id: "direccion", etiqueta: "Confirmar dirección", texto: "¿Podés confirmarnos la dirección y una referencia para la entrega? Gracias." },
-  { id: "pago-entrega", etiqueta: "Pago contraentrega", texto: "Recordá que el pago contraentrega se hace al recibir el pedido." },
-  { id: "llamar", etiqueta: "Te llamamos", texto: "En un momento te contactamos por teléfono para coordinar." },
-  { id: "gracias", etiqueta: "Gracias", texto: "Muchas gracias. Cualquier duda quedamos atentos." },
-];
-
 const ESTADOS_ACTIVOS: EstadoDomicilio[] = [
   "NUEVO",
   "ACEPTADO",
@@ -185,34 +170,6 @@ function keyVolumenDomicilios(puntoVenta: string): string {
   return `pos_mc_domicilios_volumen_v1:${puntoVenta.trim().toLowerCase() || "global"}`;
 }
 
-function keyChatSeenDomicilios(puntoVenta: string): string {
-  return `pos_mc_domicilios_chat_seen_v1:${puntoVenta.trim().toLowerCase() || "global"}`;
-}
-
-function leerMapaVistoChat(puntoVenta: string): Record<string, string> {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = localStorage.getItem(keyChatSeenDomicilios(puntoVenta));
-    if (!raw) return {};
-    const obj = JSON.parse(raw) as unknown;
-    if (!obj || typeof obj !== "object") return {};
-    return Object.fromEntries(
-      Object.entries(obj as Record<string, unknown>).filter(([, v]) => typeof v === "string")
-    ) as Record<string, string>;
-  } catch {
-    return {};
-  }
-}
-
-function guardarMapaVistoChat(puntoVenta: string, mapa: Record<string, string>): void {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(keyChatSeenDomicilios(puntoVenta), JSON.stringify(mapa));
-  } catch {
-    /* ignore */
-  }
-}
-
 export default function PosDomiciliosModule({ puntoVenta }: Props) {
   const [pedidos, setPedidos] = useState<PedidoDomicilio[]>([]);
   const [filtro, setFiltro] = useState("");
@@ -230,12 +187,6 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
   const [landingPedidosUrl, setLandingPedidosUrl] = useState("");
   const [landingQrDataUrl, setLandingQrDataUrl] = useState<string | null>(null);
   const [qrError, setQrError] = useState<string | null>(null);
-  const [chatPedidoAbierto, setChatPedidoAbierto] = useState<PedidoDomicilio | null>(null);
-  const [chatMensajes, setChatMensajes] = useState<MensajeChatDomicilio[]>([]);
-  const [chatTextoPos, setChatTextoPos] = useState("");
-  const [chatCargando, setChatCargando] = useState(false);
-  const [chatError, setChatError] = useState<string | null>(null);
-  const [chatEnviando, setChatEnviando] = useState(false);
   const [tarifaCostoInput, setTarifaCostoInput] = useState(String(DEFAULT_COSTO_DOMICILIO_COP));
   const [tarifaUmbralInfo, setTarifaUmbralInfo] = useState(DEFAULT_UMBRAL_GRATIS_COP);
   const [tarifaCargando, setTarifaCargando] = useState(false);
@@ -269,11 +220,6 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
   });
   const columnaNuevoRef = useRef<HTMLElement | null>(null);
   const pedidosNuevosPrevRef = useRef<string[]>([]);
-  const pedidosResumenAutoPendienteRef = useRef<Set<string>>(new Set());
-  const resumenBienvenidaEnProcesoRef = useRef<Set<string>>(new Set());
-  const resumenBienvenidaOkRef = useRef<Set<string>>(new Set());
-  const chatScrollRef = useRef<HTMLDivElement | null>(null);
-  const [marcoEntradaNuevoPedido, setMarcoEntradaNuevoPedido] = useState(false);
 
   const puntoVentaActivo = (puntoVenta ?? "").trim();
   const totalNoLeidos = useMemo(
@@ -425,6 +371,8 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
       if (!opts?.silencioso) setErrorCarga(null);
       const res = await domiciliosListar(puntoVentaActivo);
       setPedidos(res.data);
+      const idsNuevos = res.data.filter((p) => p.estado === "NUEVO").map((p) => p.id);
+      emitirDomiciliosContadorNuevos({ cantidad: idsNuevos.length, ids: idsNuevos });
       if (res.message && !opts?.silencioso) setSyncInfo(res.message);
       if (opts?.detectarNuevos) {
         const nuevosActuales = res.data.filter((p) => p.estado === "NUEVO").map((p) => p.id);
@@ -609,9 +557,14 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
     const timer = window.setInterval(() => {
       void cargarPedidosDesdeOrigen({ silencioso: true, detectarNuevos: true }).catch(() => undefined);
     }, 12000);
+    const onForzarRefresh = () => {
+      void cargarPedidosDesdeOrigen({ silencioso: true, detectarNuevos: true }).catch(() => undefined);
+    };
+    window.addEventListener(EVENT_DOMICILIOS_FORZAR_REFRESH, onForzarRefresh);
     return () => {
       cancelled = true;
       window.clearInterval(timer);
+      window.removeEventListener(EVENT_DOMICILIOS_FORZAR_REFRESH, onForzarRefresh);
     };
   }, [cargarPedidosDesdeOrigen]);
 
@@ -619,9 +572,7 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
     (pedidoId: string) => {
       const pid = pedidoId.trim();
       if (!pid || !puntoVentaActivo) return;
-      const prev = leerMapaVistoChat(puntoVentaActivo);
-      prev[pid] = new Date().toISOString();
-      guardarMapaVistoChat(puntoVentaActivo, prev);
+      marcarChatDomicilioLeido(puntoVentaActivo, pid);
       setUnreadPorPedido((cur) => ({ ...cur, [pid]: 0 }));
     },
     [puntoVentaActivo]
@@ -634,7 +585,7 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
     }
     let activo = true;
     const revisarNoLeidos = async () => {
-      const mapaVisto = leerMapaVistoChat(puntoVentaActivo);
+      const mapaVisto = leerMapaVistoChatDomicilios(puntoVentaActivo);
       const candidatos = pedidos.filter((p) => ESTADOS_ACTIVOS.includes(p.estado));
       const result: UnreadPorPedido = {};
       await Promise.all(
@@ -666,83 +617,6 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
       window.clearInterval(timer);
     };
   }, [puntoVentaActivo, pedidos]);
-
-  useEffect(() => {
-    if (!chatPedidoAbierto) {
-      setChatMensajes([]);
-      setChatTextoPos("");
-      setChatError(null);
-      return;
-    }
-    let activo = true;
-    const cargar = async (silencioso = false) => {
-      if (!silencioso) setChatCargando(true);
-      const res = await listarMensajesChatDomicilio(chatPedidoAbierto.puntoVenta, chatPedidoAbierto.id);
-      if (!activo) return;
-      if (!res.ok) {
-        if (!silencioso) setChatError(res.message ?? "No fue posible cargar el chat.");
-      } else {
-        setChatMensajes(res.data);
-        setChatError(null);
-        marcarChatLeido(chatPedidoAbierto.id);
-      }
-      if (!silencioso) setChatCargando(false);
-    };
-    void cargar(false);
-    const timer = window.setInterval(() => {
-      void cargar(true);
-    }, 4000);
-    return () => {
-      activo = false;
-      window.clearInterval(timer);
-    };
-  }, [chatPedidoAbierto, marcarChatLeido]);
-
-  useEffect(() => {
-    if (!chatPedidoAbierto) return;
-    const el = chatScrollRef.current;
-    if (!el) return;
-    window.requestAnimationFrame(() => {
-      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-    });
-  }, [chatMensajes, chatPedidoAbierto]);
-
-  /** Al detectar pedido nuevo: envía un único mensaje POS con resumen para confirmación (no repetir si ya se envió). */
-  useEffect(() => {
-    const p = chatPedidoAbierto;
-    if (!p) return;
-    if (!pedidosResumenAutoPendienteRef.current.has(p.id)) return;
-    if (resumenBienvenidaOkRef.current.has(p.id)) {
-      pedidosResumenAutoPendienteRef.current.delete(p.id);
-      return;
-    }
-    if (resumenBienvenidaEnProcesoRef.current.has(p.id)) return;
-    resumenBienvenidaEnProcesoRef.current.add(p.id);
-    pedidosResumenAutoPendienteRef.current.delete(p.id);
-    const pid = p.id;
-    const pv = p.puntoVenta;
-    void (async () => {
-      try {
-        if (resumenBienvenidaOkRef.current.has(pid)) return;
-        const texto = textoResumenPedidoParaConfirmacion(p);
-        const resp = await enviarMensajeChatDomicilio({
-          puntoVenta: pv,
-          pedidoId: pid,
-          autor: "pos",
-          autorLabel: "POS",
-          texto,
-          tipoMensaje: "texto",
-        });
-        if (resp.ok) {
-          resumenBienvenidaOkRef.current.add(pid);
-          const refresh = await listarMensajesChatDomicilio(pv, pid);
-          if (refresh.ok) setChatMensajes(refresh.data);
-        }
-      } finally {
-        resumenBienvenidaEnProcesoRef.current.delete(pid);
-      }
-    })();
-  }, [chatPedidoAbierto]);
 
   const pedidosFiltrados = useMemo(() => {
     const q = filtro.trim().toLowerCase();
@@ -904,45 +778,8 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
   };
 
   const abrirChatPedido = (pedido: PedidoDomicilio) => {
-    setChatPedidoAbierto(pedido);
-    setChatTextoPos(textoResumenPedidoParaConfirmacion(pedido));
-    setChatError(null);
+    emitirDomiciliosAbrirChat({ pedido, marcoEntradaNuevo: pedido.estado === "NUEVO", enviarResumenAuto: false });
     marcarChatLeido(pedido.id);
-  };
-
-  const aplicarRespuestaRapidaChat = (texto: string) => {
-    setChatTextoPos((prev) => {
-      const t = prev.trim();
-      return t ? `${t}\n\n${texto}` : texto;
-    });
-  };
-
-  const enviarMensajePos = async () => {
-    if (!chatPedidoAbierto || chatEnviando) return;
-    const texto = chatTextoPos.trim();
-    if (!texto) return;
-    setChatEnviando(true);
-    setChatError(null);
-    const resp = await enviarMensajeChatDomicilio({
-      puntoVenta: chatPedidoAbierto.puntoVenta,
-      pedidoId: chatPedidoAbierto.id,
-      autor: "pos",
-      autorLabel: "POS",
-      texto,
-      tipoMensaje: "texto",
-    });
-    if (!resp.ok) {
-      setChatError(resp.message ?? "No fue posible enviar el mensaje.");
-      setChatEnviando(false);
-      return;
-    }
-    setChatTextoPos("");
-    if (resp.mensaje) {
-      setChatMensajes((prev) => (prev.some((m) => m.id === resp.mensaje!.id) ? prev : [...prev, resp.mensaje!]));
-    }
-    const refresh = await listarMensajesChatDomicilio(chatPedidoAbierto.puntoVenta, chatPedidoAbierto.id);
-    if (refresh.ok) setChatMensajes(refresh.data);
-    setChatEnviando(false);
   };
 
   return (
@@ -1548,119 +1385,6 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
           );
         })}
       </div>
-
-      {chatPedidoAbierto ? (
-        <div className="fixed inset-0 z-[72] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-[1px]">
-          <button
-            type="button"
-            aria-label="Cerrar chat de pedido"
-            className="absolute inset-0 z-0 cursor-default bg-transparent"
-            onClick={() => setChatPedidoAbierto(null)}
-          />
-          <motion.div
-            initial={{ opacity: 0, scale: 0.93, y: 20 }}
-            animate={{
-              opacity: 1,
-              scale: 1,
-              y: 0,
-              boxShadow: marcoEntradaNuevoPedido
-                ? "0 0 0 3px rgba(251,191,36,0.85), 0 0 28px rgba(34,211,238,0.35), 0 25px 50px -12px rgba(15,23,42,0.35)"
-                : "0 25px 50px -12px rgba(15,23,42,0.25)",
-            }}
-            transition={{
-              type: "spring",
-              stiffness: 300,
-              damping: 32,
-              mass: 0.92,
-              boxShadow: { duration: 0.55, ease: [0.22, 1, 0.36, 1] },
-            }}
-            className={`relative z-10 w-full max-w-lg ${marcoEntradaNuevoPedido ? "rounded-2xl bg-gradient-to-br from-amber-200 via-cyan-400 to-indigo-500 p-[3px] shadow-lg" : ""}`}
-          >
-            <div className="flex max-h-[min(90dvh,760px)] w-full flex-col overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-2xl">
-              <header className="flex shrink-0 items-start justify-between gap-3 rounded-t-2xl bg-gradient-to-r from-cyan-800 via-cyan-700 to-sky-700 px-4 py-3 text-white">
-                <div className="min-w-0">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-100/90">
-                    {marcoEntradaNuevoPedido ? "Recién ingresado · premium" : "Domicilios premium"}
-                  </p>
-                  <p className="text-sm font-extrabold">Chat · pedido {chatPedidoAbierto.id}</p>
-                  <p className="text-xs text-cyan-100">{chatPedidoAbierto.cliente} · {chatPedidoAbierto.telefono}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setChatPedidoAbierto(null)}
-                  className="shrink-0 rounded-lg border border-white/30 px-2.5 py-1 text-xs font-semibold hover:bg-white/15"
-                >
-                  Cerrar
-                </button>
-              </header>
-              {marcoEntradaNuevoPedido ? (
-                <div className="shrink-0 border-b border-amber-200/90 bg-gradient-to-r from-amber-50 via-white to-cyan-50 px-3 py-2.5 text-center">
-                  <p className="text-[11px] font-extrabold text-amber-950">Pedido nuevo en bandeja</p>
-                  <p className="mt-0.5 text-[10px] font-medium leading-snug text-amber-900/90">
-                    Ya enviamos al cliente el resumen en este chat para que lo confirme. Revisá el hilo y respondé si hace
-                    falta aclarar algo antes de aceptar el pedido.
-                  </p>
-                </div>
-              ) : null}
-              <div ref={chatScrollRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-slate-50 p-3">
-                {chatCargando ? (
-                  <p className="text-xs text-slate-500">Cargando mensajes...</p>
-                ) : chatMensajes.length === 0 ? (
-                  <p className="text-xs text-slate-500">Sin mensajes aún. El cliente puede escribir desde el landing.</p>
-                ) : (
-                  chatMensajes.map((m) => {
-                    const esPos = m.autor === "pos";
-                    return (
-                      <PosDomiciliosChatBurbuja
-                        key={m.id}
-                        mensaje={m}
-                        esPropio={esPos}
-                        horaFormateada={formatoHora(m.creadoEnIso)}
-                      />
-                    );
-                  })
-                )}
-              </div>
-              <div className="shrink-0 border-t border-cyan-100 bg-gradient-to-b from-cyan-50/90 to-slate-50/80 px-3 py-2">
-                <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-cyan-900">Respuestas rápidas</p>
-                <p className="mb-2 text-[10px] text-cyan-800/90">Tocá una opción para cargar el mensaje; podés editarlo antes de enviar.</p>
-                <div className="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto pr-0.5">
-                  {RESPUESTAS_RAPIDAS_CHAT_DOMICILIO.map((r) => (
-                    <button
-                      key={r.id}
-                      type="button"
-                      title={r.texto}
-                      disabled={chatEnviando}
-                      onClick={() => aplicarRespuestaRapidaChat(r.texto)}
-                      className="rounded-full border border-cyan-200/80 bg-white px-2.5 py-1 text-[11px] font-semibold text-cyan-950 shadow-sm transition hover:border-cyan-400 hover:bg-cyan-100/80 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {r.etiqueta}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="shrink-0 space-y-2 border-t border-gray-200 p-3">
-                <textarea
-                  value={chatTextoPos}
-                  onChange={(e) => setChatTextoPos(e.target.value)}
-                  rows={3}
-                  placeholder="Escribí tu respuesta al cliente…"
-                  className="w-full resize-y rounded-lg border border-gray-300 px-3 py-2 text-xs outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
-                />
-                <button
-                  type="button"
-                  onClick={enviarMensajePos}
-                  disabled={chatEnviando || !chatTextoPos.trim()}
-                  className="w-full rounded-lg bg-cyan-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {chatEnviando ? "Enviando..." : "Enviar mensaje"}
-                </button>
-                {chatError ? <p className="text-xs text-rose-600">{chatError}</p> : null}
-              </div>
-            </div>
-          </motion.div>
-        </div>
-      ) : null}
 
       {modalClaveMediosTransferencia ? (
         <div className="fixed inset-0 z-[90] flex items-center justify-center p-4" role="dialog" aria-modal="true">

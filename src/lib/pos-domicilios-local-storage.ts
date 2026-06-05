@@ -139,3 +139,25 @@ export function crearPedidoDomicilioLocal(payload: DomicilioCrearPayload): Pedid
   escribir(pv, next);
   return pedido;
 }
+
+export function eliminarPedidoDomicilioLocal(puntoVenta: string, pedidoId: string): boolean {
+  const pv = puntoVenta.trim();
+  const id = pedidoId.trim();
+  if (!pv || !id) return false;
+  const pedidos = ensurePedidosDomiciliosLocal(pv);
+  const idx = pedidos.findIndex((p) => p.id === id);
+  if (idx < 0) return false;
+  const copia = pedidos.filter((p) => p.id !== id);
+  escribir(pv, copia);
+  return true;
+}
+
+export function eliminarPedidosRechazadosLocal(puntoVenta: string): number {
+  const pv = puntoVenta.trim();
+  if (!pv) return 0;
+  const pedidos = ensurePedidosDomiciliosLocal(pv);
+  const restantes = pedidos.filter((p) => p.estado !== "RECHAZADO");
+  const eliminados = pedidos.length - restantes.length;
+  if (eliminados > 0) escribir(pv, restantes);
+  return eliminados;
+}

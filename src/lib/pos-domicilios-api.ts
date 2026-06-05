@@ -1,6 +1,8 @@
 import {
   crearPedidoDomicilioLocal,
   ensurePedidosDomiciliosLocal,
+  eliminarPedidoDomicilioLocal,
+  eliminarPedidosRechazadosLocal,
   listarPedidosDomiciliosLocal,
   moverEstadoPedidoDomicilioLocal,
   reemplazarPedidosDomiciliosLocal,
@@ -10,6 +12,8 @@ import type {
   DomicilioCambioEstadoResponse,
   DomicilioCrearPayload,
   DomicilioCrearResponse,
+  DomicilioEliminarRechazadoPayload,
+  DomicilioEliminarRechazadoResponse,
   DomiciliosListadoResponse,
   PedidoDomicilio,
 } from "@/types/pos-domicilios";
@@ -149,5 +153,53 @@ export async function domicilioCrear(payload: DomicilioCrearPayload): Promise<Do
     const pedido = crearPedidoDomicilioLocal(payload);
     if (!pedido) return { ok: false, message: "Datos inválidos para crear el pedido." };
     return { ok: true, pedido, message: "Pedido creado en local (sin conexión API)." };
+  }
+}
+
+export async function domicilioEliminarRechazado(
+  payload: DomicilioEliminarRechazadoPayload,
+  token: string
+): Promise<DomicilioEliminarRechazadoResponse> {
+  const pv = payload.puntoVenta.trim();
+  if (!pv) return { ok: false, message: "Punto de venta requerido." };
+  const limpiarTodos = payload.limpiarTodosRechazados === true;
+  const pedidoId = payload.pedidoId?.trim() ?? "";
+  if (!limpiarTodos && !pedidoId) {
+    return { ok: false, message: "Indicá el pedido o limpiar todo el historial." };
+  }
+  try {
+    const res = await fetch("/api/pos_domicilios_eliminar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        puntoVenta: pv,
+        pedidoId: limpiarTodos ? undefined : pedidoId,
+        limpiarTodosRechazados: limpiarTodos,
+        claveEspacioFranquiciados: payload.claveEspacioFranquiciados,
+      }),
+    });
+    const json = (await parseJsonSafe(res)) as DomicilioEliminarRechazadoResponse & { eliminados?: number };
+    if (!res.ok || !json.ok) {
+      return { ok: false, message: json.message ?? "No se pudo eliminar el pedido rechazado." };
+    }
+    if (limpiarTodos) {
+      eliminarPedidosRechazadosLocal(pv);
+    } else {
+      eliminarPedidoDomicilioLocal(pv, pedidoId);
+    }
+    return {
+      ok: true,
+      eliminados: json.eliminados,
+      message: json.message,
+    };
+  } catch {
+    if (limpiarTodos) {
+      const n = eliminarPedidosRechazadosLocal(pv);
+      if (n === 0) return { ok: false, message: "No hay pedidos rechazados en local." };
+      return { ok: true, eliminados: n, message: `Eliminados ${n} pedido(s) en local (sin conexión API).` };
+    }
+    const ok = eliminarPedidoDomicilioLocal(pv, pedidoId);
+    if (!ok) return { ok: false, message: "No se encontró el pedido en local." };
+    return { ok: true, eliminados: 1, message: "Pedido eliminado en local (sin conexión API)." };
   }
 }

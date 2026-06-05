@@ -21,6 +21,8 @@ import ModalInformeCierreCorreo from "@/components/ModalInformeCierreCorreo";
 import PosMetaCumplidaCelebracion from "@/components/PosMetaCumplidaCelebracion";
 import PosAnunciosCajaWatcher from "@/components/PosAnunciosCajaWatcher";
 import PosDomiciliosNuevoPedidoAlerta from "@/components/PosDomiciliosNuevoPedidoAlerta";
+import PosDomiciliosNuevosWatcher from "@/components/PosDomiciliosNuevosWatcher";
+import PosDomiciliosChatFloatingDock from "@/components/PosDomiciliosChatFloatingDock";
 import PosAjustePantallaPanel from "@/components/PosAjustePantallaPanel";
 import type { DetallePagoConfirmado } from "@/components/RegistrarPagoPanel";
 import TurnoCierreExitoPremiumModal from "@/components/TurnoCierreExitoPremiumModal";
@@ -40,6 +42,13 @@ import {
   RegistrarPagoPanel,
   SeleccionClienteVenta,
 } from "@/app/caja/caja-modulos-dynamic";
+import {
+  EVENT_DOMICILIOS_CONTADOR_NUEVOS,
+  emitirDomiciliosForzarRefresh,
+  type DomiciliosContadorNuevosDetail,
+} from "@/lib/pos-domicilios-nuevos-event";
+import { emitirDomiciliosAbrirChat } from "@/lib/pos-domicilios-chat-event";
+import type { PedidoDomicilio } from "@/types/pos-domicilios";
 import {
   buildLineIdPos,
   etiquetaArepaCombo,
@@ -375,6 +384,7 @@ export default function CajaPageClient() {
   }, [user]);
 
   const [moduloActivo, setModuloActivo] = useState<ModuloActivo>("ventas");
+  const [domiciliosNuevosCount, setDomiciliosNuevosCount] = useState(0);
   const metasActivas = moduloActivo === "ventas" || moduloActivo === "metasBonificaciones";
   const [serviciosSecundarios, setServiciosSecundarios] = useState(false);
   const [posGebBienvenidaAbierta, setPosGebBienvenidaAbierta] = useState(false);
@@ -390,6 +400,23 @@ export default function CajaPageClient() {
   /** El turno inicia cerrado: al abrirlo se elige el cajero operativo. */
   const [turnoAbierto, setTurnoAbierto] = useState(false);
   const [turnoInicio, setTurnoInicio] = useState<Date>(() => new Date());
+
+  useEffect(() => {
+    const onContador = (e: Event) => {
+      const detail = (e as CustomEvent<DomiciliosContadorNuevosDetail>).detail;
+      setDomiciliosNuevosCount(typeof detail?.cantidad === "number" ? detail.cantidad : 0);
+    };
+    window.addEventListener(EVENT_DOMICILIOS_CONTADOR_NUEVOS, onContador);
+    return () => window.removeEventListener(EVENT_DOMICILIOS_CONTADOR_NUEVOS, onContador);
+  }, []);
+
+  const irADomiciliosDesdeAlerta = useCallback((pedido?: PedidoDomicilio) => {
+    if (pedido) {
+      emitirDomiciliosAbrirChat({ pedido, marcoEntradaNuevo: true, enviarResumenAuto: true });
+    }
+    setModuloActivo("domicilios");
+    emitirDomiciliosForzarRefresh();
+  }, []);
   const [showModalCierreTurno, setShowModalCierreTurno] = useState(false);
   const [modalInformeCierreCorreoAbierto, setModalInformeCierreCorreoAbierto] = useState(false);
   const [emailInformeCierrePara, setEmailInformeCierrePara] = useState("");
@@ -2796,9 +2823,16 @@ export default function CajaPageClient() {
             className={`group relative flex w-full items-center gap-3 overflow-hidden rounded-xl border px-3 py-2.5 text-left text-sm font-semibold transition-all ${
               moduloActivo === "domicilios"
                 ? "border-cyan-400 bg-gradient-to-r from-cyan-600 to-sky-600 text-white shadow-md"
-                : "border-cyan-200 bg-gradient-to-r from-cyan-50 to-sky-50 text-cyan-900 hover:border-cyan-300 hover:shadow-sm"
+                : domiciliosNuevosCount > 0
+                  ? "border-amber-400 bg-gradient-to-r from-amber-50 via-cyan-50 to-sky-50 text-cyan-950 shadow-md ring-2 ring-amber-400/80 ring-offset-1 animate-[pulse_1.6s_ease-in-out_infinite]"
+                  : "border-cyan-200 bg-gradient-to-r from-cyan-50 to-sky-50 text-cyan-900 hover:border-cyan-300 hover:shadow-sm"
             }`}
           >
+            {domiciliosNuevosCount > 0 ? (
+              <span className="absolute right-2 top-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-black text-white shadow-md animate-bounce">
+                {domiciliosNuevosCount > 9 ? "9+" : domiciliosNuevosCount}
+              </span>
+            ) : null}
             <span
               className={`absolute inset-y-0 right-0 w-12 bg-white/20 blur-xl transition-opacity ${
                 moduloActivo === "domicilios" ? "opacity-70" : "opacity-0 group-hover:opacity-50"
@@ -2820,9 +2854,15 @@ export default function CajaPageClient() {
             </span>
             <span className="relative flex min-w-0 flex-1 flex-col leading-tight">
               <span>Domicilios</span>
-              <span className={`text-[10px] uppercase tracking-wide ${moduloActivo === "domicilios" ? "text-cyan-100" : "text-cyan-700"}`}>
-                Premium
-              </span>
+              {domiciliosNuevosCount > 0 && moduloActivo !== "domicilios" ? (
+                <span className="text-[10px] font-extrabold uppercase tracking-wide text-rose-600 animate-pulse">
+                  ¡Pedido nuevo!
+                </span>
+              ) : (
+                <span className={`text-[10px] uppercase tracking-wide ${moduloActivo === "domicilios" ? "text-cyan-100" : "text-cyan-700"}`}>
+                  Premium
+                </span>
+              )}
             </span>
           </button>
           {!esContador && (
@@ -4735,9 +4775,22 @@ export default function CajaPageClient() {
         suprimido={moduloActivo === "domicilios"}
       />
 
+      <PosDomiciliosNuevosWatcher
+        puntoVenta={user?.puntoVenta}
+        activo={Boolean(user?.puntoVenta?.trim() && turnoAbierto)}
+        moduloDomiciliosActivo={moduloActivo === "domicilios"}
+        soloContador
+      />
       {!esContador ? (
-        <PosDomiciliosNuevoPedidoAlerta puntoVenta={user?.puntoVenta} habilitado />
+        <PosDomiciliosNuevoPedidoAlerta
+          puntoVenta={user?.puntoVenta}
+          habilitado={Boolean(user?.puntoVenta?.trim() && turnoAbierto)}
+        />
       ) : null}
+      <PosDomiciliosChatFloatingDock
+        puntoVenta={user?.puntoVenta}
+        visible={Boolean(user?.puntoVenta?.trim() && turnoAbierto)}
+      />
 
       {serviciosSecundarios && !esContador ? (
         <PosChatFloatingDock
