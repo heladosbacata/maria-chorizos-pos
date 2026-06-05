@@ -1,3 +1,4 @@
+import { BANDEJA_DOMICILIOS_PURGA_VERSION } from "@/lib/pos-domicilios-purga-bandeja";
 import { filtrarPedidosDemoDomicilios } from "@/lib/pos-domicilios-seed";
 import type { DomicilioCrearPayload, EstadoDomicilio, PedidoDomicilio } from "@/types/pos-domicilios";
 
@@ -35,9 +36,24 @@ function escribir(puntoVenta: string, pedidos: PedidoDomicilio[]): void {
   }
 }
 
+function aplicarPurgaBandejaLocal(puntoVenta: string): void {
+  if (typeof window === "undefined") return;
+  const pv = puntoVenta.trim();
+  if (!pv) return;
+  const marca = `pos_mc_domicilios_purga:${BANDEJA_DOMICILIOS_PURGA_VERSION}:${pv.toLowerCase()}`;
+  if (localStorage.getItem(marca)) return;
+  escribir(pv, []);
+  try {
+    localStorage.setItem(marca, new Date().toISOString());
+  } catch {
+    /* ignore quota */
+  }
+}
+
 export function ensurePedidosDomiciliosLocal(puntoVenta: string): PedidoDomicilio[] {
   const pv = puntoVenta.trim();
   if (!pv) return [];
+  aplicarPurgaBandejaLocal(pv);
   const prev = leerRaw(pv);
   const limpio = filtrarPedidosDemoDomicilios(prev);
   if (limpio.length !== prev.length) escribir(pv, limpio);

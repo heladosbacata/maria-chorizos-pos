@@ -29,3 +29,12 @@ export function appendMensajeChatMemory(msg: MensajeChatDomicilio): void {
   const prev = store().get(k) ?? [];
   store().set(k, [...prev, msg]);
 }
+
+export function purgarChatsMemoriaPorPuntoVenta(puntoVenta: string): void {
+  const prefix = `${puntoVentaFirestoreClave(puntoVenta)}::`;
+  if (!prefix.trim()) return;
+  const s = store();
+  for (const k of Array.from(s.keys())) {
+    if (k.startsWith(prefix)) s.delete(k);
+  }
+}

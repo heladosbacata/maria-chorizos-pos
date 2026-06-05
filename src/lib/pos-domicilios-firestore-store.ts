@@ -1,6 +1,10 @@
 import { getFirestore } from "firebase-admin/firestore";
 import { getFirebaseAdminApp } from "@/lib/firebase-admin-server";
 import { pedidoIdChatClave, puntoVentaFirestoreClave as normPv } from "@/lib/pos-domicilios-pv-clave";
+import {
+  purgarBandejaDomiciliosFirestore,
+  purgarBandejaDomiciliosMemoria,
+} from "@/lib/pos-domicilios-purga-bandeja";
 import { esPedidoDemoDomicilio, filtrarPedidosDemoDomicilios } from "@/lib/pos-domicilios-seed";
 import { getMensajesChatMemory, appendMensajeChatMemory } from "@/lib/pos-domicilios-chat-memory-store";
 import { getPedidosMemory, setPedidosMemory } from "@/lib/pos-domicilios-memory-store";
@@ -180,24 +184,18 @@ export async function listarPedidosDomiciliosPersistente(puntoVenta: string): Pr
   const pv = puntoVenta.trim();
   if (!pv) return [];
   const app = getFirebaseAdminApp();
-  if (!app) return getPedidosMemory(pv);
+  if (!app) {
+    if (purgarBandejaDomiciliosMemoria(pv)) return [];
+    return getPedidosMemory(pv);
+  }
   const db = getFirestore(app);
+  if (await purgarBandejaDomiciliosFirestore(db, pv)) return [];
+
   const snaps = await db.collection(COLL_PEDIDOS).where("puntoVentaNorm", "==", normPv(pv)).get();
   if (snaps.empty) return [];
 
-  const demoRefs = snaps.docs.filter((doc) => {
-    const id = typeof doc.data().id === "string" ? doc.data().id : "";
-    return esPedidoDemoDomicilio(id);
-  });
-  if (demoRefs.length > 0) {
-    const batch = db.batch();
-    for (const doc of demoRefs) batch.delete(doc.ref);
-    await batch.commit();
-  }
-
   const out: PedidoDomicilio[] = [];
   for (const doc of snaps.docs) {
-    if (demoRefs.some((d) => d.id === doc.id)) continue;
     const p = toPedido(doc.data() as Record<string, unknown>);
     if (p && !esPedidoDemoDomicilio(p.id)) out.push(p);
   }
