@@ -173,6 +173,7 @@ function etiquetaEstado(estado: EstadoDomicilio): string {
   if (estado === "LISTO_PARA_DESPACHO") return "Listo";
   if (estado === "EN_ENTREGA") return "En entrega";
   if (estado === "ENTREGADO") return "Entregado";
+  if (estado === "CANCELADO") return "Cancelado (cliente)";
   return "Rechazado";
 }
 
@@ -699,7 +700,11 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
 
   useEffect(() => {
     if (!chatPedidoAbierto) return;
-    chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: "smooth" });
+    const el = chatScrollRef.current;
+    if (!el) return;
+    window.requestAnimationFrame(() => {
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    });
   }, [chatMensajes, chatPedidoAbierto]);
 
   /** Al detectar pedido nuevo: envía un único mensaje POS con resumen para confirmación (no repetir si ya se envió). */
@@ -767,7 +772,10 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
     [pedidos]
   );
 
-  const pedidosRechazados = useMemo(() => pedidosFiltrados.filter((p) => p.estado === "RECHAZADO"), [pedidosFiltrados]);
+  const pedidosRechazados = useMemo(
+    () => pedidosFiltrados.filter((p) => p.estado === "RECHAZADO" || p.estado === "CANCELADO"),
+    [pedidosFiltrados]
+  );
 
   const moverPedido = async (id: string, to: EstadoDomicilio, motivo?: string): Promise<boolean> => {
     if (!puntoVentaActivo || actualizandoId) return false;
@@ -780,8 +788,13 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
           ? {
               ...p,
               estado: to,
-              rechazoMotivo: to === "RECHAZADO" ? motivo?.trim() || "Sin motivo especificado" : undefined,
-              rechazadoEnIso: to === "RECHAZADO" ? new Date().toISOString() : undefined,
+              rechazoMotivo:
+                to === "RECHAZADO" || to === "CANCELADO"
+                  ? motivo?.trim() ||
+                    (to === "CANCELADO" ? "Cancelado por el cliente" : "Sin motivo especificado")
+                  : undefined,
+              rechazadoEnIso:
+                to === "RECHAZADO" || to === "CANCELADO" ? new Date().toISOString() : undefined,
             }
           : p
       )
@@ -1400,6 +1413,7 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
             <option value="EN_ENTREGA">En entrega</option>
             <option value="ENTREGADO">Entregado</option>
             <option value="RECHAZADO">Rechazado</option>
+            <option value="CANCELADO">Cancelado (cliente)</option>
           </select>
           <select
             value={filtroCanal}
@@ -1562,8 +1576,8 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
             }}
             className={`relative z-10 w-full max-w-lg ${marcoEntradaNuevoPedido ? "rounded-2xl bg-gradient-to-br from-amber-200 via-cyan-400 to-indigo-500 p-[3px] shadow-lg" : ""}`}
           >
-            <div className="w-full overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-2xl">
-              <header className="flex items-start justify-between gap-3 rounded-t-2xl bg-gradient-to-r from-cyan-800 via-cyan-700 to-sky-700 px-4 py-3 text-white">
+            <div className="flex max-h-[min(90dvh,760px)] w-full flex-col overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-2xl">
+              <header className="flex shrink-0 items-start justify-between gap-3 rounded-t-2xl bg-gradient-to-r from-cyan-800 via-cyan-700 to-sky-700 px-4 py-3 text-white">
                 <div className="min-w-0">
                   <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-100/90">
                     {marcoEntradaNuevoPedido ? "Recién ingresado · premium" : "Domicilios premium"}
@@ -1580,7 +1594,7 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
                 </button>
               </header>
               {marcoEntradaNuevoPedido ? (
-                <div className="border-b border-amber-200/90 bg-gradient-to-r from-amber-50 via-white to-cyan-50 px-3 py-2.5 text-center">
+                <div className="shrink-0 border-b border-amber-200/90 bg-gradient-to-r from-amber-50 via-white to-cyan-50 px-3 py-2.5 text-center">
                   <p className="text-[11px] font-extrabold text-amber-950">Pedido nuevo en bandeja</p>
                   <p className="mt-0.5 text-[10px] font-medium leading-snug text-amber-900/90">
                     Ya enviamos al cliente el resumen en este chat para que lo confirme. Revisá el hilo y respondé si hace
@@ -1588,7 +1602,7 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
                   </p>
                 </div>
               ) : null}
-              <div ref={chatScrollRef} className="max-h-80 min-h-60 space-y-2 overflow-auto bg-slate-50 p-3">
+              <div ref={chatScrollRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-slate-50 p-3">
                 {chatCargando ? (
                   <p className="text-xs text-slate-500">Cargando mensajes...</p>
                 ) : chatMensajes.length === 0 ? (
@@ -1607,7 +1621,7 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
                   })
                 )}
               </div>
-              <div className="border-t border-cyan-100 bg-gradient-to-b from-cyan-50/90 to-slate-50/80 px-3 py-2">
+              <div className="shrink-0 border-t border-cyan-100 bg-gradient-to-b from-cyan-50/90 to-slate-50/80 px-3 py-2">
                 <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-cyan-900">Respuestas rápidas</p>
                 <p className="mb-2 text-[10px] text-cyan-800/90">Tocá una opción para cargar el mensaje; podés editarlo antes de enviar.</p>
                 <div className="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto pr-0.5">
@@ -1625,7 +1639,7 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
                   ))}
                 </div>
               </div>
-              <div className="space-y-2 border-t border-gray-200 p-3">
+              <div className="shrink-0 space-y-2 border-t border-gray-200 p-3">
                 <textarea
                   value={chatTextoPos}
                   onChange={(e) => setChatTextoPos(e.target.value)}
@@ -1767,7 +1781,7 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
 
       <article className="rounded-xl border border-rose-200 bg-rose-50/60 p-4 shadow-sm">
         <div className="mb-3 flex items-center justify-between gap-2">
-          <p className="text-sm font-bold text-rose-800">Pedidos rechazados</p>
+          <p className="text-sm font-bold text-rose-800">Rechazados y cancelados</p>
           <span className="rounded-full bg-rose-100 px-2 py-1 text-xs font-semibold text-rose-700">
             {pedidosRechazados.length}
           </span>

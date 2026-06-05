@@ -27,6 +27,28 @@ function chatKey(puntoVenta: string, pedidoId: string): string {
   return `${normPv(puntoVenta)}::${pedidoIdChatClave(pedidoId)}`;
 }
 
+function esEstadoCierreDomicilio(estado: EstadoDomicilio): boolean {
+  return estado === "RECHAZADO" || estado === "CANCELADO";
+}
+
+function aplicarCierrePedidoDomicilio(
+  pedido: PedidoDomicilio,
+  estado: EstadoDomicilio,
+  motivo?: string
+): PedidoDomicilio {
+  const next: PedidoDomicilio = { ...pedido, estado };
+  if (esEstadoCierreDomicilio(estado)) {
+    next.rechazoMotivo =
+      motivo?.trim() ||
+      (estado === "CANCELADO" ? "Cancelado por el cliente" : "Sin motivo especificado");
+    next.rechazadoEnIso = new Date().toISOString();
+  } else {
+    delete next.rechazoMotivo;
+    delete next.rechazadoEnIso;
+  }
+  return next;
+}
+
 function buildIdPrefijo(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -203,6 +225,23 @@ export async function listarPedidosDomiciliosPersistente(puntoVenta: string): Pr
   return filtrarPedidosDemoDomicilios(out);
 }
 
+export async function obtenerPedidoDomicilioPersistente(
+  puntoVenta: string,
+  pedidoId: string
+): Promise<PedidoDomicilio | null> {
+  const pv = puntoVenta.trim();
+  const id = pedidoId.trim();
+  if (!pv || !id) return null;
+  const app = getFirebaseAdminApp();
+  if (!app) {
+    return getPedidosMemory(pv).find((p) => p.id === id) ?? null;
+  }
+  const db = getFirestore(app);
+  const snap = await db.collection(COLL_PEDIDOS).doc(pedidoDocId(pv, id)).get();
+  if (!snap.exists) return null;
+  return toPedido(snap.data() as Record<string, unknown>);
+}
+
 export async function crearPedidoDomicilioPersistente(payload: DomicilioCrearPayload): Promise<PedidoDomicilio | null> {
   const pv = payload.puntoVenta.trim();
   if (!pv) return null;
@@ -236,14 +275,7 @@ export async function actualizarEstadoPedidoPersistente(params: {
     const pedidos = getPedidosMemory(pv);
     const idx = pedidos.findIndex((p) => p.id === id);
     if (idx < 0) return null;
-    const next = { ...pedidos[idx], estado: params.estado };
-    if (params.estado === "RECHAZADO") {
-      next.rechazoMotivo = params.motivo?.trim() || "Sin motivo especificado";
-      next.rechazadoEnIso = new Date().toISOString();
-    } else {
-      delete next.rechazoMotivo;
-      delete next.rechazadoEnIso;
-    }
+    const next = aplicarCierrePedidoDomicilio(pedidos[idx], params.estado, params.motivo);
     const copia = [...pedidos];
     copia[idx] = next;
     setPedidosMemory(pv, copia);
@@ -255,14 +287,7 @@ export async function actualizarEstadoPedidoPersistente(params: {
   if (!snap.exists) return null;
   const base = toPedido(snap.data() as Record<string, unknown>);
   if (!base) return null;
-  const next: PedidoDomicilio = { ...base, estado: params.estado };
-  if (params.estado === "RECHAZADO") {
-    next.rechazoMotivo = params.motivo?.trim() || "Sin motivo especificado";
-    next.rechazadoEnIso = new Date().toISOString();
-  } else {
-    delete next.rechazoMotivo;
-    delete next.rechazadoEnIso;
-  }
+  const next = aplicarCierrePedidoDomicilio(base, params.estado, params.motivo);
   await ref.set(
     Object.fromEntries(Object.entries({ ...next, puntoVentaNorm: normPv(pv) }).filter(([, v]) => v !== undefined)),
     { merge: true }

@@ -71,6 +71,51 @@ export async function domicilioCambiarEstado(payload: DomicilioCambioEstadoPaylo
   }
 }
 
+export async function domicilioCancelarCliente(params: {
+  puntoVenta: string;
+  pedidoId: string;
+  motivo?: string;
+}): Promise<DomicilioCambioEstadoResponse> {
+  const pv = params.puntoVenta.trim();
+  const pedidoId = params.pedidoId.trim();
+  if (!pv || !pedidoId) {
+    return { ok: false, message: "Datos incompletos para cancelar el pedido." };
+  }
+  try {
+    const res = await fetch("/api/pos_domicilios_cancelar_cliente", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ puntoVenta: pv, pedidoId, motivo: params.motivo }),
+    });
+    const json = await parseJsonSafe(res);
+    const ok =
+      res.ok &&
+      Boolean(!(json && typeof json === "object" && "ok" in json) || (json as { ok?: boolean }).ok !== false);
+    if (!ok) {
+      const msg =
+        json && typeof json === "object" && typeof (json as { message?: unknown }).message === "string"
+          ? (json as { message: string }).message
+          : "No se pudo cancelar el pedido.";
+      return { ok: false, message: msg };
+    }
+    const pedido =
+      json && typeof json === "object" && "pedido" in json
+        ? ((json as { pedido?: PedidoDomicilio }).pedido ?? undefined)
+        : undefined;
+    if (pedido) moverEstadoPedidoDomicilioLocal(pv, pedido.id, pedido.estado, params.motivo);
+    return {
+      ok: true,
+      pedido,
+      message:
+        json && typeof json === "object" && typeof (json as { message?: unknown }).message === "string"
+          ? (json as { message: string }).message
+          : "Pedido cancelado.",
+    };
+  } catch {
+    return { ok: false, message: "No fue posible cancelar el pedido. Revisá tu conexión." };
+  }
+}
+
 export async function domicilioCrear(payload: DomicilioCrearPayload): Promise<DomicilioCrearResponse> {
   const pv = payload.puntoVenta.trim();
   if (!pv) return { ok: false, message: "Punto de venta requerido." };

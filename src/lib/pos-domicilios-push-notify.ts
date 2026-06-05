@@ -37,6 +37,8 @@ function cuerpoNotificacionEstado(estado: EstadoDomicilio): string {
       return "¡Pedido entregado! Gracias por elegirnos.";
     case "RECHAZADO":
       return "Tu pedido no pudo continuar. Revisá el detalle en la app.";
+    case "CANCELADO":
+      return "Cancelaste tu pedido. Si necesitás algo más, podés hacer uno nuevo.";
     default:
       return "Hay una novedad con tu pedido.";
   }

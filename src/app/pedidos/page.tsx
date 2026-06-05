@@ -16,7 +16,9 @@ import {
   type HorarioSemanalDomicilios,
 } from "@/lib/pos-domicilios-horario-semanal";
 import { comprimirComprobanteTransferenciaParaChat } from "@/lib/pos-domicilios-chat-imagen";
+import { domicilioCancelarCliente } from "@/lib/pos-domicilios-api";
 import { enviarMensajeChatDomicilio, listarMensajesChatDomicilio } from "@/lib/pos-domicilios-chat-api";
+import { pedidoPuedeCancelarsePorCliente } from "@/types/pos-domicilios";
 import { LOGO_ORG_URL } from "@/lib/brand";
 import MediosTransferenciaClienteModal from "@/components/MediosTransferenciaClienteModal";
 import PuntoCerradoPremiumView from "@/components/PuntoCerradoPremiumView";
@@ -65,7 +67,8 @@ type EstadoPedidoDomicilio =
   | "LISTO_PARA_DESPACHO"
   | "EN_ENTREGA"
   | "ENTREGADO"
-  | "RECHAZADO";
+  | "RECHAZADO"
+  | "CANCELADO";
 
 function formatoMoneda(valor: number): string {
   return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(
@@ -97,15 +100,6 @@ function textoNormalizado(v: string): string {
 const ETIQUETA_CATEGORIA_BEBIDAS = "Bebidas";
 const ETIQUETA_CATEGORIA_COMPLEMENTOS = "Complementos";
 
-type GrupoCatalogoColapsableDef = {
-  id: string;
-  etiqueta: string;
-  matcher: (p: ProductoPOS) => boolean;
-  bordeClass: string;
-  fondoClass: string;
-  acentoClass: string;
-};
-
 function canonizarEtiquetaCategoria(c: string): string {
   const raw = c.trim();
   if (!raw) return "";
@@ -129,31 +123,17 @@ function productoEsBebidas(p: ProductoPOS): boolean {
   return /gaseosa|limonada|jugo|bebida|agua|soda|malteada/.test(t);
 }
 
-function productoEsComplemento(p: ProductoPOS): boolean {
-  if (productoEsBebidas(p)) return false;
-  const cat = categoriaProducto(p);
-  if (cat === ETIQUETA_CATEGORIA_COMPLEMENTOS) return true;
-  const t = textoNormalizado(`${p.descripcion} ${p.categoria ?? ""}`);
-  return /arepa|papa|salsa|chimichurri|aji|ajo|ensalada|extra|postre|acompañamiento|acompanamiento/.test(t);
+function productoEsComboCatalogo(p: ProductoPOS): boolean {
+  return /combo/.test(textoNormalizado(`${p.descripcion} ${p.categoria ?? ""}`));
 }
 
-/** Solo bebidas van en lista compacta colapsable; complementos usan tarjetas con foto. */
-const GRUPOS_CATALOGO_COLAPSABLE: GrupoCatalogoColapsableDef[] = [
-  {
-    id: "bebidas",
-    etiqueta: ETIQUETA_CATEGORIA_BEBIDAS,
-    matcher: (p) => productoEsBebidas(p),
-    bordeClass: "border-sky-200",
-    fondoClass: "from-sky-50 to-cyan-50",
-    acentoClass: "text-cyan-700",
-  },
-];
+function productoEsPaqueteCatalogo(p: ProductoPOS): boolean {
+  return /paquete/.test(textoNormalizado(`${p.descripcion} ${p.categoria ?? ""}`));
+}
 
-function matcherGrupoColapsableProducto(p: ProductoPOS): GrupoCatalogoColapsableDef | null {
-  for (const g of GRUPOS_CATALOGO_COLAPSABLE) {
-    if (g.matcher(p)) return g;
-  }
-  return null;
+/** Solo combos, paquetes y bebidas en el menú de domicilios para el cliente. */
+function productoVisibleEnCatalogoDomicilios(p: ProductoPOS): boolean {
+  return productoEsComboCatalogo(p) || productoEsPaqueteCatalogo(p) || productoEsBebidas(p);
 }
 
 function primeraImagenProducto(p: ProductoPOS): string | null {
@@ -230,6 +210,7 @@ function estadoEtiqueta(estado: EstadoPedidoDomicilio | null): string {
   if (estado === "LISTO_PARA_DESPACHO") return "Listo para despacho";
   if (estado === "EN_ENTREGA") return "En camino";
   if (estado === "ENTREGADO") return "Entregado";
+  if (estado === "CANCELADO") return "Cancelado";
   return "Rechazado";
 }
 
@@ -246,6 +227,7 @@ function estadoPaso(estado: EstadoPedidoDomicilio | null): number {
 function rangoEtaEstado(estado: EstadoPedidoDomicilio | null, minutosTranscurridos: number): string {
   if (estado === "ENTREGADO") return "Pedido entregado";
   if (estado === "RECHAZADO") return "Pedido rechazado";
+  if (estado === "CANCELADO") return "Pedido cancelado";
   const objetivoBase =
     estado === "NUEVO"
       ? 42
@@ -319,6 +301,15 @@ function textoMotivacionCambioEstado(
         subtitulo: rechazoMotivo?.trim()
           ? `Motivo: ${rechazoMotivo.trim()}`
           : "Si tenés dudas, escribinos por el chat.",
+        variante: "rechazo",
+        confeti: false,
+      };
+    case "CANCELADO":
+      return {
+        titulo: "Pedido cancelado",
+        subtitulo: rechazoMotivo?.trim()
+          ? rechazoMotivo.trim()
+          : "Cancelaste tu pedido. Podés armar uno nuevo cuando quieras.",
         variante: "rechazo",
         confeti: false,
       };
@@ -448,21 +439,6 @@ function sugerenciaScore(
   return s;
 }
 
-function esBebidaProducto(p: ProductoPOS): boolean {
-  const t = textoNormalizado(`${p.descripcion} ${p.categoria ?? ""}`);
-  return /gaseosa|limonada|jugo|bebida|agua|soda|malteada/.test(t);
-}
-
-function esPrincipalProducto(p: ProductoPOS): boolean {
-  const t = textoNormalizado(`${p.descripcion} ${p.categoria ?? ""}`);
-  return /chorizo|choripan|combo|parrilla|paquete/.test(t);
-}
-
-function esComplementoProducto(p: ProductoPOS): boolean {
-  const t = textoNormalizado(`${p.descripcion} ${p.categoria ?? ""}`);
-  return /arepa|papa|salsa|chimichurri|aji|ajo|ensalada/.test(t);
-}
-
 function porcentajeProgresoDomicilioGratis(subtotal: number, metaGratisCop: number): number {
   const meta = metaGratisCop > 0 ? metaGratisCop : DEFAULT_UMBRAL_GRATIS_COP;
   if (subtotal <= 0) return 0;
@@ -497,10 +473,7 @@ function PedidosLandingClient() {
   const [estadoPedidoLoading, setEstadoPedidoLoading] = useState(false);
   const [ahoraMs, setAhoraMs] = useState(Date.now());
   const [busqueda, setBusqueda] = useState("");
-  const [categoriaActiva, setCategoriaActiva] = useState("Todo");
-  const [desplegablesCatalogo, setDesplegablesCatalogo] = useState<Record<string, boolean>>({});
   const [chatVista, setChatVista] = useState<"cerrado" | "minimizado" | "expandido">("cerrado");
-  const [chatEstadoVisible, setChatEstadoVisible] = useState(false);
   const [chatMensajes, setChatMensajes] = useState<MensajeChatDomicilio[]>([]);
   const [chatTexto, setChatTexto] = useState("");
   const [chatCargando, setChatCargando] = useState(false);
@@ -522,7 +495,12 @@ function PedidosLandingClient() {
   const [modalPushPedidoAbierto, setModalPushPedidoAbierto] = useState(false);
   const [carritoModalAbierto, setCarritoModalAbierto] = useState(false);
   const [modalConfirmarSoloRecogida, setModalConfirmarSoloRecogida] = useState(false);
+  const [modalCancelarPedidoAbierto, setModalCancelarPedidoAbierto] = useState(false);
+  const [motivoCancelacionPedido, setMotivoCancelacionPedido] = useState("");
+  const [cancelandoPedido, setCancelandoPedido] = useState(false);
+  const [mensajeCancelacionPedido, setMensajeCancelacionPedido] = useState<string | null>(null);
   const [chatMensajesNoLeidos, setChatMensajesNoLeidos] = useState(0);
+  const [chatResumenColapsado, setChatResumenColapsado] = useState(false);
   const [pedidoResumenChat, setPedidoResumenChat] = useState<ResumenPedidoChatCliente | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const ultimoMensajePosIdRef = useRef<string | null>(null);
@@ -555,7 +533,12 @@ function PedidosLandingClient() {
   const pedidoEnCurso = useMemo(() => {
     if (!pedidoCreadoId) return false;
     if (!estadoPedido) return true;
-    return estadoPedido !== "ENTREGADO" && estadoPedido !== "RECHAZADO";
+    return estadoPedido !== "ENTREGADO" && estadoPedido !== "RECHAZADO" && estadoPedido !== "CANCELADO";
+  }, [pedidoCreadoId, estadoPedido]);
+
+  const puedeCancelarPedido = useMemo(() => {
+    if (!pedidoCreadoId || !estadoPedido) return false;
+    return pedidoPuedeCancelarsePorCliente(estadoPedido);
   }, [pedidoCreadoId, estadoPedido]);
 
   const vapidPublicPedidos = useMemo(() => process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.trim() ?? "", []);
@@ -790,65 +773,29 @@ function PedidosLandingClient() {
     });
   }, [catalogo]);
 
-  const categorias = useMemo(() => {
-    const set = new Set<string>();
-    for (const p of catalogo) set.add(categoriaProducto(p));
-    return ["Todo", ...Array.from(set).sort((a, b) => a.localeCompare(b, "es"))];
-  }, [catalogo]);
+  const catalogoVisible = useMemo(
+    () => catalogo.filter((p) => productoVisibleEnCatalogoDomicilios(p)),
+    [catalogo]
+  );
 
   const productosFiltrados = useMemo(() => {
     const q = textoNormalizado(busqueda);
-    return catalogo.filter((p) => {
-      const cat = categoriaProducto(p);
-      const okCat = categoriaActiva === "Todo" || cat === categoriaActiva;
-      if (!okCat) return false;
+    return catalogoVisible.filter((p) => {
       if (!q) return true;
-      const texto = textoNormalizado(`${p.descripcion} ${cat} ${p.sku}`);
+      const texto = textoNormalizado(`${p.descripcion} ${p.categoria ?? ""} ${p.sku}`);
       return texto.includes(q);
     });
-  }, [catalogo, busqueda, categoriaActiva]);
+  }, [catalogoVisible, busqueda]);
 
-  const { productosGrid, productosComplementos, gruposColapsables } = useMemo(() => {
-    const grid: ProductoPOS[] = [];
-    const complementos: ProductoPOS[] = [];
-    const buckets = new Map<string, ProductoPOS[]>(
-      GRUPOS_CATALOGO_COLAPSABLE.map((g) => [g.id, [] as ProductoPOS[]])
-    );
-    const vistaTodo = categoriaActiva === "Todo";
+  const { productosCombosPaquetes, productosBebidas } = useMemo(() => {
+    const combosPaquetes: ProductoPOS[] = [];
+    const bebidas: ProductoPOS[] = [];
     for (const p of productosFiltrados) {
-      const grupo = matcherGrupoColapsableProducto(p);
-      if (grupo) buckets.get(grupo.id)!.push(p);
-      else if (productoEsComplemento(p) && vistaTodo) complementos.push(p);
-      else grid.push(p);
+      if (productoEsBebidas(p)) bebidas.push(p);
+      else combosPaquetes.push(p);
     }
-    const grupos = GRUPOS_CATALOGO_COLAPSABLE.map((def) => ({
-      ...def,
-      productos: buckets.get(def.id) ?? [],
-    })).filter((g) => g.productos.length > 0);
-    return { productosGrid: grid, productosComplementos: complementos, gruposColapsables: grupos };
-  }, [productosFiltrados, categoriaActiva]);
-
-  const totalProductosColapsables = useMemo(
-    () => gruposColapsables.reduce((acc, g) => acc + g.productos.length, 0),
-    [gruposColapsables]
-  );
-
-  const abrirDesplegableCatalogo = useCallback((id: string) => {
-    setDesplegablesCatalogo((prev) => ({ ...prev, [id]: true }));
-  }, []);
-
-  useEffect(() => {
-    const grupo = GRUPOS_CATALOGO_COLAPSABLE.find((g) => g.etiqueta === categoriaActiva);
-    if (grupo) abrirDesplegableCatalogo(grupo.id);
-  }, [categoriaActiva, abrirDesplegableCatalogo]);
-
-  useEffect(() => {
-    const q = textoNormalizado(busqueda);
-    if (!q) return;
-    for (const g of gruposColapsables) {
-      if (g.productos.length > 0) abrirDesplegableCatalogo(g.id);
-    }
-  }, [busqueda, gruposColapsables, abrirDesplegableCatalogo]);
+    return { productosCombosPaquetes: combosPaquetes, productosBebidas: bebidas };
+  }, [productosFiltrados]);
 
   const itemsCarrito = useMemo<CarritoLinea[]>(() => {
     const porSku = new Map(catalogo.map((p) => [p.sku, p]));
@@ -909,25 +856,23 @@ function PedidosLandingClient() {
   const recomendaciones = useMemo(() => {
     const carritoSkus = new Set(itemsCarrito.map((x) => x.p.sku));
     const categoriasCarrito = new Set(itemsCarrito.map((x) => categoriaProducto(x.p)));
-    return catalogo
+    return catalogoVisible
       .filter((p) => Number.isFinite(p.precioUnitario) && p.precioUnitario > 0)
       .map((p) => ({ p, score: sugerenciaScore(p, carritoSkus, categoriasCarrito) }))
       .filter((x) => x.score > -999)
       .sort((a, b) => b.score - a.score || a.p.precioUnitario - b.p.precioUnitario)
       .slice(0, 4)
       .map((x) => x.p);
-  }, [catalogo, itemsCarrito]);
+  }, [catalogoVisible, itemsCarrito]);
 
   const combosSugeridos = useMemo(() => {
     const carritoSkus = new Set(itemsCarrito.map((x) => x.p.sku));
-    const principales = catalogo.filter((p) => esPrincipalProducto(p) && !carritoSkus.has(p.sku));
-    const bebidas = catalogo.filter((p) => esBebidaProducto(p) && !carritoSkus.has(p.sku));
-    const complementos = catalogo.filter((p) => esComplementoProducto(p) && !carritoSkus.has(p.sku));
-
-    const principal = principales[0] ?? null;
+    const packs = catalogoVisible.filter(
+      (p) => (productoEsComboCatalogo(p) || productoEsPaqueteCatalogo(p)) && !carritoSkus.has(p.sku)
+    );
+    const bebidas = catalogoVisible.filter((p) => productoEsBebidas(p) && !carritoSkus.has(p.sku));
+    const pack = packs[0] ?? null;
     const bebida = bebidas[0] ?? null;
-    const complemento = complementos[0] ?? null;
-
     const out: Array<{
       id: string;
       titulo: string;
@@ -935,36 +880,17 @@ function PedidosLandingClient() {
       skus: string[];
       ahorro: number;
     }> = [];
-
-    if (principal && bebida) {
+    if (pack && bebida) {
       out.push({
-        id: "combo-principal-bebida",
+        id: "combo-pack-bebida",
         titulo: "Combo recomendado",
-        descripcion: `${principal.descripcion} + ${bebida.descripcion}`,
-        skus: [principal.sku, bebida.sku],
+        descripcion: `${pack.descripcion} + ${bebida.descripcion}`,
+        skus: [pack.sku, bebida.sku],
         ahorro: 2000,
       });
     }
-    if (principal && complemento) {
-      out.push({
-        id: "combo-principal-complemento",
-        titulo: "Combo antojo",
-        descripcion: `${principal.descripcion} + ${complemento.descripcion}`,
-        skus: [principal.sku, complemento.sku],
-        ahorro: 1500,
-      });
-    }
-    if (bebida && complemento) {
-      out.push({
-        id: "combo-extra",
-        titulo: "Extra ideal",
-        descripcion: `${bebida.descripcion} + ${complemento.descripcion}`,
-        skus: [bebida.sku, complemento.sku],
-        ahorro: 1000,
-      });
-    }
-    return out.slice(0, 2);
-  }, [catalogo, itemsCarrito]);
+    return out;
+  }, [catalogoVisible, itemsCarrito]);
 
   const subirCantidad = (sku: string, varianteKey: string | null = null) => {
     const lineKey = keyLineaPedido(sku, varianteKey);
@@ -1163,7 +1089,7 @@ function PedidosLandingClient() {
       setRechazoMotivoPedido(null);
       setEtiquetaClienteChat("");
       setPedidoResumenChat(null);
-      setChatEstadoVisible(false);
+      setChatResumenColapsado(false);
       setChatVista("cerrado");
       estadoPedidoAnteriorRef.current = null;
       ultimoMensajePosIdRef.current = null;
@@ -1243,6 +1169,31 @@ function PedidosLandingClient() {
     };
   }, [pedidoCreadoId]);
 
+  const cancelarPedidoCliente = useCallback(async () => {
+    if (!pedidoCreadoId || cancelandoPedido) return;
+    setCancelandoPedido(true);
+    setMensajeCancelacionPedido(null);
+    const motivo = motivoCancelacionPedido.trim() || undefined;
+    const res = await domicilioCancelarCliente({
+      puntoVenta,
+      pedidoId: pedidoCreadoId,
+      motivo,
+    });
+    setCancelandoPedido(false);
+    if (!res.ok || !res.pedido) {
+      setMensajeCancelacionPedido(res.message ?? "No fue posible cancelar el pedido.");
+      return;
+    }
+    setEstadoPedido("CANCELADO");
+    setRechazoMotivoPedido(res.pedido.rechazoMotivo ?? motivo ?? "Cancelado por el cliente");
+    setModalCancelarPedidoAbierto(false);
+    setMotivoCancelacionPedido("");
+    setMensajeCancelacionPedido(null);
+    setChatVista("expandido");
+    const refresh = await listarMensajesChatDomicilio(puntoVenta, pedidoCreadoId);
+    if (refresh.ok) setChatMensajes(refresh.data);
+  }, [pedidoCreadoId, cancelandoPedido, motivoCancelacionPedido, puntoVenta]);
+
   const refrescarEstadoPedidoConSpinner = useCallback(async () => {
     const pid = pedidoCreadoId;
     if (!pid) return;
@@ -1263,17 +1214,6 @@ function PedidosLandingClient() {
       setEstadoPedidoLoading(false);
     }
   }, [pedidoCreadoId, puntoVenta]);
-
-  const toggleEstadoPedidoEnChat = useCallback(() => {
-    if (!pedidoCreadoId) return;
-    if (chatEstadoVisible) {
-      setChatEstadoVisible(false);
-      return;
-    }
-    setChatEstadoVisible(true);
-    setAhoraMs(Date.now());
-    void refrescarEstadoPedidoConSpinner();
-  }, [pedidoCreadoId, chatEstadoVisible, refrescarEstadoPedidoConSpinner]);
 
   useEffect(() => {
     if (!pedidoCreadoId) return;
@@ -1338,10 +1278,22 @@ function PedidosLandingClient() {
     };
   }, [estadoPedido, pedidoCreadoId, rechazoMotivoPedido]);
 
+  const scrollChatAlFinal = useCallback((suave = true) => {
+    const el = chatScrollRef.current;
+    if (!el) return;
+    window.requestAnimationFrame(() => {
+      el.scrollTo({ top: el.scrollHeight, behavior: suave ? "smooth" : "auto" });
+    });
+  }, []);
+
   useEffect(() => {
     if (chatVista !== "expandido") return;
-    chatScrollRef.current?.scrollTo({ top: chatScrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [chatMensajes, chatVista]);
+    scrollChatAlFinal(true);
+  }, [chatMensajes, chatVista, scrollChatAlFinal]);
+
+  useEffect(() => {
+    if (chatMensajes.length > 0) setChatResumenColapsado(true);
+  }, [chatMensajes.length]);
 
   const enviarMensajeCliente = async () => {
     if (!pedidoCreadoId || chatEnviando) return;
@@ -1675,74 +1627,6 @@ function PedidosLandingClient() {
     );
   };
 
-  const renderListaCompactaCatalogo = (productos: ProductoPOS[], keyPrefix: string) => (
-    <ul className="mt-3 max-h-[min(60vh,520px)] space-y-2 overflow-y-auto rounded-2xl border border-gray-200 bg-white p-2 shadow-inner">
-      {productos.map((prod) => {
-        const variantes = opcionesVariantesProducto(prod);
-        const varianteActivaKey = varianteSeleccionadaPorSku[prod.sku] ?? (variantes[0]?.key ?? null);
-        const varianteActiva = varianteActivaKey ? variantes.find((v) => v.key === varianteActivaKey) : null;
-        const precioMostrar = varianteActiva?.precio ?? prod.precioUnitario;
-        const lineKey = keyLineaPedido(prod.sku, varianteActivaKey);
-        const cant = cantidades[lineKey] ?? 0;
-        return (
-          <li key={prod.sku} className="rounded-xl border border-gray-100 bg-gray-50/80 px-3 py-2.5">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-gray-900">{prod.descripcion}</p>
-                <p className="mt-0.5 text-sm font-bold text-cyan-700">{formatoMoneda(precioMostrar)}</p>
-                {variantes.length > 1 ? (
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {variantes.map((v) => {
-                      const activo = v.key === varianteActivaKey;
-                      return (
-                        <button
-                          key={`${keyPrefix}-${prod.sku}-var-${v.key}`}
-                          type="button"
-                          onClick={() =>
-                            setVarianteSeleccionadaPorSku((prev) => ({
-                              ...prev,
-                              [prod.sku]: v.key,
-                            }))
-                          }
-                          className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
-                            activo
-                              ? "border-cyan-500 bg-cyan-600 text-white"
-                              : "border-gray-300 bg-white text-gray-700"
-                          }`}
-                        >
-                          {v.label}
-                        </button>
-                      );
-                    })}
-                  </div>
-                ) : null}
-              </div>
-              <div className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-gray-200 bg-white px-1 py-0.5">
-                <button
-                  type="button"
-                  aria-label="Quitar una"
-                  onClick={() => bajarCantidad(prod.sku, varianteActivaKey)}
-                  className="flex h-7 w-7 items-center justify-center rounded-md border border-gray-200 text-sm font-bold text-gray-700"
-                >
-                  -
-                </button>
-                <span className="min-w-[1.25rem] text-center text-sm font-bold">{cant}</span>
-                <button
-                  type="button"
-                  aria-label="Agregar una"
-                  onClick={() => subirCantidad(prod.sku, varianteActivaKey)}
-                  className="flex h-7 w-7 items-center justify-center rounded-md bg-cyan-700 text-sm font-bold text-white"
-                >
-                  +
-                </button>
-              </div>
-            </div>
-          </li>
-        );
-      })}
-    </ul>
-  );
-
   const renderResumenModoEntregaCheckout = () => (
     <div className="mt-3 rounded-xl border border-cyan-200 bg-cyan-50/60 px-3 py-2.5">
       <div className="flex items-start justify-between gap-2">
@@ -1829,6 +1713,28 @@ function PedidosLandingClient() {
           <p className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold leading-snug text-rose-900">
             Motivo: {rechazoMotivoPedido}
           </p>
+        ) : null}
+        {estadoPedido === "CANCELADO" ? (
+          <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold leading-snug text-amber-950">
+            {rechazoMotivoPedido?.trim() || "Cancelaste este pedido."}
+          </p>
+        ) : null}
+        {puedeCancelarPedido ? (
+          <div className="mt-4 border-t border-cyan-200/80 pt-4">
+            <button
+              type="button"
+              onClick={() => {
+                setMensajeCancelacionPedido(null);
+                setModalCancelarPedidoAbierto(true);
+              }}
+              className="w-full rounded-xl border border-rose-300 bg-white px-3 py-2.5 text-sm font-bold text-rose-800 shadow-sm transition hover:bg-rose-50 active:scale-[0.99]"
+            >
+              Cancelar mi pedido
+            </button>
+            <p className="mt-1.5 text-center text-[10px] text-slate-500">
+              Podés cancelar mientras el pedido no haya salido a entrega.
+            </p>
+          </div>
         ) : null}
         <p className="mt-3 text-[11px] text-slate-500">
           El estado se actualiza automáticamente cada pocos segundos. También podés usar el chat con el punto.
@@ -2024,36 +1930,16 @@ function PedidosLandingClient() {
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Paso 2</p>
                   <h2 className="text-lg font-bold text-gray-900">Catalogo de productos</h2>
-                  <p className="text-sm text-gray-500">Explora como en una app: busca, filtra y agrega al instante.</p>
+                  <p className="text-sm text-gray-500">Combos, paquetes y bebidas. Buscá y agregá al instante.</p>
                 </div>
                 <div className="w-full md:w-80">
                   <input
                     value={busqueda}
                     onChange={(e) => setBusqueda(e.target.value)}
-                    placeholder="Buscar producto..."
+                    placeholder="Buscar combo, paquete o bebida..."
                     className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 transition focus:border-cyan-500 focus:ring-2"
                   />
                 </div>
-              </div>
-              <div className="-mx-1 mt-3 flex snap-x gap-2 overflow-auto px-1 pb-1">
-                {categorias.map((cat) => (
-                  <button
-                    key={cat}
-                    type="button"
-                    onClick={() => {
-                      setCategoriaActiva(cat);
-                      const grupo = GRUPOS_CATALOGO_COLAPSABLE.find((g) => g.etiqueta === cat);
-                      if (grupo) abrirDesplegableCatalogo(grupo.id);
-                    }}
-                    className={`snap-start whitespace-nowrap rounded-full border px-3 py-1.5 text-xs font-semibold transition ${
-                      categoriaActiva === cat
-                        ? "border-cyan-500 bg-cyan-600 text-white"
-                        : "border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
-                    }`}
-                  >
-                    {cat}
-                  </button>
-                ))}
               </div>
             </div>
             {loadingCatalogo ? (
@@ -2079,67 +1965,30 @@ function PedidosLandingClient() {
                 {errorCatalogo}
               </div>
             ) : (
-              <div className="space-y-3">
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {productosGrid.map((prod, idx) => renderTarjetaProductoCatalogo(prod, idx))}
-                {productosGrid.length === 0 &&
-                productosComplementos.length === 0 &&
-                totalProductosColapsables === 0 ? (
-                  <article className="rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500 sm:col-span-2 xl:col-span-3">
-                    No encontramos productos con ese filtro. Prueba otra busqueda o categoria.
+              <div className="space-y-6">
+                {productosCombosPaquetes.length > 0 ? (
+                  <div className="space-y-3">
+                    <h3 className="px-1 text-sm font-bold text-gray-900">Combos y paquetes</h3>
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      {productosCombosPaquetes.map((prod, idx) => renderTarjetaProductoCatalogo(prod, idx))}
+                    </div>
+                  </div>
+                ) : null}
+                {productosBebidas.length > 0 ? (
+                  <div className="space-y-3">
+                    <h3 className="px-1 text-sm font-bold text-gray-900">Bebidas</h3>
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      {productosBebidas.map((prod, idx) =>
+                        renderTarjetaProductoCatalogo(prod, productosCombosPaquetes.length + idx)
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+                {productosCombosPaquetes.length === 0 && productosBebidas.length === 0 ? (
+                  <article className="rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500">
+                    No encontramos combos, paquetes ni bebidas con esa búsqueda.
                   </article>
                 ) : null}
-              </div>
-              {productosComplementos.length > 0 ? (
-                <div className="space-y-3">
-                  <p className="px-1 text-sm font-bold text-gray-900">{ETIQUETA_CATEGORIA_COMPLEMENTOS}</p>
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                    {productosComplementos.map((prod, idx) =>
-                      renderTarjetaProductoCatalogo(prod, productosGrid.length + idx)
-                    )}
-                  </div>
-                </div>
-              ) : null}
-              {gruposColapsables.map((grupo) => {
-                if (grupo.productos.length === 0) return null;
-                const vistaSoloGrupo = categoriaActiva === grupo.etiqueta;
-                const abierto = desplegablesCatalogo[grupo.id] ?? false;
-                return (
-                  <div key={grupo.id}>
-                    {!vistaSoloGrupo ? (
-                      <button
-                        type="button"
-                        aria-expanded={abierto}
-                        onClick={() =>
-                          setDesplegablesCatalogo((prev) => ({ ...prev, [grupo.id]: !prev[grupo.id] }))
-                        }
-                        className={`flex w-full items-center justify-between gap-3 rounded-2xl border bg-gradient-to-r px-4 py-3.5 text-left shadow-sm transition hover:shadow-md ${grupo.bordeClass} ${grupo.fondoClass}`}
-                      >
-                        <div>
-                          <p className="text-sm font-bold text-gray-900">{grupo.etiqueta}</p>
-                          <p className="text-xs text-gray-600">
-                            {grupo.productos.length} opciones · tocá para ver y agregar
-                          </p>
-                        </div>
-                        <svg
-                          className={`h-5 w-5 shrink-0 transition-transform ${grupo.acentoClass} ${abierto ? "rotate-180" : ""}`}
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          aria-hidden
-                        >
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
-                      </button>
-                    ) : (
-                      <p className="px-1 text-sm font-bold text-gray-900">{grupo.etiqueta}</p>
-                    )}
-                    {abierto || vistaSoloGrupo
-                      ? renderListaCompactaCatalogo(grupo.productos, grupo.id)
-                      : null}
-                  </div>
-                );
-              })}
               </div>
             )}
           </section>
@@ -2499,6 +2348,54 @@ function PedidosLandingClient() {
           </div>
         </div>
       ) : null}
+      {modalCancelarPedidoAbierto && pedidoCreadoId ? (
+        <div className="fixed inset-0 z-[116] flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label="Cerrar cancelación"
+            className="absolute inset-0 bg-slate-950/65 backdrop-blur-[2px]"
+            onClick={() => !cancelandoPedido && setModalCancelarPedidoAbierto(false)}
+          />
+          <div className="relative z-10 w-full max-w-md overflow-hidden rounded-3xl border-2 border-rose-200 bg-white p-5 shadow-2xl sm:p-6">
+            <h2 className="text-center text-xl font-black text-rose-950">¿Cancelar tu pedido?</h2>
+            <p className="mt-2 text-center text-sm leading-relaxed text-slate-600">
+              El punto de venta verá la cancelación al instante. Esta acción no se puede deshacer desde aquí.
+            </p>
+            <label className="mt-4 block">
+              <span className="text-xs font-semibold text-slate-700">Motivo (opcional)</span>
+              <textarea
+                value={motivoCancelacionPedido}
+                onChange={(e) => setMotivoCancelacionPedido(e.target.value)}
+                rows={2}
+                placeholder="Ej.: cambié de opinión, pedí por error..."
+                disabled={cancelandoPedido}
+                className="mt-1 w-full resize-y rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none ring-rose-200 focus:border-rose-400 focus:ring-2 disabled:opacity-60"
+              />
+            </label>
+            {mensajeCancelacionPedido ? (
+              <p className="mt-2 text-center text-xs font-medium text-rose-700">{mensajeCancelacionPedido}</p>
+            ) : null}
+            <div className="mt-5 space-y-2">
+              <button
+                type="button"
+                onClick={() => void cancelarPedidoCliente()}
+                disabled={cancelandoPedido}
+                className="w-full rounded-xl bg-rose-700 px-4 py-3 text-sm font-black text-white shadow-lg transition hover:bg-rose-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {cancelandoPedido ? "Cancelando..." : "Sí, cancelar pedido"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalCancelarPedidoAbierto(false)}
+                disabled={cancelandoPedido}
+                className="w-full rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+              >
+                Seguir con mi pedido
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       {modalConfirmarSoloRecogida ? (
         <div className="fixed inset-0 z-[115] flex items-center justify-center p-4">
           <button
@@ -2608,84 +2505,29 @@ function PedidosLandingClient() {
                 </button>
               </div>
             </header>
-            {pedidoCreadoId ? (
-              <div className="shrink-0 border-b border-cyan-100 bg-gradient-to-b from-cyan-50 to-white px-3 py-1.5">
+            {pedidoResumenChat && pedidoCreadoId ? (
+              <div className="shrink-0 border-b border-emerald-200/80 bg-emerald-50/60 px-3 py-2">
                 <button
                   type="button"
-                  onClick={toggleEstadoPedidoEnChat}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg border border-cyan-300 bg-white px-2 py-2 text-[11px] font-bold text-cyan-900 shadow-sm transition hover:border-cyan-500 hover:bg-cyan-50/80 active:scale-[0.99]"
+                  onClick={() => setChatResumenColapsado((v) => !v)}
+                  className="flex w-full items-center justify-between gap-2 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-left text-[11px] font-bold text-emerald-900 shadow-sm transition hover:bg-emerald-50"
                 >
-                  <svg className="h-5 w-5 shrink-0 text-cyan-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden>
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
+                  <span>
+                    Resumen del pedido · {formatoMoneda(pedidoResumenChat.total)}
+                  </span>
+                  <svg
+                    className={`h-4 w-4 shrink-0 transition-transform ${chatResumenColapsado ? "" : "rotate-180"}`}
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    aria-hidden
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
-                  {chatEstadoVisible ? "Ocultar estado del pedido" : "Ver estado del pedido"}
                 </button>
-                {chatEstadoVisible ? (
-                  <div className="mt-2 space-y-2 rounded-xl border border-cyan-200 bg-white p-3 text-xs text-cyan-950 shadow-inner">
-                    <div className="flex items-start justify-between gap-2">
-                      <div>
-                        <p className="text-[10px] font-bold uppercase tracking-wide text-cyan-600">Estado actual</p>
-                        <p className="mt-0.5 text-sm font-extrabold">
-                          {estadoPedidoLoading ? "Consultando..." : estadoEtiqueta(estadoPedido)}
-                        </p>
-                        <p className="mt-1 text-[11px] font-semibold text-cyan-800">ETA: {etaPedido}</p>
-                        {estadoPedido === "RECHAZADO" && rechazoMotivoPedido ? (
-                          <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] font-semibold leading-snug text-rose-900">
-                            Motivo: {rechazoMotivoPedido}
-                          </p>
-                        ) : null}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAhoraMs(Date.now());
-                          void refrescarEstadoPedidoConSpinner();
-                        }}
-                        disabled={estadoPedidoLoading}
-                        className="shrink-0 rounded-lg border border-cyan-200 bg-cyan-50 px-2 py-1 text-[10px] font-semibold text-cyan-900 hover:bg-cyan-100 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Actualizar
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-6 gap-0.5">
-                      {Array.from({ length: 6 }).map((_, idx) => {
-                        const paso = idx + 1;
-                        const activo = estadoPaso(estadoPedido) >= paso;
-                        return (
-                          <span
-                            key={`chat-estado-paso-${paso}`}
-                            className={`h-2 rounded-full transition ${activo ? "bg-cyan-600" : "bg-cyan-100"}`}
-                          />
-                        );
-                      })}
-                    </div>
-                    <p className="text-[10px] text-slate-500">
-                      El estado también se actualiza solo cada pocos segundos mientras tenés el pedido abierto.
-                    </p>
-                  </div>
-                ) : null}
-              </div>
-            ) : null}
-            {pedidoCreadoId && !pushPedidosExito ? (
-              <div className="shrink-0 border-b border-cyan-100 px-3 py-2">{bloqueActivarPushPedido}</div>
-            ) : null}
-            <div
-              ref={chatScrollRef}
-              className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[#e5ddd5] scroll-smooth"
-            >
-              {pedidoResumenChat && pedidoCreadoId ? (
-                <div className="sticky top-0 z-[1] border-b border-emerald-200/80 bg-gradient-to-b from-emerald-50 via-white to-[#e5ddd5] px-3 pb-3 pt-2.5 shadow-sm">
-                  <p className="text-center text-[10px] font-semibold uppercase tracking-wide text-emerald-800/80">
-                    Tu pedido · {pedidoCreadoId}
-                  </p>
-                  <div className="mt-2 rounded-xl border border-white/80 bg-white/95 p-2.5 shadow-sm">
-                    <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Resumen</p>
-                    <ul className="mt-1.5 space-y-0.5 text-[12px] leading-snug text-slate-800">
+                {!chatResumenColapsado ? (
+                  <div className="mt-2 space-y-2 rounded-xl border border-white/80 bg-white p-2.5 text-[11px] leading-relaxed text-slate-800 shadow-sm">
+                    <ul className="space-y-0.5">
                       {pedidoResumenChat.lineasItems.map((linea, i) => (
                         <li key={`resumen-item-${i}`} className="flex gap-1.5">
                           <span className="text-emerald-600" aria-hidden>
@@ -2695,60 +2537,30 @@ function PedidosLandingClient() {
                         </li>
                       ))}
                     </ul>
-                    <p className="mt-2 border-t border-slate-100 pt-2 text-[12px] font-bold text-slate-900">
-                      Total: {formatoMoneda(pedidoResumenChat.total)}
-                    </p>
-                    <p className="mt-0.5 text-[11px] text-slate-600">
+                    <p className="border-t border-slate-100 pt-2 font-bold text-slate-900">
                       Pago: {etiquetaMetodoPagoCliente(pedidoResumenChat.metodoPago)} ·{" "}
                       {pedidoResumenChat.tipoEntrega === "recogida" ? "Recogida en tienda" : "Envío a domicilio"}
                     </p>
-                    {pedidoResumenChat.tipoEntrega === "domicilio" ? (
-                      <p className="mt-1 text-[11px] text-slate-700">
-                        <span className="font-semibold text-slate-800">Dirección: </span>
-                        {pedidoResumenChat.direccion}
-                      </p>
-                    ) : (
-                      <p className="mt-1 text-[11px] text-slate-700">
-                        <span className="font-semibold text-slate-800">Recoger en: </span>
-                        {pedidoResumenChat.puntoVenta}
-                      </p>
-                    )}
-                    {pedidoResumenChat.referencia ? (
-                      <p className="mt-0.5 text-[11px] text-slate-600">
-                        <span className="font-semibold">Referencia: </span>
-                        {pedidoResumenChat.referencia}
+                    {pedidoResumenChat.metodoPago === "transferencia" ? (
+                      <p>
+                        Transferencia:{" "}
+                        <button
+                          type="button"
+                          onClick={() => setModalMediosTransferenciaCliente(true)}
+                          className="font-bold text-cyan-800 underline underline-offset-2 hover:text-cyan-950"
+                        >
+                          ver cuentas
+                        </button>
                       </p>
                     ) : null}
-                    <p className="mt-0.5 text-[10px] text-slate-500">Punto: {pedidoResumenChat.puntoVenta}</p>
                   </div>
-                  <div className="mt-2 rounded-xl border border-cyan-200/80 bg-cyan-50/90 p-2.5 text-[11px] leading-relaxed text-cyan-950">
-                    <p className="font-extrabold text-cyan-900">Instrucciones</p>
-                    <ul className="mt-1.5 list-disc space-y-1 pl-4 marker:text-cyan-600">
-                      <li>Este chat es tu canal con el punto de venta. Te escribirán para confirmar horario, total y entrega.</li>
-                      <li>Mantené este pedido abierto en el navegador para ver las respuestas al instante.</li>
-                      {pedidoResumenChat.metodoPago === "transferencia" ? (
-                        <li>
-                          Elegiste <strong>transferencia</strong>: usá los datos de la tienda para pagar. Podés abrir{" "}
-                          <button
-                            type="button"
-                            onClick={() => setModalMediosTransferenciaCliente(true)}
-                            className="font-bold text-cyan-800 underline underline-offset-2 hover:text-cyan-950"
-                          >
-                            cuentas para transferir
-                          </button>
-                          . Luego adjuntá el comprobante con el ícono de recibo o escribí banco y referencia en el chat.
-                        </li>
-                      ) : (
-                        <li>
-                          Pago en {etiquetaMetodoPagoCliente(pedidoResumenChat.metodoPago).toLowerCase()}: el repartidor o
-                          el punto te indicará cómo abonar al recibir o en la tienda.
-                        </li>
-                      )}
-                      <li>Si necesitás cambiar algo, escribí un mensaje abajo y el punto te responderá por aquí.</li>
-                    </ul>
-                  </div>
-                </div>
-              ) : null}
+                ) : null}
+              </div>
+            ) : null}
+            <div
+              ref={chatScrollRef}
+              className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-[#e5ddd5] scroll-smooth"
+            >
               <div className="space-y-2 px-3 py-2 pb-3">
                 {!pedidoCreadoId ? (
                   <p className="text-xs text-slate-600">Cuando confirmes el pedido, este chat quedará activo.</p>

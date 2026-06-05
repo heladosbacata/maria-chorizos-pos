@@ -15,6 +15,7 @@ const ESTADOS_VALIDOS: EstadoDomicilio[] = [
   "EN_ENTREGA",
   "ENTREGADO",
   "RECHAZADO",
+  "CANCELADO",
 ];
 
 function asBody(body: unknown): DomicilioCambioEstadoPayload {

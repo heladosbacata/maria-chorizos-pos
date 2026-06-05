@@ -84,9 +84,10 @@ export function moverEstadoPedidoDomicilioLocal(
   const idx = pedidos.findIndex((p) => p.id === id);
   if (idx < 0) return null;
   const next: PedidoDomicilio = { ...pedidos[idx], estado, puntoVenta: pv };
-  if (estado === "RECHAZADO") {
+  if (estado === "RECHAZADO" || estado === "CANCELADO") {
     const m = (motivo ?? "").trim();
-    next.rechazoMotivo = m || "Sin motivo especificado";
+    next.rechazoMotivo =
+      m || (estado === "CANCELADO" ? "Cancelado por el cliente" : "Sin motivo especificado");
     next.rechazadoEnIso = new Date().toISOString();
   } else {
     delete next.rechazoMotivo;

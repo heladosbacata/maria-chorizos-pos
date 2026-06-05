@@ -5,7 +5,20 @@ export type EstadoDomicilio =
   | "LISTO_PARA_DESPACHO"
   | "EN_ENTREGA"
   | "ENTREGADO"
-  | "RECHAZADO";
+  | "RECHAZADO"
+  | "CANCELADO";
+
+/** Estados en los que el cliente aún puede cancelar su pedido desde /pedidos. */
+export const ESTADOS_CANCELABLES_POR_CLIENTE: readonly EstadoDomicilio[] = [
+  "NUEVO",
+  "ACEPTADO",
+  "EN_PREPARACION",
+  "LISTO_PARA_DESPACHO",
+];
+
+export function pedidoPuedeCancelarsePorCliente(estado: EstadoDomicilio): boolean {
+  return (ESTADOS_CANCELABLES_POR_CLIENTE as readonly string[]).includes(estado);
+}
 
 export type MetodoPagoDomicilio = "efectivo" | "transferencia" | "datafono";
 export type CanalDomicilio = "web" | "whatsapp" | "qr";
