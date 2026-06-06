@@ -2,15 +2,18 @@ import type { ImpresionPosPrefs } from "@/types/impresion-pos";
 
 const STORAGE_KEY = "posGeb_impresion_prefs_v1";
 
+/** Rollo térmico estándar en puntos María Chorizos / GEB POS. */
+export const TAMANO_PAPEL_TERMINO_DEFAULT: ImpresionPosPrefs["tamanoPapel"] = "58mm";
+
 export const DEFAULT_IMPRESION_PREFS: ImpresionPosPrefs = {
   metodo: "directa",
   impresoraNombre: "",
-  tamanoPapel: "80mm",
+  tamanoPapel: TAMANO_PAPEL_TERMINO_DEFAULT,
   copias: 1,
-  margenSuperiorMm: 2,
+  margenSuperiorMm: 1,
   margenInferiorMm: 2,
-  margenIzquierdaMm: 2,
-  margenDerechaMm: 2,
+  margenIzquierdaMm: 1,
+  margenDerechaMm: 1,
   impresionSimpleSinLogo: true,
   imprimirAutomaticoAlCobrar: true,
 };
@@ -30,7 +33,7 @@ export function loadImpresionPrefs(): ImpresionPosPrefs {
       metodo: j.metodo === "navegador" ? "navegador" : "directa",
       impresoraNombre: typeof j.impresoraNombre === "string" ? j.impresoraNombre : "",
       tamanoPapel:
-        j.tamanoPapel === "58mm" || j.tamanoPapel === "A4" ? j.tamanoPapel : "80mm",
+        j.tamanoPapel === "80mm" || j.tamanoPapel === "A4" ? j.tamanoPapel : TAMANO_PAPEL_TERMINO_DEFAULT,
       copias: Math.min(9, Math.max(1, Math.trunc(num(j.copias, 1)))),
       margenSuperiorMm: Math.max(0, num(j.margenSuperiorMm, 2)),
       margenInferiorMm: Math.max(0, num(j.margenInferiorMm, 2)),

@@ -76,8 +76,9 @@ import {
 import { listarClientesPorPuntoVenta, nombreDisplayCliente } from "@/lib/clientes-pos-firestore";
 import { loadImpresionPrefs } from "@/lib/impresion-pos-storage";
 import {
-  imprimirTicketConQz,
-  imprimirTicketEnNavegador,
+  imprimirTicketVenta,
+  mostrarVentanaTicketCargando,
+  qzPrecalentarConexion,
   reservarVentanaTicketNavegador,
 } from "@/lib/pos-geb-print";
 import { fetchCatalogoInsumosDesdeSheet } from "@/lib/catalogo-insumos-sheet-client";
@@ -207,7 +208,7 @@ const LS_INFORME_TURNO_PARA = "pos_mc_informe_turno_para_v1";
 const ETIQUETA_ESPACIO_FRANQUICIADOS = "Espacio para franquiciados";
 const CLAVE_ACCESO_MAS = "MC2026";
 /** Tiempo mínimo visible del overlay de impresión al cobrar (experiencia pulida). */
-const MIN_COBRO_IMPRESION_OVERLAY_MS = 2600;
+const MIN_COBRO_IMPRESION_OVERLAY_MS = 800;
 /** Sincronización del acumulado del turno con el WMS (monitor / ventas por minuto). */
 const WMS_TURNO_SYNC_INTERVAL_MS = 45_000;
 
@@ -361,6 +362,13 @@ export default function CajaPageClient() {
       router.replace("/");
     }
   }, [loading, user, router]);
+
+  /** Conecta QZ al entrar a caja para que el primer ticket no espere el websocket. */
+  useEffect(() => {
+    if (!user || esContadorInvitado(user.role)) return;
+    if (loadImpresionPrefs().metodo !== "directa") return;
+    void qzPrecalentarConexion();
+  }, [user]);
 
   /** Reintenta ventas que quedaron fuera del WMS por red (cola local) y descuentos ensamble pendientes. */
   useEffect(() => {
@@ -1786,30 +1794,19 @@ export default function CajaPageClient() {
     r?.(aceptar);
   }, []);
 
-  const ejecutarImpresionPostCobro = useCallback(async (ticket: TicketVentaPayload) => {
-    const ticketImp =
-      typeof window !== "undefined"
-        ? await enriquecerTicketTirillaAlCobrar(ticket, window.location.origin)
-        : ticket;
+  const ejecutarImpresionPostCobro = useCallback(
+    async (
+      ticket: TicketVentaPayload,
+      opciones?: { ticketYaEnriquecido?: boolean; ventanaNavegadorReservada?: Window | null }
+    ) => {
     const prefs = loadImpresionPrefs();
     setCobroImpresionOverlayOpen(true);
-    await new Promise<void>((resolve) => {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => resolve());
-      });
-    });
     const overlayInicio = Date.now();
     try {
-      if (prefs.metodo === "directa") {
-        try {
-          await imprimirTicketConQz(prefs, ticketImp);
-        } catch (qzErr) {
-          console.warn("Ticket venta: QZ falló, intentando navegador.", qzErr);
-          imprimirTicketEnNavegador(ticketImp);
-        }
-      } else {
-        imprimirTicketEnNavegador(ticketImp);
-      }
+      await imprimirTicketVenta(prefs, ticket, {
+        ticketYaEnriquecido: opciones?.ticketYaEnriquecido ?? false,
+        ventanaNavegadorReservada: opciones?.ventanaNavegadorReservada ?? null,
+      });
     } catch (printErr) {
       console.error(printErr);
       window.alert(
@@ -1824,7 +1821,8 @@ export default function CajaPageClient() {
       }
       setCobroImpresionOverlayOpen(false);
     }
-  }, []);
+  },
+  []);
 
   const handleCancelarTransaccionVistaPrevia = useCallback(async () => {
     const pack = previsualizacionCobro;
@@ -4709,11 +4707,17 @@ export default function CajaPageClient() {
           const pack = previsualizacionCobro;
           if (!pack) return;
           setPrevisualizacionCobro(null);
+          const ventanaReservada = reservarVentanaTicketNavegador();
+          if (ventanaReservada) mostrarVentanaTicketCargando(ventanaReservada);
+          const ensamblePendiente = pack.ensamblePendiente;
           void (async () => {
-            if (pack.ensamblePendiente && pack.ensamblePendiente.lineas.length > 0) {
-              await ejecutarAplicarVentaEnsambleWmsDesdeBody(pack.ensamblePendiente);
+            void ejecutarImpresionPostCobro(pack.ticket, {
+              ticketYaEnriquecido: true,
+              ventanaNavegadorReservada: ventanaReservada,
+            });
+            if (ensamblePendiente && ensamblePendiente.lineas.length > 0) {
+              await ejecutarAplicarVentaEnsambleWmsDesdeBody(ensamblePendiente);
             }
-            await ejecutarImpresionPostCobro(pack.ticket);
           })();
         }}
         onCancelarTransaccion={() => void handleCancelarTransaccionVistaPrevia()}

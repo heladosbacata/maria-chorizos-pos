@@ -34,9 +34,9 @@ import { fechaHoraColombia } from "@/lib/fecha-colombia";
 import { loadImpresionPrefs } from "@/lib/impresion-pos-storage";
 import type { ImpresionPosPrefs, TamanoPapelTicket, TicketVentaPayload } from "@/types/impresion-pos";
 
-/** Ancho en caracteres monoespaciados según rollo (58 mm ≈ 32 cols en térmicas típicas). */
+/** Ancho en caracteres monoespaciados según rollo (58 mm = Font A en térmicas típicas). */
 export function columnasTicketPorTamanoPapel(tam: TamanoPapelTicket): number {
-  if (tam === "58mm") return 32;
+  if (tam === "58mm") return 30;
   if (tam === "80mm") return 42;
   return 48;
 }
@@ -194,6 +194,63 @@ function escPosTextoGrande(): string {
 
 function escPosTextoNormal(): string {
   return "\x1B\x21\x00";
+}
+
+/** Negrita / énfasis (mejor legibilidad en térmicas ESC/POS). */
+function escPosNegritaOn(): string {
+  return "\x1B\x45\x01";
+}
+
+function escPosNegritaOff(): string {
+  return "\x1B\x45\x00";
+}
+
+/** Font A (12×24): más nítida que Font B en la mayoría de Xprinter / Epson. */
+function escPosFontA(): string {
+  return "\x1B\x4D\x00";
+}
+
+/**
+ * Envuelve el ticket en texto plano con énfasis en título, separadores y total.
+ * El QR sigue yendo aparte por comandos nativos (no se toca).
+ */
+function aplicarLegibilidadEscPosTextoPlano(plain: string, columnas: number): string {
+  const lines = plain.split("\n");
+  let out = escPosFontA() + escPosNegritaOn();
+  let lineasTitulo = 0;
+  for (const ln of lines) {
+    const trimmed = ln.trim();
+    const esSeparador = /^-+$/.test(trimmed);
+    const esTotal = /^TOTAL:/i.test(trimmed);
+    const esTitulo =
+      lineasTitulo < 2 &&
+      trimmed.length > 0 &&
+      !trimmed.startsWith("PV:") &&
+      !trimmed.startsWith("Cuenta:") &&
+      !esSeparador &&
+      ln === ln.trim() &&
+      ln.length <= columnas;
+    if (esTitulo) lineasTitulo += 1;
+
+    if (esTotal) {
+      out += escPosTextoGrande();
+      out += ln + "\n";
+      out += escPosTextoNormal();
+      continue;
+    }
+    if (esSeparador || esTitulo) {
+      out += escPosNegritaOn();
+      out += ln + "\n";
+      continue;
+    }
+    out += ln + "\n";
+  }
+  out += escPosNegritaOff() + escPosTextoNormal();
+  return out;
+}
+
+function esTamanoPapelTermico(tam: TamanoPapelTicket): boolean {
+  return tam === "58mm" || tam === "80mm";
 }
 
 function formatoMillasTicket(n: number): string {
@@ -369,7 +426,7 @@ export function textoParaPrevisualizacionTicket(payload: TicketVentaPayload): st
   const tieneQrFid = Boolean(payload.fidelizacionQrDataUrl?.trim());
   const tieneQrInvitacion = Boolean(payload.clubMillasInvitacionQrDataUrl?.trim());
   const prefs = typeof window !== "undefined" ? loadImpresionPrefs() : null;
-  const cols = prefs ? columnasTicketPorTamanoPapel(prefs.tamanoPapel) : 32;
+  const cols = prefs ? columnasTicketPorTamanoPapel(prefs.tamanoPapel) : columnasTicketPorTamanoPapel("58mm");
   return construirTextoTicketPlano(
     tieneQrFid ? { ...payload, fidelizacionPayloadTexto: undefined } : payload,
     cols,
@@ -432,6 +489,10 @@ function construirHtmlTirillaTicket(
 ): string {
   const p = payload;
   const mm = prefs.tamanoPapel === "58mm" ? 58 : prefs.tamanoPapel === "80mm" ? 80 : 210;
+  const rollo58 = prefs.tamanoPapel === "58mm";
+  const termico = esTamanoPapelTermico(prefs.tamanoPapel);
+  const qrDomPx = rollo58 ? 128 : 150;
+  const qrClubPx = rollo58 ? 140 : 168;
   const logoSrc = `${origin}${LOGO_ORG_URL}`;
   const showLogo = !prefs.impresionSimpleSinLogo;
 
@@ -461,7 +522,7 @@ function construirHtmlTirillaTicket(
           <p class="domicilios-aqui">${escapeHtml(MENSAJE_DOMICILIOS_TIRILLA_LINEA2)}</p>
           ${
             p.domiciliosQrDataUrl?.trim()
-              ? `<img src="${escapeHtml(p.domiciliosQrDataUrl)}" width="150" height="150" alt="QR pedidos a domicilio" />`
+              ? `<img src="${escapeHtml(p.domiciliosQrDataUrl)}" width="${qrDomPx}" height="${qrDomPx}" alt="QR pedidos a domicilio" />`
               : ""
           }
           <p class="domicilios-hint">Escanea y pide a domicilio</p>
@@ -504,7 +565,7 @@ function construirHtmlTirillaTicket(
           <p class="qr-paso">${escapeHtml(MENSAJE_TIRILLA_CLUB_CONSULTA_PASO)}</p>
           ${
             qrConsultaClub
-              ? `<img src="${escapeHtml(qrConsultaClub)}" width="168" height="168" alt="QR Mi plan Club de Millas" />`
+              ? `<img src="${escapeHtml(qrConsultaClub)}" width="${qrClubPx}" height="${qrClubPx}" alt="QR Mi plan Club de Millas" />`
               : ""
           }
           <p class="qr-s">Club de Millas Maria Chorizos</p>
@@ -534,7 +595,7 @@ function construirHtmlTirillaTicket(
           }
           ${
             tieneQrFrecuenteImg
-              ? `<img src="${escapeHtml(payload.fidelizacionQrDataUrl!)}" width="160" height="160" alt="" />`
+              ? `<img src="${escapeHtml(payload.fidelizacionQrDataUrl!)}" width="${qrClubPx}" height="${qrClubPx}" alt="" />`
               : ""
           }
           ${
@@ -556,7 +617,7 @@ function construirHtmlTirillaTicket(
           <p class="club-invitacion-cuerpo">${escapeHtml(INVITACION_CLUB_TIRILLA_CUERPO)}</p>
           ${
             p.clubMillasInvitacionQrDataUrl?.trim()
-              ? `<img src="${escapeHtml(p.clubMillasInvitacionQrDataUrl)}" width="168" height="168" alt="QR Club de Millas" />`
+              ? `<img src="${escapeHtml(p.clubMillasInvitacionQrDataUrl)}" width="${qrClubPx}" height="${qrClubPx}" alt="QR Club de Millas" />`
               : ""
           }
           <p class="club-invitacion-hint">Escanea el QR · Registrate gratis</p>
@@ -575,15 +636,20 @@ function construirHtmlTirillaTicket(
   * { box-sizing: border-box; }
   body {
     margin: 0;
-    padding: ${mm <= 80 ? "2mm 2.5mm 3mm" : "6mm"};
-    font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    padding: ${rollo58 ? "1.5mm 1.5mm 2.5mm" : mm <= 80 ? "2mm 2.5mm 3mm" : "6mm"};
+    font-family: ${termico ? '"Courier New", Courier, "Lucida Console", monospace' : 'ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'};
+    font-size: ${rollo58 ? "10pt" : termico ? "9.5pt" : "10pt"};
+    line-height: ${termico ? "1.28" : "1.4"};
+    -webkit-font-smoothing: ${termico ? "none" : "auto"};
+    font-smooth: ${termico ? "never" : "auto"};
+    text-rendering: ${termico ? "optimizeSpeed" : "auto"};
     -webkit-print-color-adjust: exact;
     print-color-adjust: exact;
-    color: #111;
+    color: #000;
     background: #fff;
   }
   .tirilla {
-    max-width: ${mm <= 80 ? mm + "mm" : "72mm"};
+    max-width: ${rollo58 ? "48mm" : mm <= 80 ? mm + "mm" : "72mm"};
     margin: 0 auto;
   }
   .logo-wrap { text-align: center; margin-bottom: 6px; }
@@ -592,53 +658,54 @@ function construirHtmlTirillaTicket(
   .brand-name {
     text-align: center;
     font-weight: 800;
-    font-size: 11px;
-    letter-spacing: 0.2em;
-    color: #b91c1c;
+    font-size: ${termico ? "10pt" : "11px"};
+    letter-spacing: ${termico ? "0.06em" : "0.2em"};
+    color: #000;
     margin: 0 0 4px;
   }
   .brand-only {
     text-align: center;
     font-weight: 800;
-    font-size: 11px;
-    letter-spacing: 0.2em;
-    color: #b91c1c;
+    font-size: ${termico ? "10pt" : "11px"};
+    letter-spacing: ${termico ? "0.06em" : "0.2em"};
+    color: #000;
     margin-bottom: 4px;
   }
   .tagline {
     text-align: center;
-    font-size: 8px;
-    font-weight: 600;
-    letter-spacing: 0.18em;
+    font-size: ${termico ? "9pt" : "8px"};
+    font-weight: 700;
+    letter-spacing: ${termico ? "0.04em" : "0.18em"};
     text-transform: uppercase;
-    color: #64748b;
+    color: #000;
     margin: 0 0 2px;
   }
   .subtag {
     text-align: center;
-    font-size: 7px;
-    color: #94a3b8;
+    font-size: ${termico ? "8pt" : "7px"};
+    color: #222;
     margin: 0 0 8px;
-    letter-spacing: 0.12em;
+    letter-spacing: ${termico ? "0" : "0.12em"};
   }
   .rule {
-    height: 1px;
-    background: linear-gradient(90deg, transparent, #cbd5e1 15%, #cbd5e1 85%, transparent);
-    margin: 8px 0;
+    height: 0;
     border: 0;
+    border-top: 1px solid #000;
+    margin: 8px 0;
   }
-  .meta { font-size: 8.5px; line-height: 1.45; margin-bottom: 8px; }
+  .meta { font-size: ${termico ? "8.5pt" : "8.5px"}; line-height: 1.45; margin-bottom: 8px; font-weight: ${termico ? "600" : "400"}; }
   .meta-row { display: flex; justify-content: space-between; gap: 6px; margin: 3px 0; }
-  .meta-k { color: #64748b; flex-shrink: 0; }
-  .meta-v { text-align: right; font-weight: 500; word-break: break-word; }
+  .meta-k { color: ${termico ? "#000" : "#64748b"}; flex-shrink: 0; font-weight: ${termico ? "700" : "400"}; }
+  .meta-v { text-align: right; font-weight: ${termico ? "700" : "500"}; word-break: break-word; }
   .li {
     display: flex;
     justify-content: space-between;
     gap: 8px;
-    font-size: 9px;
+    font-size: ${termico ? "9pt" : "9px"};
+    font-weight: ${termico ? "600" : "400"};
     margin: 6px 0;
     padding-bottom: 5px;
-    border-bottom: 1px dotted #e2e8f0;
+    border-bottom: 1px ${termico ? "solid #000" : "dotted #e2e8f0"};
   }
   .li-t { flex: 1; min-width: 0; line-height: 1.35; }
   .li-p { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
@@ -657,22 +724,23 @@ function construirHtmlTirillaTicket(
   .total {
     margin-top: 10px;
     padding: 8px 10px;
-    background: #0f172a;
+    background: ${termico ? "#000" : "#0f172a"};
     color: #fff;
-    border-radius: 6px;
+    border-radius: ${termico ? "0" : "6px"};
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-size: 11px;
+    font-size: ${termico ? "11pt" : "11px"};
     font-weight: 800;
-    letter-spacing: 0.04em;
+    letter-spacing: ${termico ? "0" : "0.04em"};
   }
   .total span:last-child { font-variant-numeric: tabular-nums; }
   .nota {
     margin-top: 10px;
-    font-size: 8px;
+    font-size: ${termico ? "8pt" : "8px"};
     line-height: 1.4;
-    color: #475569;
+    color: #000;
+    font-weight: ${termico ? "600" : "400"};
     text-align: center;
     padding: 0 2px;
   }
@@ -804,8 +872,8 @@ function construirHtmlTirillaTicket(
     text-align: center;
   }
   .club-saldo-label { margin: 8px 0 2px; font-size: 8px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: #92400e; }
-  .club-saldo-valor { margin: 0 0 6px; font-size: 28px; font-weight: 900; line-height: 1.1; letter-spacing: 0.04em; color: #c2410c; }
-  .club-saldo-despues { font-size: 32px; color: #15803d; }
+  .club-saldo-valor { margin: 0 0 6px; font-size: ${rollo58 ? "22px" : "28px"}; font-weight: 900; line-height: 1.1; letter-spacing: 0.04em; color: #c2410c; }
+  .club-saldo-despues { font-size: ${rollo58 ? "24px" : "32px"}; color: #15803d; }
   .club-saldo-label-despues { margin-top: 8px; }
   .club-ganadas-label { margin: 4px 0 2px; font-size: 7px; font-weight: 700; color: #b45309; }
   .club-ganadas-valor { margin: 0 0 8px; font-size: 16px; font-weight: 800; color: #ea580c; }
@@ -895,6 +963,48 @@ export function reservarVentanaTicketNavegador(): Window | null {
     return window.open("about:blank", "_blank", "width=420,height=640");
   } catch {
     return null;
+  }
+}
+
+/** Muestra feedback inmediato mientras se prepara el ticket (mismo gesto de clic del usuario). */
+export function mostrarVentanaTicketCargando(w: Window): void {
+  try {
+    w.document.open();
+    w.document.write(
+      '<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"/><title>Ticket</title></head>' +
+        '<body style="margin:0;padding:20px;font:600 13px/1.4 Consolas,monospace;color:#111;background:#fff">' +
+        "Preparando ticket para imprimir…</body></html>"
+    );
+    w.document.close();
+  } catch {
+    // ignore
+  }
+}
+
+const QZ_IMPRESION_TIMEOUT_MS = 2800;
+
+function esperarConTimeout<T>(promesa: Promise<T>, ms: number, etiqueta: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error(etiqueta)), ms);
+    promesa
+      .then((v) => {
+        window.clearTimeout(timer);
+        resolve(v);
+      })
+      .catch((e) => {
+        window.clearTimeout(timer);
+        reject(e);
+      });
+  });
+}
+
+/** Conecta QZ en segundo plano al abrir caja (evita esperar al primer cobro). */
+export async function qzPrecalentarConexion(): Promise<void> {
+  if (typeof window === "undefined") return;
+  try {
+    await qzEnsureConnected();
+  } catch {
+    // QZ no instalado o apagado; el cobro hará fallback a navegador.
   }
 }
 
@@ -1000,9 +1110,46 @@ export async function qzListarImpresoras(): Promise<string[]> {
 }
 
 function tamanoPapelQzMm(p: ImpresionPosPrefs["tamanoPapel"]): { width: number; height: number } {
-  if (p === "58mm") return { width: 58, height: 200 };
+  if (p === "58mm") return { width: 58, height: 240 };
   if (p === "80mm") return { width: 80, height: 200 };
   return { width: 210, height: 297 };
+}
+
+export type OpcionesImpresionTicket = {
+  /** Si el ticket ya pasó por enriquecerTicketTirillaAlCobrar, evita regenerar QR. */
+  ticketYaEnriquecido?: boolean;
+  /** Ventana abierta en el clic de «Imprimir» (antes de cualquier await). */
+  ventanaNavegadorReservada?: Window | null;
+};
+
+export async function imprimirTicketVenta(
+  prefs: ImpresionPosPrefs,
+  payload: TicketVentaPayload,
+  opciones?: OpcionesImpresionTicket
+): Promise<void> {
+  const ticketImp =
+    opciones?.ticketYaEnriquecido || typeof window === "undefined"
+      ? payload
+      : await import("@/lib/enriquecer-ticket-tirilla-cobro").then((m) =>
+          m.enriquecerTicketTirillaAlCobrar(payload, window.location.origin)
+        );
+  const ventana = opciones?.ventanaNavegadorReservada ?? null;
+
+  if (prefs.metodo === "directa") {
+    try {
+      await esperarConTimeout(
+        imprimirTicketConQz(prefs, ticketImp),
+        QZ_IMPRESION_TIMEOUT_MS,
+        "QZ timeout"
+      );
+      return;
+    } catch (qzErr) {
+      console.warn("Ticket venta: QZ falló o tardó demasiado, intentando navegador.", qzErr);
+      imprimirTicketEnNavegador(ticketImp, ventana);
+      return;
+    }
+  }
+  imprimirTicketEnNavegador(ticketImp, ventana);
 }
 
 export async function imprimirTicketConQz(prefs: ImpresionPosPrefs, payload: TicketVentaPayload): Promise<void> {
@@ -1048,7 +1195,8 @@ export async function imprimirTicketConQz(prefs: ImpresionPosPrefs, payload: Tic
       : "";
   const init = "\x1B\x40";
   const abrirCajon = escPosAbrirCajon();
-  const data = `${init}${bloqueDomicilios}${plain}${bloqueSaldoClub}${bloqueQr}${bloqueInvitacion}\n\n${abrirCajon}\n\x1D\x56\x00`;
+  const plainLegible = aplicarLegibilidadEscPosTextoPlano(plain, cols);
+  const data = `${init}${bloqueDomicilios}${plainLegible}${bloqueSaldoClub}${bloqueQr}${bloqueInvitacion}\n\n${abrirCajon}\n\x1D\x56\x00`;
   await qz.print(config, [data]);
 }
 

@@ -47,9 +47,25 @@ export async function enriquecerTicketTirillaAlCobrar(
   origin?: string
 ): Promise<TicketVentaPayload> {
   let t = await enriquecerTicketConQrDomicilios(ticket, origin);
-  t = await asegurarImagenQrConsultaClub(t);
-  t = await asegurarImagenQrAcumulacionClub(t);
   t = await aplicarPieClubMillasEnTicket(t);
-  t = await asegurarImagenQrInvitacionClub(t);
-  return t;
+  const [conConsulta, conAcumulacion, conInvitacion] = await Promise.all([
+    asegurarImagenQrConsultaClub(t),
+    asegurarImagenQrAcumulacionClub(t),
+    asegurarImagenQrInvitacionClub(t),
+  ]);
+  return {
+    ...t,
+    ...(conConsulta.clubMillasConsultaQrDataUrl
+      ? { clubMillasConsultaQrDataUrl: conConsulta.clubMillasConsultaQrDataUrl }
+      : {}),
+    ...(conAcumulacion.fidelizacionQrDataUrl
+      ? { fidelizacionQrDataUrl: conAcumulacion.fidelizacionQrDataUrl }
+      : {}),
+    ...(conInvitacion.clubMillasInvitacionQrDataUrl
+      ? { clubMillasInvitacionQrDataUrl: conInvitacion.clubMillasInvitacionQrDataUrl }
+      : {}),
+    ...(conInvitacion.clubMillasInvitacionUrl
+      ? { clubMillasInvitacionUrl: conInvitacion.clubMillasInvitacionUrl }
+      : {}),
+  };
 }

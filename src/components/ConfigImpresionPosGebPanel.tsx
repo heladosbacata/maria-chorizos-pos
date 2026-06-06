@@ -257,10 +257,13 @@ export default function ConfigImpresionPosGebPanel({ onVolver }: ConfigImpresion
                 }
                 className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
               >
+                <option value="58mm">58 mm (térmica · estándar)</option>
                 <option value="80mm">80 mm (térmica)</option>
-                <option value="58mm">58 mm (térmica)</option>
                 <option value="A4">A4</option>
               </select>
+              <p className="mt-1 text-xs text-gray-500">
+                En puntos María Chorizos el rollo habitual es 58 mm. Si el texto se corta o se ve borroso, confirmá este valor.
+              </p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Copias</label>
