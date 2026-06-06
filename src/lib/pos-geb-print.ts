@@ -188,12 +188,17 @@ function escPosAlinearIzq(): string {
   return "\x1B\x61\x00";
 }
 
-function escPosTextoGrande(): string {
-  return "\x1B\x21\x30";
+/** Doble altura + énfasis, sin doble ancho: más nítido en 58 mm que 0x30. */
+function escPosTextoDobleAlturaNegrita(): string {
+  return "\x1B\x21\x18";
 }
 
 function escPosTextoNormal(): string {
   return "\x1B\x21\x00";
+}
+
+function escPosReiniciarEstiloTexto(): string {
+  return escPosTextoNormal() + escPosNegritaOff();
 }
 
 /** Negrita / énfasis (mejor legibilidad en térmicas ESC/POS). */
@@ -233,9 +238,9 @@ function aplicarLegibilidadEscPosTextoPlano(plain: string, columnas: number): st
     if (esTitulo) lineasTitulo += 1;
 
     if (esTotal) {
-      out += escPosTextoGrande();
+      out += escPosTextoDobleAlturaNegrita();
       out += ln + "\n";
-      out += escPosTextoNormal();
+      out += escPosReiniciarEstiloTexto();
       continue;
     }
     if (esSeparador || esTitulo) {
@@ -312,34 +317,47 @@ function escPosBloqueClubMillasSaldo(payload: TicketVentaPayload, columnas: numb
     const pad = Math.max(0, Math.floor((W - x.length) / 2));
     return " ".repeat(pad) + x;
   };
+  const linea = (ch = "=") => ch.repeat(W) + "\n";
+  const etiqueta = (t: string) => {
+    let s = escPosNegritaOn() + escPosTextoNormal();
+    s += center(textoTicketSeguro(t)) + "\n";
+    s += escPosReiniciarEstiloTexto();
+    return s;
+  };
+  const cifra = (t: string) => {
+    let s = escPosTextoDobleAlturaNegrita();
+    s += center(textoTicketSeguro(t)) + "\n";
+    s += escPosReiniciarEstiloTexto();
+    return s;
+  };
   const antes = millasAntesEnTicket(payload);
   const despues = millasDespuesEnTicket(payload);
   const ganadas = payload.clubMillasGanadasCompra ?? 0;
   const url = payload.clubMillasConsultaUrl?.trim() ?? "";
   let out = "\n";
+  out += escPosFontA();
   out += escPosAlinearCentro();
-  out += center(textoTicketSeguro(MENSAJE_TIRILLA_CLUB_SALDO_TITULO)) + "\n";
-  out += center(textoTicketSeguro(MENSAJE_TIRILLA_CLUB_ACUMULADO_AUTO)) + "\n\n";
+  out += linea("=");
+  out += etiqueta(MENSAJE_TIRILLA_CLUB_SALDO_TITULO);
+  out += etiqueta(MENSAJE_TIRILLA_CLUB_ACUMULADO_AUTO);
+  out += "\n";
   if (antes !== undefined) {
-    out += center(textoTicketSeguro(MENSAJE_TIRILLA_CLUB_SALDO_ANTES_LABEL)) + "\n";
-    out += escPosTextoGrande();
-    out += center(formatoMillasTicket(antes)) + "\n";
-    out += escPosTextoNormal();
+    out += etiqueta(MENSAJE_TIRILLA_CLUB_SALDO_ANTES_LABEL);
+    out += cifra(formatoMillasTicket(antes));
   }
   if (despues !== undefined) {
-    out += center(textoTicketSeguro(MENSAJE_TIRILLA_CLUB_SALDO_DESPUES_LABEL)) + "\n";
-    out += escPosTextoGrande();
-    out += center(formatoMillasTicket(despues)) + "\n";
-    out += escPosTextoNormal();
+    out += etiqueta(MENSAJE_TIRILLA_CLUB_SALDO_DESPUES_LABEL);
+    out += cifra(formatoMillasTicket(despues));
   }
   if (ganadas > 0) {
-    out += center(textoTicketSeguro(MENSAJE_TIRILLA_CLUB_GANADAS_LABEL)) + "\n";
-    out += escPosTextoGrande();
-    out += center(`+ ${formatoMillasTicket(ganadas)}`) + "\n";
-    out += escPosTextoNormal();
+    out += etiqueta(MENSAJE_TIRILLA_CLUB_GANADAS_LABEL);
+    out += cifra(`+ ${formatoMillasTicket(ganadas)}`);
   }
+  const pie = payload.clubMillasMensajePie?.trim();
+  if (pie) out += etiqueta(pie);
   out += "\n";
-  out += center(textoTicketSeguro(MENSAJE_TIRILLA_CLUB_CONSULTA_PASO)) + "\n";
+  out += etiqueta(MENSAJE_TIRILLA_CLUB_CONSULTA_PASO);
+  out += linea("=");
   if (url) {
     out += "\n";
     out += escPosQrCodigo(url);
@@ -535,8 +553,10 @@ function construirHtmlTirillaTicket(
   const despuesClub = millasDespuesEnTicket(p);
   const ganadasClub = p.clubMillasGanadasCompra ?? 0;
   const qrConsultaClub = p.clubMillasConsultaQrDataUrl?.trim();
+  const clubSaldoClass = termico ? "qr club-saldo-promo termico-claro" : "qr club-saldo-promo";
   const clubSaldoBlock = tieneSaldoClub
-    ? `<div class="qr club-saldo-promo">
+    ? `<div class="${clubSaldoClass}">
+          <p class="club-saldo-sep" aria-hidden="true">${"=".repeat(rollo58 ? 24 : 28)}</p>
           <p class="qr-t">${escapeHtml(MENSAJE_TIRILLA_CLUB_SALDO_TITULO)}</p>
           <p class="qr-paso">${escapeHtml(MENSAJE_TIRILLA_CLUB_ACUMULADO_AUTO)}</p>
           ${
@@ -563,6 +583,7 @@ function construirHtmlTirillaTicket(
               : ""
           }
           <p class="qr-paso">${escapeHtml(MENSAJE_TIRILLA_CLUB_CONSULTA_PASO)}</p>
+          <p class="club-saldo-sep" aria-hidden="true">${"=".repeat(rollo58 ? 24 : 28)}</p>
           ${
             qrConsultaClub
               ? `<img src="${escapeHtml(qrConsultaClub)}" width="${qrClubPx}" height="${qrClubPx}" alt="QR Mi plan Club de Millas" />`
@@ -870,6 +891,53 @@ function construirHtmlTirillaTicket(
     border-radius: 8px;
     background: linear-gradient(180deg, #fffbeb 0%, #fff 100%);
     text-align: center;
+  }
+  .club-saldo-promo.termico-claro {
+    padding: 6px 2px 8px;
+    border: 1px solid #000;
+    border-radius: 0;
+    background: #fff;
+    box-shadow: none;
+  }
+  .club-saldo-sep {
+    margin: 4px 0;
+    font-size: ${rollo58 ? "7pt" : "8pt"};
+    font-weight: 700;
+    letter-spacing: 0;
+    color: #000;
+    line-height: 1.1;
+    overflow: hidden;
+  }
+  .club-saldo-promo.termico-claro .qr-t,
+  .club-saldo-promo.termico-claro .qr-paso,
+  .club-saldo-promo.termico-claro .club-saldo-label,
+  .club-saldo-promo.termico-claro .club-ganadas-label,
+  .club-saldo-promo.termico-claro .qr-s {
+    color: #000;
+    letter-spacing: 0;
+    text-transform: none;
+    font-size: ${rollo58 ? "7.5pt" : "8pt"};
+    font-weight: 700;
+    line-height: 1.35;
+  }
+  .club-saldo-promo.termico-claro .club-saldo-valor,
+  .club-saldo-promo.termico-claro .club-ganadas-valor {
+    margin: 2px 0 8px;
+    font-size: ${rollo58 ? "18pt" : "20pt"};
+    font-weight: 900;
+    letter-spacing: 0.12em;
+    line-height: 1.1;
+    color: #000;
+    font-variant-numeric: tabular-nums;
+  }
+  .club-saldo-promo.termico-claro .club-saldo-despues {
+    font-size: ${rollo58 ? "20pt" : "22pt"};
+    color: #000;
+  }
+  .club-saldo-promo.termico-claro .qr {
+    border-top: 1px solid #000;
+    margin-top: 8px;
+    padding-top: 8px;
   }
   .club-saldo-label { margin: 8px 0 2px; font-size: 8px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: #92400e; }
   .club-saldo-valor { margin: 0 0 6px; font-size: ${rollo58 ? "22px" : "28px"}; font-weight: 900; line-height: 1.1; letter-spacing: 0.04em; color: #c2410c; }
