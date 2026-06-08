@@ -22,6 +22,15 @@ export interface CajeroFichaDatos {
   observaciones: string;
 }
 
+/** Cargos permitidos al registrar un operador en el POS. */
+export const CARGO_OPERADOR_OPCIONES = ["Cajero(a)", "Franquiciado"] as const;
+
+export type CargoOperador = (typeof CARGO_OPERADOR_OPCIONES)[number];
+
+export function cargoOperadorValido(cargo: string): cargo is CargoOperador {
+  return (CARGO_OPERADOR_OPCIONES as readonly string[]).includes(cargo);
+}
+
 export function emptyCajeroFicha(): CajeroFichaDatos {
   return {
     nombres: "",

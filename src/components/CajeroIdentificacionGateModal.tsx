@@ -9,7 +9,7 @@ import {
   type CajeroTurnoDoc,
 } from "@/lib/cajeros-turno-firestore";
 import type { CajeroFichaDatos } from "@/types/pos-perfil-cajero";
-import { emptyCajeroFicha } from "@/types/pos-perfil-cajero";
+import { cargoOperadorValido, emptyCajeroFicha } from "@/types/pos-perfil-cajero";
 
 export type CajeroIdentificacionMotivo = "arranque" | "periodica";
 
@@ -119,6 +119,10 @@ export default function CajeroIdentificacionGateModal({
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(correo)) {
       setError("El correo electrónico personal no es válido.");
+      return;
+    }
+    if (!cargoOperadorValido(ficha.cargo.trim())) {
+      setError("Selecciona el cargo: Cajero(a) o Franquiciado.");
       return;
     }
     setGuardando(true);

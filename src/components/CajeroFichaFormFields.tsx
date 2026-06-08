@@ -1,7 +1,7 @@
 "use client";
 
 import { opcionesCiudadColombia } from "@/constants/ciudades-colombia";
-import type { CajeroFichaDatos } from "@/types/pos-perfil-cajero";
+import { CARGO_OPERADOR_OPCIONES, cargoOperadorValido, type CajeroFichaDatos } from "@/types/pos-perfil-cajero";
 
 const inputClass =
   "w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-900 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100";
@@ -203,7 +203,21 @@ export default function CajeroFichaFormFields({ datos, setCampo }: CajeroFichaFo
         <div className="grid gap-3 sm:grid-cols-2">
           <div>
             <label className={labelClass}>Cargo</label>
-            <input className={inputClass} value={datos.cargo} onChange={(e) => setCampo("cargo", e.target.value)} />
+            <select
+              className={selectClass}
+              value={datos.cargo}
+              onChange={(e) => setCampo("cargo", e.target.value)}
+            >
+              <option value="">Selecciona cargo</option>
+              {CARGO_OPERADOR_OPCIONES.map((cargo) => (
+                <option key={cargo} value={cargo}>
+                  {cargo}
+                </option>
+              ))}
+              {datos.cargo && !cargoOperadorValido(datos.cargo) ? (
+                <option value={datos.cargo}>{datos.cargo}</option>
+              ) : null}
+            </select>
           </div>
           <div>
             <label className={labelClass}>Fecha de ingreso</label>
