@@ -148,11 +148,12 @@ export default function PosDomiciliosChatModal({
 
   return (
     <PosBodyPortal open lockScroll onEscape={onClose}>
-      <div className="fixed inset-0 z-[220] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-[1px]">
+      <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6">
         <button
           type="button"
+          tabIndex={-1}
           aria-label="Cerrar chat de pedido"
-          className="absolute inset-0 z-0 cursor-default bg-transparent"
+          className="absolute inset-0 z-0 bg-black/45 backdrop-blur-[2px]"
           onClick={onClose}
         />
         <motion.div
@@ -162,8 +163,8 @@ export default function PosDomiciliosChatModal({
             scale: 1,
             y: 0,
             boxShadow: marcoActivo
-              ? "0 0 0 3px rgba(251,191,36,0.85), 0 0 28px rgba(34,211,238,0.35), 0 25px 50px -12px rgba(15,23,42,0.35)"
-              : "0 25px 50px -12px rgba(15,23,42,0.25)",
+              ? "0 0 0 3px rgba(251,191,36,0.85), 0 0 28px rgba(34,211,238,0.35), 0 28px 90px -20px rgba(0,0,0,0.65)"
+              : "0 28px 90px -20px rgba(0,0,0,0.65)",
           }}
           transition={{
             type: "spring",
@@ -172,10 +173,12 @@ export default function PosDomiciliosChatModal({
             mass: 0.92,
             boxShadow: { duration: 0.55, ease: [0.22, 1, 0.36, 1] },
           }}
-          className={`relative z-10 w-full max-w-lg ${marcoActivo ? "rounded-2xl bg-gradient-to-br from-amber-200 via-cyan-400 to-indigo-500 p-[3px] shadow-lg" : ""}`}
+          className={`relative z-10 flex h-[min(92vh,820px)] w-[min(100vw-1.5rem,56rem)] min-w-[min(100vw-1.5rem,20rem)] max-w-4xl flex-col ${marcoActivo ? "rounded-3xl bg-gradient-to-br from-amber-200 via-cyan-400 to-indigo-500 p-[3px] shadow-lg" : ""}`}
+          role="dialog"
+          aria-modal="true"
         >
-          <div className="w-full overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-2xl">
-            <header className="flex items-start justify-between gap-3 rounded-t-2xl bg-gradient-to-r from-cyan-800 via-cyan-700 to-sky-700 px-4 py-3 text-white">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-cyan-200/50 bg-white shadow-2xl">
+            <header className="flex shrink-0 items-start justify-between gap-3 bg-gradient-to-r from-cyan-800 via-cyan-700 to-sky-700 px-4 py-3.5 text-white sm:px-5">
               <div className="min-w-0">
                 <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-cyan-100/90">
                   {marcoActivo ? "Recién ingresado · premium" : "Domicilios premium"}
@@ -194,15 +197,15 @@ export default function PosDomiciliosChatModal({
               </button>
             </header>
             {marcoActivo ? (
-              <div className="border-b border-amber-200/90 bg-gradient-to-r from-amber-50 via-white to-cyan-50 px-3 py-2.5 text-center">
-                <p className="text-[11px] font-extrabold text-amber-950">Pedido nuevo en bandeja</p>
-                <p className="mt-0.5 text-[10px] font-medium leading-snug text-amber-900/90">
+              <div className="shrink-0 border-b border-amber-200/90 bg-gradient-to-r from-amber-50 via-white to-cyan-50 px-4 py-2.5 text-center sm:px-5">
+                <p className="text-xs font-extrabold text-amber-950">Pedido nuevo en bandeja</p>
+                <p className="mt-0.5 text-[11px] font-medium leading-snug text-amber-900/90">
                   Ya enviamos al cliente el resumen en este chat para que lo confirme. Revisá el hilo y respondé si hace
                   falta aclarar algo antes de aceptar el pedido.
                 </p>
               </div>
             ) : null}
-            <div ref={chatScrollRef} className="max-h-80 min-h-60 space-y-2 overflow-auto bg-slate-50 p-3">
+            <div ref={chatScrollRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto bg-slate-50 px-4 py-4 sm:px-5">
               {chatCargando ? (
                 <p className="text-xs text-slate-500">Cargando mensajes...</p>
               ) : chatMensajes.length === 0 ? (
@@ -218,9 +221,9 @@ export default function PosDomiciliosChatModal({
                 ))
               )}
             </div>
-            <div className="border-t border-cyan-100 bg-gradient-to-b from-cyan-50/90 to-slate-50/80 px-3 py-2">
+            <div className="shrink-0 border-t border-cyan-100 bg-gradient-to-b from-cyan-50/90 to-slate-50/80 px-4 py-2 sm:px-5">
               <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-cyan-900">Respuestas rápidas</p>
-              <div className="flex max-h-24 flex-wrap gap-1.5 overflow-y-auto pr-0.5">
+              <div className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto pr-0.5">
                 {RESPUESTAS_RAPIDAS_CHAT_DOMICILIO.map((r) => (
                   <button
                     key={r.id}
@@ -235,19 +238,19 @@ export default function PosDomiciliosChatModal({
                 ))}
               </div>
             </div>
-            <div className="space-y-2 border-t border-gray-200 p-3">
+            <div className="shrink-0 space-y-2 border-t border-gray-200 px-4 py-3 sm:px-5">
               <textarea
                 value={chatTextoPos}
                 onChange={(e) => setChatTextoPos(e.target.value)}
                 rows={3}
                 placeholder="Escribí tu respuesta al cliente…"
-                className="w-full resize-y rounded-lg border border-gray-300 px-3 py-2 text-xs outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
+                className="w-full resize-y rounded-xl border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
               />
               <button
                 type="button"
                 onClick={() => void enviarMensajePos()}
                 disabled={chatEnviando || !chatTextoPos.trim()}
-                className="w-full rounded-lg bg-cyan-700 px-3 py-2 text-xs font-semibold text-white transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-60"
+                className="w-full rounded-xl bg-cyan-700 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-cyan-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {chatEnviando ? "Enviando..." : "Enviar mensaje"}
               </button>

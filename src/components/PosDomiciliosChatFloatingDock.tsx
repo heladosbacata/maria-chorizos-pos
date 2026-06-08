@@ -225,67 +225,6 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
               : { left: "17rem", bottom: "1.25rem", right: "auto", top: "auto" }
           }
         >
-          {panelAbierto ? (
-            <div className="w-[min(100vw-2rem,22rem)] overflow-hidden rounded-2xl border-2 border-cyan-300/80 bg-white shadow-[0_22px_60px_-12px_rgba(15,23,42,0.75)]">
-              <div className="flex items-center justify-between gap-2 border-b border-cyan-100 bg-gradient-to-r from-cyan-700 to-sky-600 px-3 py-2.5 text-white">
-                <div className="min-w-0">
-                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-cyan-100">Chats activos</p>
-                  <p className="text-xs font-bold">Domicilios premium</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setPanelAbierto(false)}
-                  className="rounded-lg border border-white/30 p-1 hover:bg-white/15"
-                  aria-label="Cerrar lista de chats"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="max-h-72 overflow-y-auto bg-slate-50 p-2">
-                {pedidosActivos.length === 0 ? (
-                  <p className="rounded-xl border border-dashed border-slate-200 bg-white px-3 py-6 text-center text-xs text-slate-500">
-                    No hay pedidos activos con chat. Cuando llegue un domicilio, aparecerá aquí.
-                  </p>
-                ) : (
-                  <ul className="space-y-1.5">
-                    {pedidosActivos.map((p) => {
-                      const unread = unreadPorPedido[p.id] ?? 0;
-                      return (
-                        <li key={p.id}>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              abrirChat({ pedido: p, marcoEntradaNuevo: p.estado === "NUEVO", enviarResumenAuto: false })
-                            }
-                            className="flex w-full items-start gap-2 rounded-xl border border-cyan-100 bg-white px-3 py-2.5 text-left shadow-sm transition hover:border-cyan-300 hover:bg-cyan-50/80"
-                          >
-                            <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-cyan-100 text-cyan-800">
-                              <MessageCircle className="h-4 w-4" />
-                            </span>
-                            <span className="min-w-0 flex-1">
-                              <span className="flex items-center gap-2">
-                                <span className="truncate text-sm font-bold text-slate-900">{p.cliente}</span>
-                                {unread > 0 ? (
-                                  <span className="shrink-0 rounded-full bg-rose-500 px-1.5 py-0.5 text-[10px] font-black text-white">
-                                    {unread}
-                                  </span>
-                                ) : null}
-                              </span>
-                              <span className="mt-0.5 block truncate text-[11px] font-semibold text-cyan-800">{p.id}</span>
-                              <span className="mt-0.5 inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600">
-                                {etiquetaEstadoDomicilio(p.estado)}
-                              </span>
-                            </span>
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </div>
-            </div>
-          ) : null}
-
           <div
             className={`relative flex items-center gap-2 rounded-[1.35rem] border-2 px-3.5 py-2.5 shadow-[0_22px_60px_-12px_rgba(15,23,42,0.75)] ${
               totalNoLeidos > 0
@@ -337,6 +276,88 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
             </button>
           </div>
         </div>
+      </PosBodyPortal>
+
+      <PosBodyPortal open={panelAbierto} lockScroll onEscape={() => setPanelAbierto(false)}>
+        {panelAbierto ? (
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6">
+            <button
+              type="button"
+              tabIndex={-1}
+              className="absolute inset-0 z-0 bg-black/45 backdrop-blur-[2px]"
+              aria-label="Cerrar lista de chats de domicilios"
+              onClick={() => setPanelAbierto(false)}
+            />
+            <div
+              className="relative z-10 flex h-[min(92vh,820px)] w-[min(100vw-1.5rem,56rem)] min-w-[min(100vw-1.5rem,20rem)] max-w-4xl flex-col overflow-hidden rounded-3xl border border-cyan-200/50 bg-gradient-to-b from-[#0c1f2e] via-[#0f2838] to-[#0a1824] text-cyan-50 shadow-[0_28px_90px_-20px_rgba(0,0,0,0.65)] ring-2 ring-cyan-500/25"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="pos-domicilios-chats-title"
+            >
+              <header className="flex shrink-0 items-start justify-between gap-3 border-b border-white/10 px-4 py-3.5 sm:px-5">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-cyan-300/90">Chats activos</p>
+                  <h2 id="pos-domicilios-chats-title" className="mt-1 text-base font-semibold tracking-tight text-white">
+                    Domicilios premium
+                  </h2>
+                  <p className="mt-0.5 text-xs text-cyan-200/60">
+                    {pedidosActivos.length} pedido{pedidosActivos.length === 1 ? "" : "s"} con chat abierto
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPanelAbierto(false)}
+                  className="shrink-0 rounded-xl border border-white/10 bg-white/5 p-2 text-cyan-200/80 transition hover:bg-white/10 hover:text-white"
+                  aria-label="Cerrar lista de chats"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </header>
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5">
+                {pedidosActivos.length === 0 ? (
+                  <p className="rounded-2xl border border-dashed border-cyan-400/30 bg-white/5 px-4 py-16 text-center text-sm text-cyan-100/70">
+                    No hay pedidos activos con chat. Cuando llegue un domicilio, aparecerá aquí.
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {pedidosActivos.map((p) => {
+                      const unread = unreadPorPedido[p.id] ?? 0;
+                      return (
+                        <li key={p.id}>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              abrirChat({ pedido: p, marcoEntradaNuevo: p.estado === "NUEVO", enviarResumenAuto: false })
+                            }
+                            className="flex w-full items-start gap-3 rounded-2xl border border-cyan-400/25 bg-white/5 px-4 py-3.5 text-left shadow-sm transition hover:border-cyan-300/50 hover:bg-cyan-500/10"
+                          >
+                            <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-cyan-500/20 text-cyan-200">
+                              <MessageCircle className="h-5 w-5" />
+                            </span>
+                            <span className="min-w-0 flex-1">
+                              <span className="flex items-center gap-2">
+                                <span className="truncate text-base font-bold text-white">{p.cliente}</span>
+                                {unread > 0 ? (
+                                  <span className="shrink-0 rounded-full bg-rose-500 px-2 py-0.5 text-[11px] font-black text-white">
+                                    {unread}
+                                  </span>
+                                ) : null}
+                              </span>
+                              <span className="mt-0.5 block truncate text-sm font-semibold text-cyan-200/80">{p.id}</span>
+                              <span className="mt-1 inline-flex rounded-full bg-white/10 px-2.5 py-0.5 text-xs font-semibold text-cyan-100/80">
+                                {etiquetaEstadoDomicilio(p.estado)}
+                              </span>
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : null}
       </PosBodyPortal>
 
       <PosDomiciliosChatModal
