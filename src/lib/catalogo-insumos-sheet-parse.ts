@@ -77,6 +77,17 @@ const PV_KEYS = [
 
 /** Si SKU/código va vacío (p. ej. columna SKU_VINCULADO sin llenar), usar ORDEN como código. */
 const ORDEN_KEYS = ["orden", "nroorden", "noorden"];
+const PRECIO_COMPRA_KEYS = [
+  "preciocompraunitario",
+  "preciocompracop",
+  "preciocompra",
+  "precio_compra_unitario",
+  "precio_compra_cop",
+  "precio_compra",
+  "costocompraunitario",
+  "costocompra",
+  "costo_compra",
+];
 
 function findCol(headersNorm: string[], keys: string[]): number {
   for (let i = 0; i < headersNorm.length; i++) {
@@ -108,6 +119,21 @@ function parseNumeroMinimo(raw: string): number | undefined {
   return Math.round(n * 1000) / 1000;
 }
 
+/** Precio COP en hoja (acepta 5000, 5.000, $5.000, 5,000.50). */
+export function parsePrecioCompraUnitario(raw: string): number | undefined {
+  const t = raw.trim();
+  if (!t) return undefined;
+  let s = t.replace(/\$/g, "").replace(/\s/g, "");
+  if (/,\d{1,2}$/.test(s)) {
+    s = s.replace(/\./g, "").replace(",", ".");
+  } else {
+    s = s.replace(/\./g, "").replace(/,/g, ".");
+  }
+  const n = Number(s);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return Math.round(n * 100) / 100;
+}
+
 /**
  * Convierte la primera fila como encabezados + datos en `InsumoKitItem`.
  * Si hay columna de punto de venta (PV, sucursal, etc.): celda vacía = ítem visible en todos los PV;
@@ -131,6 +157,7 @@ export function insumosDesdeGrilla(
   const iUn = findCol(headersNorm, UNIDAD_KEYS);
   const iCat = findCol(headersNorm, CAT_KEYS);
   const iMin = findCol(headersNorm, MIN_KEYS);
+  const iPrecioCompra = findCol(headersNorm, PRECIO_COMPRA_KEYS);
   const iPv = findCol(headersNorm, PV_KEYS);
   const iOrden = findCol(headersNorm, ORDEN_KEYS);
 
@@ -151,6 +178,8 @@ export function insumosDesdeGrilla(
     const categoria = iCat >= 0 ? cell(iCat) : undefined;
     const minRaw = iMin >= 0 ? cell(iMin) : "";
     const minimoSheet = parseNumeroMinimo(minRaw);
+    const precioCompraRaw = iPrecioCompra >= 0 ? cell(iPrecioCompra) : "";
+    const precioCompraUnitario = parsePrecioCompraUnitario(precioCompraRaw);
     const pvCell = iPv >= 0 ? cell(iPv) : "";
 
     if (!sku.trim() && iOrden >= 0) {
@@ -184,6 +213,7 @@ export function insumosDesdeGrilla(
       ...(pvCell ? { puntoVentaOrigen: pvCell } : {}),
       ...(minimoSheet != null ? { minimoSugeridoSheet: minimoSheet } : {}),
       ...(skuCarrito ? { skuCarrito } : {}),
+      ...(precioCompraUnitario != null ? { precioCompraUnitario } : {}),
     });
   }
 

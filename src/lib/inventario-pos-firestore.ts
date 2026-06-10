@@ -160,6 +160,19 @@ export function normalizarDocInsumoKit(id: string, data: Record<string, unknown>
     str(data.skuVinculado) ||
     str(data.sku_vinculado) ||
     undefined;
+  const rawPrecioCompra =
+    str(data.precioCompraUnitario) ||
+    str(data.precio_compra_unitario) ||
+    str(data.PRECIO_COMPRA_UNITARIO) ||
+    str(data.precioCompra) ||
+    str(data.precio_compra) ||
+    str(data.PRECIO_COMPRA) ||
+    "";
+  let precioCompraUnitario: number | undefined;
+  if (rawPrecioCompra) {
+    const n = Number(rawPrecioCompra.replace(/\$/g, "").replace(/\s/g, "").replace(/\./g, "").replace(",", "."));
+    if (Number.isFinite(n) && n > 0) precioCompraUnitario = Math.round(n * 100) / 100;
+  }
   return {
     id,
     sku,
@@ -169,6 +182,7 @@ export function normalizarDocInsumoKit(id: string, data: Record<string, unknown>
     puntoVentaOrigen,
     ...(minimoSugeridoSheet != null ? { minimoSugeridoSheet } : {}),
     ...(skuCarrito ? { skuCarrito } : {}),
+    ...(precioCompraUnitario != null ? { precioCompraUnitario } : {}),
   };
 }
 

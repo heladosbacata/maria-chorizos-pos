@@ -17,10 +17,11 @@ import {
 import ModalReiniciarInventarioConfirmacion from "@/components/ModalReiniciarInventarioConfirmacion";
 import { catalogoInsumosParaCargue } from "@/lib/inventario-pos-catalogo";
 import {
-  contarInsumosConPrecioCarrito,
+  contarInsumosConPrecioCompra,
+  contarInsumosConPrecioHoja,
   formatPrecioCompraCop,
   mapaPreciosCarritoVacio,
-  precioCompraCarritoParaInsumo,
+  precioCompraParaInsumo,
   type MapaPreciosCarrito,
 } from "@/lib/precios-compra-carrito";
 import { reiniciarInventarioPuntoVenta } from "@/lib/reiniciar-inventario-client";
@@ -77,8 +78,10 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
   const [notasGlobales, setNotasGlobales] = useState("");
   /** cantidades a ingresar por id de ítem del catálogo */
   const [cantidades, setCantidades] = useState<Record<string, string>>({});
-  /** Precios oficiales desde hoja DB_Carrito (no editables en POS). */
-  const [mapaPreciosOficial, setMapaPreciosOficial] = useState<MapaPreciosCarrito>(() => mapaPreciosCarritoVacio());
+  /** Precios respaldo desde DB_Carrito (solo si falta PRECIO_COMPRA_UNITARIO en hoja insumos). */
+  const [mapaPreciosCarritoRespaldo, setMapaPreciosCarritoRespaldo] = useState<MapaPreciosCarrito>(() =>
+    mapaPreciosCarritoVacio()
+  );
 
   const [enviando, setEnviando] = useState(false);
   const [progreso, setProgreso] = useState<{ hecho: number; total: number } | null>(null);
@@ -116,19 +119,20 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
         setInsumos(items);
         setFuenteCat(sheetItems.length > 0 ? "sheet" : "firestore");
         if (sheet.sheetSetup) setSheetSetupAyuda(sheet.sheetSetup);
-        setMapaPreciosOficial(carritoPrecios.ok ? carritoPrecios.mapa : mapaPreciosCarritoVacio());
-        if (carritoPrecios.ok && carritoPrecios.totalCarrito > 0) {
-          const matched = contarInsumosConPrecioCarrito(items, carritoPrecios.mapa);
+        setMapaPreciosCarritoRespaldo(carritoPrecios.ok ? carritoPrecios.mapa : mapaPreciosCarritoVacio());
+        const desdeHoja = contarInsumosConPrecioHoja(items);
+        const totalPrecio = contarInsumosConPrecioCompra(items, carritoPrecios.mapa);
+        if (desdeHoja > 0) {
           setAvisoPreciosCarrito(
-            matched > 0
-              ? `${matched} producto(s) con precio de compra definido en la hoja DB_Carrito. No se puede modificar desde el POS.`
-              : `La hoja DB_Carrito tiene ${carritoPrecios.totalCarrito} precio(s), pero ninguno coincide con este catálogo. Revisá SKU_VINCULADO o el nombre en la hoja.`
+            `${desdeHoja} producto(s) con precio en DB_Franquicia_Insumos_Kit (columna PRECIO_COMPRA_UNITARIO). Solo lectura en POS.`
+          );
+        } else if (totalPrecio > 0) {
+          setAvisoPreciosCarrito(
+            `${totalPrecio} producto(s) usan precio de respaldo desde DB_Carrito. Completá PRECIO_COMPRA_UNITARIO en la hoja de insumos para precios por unidad/paquete correctos.`
           );
         } else {
           setAvisoPreciosCarrito(
-            carritoPrecios.message
-              ? `No se pudieron leer precios de DB_Carrito: ${carritoPrecios.message}`
-              : null
+            "Sin precios de compra. Agregá la columna PRECIO_COMPRA_UNITARIO en DB_Franquicia_Insumos_Kit (Google Sheet del catálogo POS)."
           );
         }
         if (!sheet.ok && sheet.message) {
@@ -138,10 +142,8 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
         }
         return;
       }
-      setMapaPreciosOficial(mapaPreciosCarritoVacio());
+      setMapaPreciosCarritoRespaldo(mapaPreciosCarritoVacio());
       setAvisoPreciosCarrito(null);
-      if (sheet.sheetSetup) setSheetSetupAyuda(sheet.sheetSetup);
-      setInsumos([]);
       setErrorCat(
         sheet.message ??
           `Sin ítems en hoja ni en «${CATALOGO_INSUMOS_KIT_COLLECTION}» para «${pv}».`
@@ -238,7 +240,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
       if (raw === "") continue;
       const n = parseFloat(raw);
       if (!Number.isFinite(n) || n <= 0) continue;
-      const p = precioCompraCarritoParaInsumo(it, mapaPreciosOficial);
+      const p = precioCompraParaInsumo(it, mapaPreciosCarritoRespaldo);
       if (p == null || p <= 0) {
         faltanPrecio.push(it.sku);
         continue;
@@ -252,7 +254,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
 
     if (faltanPrecio.length > 0) {
       setError(
-        `Estos productos tienen cantidad pero no tienen precio en la hoja DB_Carrito: ${faltanPrecio.slice(0, 8).join(", ")}${faltanPrecio.length > 8 ? "…" : ""}. Actualizá la hoja en el WMS.`
+        `Estos productos tienen cantidad pero no tienen precio (columna PRECIO_COMPRA_UNITARIO en DB_Franquicia_Insumos_Kit): ${faltanPrecio.slice(0, 8).join(", ")}${faltanPrecio.length > 8 ? "…" : ""}.`
       );
       return;
     }
@@ -309,7 +311,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
 
     const saldosR = await listarSaldosInventarioPorPuntoVenta(pv);
     setSaldoRows(saldosR);
-  }, [pv, uid, email, insumos, cantidades, mapaPreciosOficial, notasGlobales, fechaCargue]);
+  }, [pv, uid, email, insumos, cantidades, mapaPreciosCarritoRespaldo, notasGlobales, fechaCargue]);
 
   if (!pv) {
     return (
@@ -492,7 +494,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
                         className="inline-block min-w-[4.5rem] rounded border border-gray-200 bg-gray-50 px-2 py-1.5 font-mono text-sm tabular-nums text-gray-800"
                         aria-label={`Precio compra ${it.sku}`}
                       >
-                        {formatPrecioCompraCop(precioCompraCarritoParaInsumo(it, mapaPreciosOficial))}
+                        {formatPrecioCompraCop(precioCompraParaInsumo(it, mapaPreciosCarritoRespaldo))}
                       </span>
                     </td>
                   </tr>

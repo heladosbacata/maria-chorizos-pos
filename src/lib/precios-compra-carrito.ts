@@ -72,12 +72,47 @@ export function precioCompraCarritoParaInsumo(item: InsumoKitItem, mapa: MapaPre
   return null;
 }
 
-export function contarInsumosConPrecioCarrito(insumos: InsumoKitItem[], mapa: MapaPreciosCarrito): number {
+/** Precio definido en DB_Franquicia_Insumos_Kit (columna PRECIO_COMPRA_UNITARIO). */
+export function precioCompraDesdeHojaInsumo(item: InsumoKitItem): number | null {
+  const p = item.precioCompraUnitario;
+  if (p != null && Number.isFinite(p) && p > 0) return Math.round(p * 100) / 100;
+  return null;
+}
+
+/**
+ * Precio de compra para cargue inventario: primero hoja insumos, luego DB_Carrito (respaldo).
+ */
+export function precioCompraParaInsumo(
+  item: InsumoKitItem,
+  mapaCarrito: MapaPreciosCarrito = mapaPreciosCarritoVacio()
+): number | null {
+  const hoja = precioCompraDesdeHojaInsumo(item);
+  if (hoja != null) return hoja;
+  return precioCompraCarritoParaInsumo(item, mapaCarrito);
+}
+
+export function contarInsumosConPrecioHoja(insumos: InsumoKitItem[]): number {
   let n = 0;
   for (const it of insumos) {
-    if (precioCompraCarritoParaInsumo(it, mapa) != null) n += 1;
+    if (precioCompraDesdeHojaInsumo(it) != null) n += 1;
   }
   return n;
+}
+
+export function contarInsumosConPrecioCompra(
+  insumos: InsumoKitItem[],
+  mapaCarrito: MapaPreciosCarrito = mapaPreciosCarritoVacio()
+): number {
+  let n = 0;
+  for (const it of insumos) {
+    if (precioCompraParaInsumo(it, mapaCarrito) != null) n += 1;
+  }
+  return n;
+}
+
+/** @deprecated Usar contarInsumosConPrecioCompra */
+export function contarInsumosConPrecioCarrito(insumos: InsumoKitItem[], mapa: MapaPreciosCarrito): number {
+  return contarInsumosConPrecioCompra(insumos, mapa);
 }
 
 /** Precios de compra sugeridos por id de ítem del catálogo (solo filas con match en carrito). */
@@ -87,7 +122,7 @@ export function preciosCompraInicialesDesdeCarrito(
 ): Record<string, string> {
   const out: Record<string, string> = {};
   for (const it of insumos) {
-    const p = precioCompraCarritoParaInsumo(it, mapa);
+    const p = precioCompraParaInsumo(it, mapa);
     if (p != null) out[it.id] = String(p);
   }
   return out;

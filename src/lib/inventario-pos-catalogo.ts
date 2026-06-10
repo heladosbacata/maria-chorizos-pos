@@ -32,7 +32,21 @@ export function catalogoInsumosParaCargue(
   firestore: InsumoKitItem[]
 ): InsumoKitItem[] {
   const base = sheet.length > 0 ? mergeCatalogoInventarioBase(sheet, firestore) : firestore;
-  return filtrarCatalogoSoloInsumos(base);
+  const fsByKey = new Map<string, InsumoKitItem>();
+  for (const it of firestore) {
+    const k = normSkuInventario(it.sku) || normSkuInventario(it.id);
+    if (k) fsByKey.set(k, it);
+  }
+  const conPrecioFirestore = base.map((it) => {
+    if (it.precioCompraUnitario != null && it.precioCompraUnitario > 0) return it;
+    const k = normSkuInventario(it.sku) || normSkuInventario(it.id);
+    const fs = k ? fsByKey.get(k) : undefined;
+    if (fs?.precioCompraUnitario != null && fs.precioCompraUnitario > 0) {
+      return { ...it, precioCompraUnitario: fs.precioCompraUnitario };
+    }
+    return it;
+  });
+  return filtrarCatalogoSoloInsumos(conPrecioFirestore);
 }
 
 function inventarioIdDesdeSkuPos(sku: string): string {

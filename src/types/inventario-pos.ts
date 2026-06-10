@@ -17,6 +17,11 @@ export interface InsumoKitItem {
   minimoSugeridoSheet?: number;
   /** SKU del carrito de compras (columna SKU_VINCULADO / PT-* en DB_Carrito). */
   skuCarrito?: string;
+  /**
+   * Precio de compra para cargue inventario (columna PRECIO_COMPRA_UNITARIO en DB_Franquicia_Insumos_Kit).
+   * Según la columna Unidad del ítem: COP por unidad o por paquete.
+   */
+  precioCompraUnitario?: number;
 }
 
 export type TipoMovimientoInventario =

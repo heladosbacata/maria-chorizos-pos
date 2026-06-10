@@ -18,7 +18,7 @@ import {
 import {
   formatPrecioCompraCop,
   mapaPreciosCarritoVacio,
-  precioCompraCarritoParaInsumo,
+  precioCompraParaInsumo,
   type MapaPreciosCarrito,
 } from "@/lib/precios-compra-carrito";
 import { fetchMapaPreciosCarritoCompras } from "@/lib/wms-carrito-precios-client";
@@ -325,7 +325,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
 
   const precioOficialSel = useMemo(() => {
     if (!insumoSel) return null;
-    return precioCompraCarritoParaInsumo(insumoSel, preciosCarritoMap);
+    return precioCompraParaInsumo(insumoSel, preciosCarritoMap);
   }, [insumoSel, preciosCarritoMap]);
 
   const agregarLineaALista = () => {
@@ -347,7 +347,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
     }
     const precio = precioOficialSel;
     if (precio == null || precio <= 0) {
-      setError("Este producto no tiene precio de compra en la hoja DB_Carrito. Actualizalo en el WMS antes de cargar.");
+      setError("Este producto no tiene precio de compra. Completá PRECIO_COMPRA_UNITARIO en DB_Franquicia_Insumos_Kit.");
       return;
     }
     const ins = insumoSel;
@@ -605,8 +605,8 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
               Producto
             </h3>
             <p className="mt-1 text-xs text-gray-600">
-              Buscá y tocá un ítem del catálogo. A la derecha cargá cantidad y lote; el precio de compra viene fijo de la
-              hoja DB_Carrito y no se edita en el POS.
+              Buscá y tocá un ítem del catálogo. A la derecha cargá cantidad y lote; el precio de compra viene fijo de
+              DB_Franquicia_Insumos_Kit (PRECIO_COMPRA_UNITARIO) y no se edita en el POS.
             </p>
             {insumoSel && (
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-sm">
@@ -767,7 +767,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                 {insumoSel
                   ? precioOficialSel != null
                     ? formatPrecioCompraCop(precioOficialSel)
-                    : "Sin precio en DB_Carrito"
+                    : "Sin precio en hoja insumos"
                   : "—"}
               </p>
             </div>
