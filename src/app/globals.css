@@ -205,6 +205,53 @@ html.pos-viewport-scaled body {
   animation-delay: 1s;
 }
 
+/* Modal reinicio inventario (Cargue inventario) */
+@keyframes inv-reset-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes inv-reset-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-6px);
+  }
+}
+
+.inv-reset-card {
+  animation: inv-reset-card-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.inv-reset-glow {
+  animation: cobro-print-glow-pulse 3.2s ease-in-out infinite;
+}
+
+.inv-reset-glow-delayed {
+  animation: cobro-print-glow-pulse 4s ease-in-out infinite;
+  animation-delay: 0.5s;
+}
+
+.inv-reset-orbit-ring {
+  animation: cobro-print-ring 18s linear infinite;
+}
+
+.inv-reset-icon-float {
+  animation: inv-reset-float 3s ease-in-out infinite;
+}
+
+.inv-reset-sparkle {
+  animation: cobro-print-sparkle 2.2s ease-in-out infinite;
+}
+
 /* Cabecera premium caja — lluvia de hot dogs 3D */
 @keyframes posgeb-hotdog-rain {
   0% {

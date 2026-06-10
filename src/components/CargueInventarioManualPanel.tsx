@@ -15,6 +15,8 @@ import {
   listarMovimientosInventario,
   registrarMovimientoInventario,
 } from "@/lib/inventario-pos-firestore";
+import { precioCompraCarritoParaInsumo } from "@/lib/precios-compra-carrito";
+import { fetchMapaPreciosCarritoCompras } from "@/lib/wms-carrito-precios-client";
 import CargueCelebracionExito from "@/components/CargueCelebracionExito";
 import CargueInventarioMasivoPanel from "@/components/CargueInventarioMasivoPanel";
 import type { InsumoKitItem, InventarioMovimientoDoc } from "@/types/inventario-pos";
@@ -147,6 +149,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
   const [historialCargue, setHistorialCargue] = useState<Awaited<ReturnType<typeof listarMovimientosInventario>>>([]);
   const [cargandoHist, setCargandoHist] = useState(false);
   const [fuenteCat, setFuenteCat] = useState<"sheet" | "firestore" | null>(null);
+  const [preciosCarritoMap, setPreciosCarritoMap] = useState<Map<string, number>>(() => new Map());
 
   const [movDetalle, setMovDetalle] = useState<InventarioMovimientoDoc | null>(null);
   const [editCantidad, setEditCantidad] = useState("");
@@ -168,10 +171,12 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
     setErrorCat(null);
     setFuenteCat(null);
     try {
-      const [sheet, listaFs] = await Promise.all([
+      const [sheet, listaFs, carritoPrecios] = await Promise.all([
         fetchCatalogoInsumosDesdeSheet(pv),
         listarInsumosKitPorPuntoVenta(pv),
+        fetchMapaPreciosCarritoCompras(),
       ]);
+      setPreciosCarritoMap(carritoPrecios.ok ? carritoPrecios.mapa : new Map());
       const sheetItems = sheet.ok ? sheet.data : [];
       const items = catalogoInsumosParaCargue(sheetItems, listaFs);
       if (items.length > 0) {
@@ -313,6 +318,12 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
   const hayMasInsumosSinFiltro = tokensBusqueda.length === 0 && insumos.length > LISTA_SIN_FILTRO_MAX;
 
   const insumoSel = useMemo(() => insumos.find((i) => i.id === insumoId) ?? null, [insumos, insumoId]);
+
+  useEffect(() => {
+    if (!insumoSel || preciosCarritoMap.size === 0) return;
+    const p = precioCompraCarritoParaInsumo(insumoSel, preciosCarritoMap);
+    if (p != null) setPrecioLinea(String(p));
+  }, [insumoSel, preciosCarritoMap]);
 
   const agregarLineaALista = () => {
     setMensajeOk(null);
@@ -604,8 +615,8 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
               Producto
             </h3>
             <p className="mt-1 text-xs text-gray-600">
-              Buscá y tocá un ítem del catálogo. A la derecha cargá cantidad, lote y precio de compra por unidad, y pulsá
-              «Agregar a la lista».
+              Buscá y tocá un ítem del catálogo. A la derecha cargá cantidad, lote y precio de compra por unidad (se
+              sugiere desde el carrito de compras app/WMS), y pulsá «Agregar a la lista».
             </p>
             {insumoSel && (
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-sm">

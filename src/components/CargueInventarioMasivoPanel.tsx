@@ -14,7 +14,11 @@ import {
   normSkuInventario,
   registrarMovimientoInventario,
 } from "@/lib/inventario-pos-firestore";
+import ModalReiniciarInventarioConfirmacion from "@/components/ModalReiniciarInventarioConfirmacion";
 import { catalogoInsumosParaCargue } from "@/lib/inventario-pos-catalogo";
+import { mergePreciosCompraConCarrito } from "@/lib/precios-compra-carrito";
+import { reiniciarInventarioPuntoVenta } from "@/lib/reiniciar-inventario-client";
+import { fetchMapaPreciosCarritoCompras } from "@/lib/wms-carrito-precios-client";
 import type { InsumoKitItem } from "@/types/inventario-pos";
 
 export interface CargueInventarioMasivoPanelProps {
@@ -75,6 +79,9 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
   const [mensajeOk, setMensajeOk] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [resumenErrores, setResumenErrores] = useState<string[]>([]);
+  const [modalReinicioAbierto, setModalReinicioAbierto] = useState(false);
+  const [reiniciandoInventario, setReiniciandoInventario] = useState(false);
+  const [avisoPreciosCarrito, setAvisoPreciosCarrito] = useState<string | null>(null);
 
   const cargarTodo = useCallback(async () => {
     if (!pv) {
@@ -90,10 +97,11 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
     setFuenteCat(null);
     setSheetSetupAyuda(null);
     try {
-      const [sheet, saldosR, listaFs] = await Promise.all([
+      const [sheet, saldosR, listaFs, carritoPrecios] = await Promise.all([
         fetchCatalogoInsumosDesdeSheet(pv),
         listarSaldosInventarioPorPuntoVenta(pv),
         listarInsumosKitPorPuntoVenta(pv),
+        fetchMapaPreciosCarritoCompras(),
       ]);
       setSaldoRows(saldosR);
       const sheetItems = sheet.ok ? sheet.data : [];
@@ -102,6 +110,14 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
         setInsumos(items);
         setFuenteCat(sheetItems.length > 0 ? "sheet" : "firestore");
         if (sheet.sheetSetup) setSheetSetupAyuda(sheet.sheetSetup);
+        if (carritoPrecios.ok && carritoPrecios.total > 0) {
+          setPreciosCompra((prev) => mergePreciosCompraConCarrito(prev, items, carritoPrecios.mapa));
+          setAvisoPreciosCarrito(
+            `${carritoPrecios.total} precio(s) sugerido(s) desde el carrito de compras (app/WMS). Podés editarlos antes de registrar.`
+          );
+        } else {
+          setAvisoPreciosCarrito(null);
+        }
         if (!sheet.ok && sheet.message) {
           setErrorCat(
             `No se leyó la hoja (${sheet.message}). Catálogo Firestore «${CATALOGO_INSUMOS_KIT_COLLECTION}».`
@@ -109,6 +125,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
         }
         return;
       }
+      setAvisoPreciosCarrito(null);
       if (sheet.sheetSetup) setSheetSetupAyuda(sheet.sheetSetup);
       setInsumos([]);
       setErrorCat(
@@ -168,6 +185,36 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
     setMensajeOk(null);
     setResumenErrores([]);
   }, []);
+
+  const confirmarReinicioInventario = useCallback(async () => {
+    if (!pv) return;
+    setReiniciandoInventario(true);
+    setError(null);
+    setMensajeOk(null);
+    setResumenErrores([]);
+    try {
+      const r = await reiniciarInventarioPuntoVenta(pv);
+      if (!r.ok) {
+        setError(r.message);
+        return;
+      }
+      const saldosR = await listarSaldosInventarioPorPuntoVenta(pv);
+      setSaldoRows(saldosR);
+      setModalReinicioAbierto(false);
+      const mailTxt = r.correoEnviado
+        ? ` Se notificó a ${r.correoDestino ?? "el franquiciado"}.`
+        : r.avisoCorreo
+          ? ` ${r.avisoCorreo}`
+          : "";
+      setMensajeOk(
+        `Inventario reiniciado: ${r.resumen.legacyAjustados} ajuste(s) legacy, ${r.resumen.ensambleEnCero} saldo(s) ensamble en cero.${mailTxt}`
+      );
+    } catch {
+      setError("No se pudo reiniciar el inventario. Revisá la conexión e intentá de nuevo.");
+    } finally {
+      setReiniciandoInventario(false);
+    }
+  }, [pv]);
 
   const aplicarCargue = useCallback(async () => {
     if (!pv || !uid.trim()) return;
@@ -275,10 +322,10 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
         <h2 className="text-lg font-semibold text-gray-900">Cargue inicial del punto de venta</h2>
         <p className="mt-1 text-sm text-gray-600">
           Una sola tabla con <strong className="font-medium text-gray-800">todos</strong> los insumos del catálogo: completá
-          cantidad y precio de compra unitario (COP) en cada fila que entra. Las filas vacías o en cero se omiten. Para
-          cargue con{" "}
-          <strong className="font-medium">lote</strong> por producto o lista paso a paso, usá la pestaña{" "}
-          <strong className="font-medium">Cargue por producto y lote</strong>.
+          cantidad y precio de compra unitario (COP) en cada fila que entra. El precio de compra se sugiere automáticamente
+          desde el <strong className="font-medium">carrito de compras</strong> (app y WMS). Las filas vacías o en cero se
+          omiten. Para cargue con <strong className="font-medium">lote</strong> por producto o lista paso a paso, usá la
+          pestaña <strong className="font-medium">Cargue por producto y lote</strong>.
         </p>
       </div>
 
@@ -291,6 +338,12 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
 
       {errorCat && (
         <div className="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">{errorCat}</div>
+      )}
+
+      {avisoPreciosCarrito && (
+        <div className="shrink-0 rounded-lg border border-blue-200 bg-blue-50/90 px-4 py-3 text-sm text-blue-950">
+          {avisoPreciosCarrito}
+        </div>
       )}
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
@@ -344,12 +397,30 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
           <button
             type="button"
             onClick={() => void aplicarCargue()}
-            disabled={enviando || cargando || insumos.length === 0}
+            disabled={enviando || cargando || reiniciandoInventario || insumos.length === 0}
             className="rounded-lg bg-primary-600 px-5 py-2 text-sm font-semibold text-white shadow-sm hover:bg-primary-700 disabled:opacity-50"
           >
             {enviando ? "Registrando…" : "Registrar cargue"}
           </button>
+          <button
+            type="button"
+            onClick={() => setModalReinicioAbierto(true)}
+            disabled={enviando || cargando || reiniciandoInventario}
+            className="rounded-lg border border-red-300 bg-red-50 px-5 py-2 text-sm font-semibold text-red-800 shadow-sm hover:bg-red-100 disabled:opacity-50"
+          >
+            Reiniciar inventario
+          </button>
         </div>
+
+        <ModalReiniciarInventarioConfirmacion
+          open={modalReinicioAbierto}
+          puntoVenta={pv}
+          procesando={reiniciandoInventario}
+          onCancelar={() => {
+            if (!reiniciandoInventario) setModalReinicioAbierto(false);
+          }}
+          onConfirmar={() => void confirmarReinicioInventario()}
+        />
 
         {progreso && enviando && (
           <div className="shrink-0 border-b border-gray-100 bg-brand-yellow/15 px-4 py-2 text-sm text-gray-800">
