@@ -5,7 +5,6 @@ import {
   fetchCatalogoInsumosDesdeSheet,
   type CatalogoSheetSetupHint,
 } from "@/lib/catalogo-insumos-sheet-client";
-import { getCatalogoPOS } from "@/lib/catalogo-pos";
 import { ymdColombia } from "@/lib/fecha-colombia";
 import {
   CATALOGO_INSUMOS_KIT_COLLECTION,
@@ -15,7 +14,7 @@ import {
   normSkuInventario,
   registrarMovimientoInventario,
 } from "@/lib/inventario-pos-firestore";
-import { mergeCatalogoInventarioBase, mergeCatalogoInventarioConProductosPos } from "@/lib/inventario-pos-catalogo";
+import { catalogoInsumosParaCargue } from "@/lib/inventario-pos-catalogo";
 import type { InsumoKitItem } from "@/types/inventario-pos";
 
 export interface CargueInventarioMasivoPanelProps {
@@ -61,9 +60,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
   const [cargando, setCargando] = useState(true);
   const [errorCat, setErrorCat] = useState<string | null>(null);
   const [sheetSetupAyuda, setSheetSetupAyuda] = useState<CatalogoSheetSetupHint | null>(null);
-  const [fuenteCat, setFuenteCat] = useState<"sheet" | "firestore" | "wms" | null>(null);
-  const [incluyeCatalogoPos, setIncluyeCatalogoPos] = useState(false);
-  const [productosPosAgregados, setProductosPosAgregados] = useState(0);
+  const [fuenteCat, setFuenteCat] = useState<"sheet" | "firestore" | null>(null);
 
   const [busqueda, setBusqueda] = useState("");
   const [fechaCargue, setFechaCargue] = useState(() => ymdColombia());
@@ -85,8 +82,6 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
       setSaldoRows([]);
       setCargando(false);
       setFuenteCat(null);
-      setIncluyeCatalogoPos(false);
-      setProductosPosAgregados(0);
       setErrorCat("No hay punto de venta asignado en tu perfil.");
       return;
     }
@@ -95,39 +90,26 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
     setFuenteCat(null);
     setSheetSetupAyuda(null);
     try {
-      const [sheet, saldosR, posRes, listaFs] = await Promise.all([
+      const [sheet, saldosR, listaFs] = await Promise.all([
         fetchCatalogoInsumosDesdeSheet(pv),
         listarSaldosInventarioPorPuntoVenta(pv),
-        getCatalogoPOS(null, pv),
         listarInsumosKitPorPuntoVenta(pv),
       ]);
-      const productosPos = posRes.ok ? posRes.productos ?? [] : [];
       setSaldoRows(saldosR);
-      setIncluyeCatalogoPos(productosPos.length > 0);
-      if (sheet.ok && sheet.data.length > 0) {
-        const mergedBase = mergeCatalogoInventarioBase(sheet.data, listaFs);
-        const merged = mergeCatalogoInventarioConProductosPos(mergedBase, productosPos);
-        setInsumos(merged.items);
-        setFuenteCat("sheet");
-        setProductosPosAgregados(merged.agregados);
+      const sheetItems = sheet.ok ? sheet.data : [];
+      const items = catalogoInsumosParaCargue(sheetItems, listaFs);
+      if (items.length > 0) {
+        setInsumos(items);
+        setFuenteCat(sheetItems.length > 0 ? "sheet" : "firestore");
         if (sheet.sheetSetup) setSheetSetupAyuda(sheet.sheetSetup);
-        return;
-      }
-      if (sheet.sheetSetup) setSheetSetupAyuda(sheet.sheetSetup);
-      const merged = mergeCatalogoInventarioConProductosPos(listaFs, productosPos);
-      if (merged.items.length > 0) {
-        setInsumos(merged.items);
-        setFuenteCat(listaFs.length > 0 ? "firestore" : productosPos.length > 0 ? "wms" : "firestore");
-        setProductosPosAgregados(merged.agregados);
         if (!sheet.ok && sheet.message) {
           setErrorCat(
             `No se leyó la hoja (${sheet.message}). Catálogo Firestore «${CATALOGO_INSUMOS_KIT_COLLECTION}».`
           );
-        } else if (listaFs.length === 0 && productosPos.length > 0) {
-          setErrorCat("No hubo catálogo base de insumos; se muestra el catálogo POS (DB_POS_Productos / WMS) para permitir el cargue.");
         }
         return;
       }
+      if (sheet.sheetSetup) setSheetSetupAyuda(sheet.sheetSetup);
       setInsumos([]);
       setErrorCat(
         sheet.message ??
@@ -136,8 +118,6 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
     } catch {
       setErrorCat("No se pudo cargar el catálogo.");
       setInsumos([]);
-      setIncluyeCatalogoPos(false);
-      setProductosPosAgregados(0);
     } finally {
       setCargando(false);
     }
@@ -455,14 +435,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
         {fuenteCat && insumos.length > 0 && (
           <div className="shrink-0 border-t border-gray-100 bg-gray-50 px-4 py-2">
             <p className="text-xs text-gray-500">
-              Catálogo:{" "}
-              {fuenteCat === "sheet"
-                ? "hoja Google"
-                : fuenteCat === "firestore"
-                  ? "Firestore"
-                  : "DB_POS_Productos / WMS"}
-              {incluyeCatalogoPos && fuenteCat !== "wms" ? " + catálogo POS (WMS)" : ""}
-              {productosPosAgregados > 0 ? ` · ${productosPosAgregados} producto(s) POS agregados` : ""}
+              Catálogo: {fuenteCat === "sheet" ? "hoja Google" : "Firestore"} (solo insumos, sin ensambles POS)
               {" · "}
               {insumosFiltrados.length} de {insumos.length} filas mostradas
               {busqueda.trim() ? " (filtro activo)" : ""}.

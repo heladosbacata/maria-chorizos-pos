@@ -3,6 +3,38 @@ import { normSkuInventario } from "@/lib/inventario-pos-firestore";
 import type { ProductoPOS } from "@/types";
 import type { InsumoKitItem } from "@/types/inventario-pos";
 
+const CATEGORIA_POS_PRODUCTOS = "db_pos_productos";
+
+/** Rubros de catálogo que representan productos de venta/ensamble, no insumos cargables. */
+const RUBRO_ENSAMBLE_RE = /\b(ensamble|combo|paquete|producto\s*pos|producto\s*terminado|venta|bebida|combo|paquetes)\b/i;
+
+/** Ítem derivado del catálogo POS o marcado como ensamble/paquete (no es insumo cargable). */
+export function itemEsEnsambleOCatalogoPos(item: InsumoKitItem): boolean {
+  const cat = (item.categoria ?? "").trim();
+  const catNorm = cat.toLowerCase().replace(/\s+/g, " ");
+  if (catNorm === CATEGORIA_POS_PRODUCTOS) return true;
+  if (cat && RUBRO_ENSAMBLE_RE.test(cat)) return true;
+  // Variantes POS: «SKU · Etiqueta» (p. ej. GAS-PV-6 · Con Gas).
+  if (/\s·\s/.test(item.sku)) return true;
+  return false;
+}
+
+/** Solo insumos del kit/franquicia; excluye ensambles y productos del catálogo POS. */
+export function filtrarCatalogoSoloInsumos(items: InsumoKitItem[]): InsumoKitItem[] {
+  return items.filter((item) => !itemEsEnsambleOCatalogoPos(item));
+}
+
+/**
+ * Catálogo para cargue de inventario: hoja + Firestore, sin mezclar productos POS (ensambles).
+ */
+export function catalogoInsumosParaCargue(
+  sheet: InsumoKitItem[],
+  firestore: InsumoKitItem[]
+): InsumoKitItem[] {
+  const base = sheet.length > 0 ? mergeCatalogoInventarioBase(sheet, firestore) : firestore;
+  return filtrarCatalogoSoloInsumos(base);
+}
+
 function inventarioIdDesdeSkuPos(sku: string): string {
   return sku.trim();
 }
