@@ -11,10 +11,10 @@ import {
   cantidadSaldoParaInsumoKit,
   listarInsumosKitPorPuntoVenta,
   listarSaldosInventarioPorPuntoVenta,
-  normSkuInventario,
   registrarMovimientoInventario,
 } from "@/lib/inventario-pos-firestore";
 import ModalReiniciarInventarioConfirmacion from "@/components/ModalReiniciarInventarioConfirmacion";
+import ModalInformeInventarioActual from "@/components/ModalInformeInventarioActual";
 import { catalogoInsumosParaCargue } from "@/lib/inventario-pos-catalogo";
 import {
   contarInsumosConPrecioCompra,
@@ -40,27 +40,6 @@ function textoBusquedaFold(s: string): string {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .trim();
-}
-
-function costoUnitarioReferenciaParaInsumoKit(
-  item: InsumoKitItem,
-  rows: Awaited<ReturnType<typeof listarSaldosInventarioPorPuntoVenta>>
-): number | null {
-  const k = normSkuInventario(item.sku);
-  if (k) {
-    for (const r of rows) {
-      if (normSkuInventario(r.insumoSku) === k || normSkuInventario(r.insumoId) === k) {
-        const c = Number(r.costoUnitarioPromedio);
-        return Number.isFinite(c) && c > 0 ? c : null;
-      }
-    }
-  }
-  const direct = rows.find((r) => r.insumoId === item.id);
-  if (direct) {
-    const c = Number(direct.costoUnitarioPromedio);
-    return Number.isFinite(c) && c > 0 ? c : null;
-  }
-  return null;
 }
 
 export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: CargueInventarioMasivoPanelProps) {
@@ -89,6 +68,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
   const [error, setError] = useState<string | null>(null);
   const [resumenErrores, setResumenErrores] = useState<string[]>([]);
   const [modalReinicioAbierto, setModalReinicioAbierto] = useState(false);
+  const [modalInformeInventarioAbierto, setModalInformeInventarioAbierto] = useState(false);
   const [reiniciandoInventario, setReiniciandoInventario] = useState(false);
   const [avisoPreciosCarrito, setAvisoPreciosCarrito] = useState<string | null>(null);
 
@@ -181,11 +161,23 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
     let total = 0;
     for (const it of insumos) {
       const saldo = cantidadSaldoParaInsumoKit(it, saldoRows);
-      const costo = costoUnitarioReferenciaParaInsumoKit(it, saldoRows);
-      if (costo != null && Number.isFinite(saldo)) total += saldo * costo;
+      const precio = precioCompraParaInsumo(it, mapaPreciosCarritoRespaldo);
+      if (precio != null && Number.isFinite(saldo) && saldo > 0) total += saldo * precio;
     }
     return Math.round(total);
-  }, [insumos, saldoRows]);
+  }, [insumos, saldoRows, mapaPreciosCarritoRespaldo]);
+
+  function valorStockProducto(it: InsumoKitItem): number | null {
+    const saldo = cantidadSaldoParaInsumoKit(it, saldoRows);
+    const precio = precioCompraParaInsumo(it, mapaPreciosCarritoRespaldo);
+    if (precio == null || precio <= 0 || !Number.isFinite(saldo) || saldo <= 0) return null;
+    return Math.round(saldo * precio);
+  }
+
+  function formatValorStockCop(n: number | null): string {
+    if (n == null || !Number.isFinite(n) || n <= 0) return "—";
+    return n.toLocaleString("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 });
+  }
 
   const setCantidad = useCallback((id: string, raw: string) => {
     setCantidades((prev) => ({ ...prev, [id]: raw }));
@@ -427,6 +419,17 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
           onConfirmar={() => void confirmarReinicioInventario()}
         />
 
+        <ModalInformeInventarioActual
+          open={modalInformeInventarioAbierto}
+          onClose={() => setModalInformeInventarioAbierto(false)}
+          puntoVenta={pv}
+          insumos={insumos}
+          saldoRows={saldoRows}
+          mapaPreciosCarrito={mapaPreciosCarritoRespaldo}
+          fuenteCatalogo={fuenteCat}
+          emailSesion={email}
+        />
+
         {progreso && enviando && (
           <div className="shrink-0 border-b border-gray-100 bg-brand-yellow/15 px-4 py-2 text-sm text-gray-800">
             Progreso: {progreso.hecho} / {progreso.total}…
@@ -455,7 +458,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
           ) : insumos.length === 0 ? (
             <p className="p-8 text-center text-gray-500">No hay ítems para mostrar.</p>
           ) : (
-            <table className="w-full min-w-[880px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[980px] border-collapse text-left text-sm">
               <thead className="sticky top-0 z-[1] bg-gray-100 shadow-sm">
                 <tr>
                   <th className="border-b border-gray-200 px-3 py-2 font-semibold text-gray-800">Código</th>
@@ -463,8 +466,11 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
                   <th className="border-b border-gray-200 px-3 py-2 font-semibold text-gray-800">Unidad</th>
                   <th className="w-28 border-b border-gray-200 px-3 py-2 text-right font-semibold text-gray-800">Saldo actual</th>
                   <th className="w-36 border-b border-gray-200 px-3 py-2 font-semibold text-gray-800">Cantidad a cargar</th>
-                  <th className="w-40 border-b border-gray-200 px-3 py-2 font-semibold text-gray-800">
+                  <th className="w-40 border-b border-gray-200 px-3 py-2 text-right font-semibold text-gray-800">
                     Precio compra COP/u.
+                  </th>
+                  <th className="w-40 border-b border-gray-200 px-3 py-2 text-right font-semibold text-gray-800">
+                    Valor en stock
                   </th>
                 </tr>
               </thead>
@@ -497,6 +503,14 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
                         {formatPrecioCompraCop(precioCompraParaInsumo(it, mapaPreciosCarritoRespaldo))}
                       </span>
                     </td>
+                    <td className="px-3 py-2 text-right">
+                      <span
+                        className="inline-block min-w-[5rem] font-mono text-sm tabular-nums text-gray-800"
+                        aria-label={`Valor en stock ${it.sku}`}
+                      >
+                        {formatValorStockCop(valorStockProducto(it))}
+                      </span>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -512,18 +526,28 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
               {insumosFiltrados.length} de {insumos.length} filas mostradas
               {busqueda.trim() ? " (filtro activo)" : ""}.
             </p>
-            <p className="mt-1 text-sm font-medium text-gray-800">
-              Total inventario actual (punto de venta):{" "}
-              <span className="tabular-nums">{totalSaldoActualPv.toLocaleString("es-CO", { maximumFractionDigits: 3 })}</span>
-              {" · "}
-              Valor aprox.:{" "}
-              <span className="tabular-nums">
-                {totalInventarioValorizadoPv.toLocaleString("es-CO", {
-                  style: "currency",
-                  currency: "COP",
-                  maximumFractionDigits: 0,
-                })}
+            <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-2 text-sm font-medium text-gray-800">
+              <span>
+                Total inventario actual (punto de venta):{" "}
+                <span className="tabular-nums">{totalSaldoActualPv.toLocaleString("es-CO", { maximumFractionDigits: 3 })}</span>
+                {" · "}
+                Valor en stock (precio compra × saldo):{" "}
+                <span className="tabular-nums">
+                  {totalInventarioValorizadoPv.toLocaleString("es-CO", {
+                    style: "currency",
+                    currency: "COP",
+                    maximumFractionDigits: 0,
+                  })}
+                </span>
               </span>
+              <button
+                type="button"
+                onClick={() => setModalInformeInventarioAbierto(true)}
+                disabled={cargando || insumos.length === 0}
+                className="rounded-lg border border-primary-300 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-900 shadow-sm hover:bg-primary-100 disabled:opacity-50"
+              >
+                Informe PDF / correo
+              </button>
             </p>
           </div>
         )}
