@@ -15,7 +15,12 @@ import {
   listarMovimientosInventario,
   registrarMovimientoInventario,
 } from "@/lib/inventario-pos-firestore";
-import { precioCompraCarritoParaInsumo } from "@/lib/precios-compra-carrito";
+import {
+  formatPrecioCompraCop,
+  mapaPreciosCarritoVacio,
+  precioCompraCarritoParaInsumo,
+  type MapaPreciosCarrito,
+} from "@/lib/precios-compra-carrito";
 import { fetchMapaPreciosCarritoCompras } from "@/lib/wms-carrito-precios-client";
 import CargueCelebracionExito from "@/components/CargueCelebracionExito";
 import CargueInventarioMasivoPanel from "@/components/CargueInventarioMasivoPanel";
@@ -137,7 +142,6 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
   const [fechaCargue, setFechaCargue] = useState(fechaHoyIsoColombia);
   const [cantidad, setCantidad] = useState("");
   const [loteLinea, setLoteLinea] = useState("");
-  const [precioLinea, setPrecioLinea] = useState("");
   const [lineasCargue, setLineasCargue] = useState<LineaCargueBorrador[]>([]);
   const [anotaciones, setAnotaciones] = useState("");
   const [enviando, setEnviando] = useState(false);
@@ -149,7 +153,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
   const [historialCargue, setHistorialCargue] = useState<Awaited<ReturnType<typeof listarMovimientosInventario>>>([]);
   const [cargandoHist, setCargandoHist] = useState(false);
   const [fuenteCat, setFuenteCat] = useState<"sheet" | "firestore" | null>(null);
-  const [preciosCarritoMap, setPreciosCarritoMap] = useState<Map<string, number>>(() => new Map());
+  const [preciosCarritoMap, setPreciosCarritoMap] = useState<MapaPreciosCarrito>(() => mapaPreciosCarritoVacio());
 
   const [movDetalle, setMovDetalle] = useState<InventarioMovimientoDoc | null>(null);
   const [editCantidad, setEditCantidad] = useState("");
@@ -176,7 +180,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
         listarInsumosKitPorPuntoVenta(pv),
         fetchMapaPreciosCarritoCompras(),
       ]);
-      setPreciosCarritoMap(carritoPrecios.ok ? carritoPrecios.mapa : new Map());
+      setPreciosCarritoMap(carritoPrecios.ok ? carritoPrecios.mapa : mapaPreciosCarritoVacio());
       const sheetItems = sheet.ok ? sheet.data : [];
       const items = catalogoInsumosParaCargue(sheetItems, listaFs);
       if (items.length > 0) {
@@ -319,10 +323,9 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
 
   const insumoSel = useMemo(() => insumos.find((i) => i.id === insumoId) ?? null, [insumos, insumoId]);
 
-  useEffect(() => {
-    if (!insumoSel || preciosCarritoMap.size === 0) return;
-    const p = precioCompraCarritoParaInsumo(insumoSel, preciosCarritoMap);
-    if (p != null) setPrecioLinea(String(p));
+  const precioOficialSel = useMemo(() => {
+    if (!insumoSel) return null;
+    return precioCompraCarritoParaInsumo(insumoSel, preciosCarritoMap);
   }, [insumoSel, preciosCarritoMap]);
 
   const agregarLineaALista = () => {
@@ -342,9 +345,9 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
       setError("Indicá el lote del paquete que llegó.");
       return;
     }
-    const precio = parseFloat(precioLinea.replace(/,/g, "."));
-    if (!Number.isFinite(precio) || precio <= 0) {
-      setError("Indicá el precio de compra unitario (COP, mayor que cero).");
+    const precio = precioOficialSel;
+    if (precio == null || precio <= 0) {
+      setError("Este producto no tiene precio de compra en la hoja DB_Carrito. Actualizalo en el WMS antes de cargar.");
       return;
     }
     const ins = insumoSel;
@@ -353,14 +356,10 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
       if (idx >= 0) {
         const next = [...prev];
         const row = next[idx]!;
-        const q0 = row.cantidad;
-        const p0 = row.precioCompraUnitario;
-        const newQ = q0 + cant;
-        const prom = newQ > 0 ? (q0 * p0 + cant * precio) / newQ : precio;
         next[idx] = {
           ...row,
-          cantidad: newQ,
-          precioCompraUnitario: Math.round(prom * 100) / 100,
+          cantidad: row.cantidad + cant,
+          precioCompraUnitario: precio,
         };
         return next;
       }
@@ -371,14 +370,13 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
           insumo: ins,
           cantidad: cant,
           lote: loteNorm,
-          precioCompraUnitario: Math.round(precio * 100) / 100,
+          precioCompraUnitario: precio,
         },
       ];
     });
     setInsumoId("");
     setCantidad("");
     setLoteLinea("");
-    setPrecioLinea("");
     setBusqueda("");
     setPanelSugerenciasAbierto(false);
   };
@@ -399,14 +397,6 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
     const lote = raw.trim();
     if (!lote) return;
     setLineasCargue((prev) => prev.map((l) => (l.key === key ? { ...l, lote } : l)));
-  };
-
-  const actualizarPrecioCompraLinea = (key: string, raw: string) => {
-    const p = parseFloat(raw.replace(/,/g, "."));
-    if (!Number.isFinite(p) || p <= 0) return;
-    setLineasCargue((prev) =>
-      prev.map((l) => (l.key === key ? { ...l, precioCompraUnitario: Math.round(p * 100) / 100 } : l))
-    );
   };
 
   const registrar = async () => {
@@ -615,8 +605,8 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
               Producto
             </h3>
             <p className="mt-1 text-xs text-gray-600">
-              Buscá y tocá un ítem del catálogo. A la derecha cargá cantidad, lote y precio de compra por unidad (se
-              sugiere desde el carrito de compras app/WMS), y pulsá «Agregar a la lista».
+              Buscá y tocá un ítem del catálogo. A la derecha cargá cantidad y lote; el precio de compra viene fijo de la
+              hoja DB_Carrito y no se edita en el POS.
             </p>
             {insumoSel && (
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-sm">
@@ -762,19 +752,24 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
               </div>
             </div>
             <div className="mt-3">
-              <label className="block text-sm font-semibold text-gray-800">
-                Precio de compra (COP / unidad) <span className="text-red-600">*</span>
-              </label>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={precioLinea}
-                onChange={(e) => setPrecioLinea(e.target.value)}
-                placeholder={insumoSel ? "Ej. 8500" : "—"}
-                disabled={!insumoSel}
-                autoComplete="off"
-                className="mt-2 w-full rounded-xl border-2 border-gray-200 bg-white px-3 py-3 text-base tabular-nums focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:bg-gray-100 disabled:text-gray-400 sm:px-4"
-              />
+              <p className="block text-sm font-semibold text-gray-800">
+                Precio de compra (COP / unidad)
+              </p>
+              <p
+                className={`mt-2 rounded-xl border-2 px-3 py-3 text-base tabular-nums sm:px-4 ${
+                  insumoSel
+                    ? precioOficialSel != null
+                      ? "border-gray-200 bg-gray-50 text-gray-900"
+                      : "border-amber-200 bg-amber-50 text-amber-950"
+                    : "border-gray-200 bg-gray-100 text-gray-400"
+                }`}
+              >
+                {insumoSel
+                  ? precioOficialSel != null
+                    ? formatPrecioCompraCop(precioOficialSel)
+                    : "Sin precio en DB_Carrito"
+                  : "—"}
+              </p>
             </div>
             {insumoSel ? (
               <p className="mt-3 text-sm text-gray-700">
@@ -788,7 +783,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
             <button
               type="button"
               onClick={agregarLineaALista}
-              disabled={cargandoCat || !insumoSel}
+              disabled={cargandoCat || !insumoSel || precioOficialSel == null}
               className="mt-5 w-full rounded-xl border-2 border-primary-600 bg-primary-600 py-3.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-primary-700 disabled:border-gray-300 disabled:bg-gray-200 disabled:text-gray-500 disabled:opacity-90"
             >
               Agregar a la lista
@@ -863,23 +858,8 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                           aria-label={`Lote ${line.insumo.sku}`}
                         />
                       </td>
-                      <td className="px-3 py-2 text-right align-middle">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          defaultValue={String(line.precioCompraUnitario)}
-                          key={`${line.key}-p-${line.precioCompraUnitario}`}
-                          onBlur={(e) => {
-                            const n = parseFloat(e.target.value.replace(/,/g, "."));
-                            if (Number.isFinite(n) && n > 0) {
-                              actualizarPrecioCompraLinea(line.key, e.target.value);
-                            } else {
-                              e.currentTarget.value = String(line.precioCompraUnitario);
-                            }
-                          }}
-                          className="w-full min-w-[5rem] rounded-lg border border-gray-300 px-2 py-1.5 text-right text-sm tabular-nums focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-200"
-                          aria-label={`Precio compra ${line.insumo.sku}`}
-                        />
+                      <td className="px-3 py-2 text-right align-middle tabular-nums text-gray-800">
+                        {formatPrecioCompraCop(line.precioCompraUnitario)}
                       </td>
                       <td className="px-3 py-2 align-middle">
                         <button

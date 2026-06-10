@@ -16,7 +16,13 @@ import {
 } from "@/lib/inventario-pos-firestore";
 import ModalReiniciarInventarioConfirmacion from "@/components/ModalReiniciarInventarioConfirmacion";
 import { catalogoInsumosParaCargue } from "@/lib/inventario-pos-catalogo";
-import { mergePreciosCompraConCarrito } from "@/lib/precios-compra-carrito";
+import {
+  contarInsumosConPrecioCarrito,
+  formatPrecioCompraCop,
+  mapaPreciosCarritoVacio,
+  precioCompraCarritoParaInsumo,
+  type MapaPreciosCarrito,
+} from "@/lib/precios-compra-carrito";
 import { reiniciarInventarioPuntoVenta } from "@/lib/reiniciar-inventario-client";
 import { fetchMapaPreciosCarritoCompras } from "@/lib/wms-carrito-precios-client";
 import type { InsumoKitItem } from "@/types/inventario-pos";
@@ -71,8 +77,8 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
   const [notasGlobales, setNotasGlobales] = useState("");
   /** cantidades a ingresar por id de ítem del catálogo */
   const [cantidades, setCantidades] = useState<Record<string, string>>({});
-  /** precio de compra unitario (COP) por id cuando hay cantidad */
-  const [preciosCompra, setPreciosCompra] = useState<Record<string, string>>({});
+  /** Precios oficiales desde hoja DB_Carrito (no editables en POS). */
+  const [mapaPreciosOficial, setMapaPreciosOficial] = useState<MapaPreciosCarrito>(() => mapaPreciosCarritoVacio());
 
   const [enviando, setEnviando] = useState(false);
   const [progreso, setProgreso] = useState<{ hecho: number; total: number } | null>(null);
@@ -110,13 +116,20 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
         setInsumos(items);
         setFuenteCat(sheetItems.length > 0 ? "sheet" : "firestore");
         if (sheet.sheetSetup) setSheetSetupAyuda(sheet.sheetSetup);
-        if (carritoPrecios.ok && carritoPrecios.total > 0) {
-          setPreciosCompra((prev) => mergePreciosCompraConCarrito(prev, items, carritoPrecios.mapa));
+        setMapaPreciosOficial(carritoPrecios.ok ? carritoPrecios.mapa : mapaPreciosCarritoVacio());
+        if (carritoPrecios.ok && carritoPrecios.totalCarrito > 0) {
+          const matched = contarInsumosConPrecioCarrito(items, carritoPrecios.mapa);
           setAvisoPreciosCarrito(
-            `${carritoPrecios.total} precio(s) sugerido(s) desde el carrito de compras (app/WMS). Podés editarlos antes de registrar.`
+            matched > 0
+              ? `${matched} producto(s) con precio de compra definido en la hoja DB_Carrito. No se puede modificar desde el POS.`
+              : `La hoja DB_Carrito tiene ${carritoPrecios.totalCarrito} precio(s), pero ninguno coincide con este catálogo. Revisá SKU_VINCULADO o el nombre en la hoja.`
           );
         } else {
-          setAvisoPreciosCarrito(null);
+          setAvisoPreciosCarrito(
+            carritoPrecios.message
+              ? `No se pudieron leer precios de DB_Carrito: ${carritoPrecios.message}`
+              : null
+          );
         }
         if (!sheet.ok && sheet.message) {
           setErrorCat(
@@ -125,6 +138,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
         }
         return;
       }
+      setMapaPreciosOficial(mapaPreciosCarritoVacio());
       setAvisoPreciosCarrito(null);
       if (sheet.sheetSetup) setSheetSetupAyuda(sheet.sheetSetup);
       setInsumos([]);
@@ -175,13 +189,8 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
     setCantidades((prev) => ({ ...prev, [id]: raw }));
   }, []);
 
-  const setPrecioCompra = useCallback((id: string, raw: string) => {
-    setPreciosCompra((prev) => ({ ...prev, [id]: raw }));
-  }, []);
-
   const limpiarCantidades = useCallback(() => {
     setCantidades({});
-    setPreciosCompra({});
     setMensajeOk(null);
     setResumenErrores([]);
   }, []);
@@ -229,22 +238,21 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
       if (raw === "") continue;
       const n = parseFloat(raw);
       if (!Number.isFinite(n) || n <= 0) continue;
-      const rawP = (preciosCompra[it.id] ?? "").trim().replace(/,/g, ".");
-      const p = parseFloat(rawP);
-      if (!Number.isFinite(p) || p <= 0) {
+      const p = precioCompraCarritoParaInsumo(it, mapaPreciosOficial);
+      if (p == null || p <= 0) {
         faltanPrecio.push(it.sku);
         continue;
       }
       lineas.push({
         insumo: it,
         cantidad: Math.round(n * 1000) / 1000,
-        precioCompraUnitario: Math.round(p * 100) / 100,
+        precioCompraUnitario: p,
       });
     }
 
     if (faltanPrecio.length > 0) {
       setError(
-        `Cada producto con cantidad debe tener precio de compra unitario (COP > 0). Revisá: ${faltanPrecio.slice(0, 8).join(", ")}${faltanPrecio.length > 8 ? "…" : ""}.`
+        `Estos productos tienen cantidad pero no tienen precio en la hoja DB_Carrito: ${faltanPrecio.slice(0, 8).join(", ")}${faltanPrecio.length > 8 ? "…" : ""}. Actualizá la hoja en el WMS.`
       );
       return;
     }
@@ -296,17 +304,12 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
           delete n[insumo.id];
           return n;
         });
-        setPreciosCompra((prev) => {
-          const n = { ...prev };
-          delete n[insumo.id];
-          return n;
-        });
       }
     }
 
     const saldosR = await listarSaldosInventarioPorPuntoVenta(pv);
     setSaldoRows(saldosR);
-  }, [pv, uid, email, insumos, cantidades, preciosCompra, notasGlobales, fechaCargue]);
+  }, [pv, uid, email, insumos, cantidades, mapaPreciosOficial, notasGlobales, fechaCargue]);
 
   if (!pv) {
     return (
@@ -322,10 +325,10 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
         <h2 className="text-lg font-semibold text-gray-900">Cargue inicial del punto de venta</h2>
         <p className="mt-1 text-sm text-gray-600">
           Una sola tabla con <strong className="font-medium text-gray-800">todos</strong> los insumos del catálogo: completá
-          cantidad y precio de compra unitario (COP) en cada fila que entra. El precio de compra se sugiere automáticamente
-          desde el <strong className="font-medium">carrito de compras</strong> (app y WMS). Las filas vacías o en cero se
-          omiten. Para cargue con <strong className="font-medium">lote</strong> por producto o lista paso a paso, usá la
-          pestaña <strong className="font-medium">Cargue por producto y lote</strong>.
+          cantidad en cada fila que entra. El <strong className="font-medium">precio de compra</strong> viene fijo de la hoja{" "}
+          <strong className="font-medium">DB_Carrito</strong> (WMS) y no se puede editar en el POS. Las filas vacías o en
+          cero se omiten. Para cargue con <strong className="font-medium">lote</strong> por producto, usá la pestaña{" "}
+          <strong className="font-medium">Cargue por producto y lote</strong>.
         </p>
       </div>
 
@@ -392,7 +395,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
             disabled={enviando}
             className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
-            Limpiar cantidades y precios
+            Limpiar cantidades
           </button>
           <button
             type="button"
@@ -459,7 +462,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
                   <th className="w-28 border-b border-gray-200 px-3 py-2 text-right font-semibold text-gray-800">Saldo actual</th>
                   <th className="w-36 border-b border-gray-200 px-3 py-2 font-semibold text-gray-800">Cantidad a cargar</th>
                   <th className="w-40 border-b border-gray-200 px-3 py-2 font-semibold text-gray-800">
-                    Precio compra COP/u. <span className="text-red-600">*</span>
+                    Precio compra COP/u.
                   </th>
                 </tr>
               </thead>
@@ -484,17 +487,13 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
                         aria-label={`Cantidad cargue ${it.sku}`}
                       />
                     </td>
-                    <td className="px-3 py-2">
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={preciosCompra[it.id] ?? ""}
-                        onChange={(e) => setPrecioCompra(it.id, e.target.value)}
-                        disabled={enviando}
-                        placeholder="COP"
-                        className="w-full rounded border border-gray-300 px-2 py-1.5 text-right font-mono text-sm tabular-nums focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 disabled:bg-gray-100"
+                    <td className="px-3 py-2 text-right">
+                      <span
+                        className="inline-block min-w-[4.5rem] rounded border border-gray-200 bg-gray-50 px-2 py-1.5 font-mono text-sm tabular-nums text-gray-800"
                         aria-label={`Precio compra ${it.sku}`}
-                      />
+                      >
+                        {formatPrecioCompraCop(precioCompraCarritoParaInsumo(it, mapaPreciosOficial))}
+                      </span>
                     </td>
                   </tr>
                 ))}

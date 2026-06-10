@@ -50,6 +50,7 @@ export function parseCsvToRows(text: string): string[][] {
 }
 
 const SKU_KEYS = ["sku", "codigo", "codigoinsumo", "codigo_insumo", "referencia", "cod"];
+const SKU_CARRITO_KEYS = ["skuvinculado", "skuvinculadocarrito", "skucarrito", "codigocarrito", "skucarritocompras"];
 const DESC_KEYS = ["descripcion", "nombre", "producto", "item", "descripcionproducto", "nombreproducto"];
 const UNIDAD_KEYS = ["unidad", "um", "medida", "u_m"];
 const CAT_KEYS = ["categoria", "rubro", "tipo"];
@@ -88,6 +89,17 @@ function findCol(headersNorm: string[], keys: string[]): number {
   return -1;
 }
 
+function findColExcluding(headersNorm: string[], keys: string[], exclude: RegExp): number {
+  for (let i = 0; i < headersNorm.length; i++) {
+    const h = headersNorm[i];
+    if (!h || exclude.test(h)) continue;
+    for (const k of keys) {
+      if (h === k || h.endsWith(k) || h.includes(k)) return i;
+    }
+  }
+  return -1;
+}
+
 function parseNumeroMinimo(raw: string): number | undefined {
   const t = raw.trim();
   if (!t) return undefined;
@@ -110,7 +122,11 @@ export function insumosDesdeGrilla(
   if (rows.length < 2) return [];
   const headers = rows[0]!.map((h) => String(h ?? ""));
   const headersNorm = headers.map(normHeader);
-  const iSku = findCol(headersNorm, SKU_KEYS);
+  const iSku = findColExcluding(headersNorm, SKU_KEYS, /vinculado|carrito/);
+  const iSkuCarrito =
+    findCol(headersNorm, SKU_CARRITO_KEYS) >= 0
+      ? findCol(headersNorm, SKU_CARRITO_KEYS)
+      : headersNorm.findIndex((h) => h.includes("vinculado"));
   const iDesc = findCol(headersNorm, DESC_KEYS);
   const iUn = findCol(headersNorm, UNIDAD_KEYS);
   const iCat = findCol(headersNorm, CAT_KEYS);
@@ -128,6 +144,8 @@ export function insumosDesdeGrilla(
     const cell = (i: number) => (i >= 0 && i < row.length ? String(row[i] ?? "").trim() : "");
 
     let sku = iSku >= 0 ? cell(iSku) : "";
+    const skuCarritoRaw = iSkuCarrito >= 0 ? cell(iSkuCarrito) : "";
+    const skuCarrito = skuCarritoRaw.trim() || undefined;
     const descripcion = iDesc >= 0 ? cell(iDesc) : "";
     const unidad = iUn >= 0 ? cell(iUn) : "und";
     const categoria = iCat >= 0 ? cell(iCat) : undefined;
@@ -165,6 +183,7 @@ export function insumosDesdeGrilla(
       ...(categoria ? { categoria } : {}),
       ...(pvCell ? { puntoVentaOrigen: pvCell } : {}),
       ...(minimoSheet != null ? { minimoSugeridoSheet: minimoSheet } : {}),
+      ...(skuCarrito ? { skuCarrito } : {}),
     });
   }
 

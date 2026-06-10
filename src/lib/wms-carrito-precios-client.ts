@@ -1,16 +1,19 @@
 import {
-  buildMapaPreciosCarritoPorSku,
+  buildMapaPreciosCarrito,
+  mapaPreciosCarritoVacio,
+  type MapaPreciosCarrito,
   type ProductoCarritoPrecio,
 } from "@/lib/precios-compra-carrito";
 
 export type MapaPreciosCarritoResult = {
   ok: boolean;
-  mapa: Map<string, number>;
-  total: number;
+  mapa: MapaPreciosCarrito;
+  /** Productos con precio en DB_Carrito. */
+  totalCarrito: number;
   message?: string;
 };
 
-/** Precios unitarios del carrito de compras (app + WMS) indexados por SKU normalizado. */
+/** Precios unitarios del carrito de compras (app + WMS), indexados por SKU y nombre. */
 export async function fetchMapaPreciosCarritoCompras(): Promise<MapaPreciosCarritoResult> {
   try {
     const res = await fetch("/api/pos_carrito_precios", {
@@ -27,18 +30,18 @@ export async function fetchMapaPreciosCarritoCompras(): Promise<MapaPreciosCarri
     if (!res.ok || !data.ok || !Array.isArray(data.data)) {
       return {
         ok: false,
-        mapa: new Map(),
-        total: 0,
+        mapa: mapaPreciosCarritoVacio(),
+        totalCarrito: 0,
         message: data.error ?? `No se pudo leer el carrito (${res.status}).`,
       };
     }
-    const mapa = buildMapaPreciosCarritoPorSku(data.data);
-    return { ok: true, mapa, total: mapa.size };
+    const mapa = buildMapaPreciosCarrito(data.data);
+    return { ok: true, mapa, totalCarrito: mapa.porSku.size };
   } catch {
     return {
       ok: false,
-      mapa: new Map(),
-      total: 0,
+      mapa: mapaPreciosCarritoVacio(),
+      totalCarrito: 0,
       message: "No se pudo conectar con el carrito de compras.",
     };
   }

@@ -153,6 +153,13 @@ export function normalizarDocInsumoKit(id: string, data: Record<string, unknown>
     const n = Number(rawMin.replace(/\s/g, "").replace(",", "."));
     if (Number.isFinite(n) && n >= 0) minimoSugeridoSheet = Math.round(n * 1000) / 1000;
   }
+  const skuCarrito =
+    str(data.skuCarrito) ||
+    str(data.sku_carrito) ||
+    str(data.SKU_VINCULADO) ||
+    str(data.skuVinculado) ||
+    str(data.sku_vinculado) ||
+    undefined;
   return {
     id,
     sku,
@@ -161,6 +168,7 @@ export function normalizarDocInsumoKit(id: string, data: Record<string, unknown>
     categoria,
     puntoVentaOrigen,
     ...(minimoSugeridoSheet != null ? { minimoSugeridoSheet } : {}),
+    ...(skuCarrito ? { skuCarrito } : {}),
   };
 }
 
