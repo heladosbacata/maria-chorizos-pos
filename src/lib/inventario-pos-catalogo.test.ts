@@ -31,4 +31,34 @@ describe("filtrarCatalogoSoloInsumos", () => {
     const items = catalogoInsumosParaCargue([insumo, ensamblePos], []);
     expect(items).toEqual([insumo]);
   });
+
+  it("excluye SKU carrito PT-*", () => {
+    const pt: InsumoKitItem = {
+      id: "pt-1",
+      sku: "PT-ARE-PETOQ-X6",
+      descripcion: "Arepa paquete x6",
+      unidad: "und",
+    };
+    expect(itemEsEnsambleOCatalogoPos(pt)).toBe(true);
+    expect(filtrarCatalogoSoloInsumos([insumo, pt])).toEqual([insumo]);
+  });
+
+  it("con hoja disponible no agrega filas extra de Firestore", () => {
+    const hoja: InsumoKitItem = { id: "sheet-2", sku: "2", descripcion: "Arepa bocadillo", unidad: "Paquete" };
+    const fsDup: InsumoKitItem = {
+      id: "FRAN-KIT-2",
+      sku: "FRAN-KIT-2",
+      descripcion: "Arepa bocadillo",
+      unidad: "Paquete",
+    };
+    const fsExtra: InsumoKitItem = {
+      id: "GAS-PV-6",
+      sku: "GAS-PV-6 · Con Gas",
+      descripcion: "Agua Brisa",
+      unidad: "und",
+      categoria: "DB_POS_Productos",
+    };
+    const items = catalogoInsumosParaCargue([hoja], [fsDup, fsExtra, insumo]);
+    expect(items.map((i) => i.sku)).toEqual(["2"]);
+  });
 });

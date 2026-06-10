@@ -3,13 +3,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { fetchCatalogoInsumosDesdeSheet } from "@/lib/catalogo-insumos-sheet-client";
-import { getCatalogoPOS } from "@/lib/catalogo-pos";
 import { db } from "@/lib/firebase";
 import {
   escribirMinimoInventarioLocal,
   leerMinimosInventarioLocal,
 } from "@/lib/inventario-minimos-local-storage";
-import { mergeCatalogoInventarioBase, mergeCatalogoInventarioConProductosPos } from "@/lib/inventario-pos-catalogo";
+import { catalogoInsumosParaCargue, filtrarCatalogoSoloInsumos } from "@/lib/inventario-pos-catalogo";
 import type { InsumoKitItem, InventarioMovimientoDoc, TipoMovimientoInventario } from "@/types/inventario-pos";
 import { fechaColombia, fechaHoraColombia, mediodiaColombiaDesdeYmd } from "@/lib/fecha-colombia";
 import { normPuntoVentaCatalogo } from "@/lib/punto-venta-catalogo-norm";
@@ -33,6 +32,7 @@ import {
   type InventarioSaldoRow,
 } from "@/lib/inventario-pos-firestore";
 import ModalAuditoriaInventarioPos from "@/components/ModalAuditoriaInventarioPos";
+import ModalInformeInventarioActual from "@/components/ModalInformeInventarioActual";
 import { cargarDatosAuditoriaInventarioPos, type DatosAuditoriaInventarioPos } from "@/lib/inventario-auditoria-pos-data";
 import {
   descargarPdfAuditoriaInventarioPos,
@@ -44,11 +44,15 @@ import {
   skuBaseDesdeSkuProductoEnsamble,
   type UltimoEnsambleSesionDiag,
 } from "@/lib/wms-aplicar-venta-ensamble";
+import { construirDatosInformeInventarioActual } from "@/lib/inventario-actual-pos-data";
+import { mapaPreciosCarritoVacio, type MapaPreciosCarrito } from "@/lib/precios-compra-carrito";
+import { fetchMapaPreciosCarritoCompras } from "@/lib/wms-carrito-precios-client";
 
 type Pestaña = "stock" | "movimiento" | "historial";
 type FuenteCatalogoInventario = "sheet" | "firestore" | "wms";
 
-const INVENTARIO_CATALOGO_CACHE_PREFIX = "pos_mc_inventario_catalogo_v3";
+/** v4: catálogo solo insumos (sin ensambles POS); invalida caché v3 con productos mezclados. */
+const INVENTARIO_CATALOGO_CACHE_PREFIX = "pos_mc_inventario_catalogo_v4";
 const HISTORIAL_LIMITE_STOCK = 80;
 const HISTORIAL_LIMITE_COMPLETO = 150;
 
@@ -72,7 +76,7 @@ function leerCacheCatalogoInventario(puntoVenta: string): CatalogoInventarioCach
     const parsed = JSON.parse(raw) as CatalogoInventarioCache;
     if (!parsed || !Array.isArray(parsed.items)) return null;
     return {
-      items: parsed.items,
+      items: filtrarCatalogoSoloInsumos(parsed.items),
       fuenteCatalogo:
         parsed.fuenteCatalogo === "sheet" || parsed.fuenteCatalogo === "firestore" || parsed.fuenteCatalogo === "wms"
           ? parsed.fuenteCatalogo
@@ -187,6 +191,10 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
   const [avisoPvHoja, setAvisoPvHoja] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
   const [modalAuditoriaAbierto, setModalAuditoriaAbierto] = useState(false);
+  const [modalInformeInventarioAbierto, setModalInformeInventarioAbierto] = useState(false);
+  const [mapaPreciosCarritoRespaldo, setMapaPreciosCarritoRespaldo] = useState<MapaPreciosCarrito>(() =>
+    mapaPreciosCarritoVacio()
+  );
   const [auditoriaBusy, setAuditoriaBusy] = useState(false);
   const [auditoriaDatos, setAuditoriaDatos] = useState<DatosAuditoriaInventarioPos | null>(null);
   const [auditoriaPdfUrl, setAuditoriaPdfUrl] = useState<string | null>(null);
@@ -320,31 +328,30 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     setAvisoPvHoja(null);
     const cacheExistente = leerCacheCatalogoInventario(pv);
     try {
-      const [sheetRes, saldosPack, posRes, listaFs] = await Promise.all([
+      const [sheetRes, saldosPack, listaFs, carritoPrecios] = await Promise.all([
         fetchCatalogoInsumosDesdeSheet(pv),
         listarSaldosInventarioConFuentePorPuntoVenta(pv),
-        getCatalogoPOS(null, pv),
         listarInsumosKitPorPuntoVenta(pv),
+        fetchMapaPreciosCarritoCompras(),
       ]);
-      const productosPos = posRes.ok ? posRes.productos ?? [] : [];
+      setMapaPreciosCarritoRespaldo(carritoPrecios.ok ? carritoPrecios.mapa : mapaPreciosCarritoVacio());
       setSaldoRows(saldosPack.saldoRows);
       setSaldosPorClaveMap(saldosPack.porClave);
       setMinimosUsuario(leerMinimosInventarioLocal(uid, pv));
-      setIncluyeCatalogoPos(productosPos.length > 0);
+      setIncluyeCatalogoPos(false);
+      setProductosPosAgregados(0);
 
-      if (sheetRes.ok && sheetRes.data.length > 0) {
-        // La hoja suele listar paquetes/ensambles; Firestore puede tener componentes (p. ej. chorizo suelto).
-        // Unificamos como en caja: hoja preferente + ítems extra desde «DB_Franquicia_Insumos_Kit».
-        const mergedBase = mergeCatalogoInventarioBase(sheetRes.data, listaFs);
-        const merged = mergeCatalogoInventarioConProductosPos(mergedBase, productosPos);
-        setInsumos(merged.items);
-        setFuenteCatalogo("sheet");
-        setProductosPosAgregados(merged.agregados);
+      const sheetItems = sheetRes.ok ? sheetRes.data : [];
+      const items = catalogoInsumosParaCargue(sheetItems, listaFs);
+
+      if (items.length > 0) {
+        setInsumos(items);
+        setFuenteCatalogo(sheetItems.length > 0 ? "sheet" : "firestore");
         guardarCacheCatalogoInventario(pv, {
-          items: merged.items,
-          fuenteCatalogo: "sheet",
-          incluyeCatalogoPos: productosPos.length > 0,
-          productosPosAgregados: merged.agregados,
+          items,
+          fuenteCatalogo: sheetItems.length > 0 ? "sheet" : "firestore",
+          incluyeCatalogoPos: false,
+          productosPosAgregados: 0,
         });
         setError(null);
         if (sheetRes.pvFiltroSinCoincidencias) {
@@ -352,33 +359,18 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
             `Ninguna fila de la hoja tenía el punto de venta «${pv}» en la columna PV (o el texto no coincidía). Se muestran todos los productos de la hoja; revisá la columna PV o el código en tu perfil.`
           );
         }
-      } else {
-        const merged = mergeCatalogoInventarioConProductosPos(listaFs, productosPos);
-        setInsumos(merged.items);
-        setProductosPosAgregados(merged.agregados);
-        const fuenteFinal: FuenteCatalogoInventario = listaFs.length > 0 ? "firestore" : "wms";
-        setFuenteCatalogo(fuenteFinal);
-        if (merged.items.length > 0) {
-          guardarCacheCatalogoInventario(pv, {
-            items: merged.items,
-            fuenteCatalogo: fuenteFinal,
-            incluyeCatalogoPos: productosPos.length > 0,
-            productosPosAgregados: merged.agregados,
-          });
-        }
-        if (merged.items.length === 0) {
-          setError(
-            `No hay ítems en la hoja ni en «${CATALOGO_INSUMOS_KIT_COLLECTION}» para «${pv}». Revisá la hoja DB_Franquicia_Insumos_Kit (columna PV si aplica) o documentos en Firestore.`
-          );
-        } else if (listaFs.length === 0 && productosPos.length > 0) {
-          setAvisoCatalogo(
-            "No se encontró catálogo base de insumos para este punto. Se muestran también los productos del catálogo POS (DB_POS_Productos / WMS) para que queden reflejados en Inventarios."
-          );
-        } else if (sheetRes.message) {
+        if (!sheetRes.ok && sheetRes.message) {
           setAvisoCatalogo(
             `No se pudo leer la hoja de insumos (${sheetRes.message}). Se muestra el catálogo de Firestore «${CATALOGO_INSUMOS_KIT_COLLECTION}».`
           );
         }
+      } else {
+        setInsumos([]);
+        setFuenteCatalogo(null);
+        setError(
+          sheetRes.message ??
+            `No hay ítems en hoja ni en «${CATALOGO_INSUMOS_KIT_COLLECTION}» para «${pv}». Revisá la hoja DB_Franquicia_Insumos_Kit (columna PV si aplica) o documentos en Firestore.`
+        );
       }
     } catch {
       setError("No se pudo cargar el catálogo de insumos.");
@@ -720,6 +712,17 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     return Math.round(t);
   }, [filasStock]);
 
+  const resumenInformeInventario = useMemo(() => {
+    if (!pv || insumos.length === 0) return null;
+    return construirDatosInformeInventarioActual({
+      puntoVenta: pv,
+      insumos,
+      saldoRows,
+      mapaPreciosCarrito: mapaPreciosCarritoRespaldo,
+      fuenteCatalogo: fuenteCatalogo === "sheet" || fuenteCatalogo === "firestore" ? fuenteCatalogo : null,
+    }).resumen;
+  }, [pv, insumos, saldoRows, mapaPreciosCarritoRespaldo, fuenteCatalogo]);
+
   const insumoSeleccionable = useMemo(() => {
     return insumos.find((i) => i.id === movInsumoId) ?? null;
   }, [insumos, movInsumoId]);
@@ -783,8 +786,8 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                 : fuenteCatalogo === "firestore"
                   ? `Firestore «${CATALOGO_INSUMOS_KIT_COLLECTION}»`
                   : "catálogo POS (DB_POS_Productos / WMS)"}
-              {incluyeCatalogoPos && fuenteCatalogo !== "wms" ? " + catálogo POS (WMS)" : ""}
-              {productosPosAgregados > 0 ? ` · ${productosPosAgregados} producto(s) POS agregados` : ""}
+              {" · "}
+              solo insumos cargables (sin ensambles POS)
             </p>
           )}
           <p className="mt-2 text-xs font-medium text-primary-700">Punto de venta: {pv}</p>
@@ -1299,6 +1302,52 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
               </tbody>
             </table>
           </div>
+
+          {!cargando && insumos.length > 0 && resumenInformeInventario && (
+            <div className="border-t-2 border-emerald-300/80 bg-gradient-to-br from-emerald-50 via-white to-teal-50/90 px-4 py-6 sm:px-8 sm:py-8">
+              <div className="mx-auto flex max-w-2xl flex-col items-center gap-5 text-center">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-emerald-800/90">Informe de inventario</p>
+                  <p className="mt-2 text-base text-gray-700 sm:text-lg">
+                    <span className="font-semibold text-gray-900">{resumenInformeInventario.productosCatalogo}</span> productos
+                    {" · "}
+                    <span className="font-semibold text-gray-900">{resumenInformeInventario.productosConSaldo}</span> con saldo
+                  </p>
+                  <p className="mt-2 text-sm text-gray-600 sm:text-base">
+                    Valor total en stock:{" "}
+                    <span className="text-lg font-bold tabular-nums text-emerald-900 sm:text-xl">
+                      {resumenInformeInventario.totalValorStock.toLocaleString("es-CO", {
+                        style: "currency",
+                        currency: "COP",
+                        maximumFractionDigits: 0,
+                      })}
+                    </span>
+                  </p>
+                  <p className="mt-3 max-w-lg text-sm text-gray-600">
+                    Descargá el PDF con saldos, precios de compra y valores, o enviálo por correo al franquiciado.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setModalInformeInventarioAbierto(true)}
+                  disabled={cargando || insumos.length === 0}
+                  className="inline-flex w-full max-w-lg items-center justify-center gap-3 rounded-2xl border-2 border-emerald-600 bg-emerald-600 px-8 py-4 text-base font-bold text-white shadow-[0_10px_30px_-8px_rgba(5,150,105,0.55)] transition hover:border-emerald-700 hover:bg-emerald-700 hover:shadow-[0_14px_36px_-8px_rgba(5,150,105,0.65)] focus:outline-none focus:ring-4 focus:ring-emerald-200 disabled:opacity-50 sm:px-10 sm:py-5 sm:text-lg"
+                  title="Generar PDF del inventario actual y enviarlo por correo"
+                >
+                  <svg className="h-6 w-6 shrink-0 sm:h-7 sm:w-7" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                    />
+                  </svg>
+                  Informe PDF / correo
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="border-t border-gray-200 bg-gray-50/80 px-4 py-4">
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-semibold text-gray-900">Historial de ajustes por saldo (clave)</h3>
@@ -1797,6 +1846,17 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
         errorMsg={auditoriaError}
         onRegenerar={() => void cargarAuditoriaParaVista()}
         onDescargar={() => void descargarAuditoriaPdf()}
+      />
+
+      <ModalInformeInventarioActual
+        open={modalInformeInventarioAbierto}
+        onClose={() => setModalInformeInventarioAbierto(false)}
+        puntoVenta={pv}
+        insumos={insumos}
+        saldoRows={saldoRows}
+        mapaPreciosCarrito={mapaPreciosCarritoRespaldo}
+        fuenteCatalogo={fuenteCatalogo === "sheet" || fuenteCatalogo === "firestore" ? fuenteCatalogo : null}
+        emailSesion={email}
       />
     </div>
   );

@@ -16,6 +16,10 @@ export function itemEsEnsambleOCatalogoPos(item: InsumoKitItem): boolean {
   if (cat && RUBRO_ENSAMBLE_RE.test(cat)) return true;
   // Variantes POS: «SKU · Etiqueta» (p. ej. GAS-PV-6 · Con Gas).
   if (/\s·\s/.test(item.sku)) return true;
+  // SKU carrito / producto terminado (p. ej. PT-ARE-PETOQ-X6).
+  if (/^PT-/i.test(item.sku.trim())) return true;
+  // Id de variante POS (p. ej. GAS-PV-6|var:con-gas).
+  if (/\|var:/i.test(item.id)) return true;
   return false;
 }
 
@@ -24,29 +28,54 @@ export function filtrarCatalogoSoloInsumos(items: InsumoKitItem[]): InsumoKitIte
   return items.filter((item) => !itemEsEnsambleOCatalogoPos(item));
 }
 
+function clavesLookupFirestoreInsumo(item: InsumoKitItem): string[] {
+  const keys = [
+    normSkuInventario(item.sku),
+    normSkuInventario(item.id),
+    item.skuCarrito ? normSkuInventario(item.skuCarrito) : "",
+  ].filter(Boolean);
+  return Array.from(new Set(keys));
+}
+
+function indexarFirestoreInsumos(firestore: InsumoKitItem[]): Map<string, InsumoKitItem> {
+  const fsByKey = new Map<string, InsumoKitItem>();
+  for (const it of firestore) {
+    for (const k of clavesLookupFirestoreInsumo(it)) {
+      if (!fsByKey.has(k)) fsByKey.set(k, it);
+    }
+  }
+  return fsByKey;
+}
+
+function enriquecerInsumoDesdeFirestore(item: InsumoKitItem, fsByKey: Map<string, InsumoKitItem>): InsumoKitItem {
+  if (item.precioCompraUnitario != null && item.precioCompraUnitario > 0) return item;
+  for (const k of clavesLookupFirestoreInsumo(item)) {
+    const fs = fsByKey.get(k);
+    if (fs?.precioCompraUnitario != null && fs.precioCompraUnitario > 0) {
+      return { ...item, precioCompraUnitario: fs.precioCompraUnitario };
+    }
+  }
+  return item;
+}
+
 /**
- * Catálogo para cargue de inventario: hoja + Firestore, sin mezclar productos POS (ensambles).
+ * Catálogo para cargue e inventario POS: insumos de la hoja (si hay hoja), sin ensambles ni catálogo POS.
+ * Firestore solo enriquece precios; no agrega filas extra cuando la hoja ya trae el catálogo.
  */
 export function catalogoInsumosParaCargue(
   sheet: InsumoKitItem[],
   firestore: InsumoKitItem[]
 ): InsumoKitItem[] {
-  const base = sheet.length > 0 ? mergeCatalogoInventarioBase(sheet, firestore) : firestore;
-  const fsByKey = new Map<string, InsumoKitItem>();
-  for (const it of firestore) {
-    const k = normSkuInventario(it.sku) || normSkuInventario(it.id);
-    if (k) fsByKey.set(k, it);
-  }
-  const conPrecioFirestore = base.map((it) => {
-    if (it.precioCompraUnitario != null && it.precioCompraUnitario > 0) return it;
-    const k = normSkuInventario(it.sku) || normSkuInventario(it.id);
-    const fs = k ? fsByKey.get(k) : undefined;
-    if (fs?.precioCompraUnitario != null && fs.precioCompraUnitario > 0) {
-      return { ...it, precioCompraUnitario: fs.precioCompraUnitario };
-    }
-    return it;
-  });
-  return filtrarCatalogoSoloInsumos(conPrecioFirestore);
+  const sheetBase = filtrarCatalogoSoloInsumos(sheet);
+  const fsFiltered = filtrarCatalogoSoloInsumos(firestore);
+  const base =
+    sheetBase.length > 0
+      ? sheetBase
+      : fsFiltered.length > 0
+        ? mergeCatalogoInventarioBase([], fsFiltered)
+        : [];
+  const fsByKey = indexarFirestoreInsumos(firestore);
+  return base.map((it) => enriquecerInsumoDesdeFirestore(it, fsByKey));
 }
 
 function inventarioIdDesdeSkuPos(sku: string): string {
