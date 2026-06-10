@@ -7,6 +7,7 @@ import {
   mensajeVentasCloudSinAdminLocal,
   proxyApiVentasCloud,
 } from "@/lib/pos-ventas-cloud-proxy-server";
+import { repararInformeWmsTrasAnulacion } from "@/lib/reparar-informe-wms-tras-anulacion";
 
 const COLLECTION = "posVentasCloud";
 const MAX_LINEAS = 200;
@@ -142,6 +143,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         },
         { merge: true }
       );
+      const fechaTicket =
+        typeof dataSnap?.fechaYmd === "string" ? dataSnap.fechaYmd.trim().slice(0, 10) : "";
+      void repararInformeWmsTrasAnulacion({
+        token,
+        fechaYmd: fechaTicket,
+        puntoVenta: pvDoc || ctx.puntoVenta,
+      });
       return res.status(200).json({ ok: true });
     } catch (e) {
       console.error("pos_venta_cloud PATCH", e);
