@@ -117,6 +117,26 @@ const config: Config = {
           "0%, 100%": { boxShadow: "0 0 0 0 rgba(6, 182, 212, 0)" },
           "40%": { boxShadow: "0 0 0 6px rgba(6, 182, 212, 0.35)" },
         },
+        "liga-cumple-ring": {
+          "0%": { transform: "rotate(0deg)" },
+          "100%": { transform: "rotate(360deg)" },
+        },
+        "liga-cumple-glow": {
+          "0%, 100%": { opacity: "0.55", transform: "scale(1)" },
+          "50%": { opacity: "1", transform: "scale(1.06)" },
+        },
+        "liga-cumple-sparkle": {
+          "0%, 100%": { opacity: "0.2", transform: "translateY(0)" },
+          "50%": { opacity: "0.9", transform: "translateY(-4px)" },
+        },
+        "liga-cumple-3d-tilt": {
+          "0%, 100%": { transform: "perspective(900px) rotateY(-12deg) rotateX(5deg) scale(1)" },
+          "50%": { transform: "perspective(900px) rotateY(12deg) rotateX(-5deg) scale(1.04)" },
+        },
+        "liga-cumple-halo": {
+          "0%, 100%": { opacity: "0.35", transform: "scale(0.95)" },
+          "50%": { opacity: "0.75", transform: "scale(1.08)" },
+        },
       },
       animation: {
         "metas-shimmer": "metas-shimmer 2.4s ease-in-out infinite",
@@ -145,6 +165,11 @@ const config: Config = {
         "pedidos-estado-motiv-pop": "pedidos-estado-motiv-pop 0.75s cubic-bezier(0.22, 1, 0.36, 1) both",
         "pedidos-estado-motiv-halo": "pedidos-estado-motiv-halo 2.2s ease-in-out infinite",
         "pedidos-estado-tarjeta-pulse": "pedidos-estado-tarjeta-pulse 1.15s ease-out 1",
+        "liga-cumple-ring": "liga-cumple-ring 4s linear infinite",
+        "liga-cumple-glow": "liga-cumple-glow 2.4s ease-in-out infinite",
+        "liga-cumple-sparkle": "liga-cumple-sparkle 2s ease-in-out infinite",
+        "liga-cumple-3d-tilt": "liga-cumple-3d-tilt 5.5s ease-in-out infinite",
+        "liga-cumple-halo": "liga-cumple-halo 3s ease-in-out infinite",
       },
       colors: {
         brand: {

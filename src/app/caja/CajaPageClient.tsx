@@ -114,6 +114,7 @@ import { encolarFeEmitirPendiente, procesarColaFeEmitir } from "@/lib/pos-fe-ret
 import { encolarVentaPendienteWms, procesarColaVentasPendientesWms } from "@/lib/pos-ventas-pendientes-wms";
 import { emitirVentaLocalRegistrada } from "@/lib/pos-metas-ventas-event";
 import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
+import { verificarActualizacionPosTrasVenta } from "@/lib/pos-app-version-client";
 import { registrarVentaPosCloud } from "@/lib/pos-ventas-cloud-client";
 import {
   agregarProductosEnVentas,
@@ -2319,6 +2320,7 @@ export default function CajaPageClient() {
         void procesarColaFeEmitir(async () => (await auth?.currentUser?.getIdToken()) ?? null);
 
         setVentaCompletadaAnuncioTick((t) => t + 1);
+        void verificarActualizacionPosTrasVenta();
 
         return true;
       } finally {
@@ -3831,8 +3833,15 @@ export default function CajaPageClient() {
                 apiBaseUrl={getWmsPublicBaseUrl()}
                 puntoVenta={user.puntoVenta ?? undefined}
                 getToken={getIdTokenCajaMensajes}
-                pollMs={20000}
-                fraseIntervalMs={10000}
+                ventaCompletadaTick={ventaCompletadaAnuncioTick}
+                mensajeAutor={{
+                  uid: user.uid,
+                  nombre:
+                    cajeroTurnoActivo?.nombreDisplay?.trim() ||
+                    user.email?.split("@")[0]?.trim() ||
+                    "Cajero GEB",
+                  puntoVenta: user.puntoVenta?.trim() || "—",
+                }}
               />
             ) : null}
             {esContador ? (

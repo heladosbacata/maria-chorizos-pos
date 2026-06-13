@@ -1,6 +1,15 @@
 /** @type {import('next').NextConfig} */
+const posBuildId =
+  process.env.VERCEL_GIT_COMMIT_SHA ||
+  process.env.VERCEL_DEPLOYMENT_ID ||
+  process.env.POS_BUILD_ID ||
+  `dev-${Date.now()}`;
+
 const nextConfig = {
   reactStrictMode: true,
+  env: {
+    NEXT_PUBLIC_POS_BUILD_ID: posBuildId,
+  },
   experimental: {
     optimizePackageImports: ["lucide-react", "firebase/app", "firebase/auth", "firebase/firestore"],
   },
