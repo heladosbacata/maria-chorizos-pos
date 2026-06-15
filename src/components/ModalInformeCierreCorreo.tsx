@@ -1,7 +1,5 @@
 "use client";
 
-import { INFORME_CIERRE_CC_SERVICIO_GRUPO_BACATA } from "@/lib/cierre-turno-informe-correo-ui";
-
 export interface ModalInformeCierreCorreoProps {
   open: boolean;
   onClose: () => void;
@@ -98,11 +96,6 @@ export default function ModalInformeCierreCorreo({
                   placeholder="correo@ejemplo.com"
                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-50"
                 />
-              </div>
-
-              <div className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2.5">
-                <p className="text-xs font-semibold text-slate-700">Siempre en copia</p>
-                <p className="mt-0.5 text-sm text-slate-800">{INFORME_CIERRE_CC_SERVICIO_GRUPO_BACATA}</p>
               </div>
 
               <div>

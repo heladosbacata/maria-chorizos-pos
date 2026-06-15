@@ -1,9 +1,7 @@
-import { INFORME_CIERRE_CC_SERVICIO_GRUPO_BACATA } from "@/lib/cierre-turno-informe-correo-ui";
-
 const LS_LEGACY_CC = "pos_mc_informe_turno_cc_v1";
 
 export type CorreosInformeCierrePersistidos = {
-  /** Correos agregados por el cajero (sin el de servicio Grupo Bacatá). */
+  /** Correos agregados por el cajero para copia opcional en cada cierre. */
   emails: string[];
   /** Subconjunto que recibirá el informe en el próximo cierre (ids = correo en minúsculas). */
   seleccionados: string[];
@@ -26,16 +24,12 @@ function normEmail(e: string): string {
   return e.trim().toLowerCase();
 }
 
-function esCorreoFijoBacata(email: string): boolean {
-  return normEmail(email) === normEmail(INFORME_CIERRE_CC_SERVICIO_GRUPO_BACATA);
-}
-
 function dedupeEmails(emails: string[]): string[] {
   const out: string[] = [];
   const seen = new Set<string>();
   for (const raw of emails) {
     const e = raw.trim();
-    if (!e || !emailValidoInformeCierre(e) || esCorreoFijoBacata(e)) continue;
+    if (!e || !emailValidoInformeCierre(e)) continue;
     const k = normEmail(e);
     if (seen.has(k)) continue;
     seen.add(k);
@@ -124,12 +118,6 @@ export function agregarCorreoInformeCierre(
   const e = email.trim();
   if (!emailValidoInformeCierre(e)) {
     return { ok: false, message: "Ingresá un correo válido." };
-  }
-  if (esCorreoFijoBacata(e)) {
-    return {
-      ok: false,
-      message: `${INFORME_CIERRE_CC_SERVICIO_GRUPO_BACATA} ya se incluye automáticamente en copia.`,
-    };
   }
   const k = normEmail(e);
   if (data.emails.some((x) => normEmail(x) === k)) {

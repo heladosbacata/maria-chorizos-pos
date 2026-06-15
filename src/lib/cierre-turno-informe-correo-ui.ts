@@ -1,36 +1,28 @@
 /**
  * Destinatarios y mensajes de UI para el informe de cierre de turno por correo (POS GEB).
+ * Servicio al cliente recibe un resumen diario consolidado a las 22:00 (cron WMS), no CC por turno.
  */
-
-/** Copia fija a servicio al cliente Grupo Bacatá en todos los informes de cierre. */
-export const INFORME_CIERRE_CC_SERVICIO_GRUPO_BACATA = "servicioalcliente@grupobacata.com";
 
 function emailValidoInforme(s: string): boolean {
   const t = s.trim();
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t);
 }
 
-/**
- * Garantiza la copia a servicioalcliente@grupobacata.com y añade otros correos válidos que escriba el usuario.
- */
-/** Arma CC con copia fija Bacatá + correos adicionales del cajero (lista o texto separado por coma). */
+/** Arma CC con correos adicionales del cajero (lista o texto separado por coma). */
 export function combinarCcInformeCierreTurno(extraDelUsuario: string | string[]): string {
   const extrasInput = Array.isArray(extraDelUsuario)
     ? extraDelUsuario
     : extraDelUsuario.split(/[,;]/).map((x) => x.trim());
-  const fijo = INFORME_CIERRE_CC_SERVICIO_GRUPO_BACATA;
-  const fijoLower = fijo.toLowerCase();
-  const extras = extrasInput.filter((x) => emailValidoInforme(x) && x.toLowerCase() !== fijoLower);
   const unicos: string[] = [];
   const seen = new Set<string>();
-  const add = (e: string) => {
+  for (const raw of extrasInput) {
+    const e = raw.trim();
+    if (!emailValidoInforme(e)) continue;
     const k = e.toLowerCase();
-    if (seen.has(k)) return;
+    if (seen.has(k)) continue;
     seen.add(k);
     unicos.push(e);
-  };
-  add(fijo);
-  for (const e of extras) add(e);
+  }
   return unicos.join(", ");
 }
 
@@ -52,7 +44,7 @@ export function mensajeExitoMotivacionalInformeCierreTurno(): string {
     "",
     frase,
     "",
-    `Confirmamos el envío del informe por correo al franquiciado (según ID_Franquiciados) y copia a ${INFORME_CIERRE_CC_SERVICIO_GRUPO_BACATA}.`,
+    "Confirmamos el envío del informe por correo al franquiciado (según ID_Franquiciados) y a los correos adicionales que seleccionaste.",
     "",
     "Gracias por tu esfuerzo. ¡Nos vemos en el próximo turno!",
   ].join("\n");
