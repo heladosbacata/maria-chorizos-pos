@@ -65,6 +65,41 @@ export function rangoFechaHoraCajeroPorDefecto(): RangoFechaHoraCajeroInput {
   };
 }
 
+/** Desde apertura del turno hasta ahora (Colombia). */
+export function rangoFechaHoraCajeroDesdeTurno(turnoInicioIso: string): RangoFechaHoraCajeroInput | null {
+  const t = Date.parse(turnoInicioIso);
+  if (Number.isNaN(t)) return null;
+  const inicio = new Date(t);
+  return {
+    desdeYmd: ymdColombia(inicio),
+    desdeHora: horaInputColombia(inicio),
+    hastaYmd: ymdColombia(),
+    hastaHora: horaInputColombia(),
+  };
+}
+
+/** Últimos 60 minutos hasta ahora. */
+export function rangoFechaHoraCajeroUltimaHora(): RangoFechaHoraCajeroInput {
+  const hasta = new Date();
+  const desde = new Date(hasta.getTime() - 60 * 60 * 1000);
+  return {
+    desdeYmd: ymdColombia(desde),
+    desdeHora: horaInputColombia(desde),
+    hastaYmd: ymdColombia(hasta),
+    hastaHora: horaInputColombia(hasta),
+  };
+}
+
+/** Día calendario completo en Colombia (00:00 → 23:59). */
+export function rangoFechaHoraCajeroDiaCompleto(ymd: string = ymdColombia()): RangoFechaHoraCajeroInput {
+  return {
+    desdeYmd: ymd,
+    desdeHora: "00:00",
+    hastaYmd: ymd,
+    hastaHora: "23:59",
+  };
+}
+
 export function construirDatosReporteVentasRangoCajero(params: {
   puntoVenta: string;
   ventas: VentaGuardadaLocal[];

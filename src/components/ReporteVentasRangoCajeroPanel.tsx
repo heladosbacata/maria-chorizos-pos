@@ -1,13 +1,16 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
-import { fechaHoraColombia } from "@/lib/fecha-colombia";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { fechaHoraColombia, ymdColombia } from "@/lib/fecha-colombia";
 import { auth } from "@/lib/firebase";
 import {
   construirDatosReporteVentasRangoCajero,
   filtrarVentasCajeroPorRangoMs,
   msTimestampVentaCajero,
+  rangoFechaHoraCajeroDesdeTurno,
+  rangoFechaHoraCajeroDiaCompleto,
   rangoFechaHoraCajeroPorDefecto,
+  rangoFechaHoraCajeroUltimaHora,
   resolverRangoFechaHoraCajero,
   type RangoFechaHoraCajeroInput,
 } from "@/lib/reporte-ventas-rango-cajero";
@@ -24,6 +27,9 @@ export interface ReporteVentasRangoCajeroPanelProps {
   ventas: VentaGuardadaLocal[];
   puntoVenta: string;
   emailSugerido?: string;
+  turnoAbierto?: boolean;
+  turnoInicioIso?: string;
+  onActualizar?: () => void;
 }
 
 function formatMoney(n: number): string {
@@ -34,9 +40,13 @@ export default function ReporteVentasRangoCajeroPanel({
   ventas,
   puntoVenta,
   emailSugerido = "",
+  turnoAbierto = false,
+  turnoInicioIso,
+  onActualizar,
 }: ReporteVentasRangoCajeroPanelProps) {
   const [rangoInput, setRangoInput] = useState<RangoFechaHoraCajeroInput>(() => rangoFechaHoraCajeroPorDefecto());
   const [incluirAnuladas, setIncluirAnuladas] = useState(false);
+  const [filaExpandidaId, setFilaExpandidaId] = useState<string | null>(null);
   const [modalAbierto, setModalAbierto] = useState(false);
   const [nivelReporte, setNivelReporte] = useState<NivelDetalleReporteVentas>("transacciones");
   const [reporteEmailPara, setReporteEmailPara] = useState(emailSugerido);
@@ -44,6 +54,12 @@ export default function ReporteVentasRangoCajeroPanel({
   const [reporteBusy, setReporteBusy] = useState<"idle" | "pdf" | "excel" | "correo">("idle");
   const [reporteError, setReporteError] = useState<string | null>(null);
   const [reporteExito, setReporteExito] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (emailSugerido.trim() && !reporteEmailPara.trim()) {
+      setReporteEmailPara(emailSugerido.trim());
+    }
+  }, [emailSugerido, reporteEmailPara]);
 
   const rangoResuelto = useMemo(() => resolverRangoFechaHoraCajero(rangoInput), [rangoInput]);
   const errorRango =
@@ -168,27 +184,83 @@ export default function ReporteVentasRangoCajeroPanel({
 
   const patchRango = (patch: Partial<RangoFechaHoraCajeroInput>) => {
     setRangoInput((prev) => ({ ...prev, ...patch }));
+    setFilaExpandidaId(null);
   };
+
+  const aplicarPreset = (rango: RangoFechaHoraCajeroInput) => {
+    setRangoInput(rango);
+    setFilaExpandidaId(null);
+  };
+
+  const presetTurno =
+    turnoAbierto && turnoInicioIso?.trim() ? rangoFechaHoraCajeroDesdeTurno(turnoInicioIso.trim()) : null;
 
   return (
     <>
-      <section className="rounded-2xl border-2 border-indigo-100 bg-white p-5 shadow-sm md:p-8">
+      <section
+        className="rounded-2xl border-2 border-indigo-100 bg-white p-5 shadow-sm md:p-8"
+        data-pos-tutorial="reportes-rango-hora"
+      >
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h3 className="text-xl font-bold text-gray-900">Monitoreo por rango de fecha y hora</h3>
             <p className="mt-1 text-sm text-gray-600">
-              Consultá ventas cobradas con carrito en un intervalo exacto (horario Colombia). Descargá PDF, Excel o
-              enviá el informe por correo.
+              Consultá ventas cobradas con carrito en un intervalo exacto (horario Colombia). Tocá una fila para ver
+              productos. Descargá PDF, Excel o enviá el informe por correo.
             </p>
           </div>
+          <div className="flex flex-wrap gap-2">
+            {onActualizar ? (
+              <button
+                type="button"
+                onClick={onActualizar}
+                className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm font-semibold text-indigo-900 hover:bg-indigo-100"
+              >
+                Actualizar datos
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={abrirModalInforme}
+              disabled={Boolean(errorRango) || ventasEnRango.length === 0}
+              className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              PDF / correo
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={abrirModalInforme}
-            disabled={Boolean(errorRango) || ventasEnRango.length === 0}
-            className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => aplicarPreset(rangoFechaHoraCajeroPorDefecto())}
+            className="rounded-full bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-800 hover:bg-gray-200"
           >
-            PDF / correo
+            Hoy hasta ahora
           </button>
+          <button
+            type="button"
+            onClick={() => aplicarPreset(rangoFechaHoraCajeroDiaCompleto(rangoInput.desdeYmd || ymdColombia()))}
+            className="rounded-full bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-800 hover:bg-gray-200"
+          >
+            Día completo
+          </button>
+          <button
+            type="button"
+            onClick={() => aplicarPreset(rangoFechaHoraCajeroUltimaHora())}
+            className="rounded-full bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-800 hover:bg-gray-200"
+          >
+            Última hora
+          </button>
+          {presetTurno ? (
+            <button
+              type="button"
+              onClick={() => aplicarPreset(presetTurno)}
+              className="rounded-full bg-emerald-100 px-3 py-1.5 text-xs font-semibold text-emerald-900 hover:bg-emerald-200"
+            >
+              Turno abierto
+            </button>
+          ) : null}
         </div>
 
         <div className="mt-5 grid gap-4 lg:grid-cols-2">
@@ -281,6 +353,7 @@ export default function ReporteVentasRangoCajeroPanel({
             <table className="min-w-full divide-y divide-gray-100 text-sm">
               <thead className="bg-indigo-50/80 text-left text-gray-700">
                 <tr>
+                  <th className="w-8 px-2 py-2.5" aria-hidden="true" />
                   <th className="px-3 py-2.5 font-bold">Fecha y hora</th>
                   <th className="px-3 py-2.5 font-bold">Recibo</th>
                   <th className="px-3 py-2.5 font-bold">Cajero</th>
@@ -297,34 +370,76 @@ export default function ReporteVentasRangoCajeroPanel({
                     ms > 0
                       ? fechaHoraColombia(new Date(ms), { dateStyle: "short", timeStyle: "short" })
                       : "—";
+                  const expandida = filaExpandidaId === f.id;
+                  const lineas = f.venta?.lineas ?? [];
                   return (
-                    <tr key={f.id} className={f.anulada ? "bg-rose-50/40" : "hover:bg-gray-50/80"}>
-                      <td className="whitespace-nowrap px-3 py-2.5 text-gray-700">{fechaLabel}</td>
-                      <td className="max-w-[120px] truncate px-3 py-2.5 font-mono text-xs text-gray-600" title={f.comprobante}>
-                        {f.comprobante}
-                      </td>
-                      <td className="max-w-[100px] truncate px-3 py-2.5 text-gray-700">
-                        {f.venta?.cajeroNombre?.trim() || "—"}
-                      </td>
-                      <td className="max-w-[140px] truncate px-3 py-2.5 text-gray-800" title={f.clienteNombre}>
-                        {f.clienteNombre}
-                      </td>
-                      <td className="max-w-[100px] truncate px-3 py-2.5 text-gray-600" title={f.medioPagoDetalle}>
-                        {f.medioPagoLabel}
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular-nums text-gray-900">
-                        {formatoPesos(f.total)}
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <span
-                          className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
-                            f.anulada ? "bg-rose-100 text-rose-800" : "bg-emerald-100 text-emerald-800"
-                          }`}
-                        >
-                          {f.anulada ? "Anulada" : "Vigente"}
-                        </span>
-                      </td>
-                    </tr>
+                    <Fragment key={f.id}>
+                      <tr
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setFilaExpandidaId(expandida ? null : f.id)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setFilaExpandidaId(expandida ? null : f.id);
+                          }
+                        }}
+                        className={`cursor-pointer ${f.anulada ? "bg-rose-50/40" : "hover:bg-gray-50/80"}`}
+                      >
+                        <td className="px-2 py-2.5 text-center text-xs text-gray-500">{expandida ? "▼" : "▶"}</td>
+                        <td className="whitespace-nowrap px-3 py-2.5 text-gray-700">{fechaLabel}</td>
+                        <td className="max-w-[120px] truncate px-3 py-2.5 font-mono text-xs text-gray-600" title={f.comprobante}>
+                          {f.comprobante}
+                        </td>
+                        <td className="max-w-[100px] truncate px-3 py-2.5 text-gray-700">
+                          {f.venta?.cajeroNombre?.trim() || "—"}
+                        </td>
+                        <td className="max-w-[140px] truncate px-3 py-2.5 text-gray-800" title={f.clienteNombre}>
+                          {f.clienteNombre}
+                        </td>
+                        <td className="max-w-[100px] truncate px-3 py-2.5 text-gray-600" title={f.medioPagoDetalle}>
+                          {f.medioPagoLabel}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2.5 text-right font-semibold tabular-nums text-gray-900">
+                          {formatoPesos(f.total)}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <span
+                            className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                              f.anulada ? "bg-rose-100 text-rose-800" : "bg-emerald-100 text-emerald-800"
+                            }`}
+                          >
+                            {f.anulada ? "Anulada" : "Vigente"}
+                          </span>
+                        </td>
+                      </tr>
+                      {expandida && lineas.length > 0 ? (
+                        <tr className="bg-indigo-50/30">
+                          <td colSpan={8} className="px-4 py-3">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-indigo-800">Productos</p>
+                            <ul className="mt-2 space-y-1.5">
+                              {lineas.map((l) => (
+                                <li
+                                  key={l.lineId || `${l.sku}-${l.descripcion}`}
+                                  className="flex flex-wrap items-baseline justify-between gap-2 text-sm text-gray-800"
+                                >
+                                  <span>
+                                    <span className="font-semibold tabular-nums text-indigo-900">{l.cantidad}×</span>{" "}
+                                    {l.descripcion}
+                                    {l.sku ? (
+                                      <span className="ml-1 font-mono text-[10px] text-gray-500">{l.sku}</span>
+                                    ) : null}
+                                  </span>
+                                  <span className="font-medium tabular-nums text-gray-900">
+                                    {formatoPesos(Math.round(l.precioUnitario * l.cantidad))}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          </td>
+                        </tr>
+                      ) : null}
+                    </Fragment>
                   );
                 })}
               </tbody>

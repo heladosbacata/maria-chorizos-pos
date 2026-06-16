@@ -3870,6 +3870,7 @@ export default function CajaPageClient() {
                 <CajeroReportesDashboard
                   uid={user.uid}
                   puntoVenta={user.puntoVenta}
+                  emailSugerido={user.email}
                   mostrarDetalleErrorNube
                   turnoActivo={null}
                 />
@@ -4244,8 +4245,10 @@ export default function CajaPageClient() {
             <CajeroReportesDashboard
               uid={user.uid}
               puntoVenta={user.puntoVenta}
+              emailSugerido={user.email}
               turnoActivo={{
                 abierto: turnoAbierto,
+                turnoInicioIso: turnoInicio.toISOString(),
                 totalIngresoEfectivo,
                 totalRetiroEfectivo,
                 movimientosCaja,

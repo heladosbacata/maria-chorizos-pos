@@ -26,10 +26,13 @@ export interface CajeroReportesDashboardProps {
   /** Firebase uid: sesión y carga de ventas en nube. El reporte agrega por punto de venta (todos los cajeros). */
   uid: string | null;
   puntoVenta: string | null;
+  /** Correo del usuario logueado (prefill del informe por rango). */
+  emailSugerido?: string | null;
   /** Contador / soporte: muestra el mensaje de error crudo si falla la lista en nube (p. ej. índice Firestore). En caja habitual se omite. */
   mostrarDetalleErrorNube?: boolean;
   turnoActivo?: {
     abierto: boolean;
+    turnoInicioIso?: string;
     totalIngresoEfectivo: number;
     totalRetiroEfectivo: number;
     movimientosCaja: MovimientoCajaTurno[];
@@ -37,6 +40,7 @@ export interface CajeroReportesDashboardProps {
       ok: true;
     } | { ok: false; message: string };
   } | null;
+  onActualizarVentas?: () => void;
 }
 
 function formatMoney(n: number): string {
@@ -53,8 +57,10 @@ function medalla(i: number): string {
 export default function CajeroReportesDashboard({
   uid,
   puntoVenta,
+  emailSugerido = null,
   mostrarDetalleErrorNube = false,
   turnoActivo = null,
+  onActualizarVentas,
 }: CajeroReportesDashboardProps) {
   const u = (uid ?? "").trim();
   const pv = (puntoVenta ?? "").trim();
@@ -277,7 +283,14 @@ export default function CajeroReportesDashboard({
         </div>
       </div>
 
-      <ReporteVentasRangoCajeroPanel ventas={ventas} puntoVenta={pv} />
+      <ReporteVentasRangoCajeroPanel
+        ventas={ventas}
+        puntoVenta={pv}
+        emailSugerido={emailSugerido?.trim() || undefined}
+        turnoAbierto={turnoActivo?.abierto ?? false}
+        turnoInicioIso={turnoActivo?.turnoInicioIso}
+        onActualizar={onActualizarVentas ?? refrescar}
+      />
 
       <section className="rounded-2xl border-2 border-emerald-100 bg-white p-5 shadow-sm md:p-8">
         <div className="flex flex-wrap items-start justify-between gap-3">
