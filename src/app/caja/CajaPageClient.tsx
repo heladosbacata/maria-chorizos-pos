@@ -23,7 +23,7 @@ import PosAnunciosCajaWatcher from "@/components/PosAnunciosCajaWatcher";
 import PosDomiciliosNuevoPedidoAlerta from "@/components/PosDomiciliosNuevoPedidoAlerta";
 import PosDomiciliosNuevosWatcher from "@/components/PosDomiciliosNuevosWatcher";
 import PosDomiciliosChatFloatingDock from "@/components/PosDomiciliosChatFloatingDock";
-import PosAjustePantallaPanel from "@/components/PosAjustePantallaPanel";
+import PosFeEstadoCajaPanel from "@/components/PosFeEstadoCajaPanel";
 import type { DetallePagoConfirmado } from "@/components/RegistrarPagoPanel";
 import TurnoCierreExitoPremiumModal from "@/components/TurnoCierreExitoPremiumModal";
 import {
@@ -115,6 +115,7 @@ import { encolarVentaPendienteWms, procesarColaVentasPendientesWms } from "@/lib
 import { emitirVentaLocalRegistrada } from "@/lib/pos-metas-ventas-event";
 import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
 import { verificarActualizacionPosTrasVenta } from "@/lib/pos-app-version-client";
+import { usePosDianCajaEstado } from "@/lib/use-pos-dian-caja";
 import { registrarVentaPosCloud } from "@/lib/pos-ventas-cloud-client";
 import {
   agregarProductosEnVentas,
@@ -355,6 +356,10 @@ const COLAS_WMS_DEFER_MS = 12_000;
 
 export default function CajaPageClient() {
   const { user, signOut, loading } = useAuth();
+  const dianCaja = usePosDianCajaEstado(
+    user?.uid,
+    Boolean(user && !esContadorInvitado(user.role))
+  );
   const router = useRouter();
   const [fotoPerfil, setFotoPerfil] = useState<string | null>(null);
 
@@ -377,7 +382,9 @@ export default function CajaPageClient() {
     const run = () => {
       void procesarColaVentasPendientesWms();
       void procesarColaAplicarEnsamblePendiente(async () => (await auth?.currentUser?.getIdToken()) ?? null);
-      void procesarColaFeEmitir(async () => (await auth?.currentUser?.getIdToken()) ?? null);
+      void procesarColaFeEmitir(async () => (await auth?.currentUser?.getIdToken()) ?? null).then(() =>
+        dianCaja.refrescarFePendientes()
+      );
     };
     const defer = window.setTimeout(run, COLAS_WMS_DEFER_MS);
     const onVis = () => {
@@ -390,7 +397,7 @@ export default function CajaPageClient() {
       document.removeEventListener("visibilitychange", onVis);
       window.clearInterval(t);
     };
-  }, [user]);
+  }, [user, dianCaja.refrescarFePendientes]);
 
   const [moduloActivo, setModuloActivo] = useState<ModuloActivo>("ventas");
   const [domiciliosNuevosCount, setDomiciliosNuevosCount] = useState(0);
@@ -642,6 +649,12 @@ export default function CajaPageClient() {
   const [errorSolicitudPrecio, setErrorSolicitudPrecio] = useState<string | null>(null);
   /** Tipo de comprobante: Doc. interno (predeterminado) o Factura electrónica */
   const [tipoComprobante, setTipoComprobante] = useState<TipoComprobante>("documento_interno");
+
+  useEffect(() => {
+    if (!dianCaja.cargando && !dianCaja.puedeEmitirFe && tipoComprobante === "factura_electronica") {
+      setTipoComprobante("documento_interno");
+    }
+  }, [dianCaja.cargando, dianCaja.puedeEmitirFe, tipoComprobante]);
   const [clientePorPrecuenta, setClientePorPrecuenta] = useState<Record<string, ClienteVentaRef>>(() => ({
     "1": { id: CONSUMIDOR_FINAL_ID, nombreDisplay: "Consumidor final" },
   }));
@@ -1968,6 +1981,16 @@ export default function CajaPageClient() {
         window.alert("No hay punto de venta asignado.");
         return false;
       }
+      if (
+        tipoComprobante === "factura_electronica" &&
+        !dianCaja.cargando &&
+        !dianCaja.puedeEmitirFe
+      ) {
+        window.alert(
+          "Este punto no tiene facturación electrónica habilitada o falta el NIT emisor.\n\nConfiguralo en Espacio franquiciado → Habilitaciones DIAN, o cobrá con Doc. interno."
+        );
+        return false;
+      }
 
       const notaPie =
         opts?.notaPie ??
@@ -2205,6 +2228,7 @@ export default function CajaPageClient() {
             const rFe = await wmsPosAlegraEmitirCobro(tokenFe, payloadFe);
             if (!rFe.ok) {
               encolarFeEmitirPendiente(user.uid, ventaLocalId, payloadFe);
+              dianCaja.refrescarFePendientes();
               window.alert(
                 `La venta se registró en caja, pero la factura electrónica no se pudo enviar a la DIAN:\n\n${rFe.error}\n\nSe reintentará automáticamente al recuperar conexión. Revisá también Espacio Franquiciado → Habilitaciones DIAN → Facturación electrónica o contactá a administración.`
               );
@@ -2317,7 +2341,9 @@ export default function CajaPageClient() {
 
         void procesarColaVentasPendientesWms();
         void procesarColaAplicarEnsamblePendiente(async () => (await auth?.currentUser?.getIdToken()) ?? null);
-        void procesarColaFeEmitir(async () => (await auth?.currentUser?.getIdToken()) ?? null);
+        void procesarColaFeEmitir(async () => (await auth?.currentUser?.getIdToken()) ?? null).then(() =>
+          dianCaja.refrescarFePendientes()
+        );
 
         setVentaCompletadaAnuncioTick((t) => t + 1);
         void verificarActualizacionPosTrasVenta();
@@ -2334,6 +2360,9 @@ export default function CajaPageClient() {
       cajeroTurnoActivo,
       clienteActivoPrecuenta,
       tipoComprobante,
+      dianCaja.cargando,
+      dianCaja.puedeEmitirFe,
+      dianCaja.refrescarFePendientes,
       construirPayloadTicket,
       vaciarCuenta,
       pedirConfirmacionCobroSinInternet,
@@ -4374,8 +4403,20 @@ export default function CajaPageClient() {
               className="w-full rounded-lg border border-primary-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
             >
               <option value="documento_interno">Doc. interno</option>
-              <option value="factura_electronica">Factura electrónica de venta</option>
+              <option value="factura_electronica" disabled={!dianCaja.puedeEmitirFe}>
+                Factura electrónica de venta
+                {!dianCaja.puedeEmitirFe && !dianCaja.cargando ? " (no habilitada)" : ""}
+              </option>
             </select>
+            <PosFeEstadoCajaPanel
+              cargando={dianCaja.cargando}
+              puedeEmitirFe={dianCaja.puedeEmitirFe}
+              habilitado={dianCaja.habilitado}
+              emisorNit={dianCaja.emisorNit}
+              error={dianCaja.error}
+              fePendientes={dianCaja.fePendientes}
+              onRecargar={() => void dianCaja.recargarDian()}
+            />
             <p className="mt-1 text-[11px] leading-snug text-gray-500">
               {tipoComprobante === "factura_electronica"
                 ? "Al cobrar se envía a la DIAN vía Alegra si habilitaste el punto en Espacio Franquiciado → Habilitaciones DIAN → Facturación electrónica."

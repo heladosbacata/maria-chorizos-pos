@@ -4,6 +4,7 @@
  */
 
 import { actualizarVentaLocalFacturaElectronica } from "@/lib/pos-ventas-local-storage";
+import { actualizarFeVentaPosCloud } from "@/lib/pos-ventas-cloud-client";
 import type { EmitirCobroPayload } from "@/lib/wms-pos-dian-client";
 import { wmsPosAlegraEmitirCobro } from "@/lib/wms-pos-dian-client";
 
@@ -121,6 +122,14 @@ export async function procesarColaFeEmitir(getIdToken: () => Promise<string | nu
           numero: r.numeroFactura,
           cufe: r.alegraCufe,
           enviadoAt: r.enviadoAt,
+        });
+        void actualizarFeVentaPosCloud(token, {
+          ventaLocalId: first.ventaLocalId,
+          facturaElectronicaNumero: r.numeroFactura,
+          facturaElectronicaCufe: r.alegraCufe,
+          facturaElectronicaEnviadoAt: r.enviadoAt,
+        }).catch(() => {
+          /* nube opcional */
         });
       }
       lista = rest;
