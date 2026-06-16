@@ -23,6 +23,7 @@ import PosAnunciosCajaWatcher from "@/components/PosAnunciosCajaWatcher";
 import PosDomiciliosNuevoPedidoAlerta from "@/components/PosDomiciliosNuevoPedidoAlerta";
 import PosDomiciliosNuevosWatcher from "@/components/PosDomiciliosNuevosWatcher";
 import PosDomiciliosChatFloatingDock from "@/components/PosDomiciliosChatFloatingDock";
+import PosAjustePantallaPanel from "@/components/PosAjustePantallaPanel";
 import PosFeEstadoCajaPanel from "@/components/PosFeEstadoCajaPanel";
 import type { DetallePagoConfirmado } from "@/components/RegistrarPagoPanel";
 import TurnoCierreExitoPremiumModal from "@/components/TurnoCierreExitoPremiumModal";
