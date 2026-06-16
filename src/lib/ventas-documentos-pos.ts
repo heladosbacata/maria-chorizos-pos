@@ -1,4 +1,4 @@
-import { fechaColombia, finDiaColombiaMs, inicioDiaColombiaMs, mediodiaColombiaDesdeYmd } from "@/lib/fecha-colombia";
+import { fechaColombia, fechaHoraColombia, finDiaColombiaMs, inicioDiaColombiaMs, mediodiaColombiaDesdeYmd } from "@/lib/fecha-colombia";
 import type { DocumentoComercialFirestoreDoc } from "@/lib/documentos-comerciales-firestore";
 import type { VentaGuardadaLocal } from "@/lib/pos-ventas-local-storage";
 import { etiquetasMediosPagoVenta } from "@/lib/medios-pago-venta";
@@ -273,8 +273,11 @@ export function filtrarFilasDocumentosPos(
   });
 }
 
-export function formatoFechaTabla(ymd: string, fechaMs: number): string {
+export function formatoFechaTabla(ymd: string, fechaMs: number, opts?: { conHora?: boolean }): string {
   const d = fechaMs > 0 ? new Date(fechaMs) : mediodiaColombiaDesdeYmd(ymd);
+  if (opts?.conHora && fechaMs > 0) {
+    return fechaHoraColombia(d, { dateStyle: "short", timeStyle: "short" });
+  }
   return fechaColombia(d, { day: "numeric", month: "short", year: "numeric" });
 }
 

@@ -36,6 +36,8 @@ export type DatosReporteVentasPos = {
   puntoVenta: string;
   desdeYmd: string;
   hastaYmd: string;
+  /** Si está definido, reemplaza el período por fechas solas en PDF/correo (rango con hora). */
+  periodoLabel?: string;
   generadoIso: string;
   nivel: NivelDetalleReporteVentas;
   filtroTabLabel: string;
@@ -57,14 +59,15 @@ const ETIQUETA_TIPO: Record<FilaDocumentoPosVenta["tipo"], string> = {
   remision: "Remisión",
 };
 
-function fechaRangoLegible(desdeYmd: string, hastaYmd: string): string {
+export function periodoLegibleReporteVentas(d: Pick<DatosReporteVentasPos, "desdeYmd" | "hastaYmd" | "periodoLabel">): string {
+  if (d.periodoLabel?.trim()) return d.periodoLabel.trim();
   const fmt = (ymd: string) => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return ymd;
-    const d = mediodiaColombiaDesdeYmd(ymd);
-    return fechaColombia(d, { day: "numeric", month: "long", year: "numeric" });
+    const day = mediodiaColombiaDesdeYmd(ymd);
+    return fechaColombia(day, { day: "numeric", month: "long", year: "numeric" });
   };
-  if (desdeYmd === hastaYmd) return fmt(desdeYmd);
-  return `${fmt(desdeYmd)} — ${fmt(hastaYmd)}`;
+  if (d.desdeYmd === d.hastaYmd) return fmt(d.desdeYmd);
+  return `${fmt(d.desdeYmd)} — ${fmt(d.hastaYmd)}`;
 }
 
 export function etiquetaNivelDetalle(nivel: NivelDetalleReporteVentas): string {
@@ -80,8 +83,10 @@ export function construirDatosReporteVentasPos(params: {
   nivel: NivelDetalleReporteVentas;
   filas: FilaDocumentoPosVenta[];
   filtroTabLabel: string;
+  /** Muestra hora en listados del PDF (informe por rango exacto). */
+  fechaConHora?: boolean;
 }): DatosReporteVentasPos {
-  const { filas, nivel, puntoVenta, desdeYmd, hastaYmd, filtroTabLabel } = params;
+  const { filas, nivel, puntoVenta, desdeYmd, hastaYmd, filtroTabLabel, fechaConHora = false } = params;
   let totalVigente = 0;
   let totalAnulado = 0;
   let cantidadAnuladas = 0;
@@ -111,7 +116,7 @@ export function construirDatosReporteVentasPos(params: {
 
     transacciones.push({
       comprobante: f.comprobante,
-      fechaLabel: formatoFechaTabla(f.fechaYmd, f.fechaMs),
+      fechaLabel: formatoFechaTabla(f.fechaYmd, f.fechaMs, { conHora: fechaConHora }),
       tipoLabel: f.tipoLabel,
       cliente: f.clienteNombre,
       medioPago: f.medioPagoLabel,
@@ -169,7 +174,7 @@ export function construirDatosReporteVentasPos(params: {
     if (lineasDetalle.length > 0) {
       detallePorVenta.push({
         comprobante: f.comprobante,
-        fechaLabel: formatoFechaTabla(f.fechaYmd, f.fechaMs),
+        fechaLabel: formatoFechaTabla(f.fechaYmd, f.fechaMs, { conHora: fechaConHora }),
         cliente: f.clienteNombre,
         medioPagoDetalle: f.medioPagoDetalle,
         total: f.total,
@@ -209,7 +214,7 @@ export function construirDatosReporteVentasPos(params: {
 }
 
 export function textoResumenReporteVentasCorreo(d: DatosReporteVentasPos): string {
-  const rango = fechaRangoLegible(d.desdeYmd, d.hastaYmd);
+  const rango = periodoLegibleReporteVentas(d);
   const lineas = [
     "Hola,",
     "",
@@ -300,18 +305,13 @@ export function nombreArchivoReporteVentasExcel(d: DatosReporteVentasPos): strin
   return `Reporte-ventas-${slugPv}-${d.desdeYmd}_${d.hastaYmd}.xlsx`;
 }
 
-function fechaRangoLegibleExport(desdeYmd: string, hastaYmd: string): string {
-  if (desdeYmd === hastaYmd) return desdeYmd;
-  return `${desdeYmd} — ${hastaYmd}`;
-}
-
 /** Metadatos del reporte en filas clave-valor (Excel / export). */
 export function filasMetaReporteVentasPos(d: DatosReporteVentasPos): string[][] {
   return [
     ["Reporte de ventas — Maria Chorizos POS"],
     [],
     ["Punto de venta", d.puntoVenta],
-    ["Período", fechaRangoLegibleExport(d.desdeYmd, d.hastaYmd)],
+    ["Período", periodoLegibleReporteVentas(d)],
     ["Filtro de lista", d.filtroTabLabel],
     ["Nivel de detalle", etiquetaNivelDetalle(d.nivel)],
     ["Generado", new Date(d.generadoIso).toLocaleString("es-CO")],

@@ -62,7 +62,10 @@ export async function enviarReporteVentasPosPorCorreo(params: {
   }
 
   const d = datosCorreo;
-  const subject = `Reporte de ventas ${d.puntoVenta} · ${d.desdeYmd}${d.desdeYmd !== d.hastaYmd ? ` a ${d.hastaYmd}` : ""}`;
+  const periodo =
+    d.periodoLabel?.trim() ||
+    `${d.desdeYmd}${d.desdeYmd !== d.hastaYmd ? ` a ${d.hastaYmd}` : ""}`;
+  const subject = `Reporte de ventas ${d.puntoVenta} · ${periodo}`;
   let texto = textoResumenReporteVentasCorreo(d);
   if (notaCorreo?.trim()) {
     texto += `\n\nNota: ${notaCorreo.trim()}`;

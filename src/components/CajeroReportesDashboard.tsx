@@ -20,6 +20,7 @@ import {
   type VentaGuardadaLocal,
 } from "@/lib/pos-ventas-local-storage";
 import type { MovimientoCajaTurno, TipoMovimientoCaja } from "@/lib/turno-movimientos-caja";
+import ReporteVentasRangoCajeroPanel from "@/components/ReporteVentasRangoCajeroPanel";
 
 export interface CajeroReportesDashboardProps {
   /** Firebase uid: sesión y carga de ventas en nube. El reporte agrega por punto de venta (todos los cajeros). */
@@ -275,6 +276,8 @@ export default function CajeroReportesDashboard({
           <p className="mt-2 text-sm font-medium text-gray-800/80">Tickets del día en el punto de venta</p>
         </div>
       </div>
+
+      <ReporteVentasRangoCajeroPanel ventas={ventas} puntoVenta={pv} />
 
       <section className="rounded-2xl border-2 border-emerald-100 bg-white p-5 shadow-sm md:p-8">
         <div className="flex flex-wrap items-start justify-between gap-3">

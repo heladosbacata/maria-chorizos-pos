@@ -32,6 +32,8 @@ export interface ModalReporteVentasPosProps {
   puntoVenta: string;
   desdeYmd: string;
   hastaYmd: string;
+  /** Etiqueta del período (p. ej. rango con hora). Si no se pasa, usa fechas YMD. */
+  periodoLabel?: string;
   cantidadDocumentos: number;
   /** Documentos en el rango filtrado (para el PDF). */
   cantidadEnRango: number;
@@ -56,6 +58,7 @@ export default function ModalReporteVentasPos({
   puntoVenta,
   desdeYmd,
   hastaYmd,
+  periodoLabel,
   cantidadDocumentos,
   cantidadEnRango,
   totalVigente,
@@ -94,7 +97,9 @@ export default function ModalReporteVentasPos({
               </h2>
               <p className="mt-0.5 text-[11px] text-white/65">PDF o Excel para franquiciados</p>
               <p className="mt-1 text-xs text-white/75">
-                {puntoVenta} · {desdeYmd === hastaYmd ? desdeYmd : `${desdeYmd} → ${hastaYmd}`}
+                {puntoVenta} ·{" "}
+                {periodoLabel?.trim() ||
+                  (desdeYmd === hastaYmd ? desdeYmd : `${desdeYmd} → ${hastaYmd}`)}
               </p>
             </div>
             <button

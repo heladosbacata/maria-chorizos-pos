@@ -56,3 +56,44 @@ export function finDiaColombiaMs(yyyyMmDd: string): number {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(t)) return NaN;
   return new Date(`${t}T23:59:59.999-05:00`).getTime();
 }
+
+/** HH:mm en Colombia (para inputs type="time"). */
+export function horaInputColombia(d: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: ZONA_HORARIA_COLOMBIA,
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(d);
+  const hh = parts.find((p) => p.type === "hour")?.value ?? "00";
+  const mm = parts.find((p) => p.type === "minute")?.value ?? "00";
+  return `${hh.padStart(2, "0")}:${mm.padStart(2, "0")}`;
+}
+
+/** Inicio del minuto (seg 0) en Colombia — YYYY-MM-DD + HH:mm. */
+export function msDesdeYmdHoraColombia(ymd: string, horaInput: string): number {
+  const t = ymd.trim();
+  const m = /^(\d{1,2}):(\d{2})$/.exec(horaInput.trim());
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(t) || !m) return NaN;
+  const hh = Number(m[1]);
+  const mm = Number(m[2]);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm) || hh < 0 || hh > 23 || mm < 0 || mm > 59) return NaN;
+  return new Date(
+    `${t}T${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:00.000-05:00`
+  ).getTime();
+}
+
+/** Fin del minuto (seg 59.999) en Colombia — YYYY-MM-DD + HH:mm. */
+export function msHastaYmdHoraColombia(ymd: string, horaInput: string): number {
+  const inicio = msDesdeYmdHoraColombia(ymd, horaInput);
+  if (!Number.isFinite(inicio)) return NaN;
+  return inicio + 59_999;
+}
+
+/** Etiqueta legible de un rango exacto (fecha + hora, Colombia). */
+export function etiquetaRangoFechaHoraColombia(desdeMs: number, hastaMs: number): string {
+  if (!Number.isFinite(desdeMs) || !Number.isFinite(hastaMs)) return "—";
+  const fmt = (ms: number) =>
+    fechaHoraColombia(new Date(ms), { dateStyle: "short", timeStyle: "short" });
+  return `${fmt(desdeMs)} — ${fmt(hastaMs)}`;
+}

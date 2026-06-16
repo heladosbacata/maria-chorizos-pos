@@ -6,6 +6,7 @@ import { formatoMonedaCop } from "@/lib/pdf-documento-ventas";
 import {
   etiquetaNivelDetalle,
   nombreArchivoReporteVentasPdf,
+  periodoLegibleReporteVentas,
   type DatosReporteVentasPos,
 } from "@/lib/ventas-reporte-pos-data";
 
@@ -61,15 +62,6 @@ function medidasLogoEnMm(
   });
 }
 
-function fechaRangoLegiblePdf(desdeYmd: string, hastaYmd: string): string {
-  const fmt = (ymd: string) => {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return ymd;
-    return fechaColombia(mediodiaColombiaDesdeYmd(ymd), { day: "numeric", month: "long", year: "numeric" });
-  };
-  if (desdeYmd === hastaYmd) return fmt(desdeYmd);
-  return `${fmt(desdeYmd)} — ${fmt(hastaYmd)}`;
-}
-
 function pintarCabeceraPremium(doc: jsPDF, d: DatosReporteVentasPos, margin: number): Promise<number> {
   const pageW = doc.internal.pageSize.getWidth();
   const bandH = 38;
@@ -110,7 +102,7 @@ function escribirMetaBajoBanda(doc: jsPDF, d: DatosReporteVentasPos, margin: num
   doc.setTextColor(50, 50, 50);
   const meta = [
     `Punto de venta: ${d.puntoVenta}`,
-    `Período: ${fechaRangoLegiblePdf(d.desdeYmd, d.hastaYmd)}`,
+    `Período: ${periodoLegibleReporteVentas(d)}`,
     `Filtro: ${d.filtroTabLabel}`,
     `Detalle: ${etiquetaNivelDetalle(d.nivel)}`,
     `Generado: ${fechaHoraColombia(new Date(d.generadoIso))}`,
