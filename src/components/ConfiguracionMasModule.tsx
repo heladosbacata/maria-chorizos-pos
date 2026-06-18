@@ -43,6 +43,8 @@ const DIAN_VEN_GUIA_ITEM_ID = "dian-ven-guia";
 const DIAN_VEN_FACT_ITEM_ID = "dian-ven-fact";
 /** Misma pantalla que facturación electrónica, abriendo en el paso de NIT y número de resolución */
 const DIAN_VEN_RES_ITEM_ID = "dian-ven-res";
+/** Misma pantalla que facturación electrónica, abriendo directo en Probar conexión */
+const DIAN_VEN_TEST_ITEM_ID = "dian-ven-test";
 
 const VISTA_DETALLE_ITEM_IDS = new Set<string>([
   PERFIL_ORGANIZACION_ITEM_ID,
@@ -60,6 +62,7 @@ const VISTA_DETALLE_ITEM_IDS = new Set<string>([
   DIAN_VEN_GUIA_ITEM_ID,
   DIAN_VEN_FACT_ITEM_ID,
   DIAN_VEN_RES_ITEM_ID,
+  DIAN_VEN_TEST_ITEM_ID,
 ]);
 
 export type ConfigCategoriaId =
@@ -438,12 +441,15 @@ export default function ConfiguracionMasModule({ puntoVenta, uid, role }: Config
             puntoVenta={puntoVenta}
             onVolver={() => setVistaDetalleItemId(null)}
             onIrAConfiguracionPos={() => setVistaDetalleItemId(DIAN_VEN_FACT_ITEM_ID)}
+            onIrAProbarConexion={() => setVistaDetalleItemId(DIAN_VEN_TEST_ITEM_ID)}
           />
-        ) : vistaDetalleItemId === DIAN_VEN_FACT_ITEM_ID || vistaDetalleItemId === DIAN_VEN_RES_ITEM_ID ? (
+        ) : vistaDetalleItemId === DIAN_VEN_FACT_ITEM_ID ||
+          vistaDetalleItemId === DIAN_VEN_RES_ITEM_ID ||
+          vistaDetalleItemId === DIAN_VEN_TEST_ITEM_ID ? (
           <PosDianFacturacionPanel
             key={vistaDetalleItemId}
             puntoVenta={puntoVenta}
-            initialStep={vistaDetalleItemId === DIAN_VEN_RES_ITEM_ID ? 2 : 1}
+            initialStep={vistaDetalleItemId === DIAN_VEN_RES_ITEM_ID ? 2 : vistaDetalleItemId === DIAN_VEN_TEST_ITEM_ID ? 4 : 1}
             onVolver={() => setVistaDetalleItemId(null)}
             onAbrirGuiaHabilitacion={() => setVistaDetalleItemId(DIAN_VEN_GUIA_ITEM_ID)}
           />

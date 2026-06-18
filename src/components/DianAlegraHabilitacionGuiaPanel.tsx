@@ -19,6 +19,7 @@ type Props = {
   puntoVenta: string | null;
   onVolver: () => void;
   onIrAConfiguracionPos?: () => void;
+  onIrAProbarConexion?: () => void;
 };
 
 function renderInline(parts: GuiaInline[], keyPrefix: string) {
@@ -187,6 +188,7 @@ export default function DianAlegraHabilitacionGuiaPanel({
   puntoVenta,
   onVolver,
   onIrAConfiguracionPos,
+  onIrAProbarConexion,
 }: Props) {
   const { user } = useAuth();
   const [testSetId, setTestSetId] = useState("");
@@ -289,13 +291,24 @@ export default function DianAlegraHabilitacionGuiaPanel({
           <p className="mt-1 text-amber-950/95">
             Volvé al asistente del POS para cargar NIT, resolución y activar la factura electrónica en caja.
           </p>
-          <button
-            type="button"
-            onClick={onIrAConfiguracionPos}
-            className="mt-3 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-gray-900 hover:bg-amber-400"
-          >
-            Ir a Facturación electrónica (POS)
-          </button>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={onIrAConfiguracionPos}
+              className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-gray-900 hover:bg-amber-400"
+            >
+              Ir a Facturación electrónica (POS)
+            </button>
+            {onIrAProbarConexion ? (
+              <button
+                type="button"
+                onClick={onIrAProbarConexion}
+                className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 hover:bg-amber-100"
+              >
+                Probar conexión
+              </button>
+            ) : null}
+          </div>
         </div>
       ) : null}
 
