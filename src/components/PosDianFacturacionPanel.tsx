@@ -67,6 +67,8 @@ type Props = {
   onAbrirGuiaHabilitacion?: () => void;
 };
 
+const CONSECUTIVO_FE_INICIAL = "1";
+
 export default function PosDianFacturacionPanel({
   puntoVenta,
   onVolver,
@@ -84,7 +86,7 @@ export default function PosDianFacturacionPanel({
   /** Prefijo en DB_ResolucionesDian; vacío = SETT en sandbox. */
   const [prefijoFactura, setPrefijoFactura] = useState("");
   /** Rango autorizado en la resolución DIAN (consecutivos). */
-  const [consecutivoDesde, setConsecutivoDesde] = useState("");
+  const [consecutivoDesde, setConsecutivoDesde] = useState(CONSECUTIVO_FE_INICIAL);
   const [consecutivoHasta, setConsecutivoHasta] = useState("");
   const [habilitado, setHabilitado] = useState(false);
   const [cargando, setCargando] = useState(true);
@@ -118,10 +120,10 @@ export default function PosDianFacturacionPanel({
       dianTestSetId: dianTestSetId.trim(),
       dianResolutionNumber: soloDigitosDian(dianResolutionNumber),
       prefijoFactura: normalizarPrefijoFactura(prefijoFactura),
-      consecutivoDesde: soloDigitosDian(consecutivoDesde),
+      consecutivoDesde: CONSECUTIVO_FE_INICIAL,
       consecutivoHasta: soloDigitosDian(consecutivoHasta),
     };
-  }, [dianTestSetId, dianResolutionNumber, prefijoFactura, consecutivoDesde, consecutivoHasta]);
+  }, [dianTestSetId, dianResolutionNumber, prefijoFactura, consecutivoHasta]);
 
   const errorPaso1Campos = useMemo(() => validarDatosPaso1(datosPaso1()), [datosPaso1]);
   const paso1CamposListos = !errorPaso1Campos;
@@ -186,7 +188,7 @@ export default function PosDianFacturacionPanel({
       setDianTestSetId(id);
       if (r.dianResolutionNumber) setDianResolutionNumber(r.dianResolutionNumber);
       if (r.prefijoFactura) setPrefijoFactura(r.prefijoFactura);
-      if (r.consecutivoDesde) setConsecutivoDesde(r.consecutivoDesde);
+      setConsecutivoDesde(CONSECUTIVO_FE_INICIAL);
       if (r.consecutivoHasta) setConsecutivoHasta(r.consecutivoHasta);
       setTestSetIdGuardado(Boolean(r.enviadoABacataAt?.trim()));
       setTestSetGuardadoEn(r.enviadoABacataAt ?? r.updatedAt);
@@ -268,7 +270,7 @@ export default function PosDianFacturacionPanel({
       setDianTestSetId(r.dianTestSetId);
       setDianResolutionNumber(datos.dianResolutionNumber);
       setPrefijoFactura(datos.prefijoFactura);
-      setConsecutivoDesde(datos.consecutivoDesde);
+      setConsecutivoDesde(CONSECUTIVO_FE_INICIAL);
       setConsecutivoHasta(datos.consecutivoHasta);
       setTestSetIdGuardado(true);
       const ahora = new Date().toISOString();
@@ -703,7 +705,8 @@ export default function PosDianFacturacionPanel({
                   <p className="text-sm font-semibold text-amber-950">Resolución y numeración DIAN</p>
                   <p className="mt-1 text-xs text-amber-950/90">
                     Número de resolución (ej. <span className="font-mono">18760000001</span>), prefijo autorizado (ej.{" "}
-                    <strong>FE</strong>) y rango opcional para <strong>DB_ResolucionesDian</strong>.
+                    <strong>FE</strong>) y rango para <strong>DB_ResolucionesDian</strong>. La factura electrónica inicia en{" "}
+                    <strong>1</strong> y no continúa el documento interno POS.
                   </p>
                   <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                     <label className="block sm:col-span-2 xl:col-span-2">
@@ -744,13 +747,11 @@ export default function PosDianFacturacionPanel({
                           type="text"
                           inputMode="numeric"
                           value={consecutivoDesde}
-                          onChange={(e) => {
-                            setConsecutivoDesde(soloDigitosDian(e.target.value));
-                            limpiarEstadoEnvioPaso1();
-                          }}
-                          className="mt-1 w-full rounded-lg border border-amber-500/60 bg-white px-2 py-2 text-sm text-gray-900"
+                          readOnly
+                          className="mt-1 w-full cursor-not-allowed rounded-lg border border-amber-500/60 bg-amber-100/80 px-2 py-2 text-sm font-bold text-amber-950"
                           placeholder="1"
                           autoComplete="off"
+                          title="La factura electrónica arranca en 1; este número no usa el consecutivo del documento interno POS."
                         />
                       </label>
                       <label className="block">

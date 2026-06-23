@@ -12,6 +12,8 @@ export const POS_DIAN_HABILITACION_COLLECTION = "posDianHabilitacion";
 /** Bandeja de notificaciones en el POS (por usuario cajero). */
 export const POS_NOTIFICACIONES_CAJA_COLLECTION = "posNotificacionesCaja";
 
+const CONSECUTIVO_FE_INICIAL = "1";
+
 function docIdFromPuntoVenta(puntoVenta: string): string {
   return normPuntoVentaCatalogo(puntoVenta).replace(/\s+/g, "_").replace(/[^\w-]/g, "") || "sin_pv";
 }
@@ -24,7 +26,7 @@ function leerCamposHabilitacion(body: Record<string, unknown>) {
   const dianTestSetId = normalizarTestSetId(String(body.dianTestSetId ?? ""));
   const dianResolutionNumber = soloDigitosDian(String(body.dianResolutionNumber ?? ""));
   const prefijoFactura = normalizarPrefijoFactura(String(body.prefijoFactura ?? ""));
-  const consecutivoDesde = soloDigitosDian(String(body.consecutivoDesde ?? ""));
+  const consecutivoDesde = CONSECUTIVO_FE_INICIAL;
   const consecutivoHasta = soloDigitosDian(String(body.consecutivoHasta ?? ""));
   return { dianTestSetId, dianResolutionNumber, prefijoFactura, consecutivoDesde, consecutivoHasta };
 }
@@ -57,7 +59,7 @@ function camposDesdeFirestore(data: Record<string, unknown>) {
     dianTestSetId: String(data.dianTestSetId ?? "").trim(),
     dianResolutionNumber: String(data.dianResolutionNumber ?? "").trim(),
     prefijoFactura: String(data.prefijoFactura ?? "").trim(),
-    consecutivoDesde: String(data.consecutivoDesde ?? "").trim(),
+    consecutivoDesde: CONSECUTIVO_FE_INICIAL,
     consecutivoHasta: String(data.consecutivoHasta ?? "").trim(),
   };
 }
@@ -172,7 +174,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           dianTestSetId: "",
           dianResolutionNumber: "",
           prefijoFactura: "",
-          consecutivoDesde: "",
+          consecutivoDesde: CONSECUTIVO_FE_INICIAL,
           consecutivoHasta: "",
           puntoVenta,
           updatedAt: null,
