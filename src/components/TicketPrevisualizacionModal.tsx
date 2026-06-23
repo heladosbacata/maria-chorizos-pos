@@ -101,7 +101,7 @@ export default function TicketPrevisualizacionModal({
   const tieneAcumulacionClub = ticketTieneQrAcumulacionClubMillas(ticket);
   const esAvisoClub = esAvisoErrorClubMillasEnTicket(ticket);
   const qrInvitacionClub = ticket.clubMillasInvitacionQrDataUrl?.trim();
-  const mostrarClubSaldo = incluirQrPromocionales && tieneSaldoClub;
+  const mostrarClubSaldo = tieneSaldoClub;
   const mostrarClubFrecuente = Boolean(incluirQrPromocionales && !tieneSaldoClub && (tieneAcumulacionClub || esAvisoClub));
   const mostrarInvitacionClub = Boolean(
     incluirQrPromocionales && !tieneAcumulacionClub && (qrInvitacionClub || ticket.clubMillasInvitacionUrl?.trim())
@@ -344,10 +344,12 @@ export default function TicketPrevisualizacionModal({
                     </p>
                   </>
                 ) : null}
-                <p className="mt-2 text-[7px] font-semibold leading-snug text-amber-900">
-                  {MENSAJE_TIRILLA_CLUB_CONSULTA_PASO}
-                </p>
-                {qrConsultaClub ? (
+                {incluirQrPromocionales ? (
+                  <p className="mt-2 text-[7px] font-semibold leading-snug text-amber-900">
+                    {MENSAJE_TIRILLA_CLUB_CONSULTA_PASO}
+                  </p>
+                ) : null}
+                {incluirQrPromocionales && qrConsultaClub ? (
                   /* eslint-disable-next-line @next/next/no-img-element -- data URL del QR */
                   <img
                     src={qrConsultaClub}

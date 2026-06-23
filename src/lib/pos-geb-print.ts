@@ -64,6 +64,8 @@ export type OpcionesTextoTicketPlano = {
   omitirBloqueFidelizacionTexto?: boolean;
   /** En QZ el saldo + QR consulta van por ESC/POS; evita duplicar en texto plano. */
   omitirBloqueClubSaldoTexto?: boolean;
+  /** Si se imprime saldo de Club sin QR (p. ej. FE), evita mostrar la instrucción de escaneo. */
+  omitirPasoConsultaClubTexto?: boolean;
   /** En QZ el bloque domicilios va por ESC/POS al inicio; evita duplicar el mensaje en texto plano. */
   omitirBloqueDomiciliosTexto?: boolean;
   /** En QZ el bloque invitacion club va por ESC/POS al final; evita duplicar en texto plano. */
@@ -155,7 +157,7 @@ export function construirTextoTicketPlano(
   rows.push(center("Maria Chorizos POS GEB"));
   rows.push("");
   if (ticketTieneSaldoClubMillasEnTirilla(payload) && !opciones?.omitirBloqueClubSaldoTexto) {
-    rows.push(textoClubMillasSaldoTicketPlano(payload, W));
+    rows.push(textoClubMillasSaldoTicketPlano(payload, W, !opciones?.omitirPasoConsultaClubTexto));
   } else if (payload.fidelizacionPayloadTexto?.trim() && !opciones?.omitirBloqueFidelizacionTexto) {
     rows.push(
       textoFidelizacionTicketPlano(
@@ -295,7 +297,7 @@ function millasDespuesEnTicket(payload: TicketVentaPayload): number | undefined 
   return antes + (Number.isFinite(g) ? Math.round(g) : 0);
 }
 
-function textoClubMillasSaldoTicketPlano(payload: TicketVentaPayload, ancho: number): string {
+function textoClubMillasSaldoTicketPlano(payload: TicketVentaPayload, ancho: number, incluirPasoConsulta = true): string {
   const center = (s: string) => {
     const t = textoTicketSeguro(s).slice(0, ancho);
     const pad = Math.max(0, Math.floor((ancho - t.length) / 2));
@@ -322,7 +324,7 @@ function textoClubMillasSaldoTicketPlano(payload: TicketVentaPayload, ancho: num
     rows.push(center(MENSAJE_TIRILLA_CLUB_GANADAS_LABEL));
     rows.push(center(`+ ${formatoMillasTicket(ganadas)}`));
   }
-  rows.push(center(MENSAJE_TIRILLA_CLUB_CONSULTA_PASO));
+  if (incluirPasoConsulta) rows.push(center(MENSAJE_TIRILLA_CLUB_CONSULTA_PASO));
   const pie = payload.clubMillasMensajePie?.trim();
   if (pie) rows.push(center(textoTicketSeguro(pie).slice(0, ancho)));
   rows.push("");
@@ -663,7 +665,7 @@ function construirHtmlTirillaTicket(
   const ganadasClub = p.clubMillasGanadasCompra ?? 0;
   const qrConsultaClub = p.clubMillasConsultaQrDataUrl?.trim();
   const clubSaldoClass = termico ? "qr club-saldo-promo termico-claro" : "qr club-saldo-promo";
-  const clubSaldoBlock = incluirQrPromocionales && tieneSaldoClub
+  const clubSaldoBlock = tieneSaldoClub
     ? `<div class="${clubSaldoClass}">
           <p class="club-saldo-sep" aria-hidden="true">${"=".repeat(rollo58 ? 24 : 28)}</p>
           <p class="qr-t">${escapeHtml(MENSAJE_TIRILLA_CLUB_SALDO_TITULO)}</p>
@@ -691,10 +693,14 @@ function construirHtmlTirillaTicket(
               ? `<p class="qr-paso">${escapeHtml(p.clubMillasMensajePie.trim())}</p>`
               : ""
           }
-          <p class="qr-paso">${escapeHtml(MENSAJE_TIRILLA_CLUB_CONSULTA_PASO)}</p>
+          ${
+            incluirQrPromocionales
+              ? `<p class="qr-paso">${escapeHtml(MENSAJE_TIRILLA_CLUB_CONSULTA_PASO)}</p>`
+              : ""
+          }
           <p class="club-saldo-sep" aria-hidden="true">${"=".repeat(rollo58 ? 24 : 28)}</p>
           ${
-            qrConsultaClub
+            incluirQrPromocionales && qrConsultaClub
               ? `<img src="${escapeHtml(qrConsultaClub)}" width="${qrClubPx}" height="${qrClubPx}" alt="QR Mi plan Club de Millas" />`
               : ""
           }
@@ -1342,7 +1348,8 @@ export async function imprimirTicketConQz(prefs: ImpresionPosPrefs, payload: Tic
   const invUrl = incluirQrPromocionales ? payload.clubMillasInvitacionUrl?.trim() : "";
   const tieneQrInvitacion = Boolean(payload.clubMillasInvitacionQrDataUrl?.trim());
   const plain = construirTextoTicketPlano(payload, cols, {
-    ...(tieneSaldoClub || esFacturaElectronica ? { omitirBloqueClubSaldoTexto: true } : {}),
+    ...(tieneSaldoClub && incluirQrPromocionales ? { omitirBloqueClubSaldoTexto: true } : {}),
+    ...(esFacturaElectronica ? { omitirPasoConsultaClubTexto: true } : {}),
     ...((contenidoQrClub && !tieneSaldoClub) || esFacturaElectronica ? { omitirBloqueFidelizacionTexto: true } : {}),
     ...(domUrl || esFacturaElectronica ? { omitirBloqueDomiciliosTexto: true } : {}),
     ...(invUrl || esFacturaElectronica ? { omitirBloqueInvitacionClubTexto: true } : {}),
