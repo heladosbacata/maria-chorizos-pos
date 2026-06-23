@@ -653,7 +653,7 @@ export default function CajaPageClient() {
   const [errorSolicitudPrecio, setErrorSolicitudPrecio] = useState<string | null>(null);
   /** Tipo de comprobante: Doc. interno (predeterminado) o Factura electrónica */
   const [tipoComprobante, setTipoComprobante] = useState<TipoComprobante>("documento_interno");
-  const tipoComprobanteDefaultAplicadoUidRef = useRef<string | null>(null);
+  const tipoComprobanteDefaultAplicadoKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!dianCaja.cargando && !dianCaja.puedeEmitirFe && tipoComprobante === "factura_electronica") {
@@ -663,16 +663,16 @@ export default function CajaPageClient() {
 
   useEffect(() => {
     const uid = user?.uid ?? "";
-    if (!uid || dianCaja.cargando || tipoComprobanteDefaultAplicadoUidRef.current === uid) return;
-    tipoComprobanteDefaultAplicadoUidRef.current = uid;
-    if (
+    if (!uid || dianCaja.cargando) return;
+    const tipoDefault: TipoComprobante =
       dianCaja.tipoComprobantePredeterminado === "factura_electronica" &&
       dianCaja.puedeEmitirFe
-    ) {
-      setTipoComprobante("factura_electronica");
-    } else {
-      setTipoComprobante("documento_interno");
-    }
+        ? "factura_electronica"
+        : "documento_interno";
+    const key = `${uid}:${tipoDefault}`;
+    if (tipoComprobanteDefaultAplicadoKeyRef.current === key) return;
+    tipoComprobanteDefaultAplicadoKeyRef.current = key;
+    setTipoComprobante(tipoDefault);
   }, [
     user?.uid,
     dianCaja.cargando,
