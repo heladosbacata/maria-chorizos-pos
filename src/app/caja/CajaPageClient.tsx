@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import QRCode from "qrcode";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -118,6 +119,7 @@ import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
 import { verificarActualizacionPosTrasVenta } from "@/lib/pos-app-version-client";
 import { usePosDianCajaEstado } from "@/lib/use-pos-dian-caja";
 import { registrarVentaPosCloud } from "@/lib/pos-ventas-cloud-client";
+import { resumenIvaDesdeTotalConIvaIncluido } from "@/lib/iva-precios-incluidos";
 import {
   agregarProductosEnVentas,
   actualizarVentaLocalClienteComprobante,
@@ -159,7 +161,8 @@ import {
   wmsTurnosSincronizarSilent,
   type WmsTurnoCajeroPayload,
 } from "@/lib/wms-turnos-client";
-import { wmsPosAlegraEmitirCobro } from "@/lib/wms-pos-dian-client";
+import { wmsPosAlegraEmitirCobro, wmsPosDianConfigGet } from "@/lib/wms-pos-dian-client";
+import { posDianTestSetGet } from "@/lib/pos-dian-test-set-client";
 import {
   aplicarVentaEnsambleWms,
   contarAplicadosEnsambleReportados,
@@ -1578,6 +1581,11 @@ export default function CajaPageClient() {
         vendedorLabel: vendedorTicket,
         lineas: lineasTicketDesdeItemsCuenta(items),
         total,
+        ...(tipoComprobante === "factura_electronica"
+          ? {
+              desgloseIvaPreciosIncluidos: resumenIvaDesdeTotalConIvaIncluido(total),
+            }
+          : {}),
         ...(notaPie ? { notaPie } : {}),
       };
     },
@@ -2198,6 +2206,36 @@ export default function CajaPageClient() {
         if (tipoComprobante === "factura_electronica") {
           const tokenFe = await auth?.currentUser?.getIdToken();
           if (tokenFe) {
+            let dianMeta: {
+              emisorNit?: string;
+              resolucionNumero?: string;
+              prefijo?: string;
+              rangoDesde?: string;
+              rangoHasta?: string;
+            } = {};
+            try {
+              const [cfg, hab] = await Promise.all([
+                wmsPosDianConfigGet(tokenFe),
+                posDianTestSetGet(tokenFe),
+              ]);
+              dianMeta = {
+                ...("ok" in cfg && cfg.ok
+                  ? {
+                      emisorNit: cfg.emisorNit,
+                      resolucionNumero: cfg.dianResolutionNumber,
+                      prefijo: cfg.prefijoFactura,
+                    }
+                  : {}),
+                ...("ok" in hab && hab.ok
+                  ? {
+                      rangoDesde: hab.consecutivoDesde || "1",
+                      rangoHasta: hab.consecutivoHasta,
+                    }
+                  : {}),
+              };
+            } catch {
+              dianMeta = {};
+            }
             const lineasFe = itemsSnap.map((it) => {
               const varTxt = detalleVarianteTicketLinea(it);
               const desc = [it.producto.descripcion.trim(), varTxt].filter(Boolean).join(" · ");
@@ -2234,10 +2272,29 @@ export default function CajaPageClient() {
                 `La venta se registró en caja, pero la factura electrónica no se pudo enviar a la DIAN:\n\n${rFe.error}\n\nSe reintentará automáticamente al recuperar conexión. Revisá también Espacio Franquiciado → Habilitaciones DIAN → Facturación electrónica o contactá a administración.`
               );
             } else {
+              const cufeQrContenido = rFe.alegraCufe?.trim() ? `CUFE:${rFe.alegraCufe.trim()}` : undefined;
+              const cufeQrDataUrl = cufeQrContenido
+                ? await QRCode.toDataURL(cufeQrContenido, {
+                    width: 180,
+                    margin: 1,
+                    errorCorrectionLevel: "M",
+                  }).catch(() => undefined)
+                : undefined;
               const feBlock = {
                 numero: rFe.numeroFactura,
                 cufe: rFe.alegraCufe,
                 enviadoAt: rFe.enviadoAt,
+                ...(cufeQrContenido ? { qrContenido: cufeQrContenido } : {}),
+                ...(cufeQrDataUrl ? { qrDataUrl: cufeQrDataUrl } : {}),
+                emisorNombre: `María Chorizos · ${pv}`,
+                ...(dianMeta.emisorNit?.trim() ? { emisorNit: dianMeta.emisorNit.trim() } : {}),
+                adquirenteNombre: clienteNombreFe,
+                adquirenteNit: clienteNitFe,
+                ...(dianMeta.resolucionNumero?.trim() ? { resolucionNumero: dianMeta.resolucionNumero.trim() } : {}),
+                ...(dianMeta.prefijo?.trim() ? { prefijo: dianMeta.prefijo.trim() } : {}),
+                ...(dianMeta.rangoDesde?.trim() ? { rangoDesde: dianMeta.rangoDesde.trim() } : { rangoDesde: "1" }),
+                ...(dianMeta.rangoHasta?.trim() ? { rangoHasta: dianMeta.rangoHasta.trim() } : {}),
+                proveedorTecnologico: "Alegra / e-provider Colombia",
               };
               if (ventaLocalId) {
                 actualizarVentaLocalFacturaElectronica(user.uid, ventaLocalId, {

@@ -1,4 +1,5 @@
 import { fechaHoraColombia } from "@/lib/fecha-colombia";
+import { resumenIvaDesdeTotalConIvaIncluido } from "@/lib/iva-precios-incluidos";
 import type { VentaGuardadaLocal } from "@/lib/pos-ventas-local-storage";
 import type { TicketVentaPayload } from "@/types/impresion-pos";
 
@@ -45,12 +46,17 @@ export function payloadTicketDesdeVenta(
       ...(l.detalleVariante?.trim() ? { detalleVariante: l.detalleVariante.trim() } : {}),
     })),
     total: v.total,
+    ...(alCobro === "factura_electronica" || tieneFe
+      ? { desgloseIvaPreciosIncluidos: resumenIvaDesdeTotalConIvaIncluido(v.total) }
+      : {}),
     ...(tieneFe
       ? {
           facturaElectronica: {
             ...(v.facturaElectronicaNumero?.trim() ? { numero: v.facturaElectronicaNumero.trim() } : {}),
             ...(v.facturaElectronicaCufe?.trim() ? { cufe: v.facturaElectronicaCufe.trim() } : {}),
             ...(v.facturaElectronicaEnviadoAt?.trim() ? { enviadoAt: v.facturaElectronicaEnviadoAt.trim() } : {}),
+            adquirenteNombre: cliente,
+            proveedorTecnologico: "Alegra / e-provider Colombia",
           },
         }
       : {}),

@@ -91,13 +91,25 @@ export function construirTextoTicketPlano(
     rows.push(center(textoTicketSeguro(MENSAJE_DOMICILIOS_TIRILLA_LINEA2)));
     rows.push("");
   }
-  rows.push(center(payload.titulo));
+  const fe = payload.facturaElectronica;
+  const esFacturaElectronica = Boolean(fe && (fe.cufe?.trim() || fe.numero?.trim()));
+  rows.push(center(esFacturaElectronica ? "Factura Electronica de Venta" : payload.titulo));
   rows.push(center("POS GEB"));
   rows.push("-".repeat(W));
   rows.push(line(`PV: ${payload.puntoVenta}`));
   rows.push(line(`Cuenta: ${payload.precuentaNombre}`));
   rows.push(line(payload.fechaHora));
-  rows.push(line(`Cliente: ${payload.clienteNombre}`));
+  if (esFacturaElectronica) {
+    rows.push(center("ENCABEZADO DEL EMISOR"));
+    rows.push(line(`Emisor: ${fe?.emisorNombre?.trim() || "Maria Chorizos"}`));
+    if (fe?.emisorNit?.trim()) rows.push(line(`NIT emisor: ${fe.emisorNit.trim()}`));
+    rows.push(line(`Punto: ${payload.puntoVenta}`));
+    rows.push(center("DATOS DEL ADQUIRENTE"));
+    rows.push(line(`Cliente: ${fe?.adquirenteNombre?.trim() || payload.clienteNombre}`));
+    if (fe?.adquirenteNit?.trim()) rows.push(line(`Doc/NIT: ${fe.adquirenteNit.trim()}`));
+  } else {
+    rows.push(line(`Cliente: ${payload.clienteNombre}`));
+  }
   rows.push(line(`Doc: ${payload.tipoComprobanteLabel}`));
   rows.push(line(`Vendedor: ${payload.vendedorLabel}`));
   rows.push("-".repeat(W));
@@ -115,17 +127,24 @@ export function construirTextoTicketPlano(
     rows.push("-".repeat(W));
   }
   rows.push(line(`TOTAL: $ ${payload.total.toLocaleString("es-CO")}`));
-  const fe = payload.facturaElectronica;
-  if (fe && (fe.cufe?.trim() || fe.numero?.trim())) {
+  if (esFacturaElectronica && fe) {
     rows.push("-".repeat(W));
-    rows.push(center("FACTURA ELECTRONICA (DIAN)"));
+    rows.push(center("FACTURA ELECTRONICA DE VENTA"));
     if (fe.numero?.trim()) rows.push(line(`No: ${fe.numero.trim()}`));
+    rows.push(center("RESOLUCION DIAN"));
+    if (fe.resolucionNumero?.trim()) rows.push(line(`Resolucion: ${fe.resolucionNumero.trim()}`));
+    if (fe.prefijo?.trim()) rows.push(line(`Prefijo: ${fe.prefijo.trim()}`));
+    if (fe.rangoDesde?.trim() || fe.rangoHasta?.trim()) {
+      rows.push(line(`Rango: ${fe.rangoDesde?.trim() || "1"} al ${fe.rangoHasta?.trim() || "-"}`));
+    }
     if (fe.cufe?.trim()) {
       rows.push(line("CUFE:"));
       const c = textoTicketSeguro(fe.cufe.trim());
       for (let i = 0; i < c.length; i += W) rows.push(line(c.slice(i, i + W)));
     }
+    rows.push(line(`Proveedor tecnologico: ${fe.proveedorTecnologico?.trim() || "Alegra / e-provider Colombia"}`));
     if (fe.enviadoAt?.trim()) rows.push(line(`Emitido: ${fe.enviadoAt.trim()}`));
+    rows.push(center("QR CUFE al final de tirilla"));
   }
   rows.push("");
   rows.push(center(payload.notaPie ?? "Gracias por tu compra"));
@@ -436,6 +455,25 @@ function escPosBloqueQrFidelizacion(payloadJson: string, columnas: number, codig
   return out;
 }
 
+function escPosBloqueQrFacturaElectronica(fe: NonNullable<TicketVentaPayload["facturaElectronica"]>, columnas: number): string {
+  const contenido = fe.qrContenido?.trim() || (fe.cufe?.trim() ? `CUFE:${fe.cufe.trim()}` : "");
+  if (!contenido) return "";
+  const W = columnas;
+  const center = (t: string) => {
+    const x = textoTicketSeguro(t).slice(0, W);
+    const pad = Math.max(0, Math.floor((W - x.length) / 2));
+    return " ".repeat(pad) + x;
+  };
+  let out = "\n";
+  out += escPosAlinearCentro();
+  out += center("VALIDACION ELECTRONICA DIAN") + "\n";
+  out += center("QR / CUFE") + "\n\n";
+  out += escPosQrCodigo(contenido);
+  out += "\n\n";
+  out += escPosAlinearIzq();
+  return out;
+}
+
 /**
  * Mismo texto que verá el ticket impreso por navegador (sin bloque JSON duplicado si hay QR en imagen).
  * Para mostrar en pantalla antes de imprimir.
@@ -530,6 +568,76 @@ function construirHtmlTirillaTicket(
       ? `<div class="iva-desglose">
     <div class="iva-row"><span class="iva-k">Subtotal (sin IVA)</span><span class="iva-v">$ ${escapeHtml(formatCopTicket(dIva.subtotalSinIva))}</span></div>
     <div class="iva-row"><span class="iva-k">IVA ${escapeHtml(String(dIva.tasaPorcentaje))}%</span><span class="iva-v">$ ${escapeHtml(formatCopTicket(dIva.iva))}</span></div>
+  </div>`
+      : "";
+
+  const fe = p.facturaElectronica;
+  const esFacturaElectronica = Boolean(fe && (fe.cufe?.trim() || fe.numero?.trim()));
+  const tituloDocumento = esFacturaElectronica ? "Factura Electrónica de Venta" : p.titulo;
+  const facturaElectronicaHtml =
+    esFacturaElectronica && fe
+      ? `<div class="fe-dian">
+    <p class="fe-dian-t">Factura Electrónica de Venta</p>
+    <div class="fe-section">
+      <p class="fe-section-t">Encabezado del Emisor</p>
+      <div class="fe-dian-row"><span class="fe-dian-k">Emisor</span>${escapeHtml(fe.emisorNombre?.trim() || "María Chorizos")}</div>
+      ${
+        fe.emisorNit?.trim()
+          ? `<div class="fe-dian-row"><span class="fe-dian-k">NIT emisor</span>${escapeHtml(fe.emisorNit.trim())}</div>`
+          : ""
+      }
+      <div class="fe-dian-row"><span class="fe-dian-k">Punto de venta</span>${escapeHtml(p.puntoVenta)}</div>
+    </div>
+    <div class="fe-section">
+      <p class="fe-section-t">Datos del Adquirente</p>
+      <div class="fe-dian-row"><span class="fe-dian-k">Cliente</span>${escapeHtml(fe.adquirenteNombre?.trim() || p.clienteNombre)}</div>
+      ${
+        fe.adquirenteNit?.trim()
+          ? `<div class="fe-dian-row"><span class="fe-dian-k">Documento / NIT</span>${escapeHtml(fe.adquirenteNit.trim())}</div>`
+          : ""
+      }
+    </div>
+    <div class="fe-section">
+      <p class="fe-section-t">Resolución y Rangos DIAN</p>
+      ${
+        fe.resolucionNumero?.trim()
+          ? `<div class="fe-dian-row"><span class="fe-dian-k">Resolución</span>${escapeHtml(fe.resolucionNumero.trim())}</div>`
+          : ""
+      }
+      ${
+        fe.prefijo?.trim()
+          ? `<div class="fe-dian-row"><span class="fe-dian-k">Prefijo</span>${escapeHtml(fe.prefijo.trim())}</div>`
+          : ""
+      }
+      <div class="fe-dian-row"><span class="fe-dian-k">Rango autorizado</span>${escapeHtml(fe.rangoDesde?.trim() || "1")} al ${escapeHtml(fe.rangoHasta?.trim() || "—")}</div>
+    </div>
+    <div class="fe-section">
+      <p class="fe-section-t">Identificación Electrónica</p>
+      ${
+        fe.numero?.trim()
+          ? `<div class="fe-dian-row"><span class="fe-dian-k">Número factura</span>${escapeHtml(fe.numero.trim())}</div>`
+          : ""
+      }
+      ${
+        fe.cufe?.trim()
+          ? `<div class="fe-dian-row"><span class="fe-dian-k">CUFE</span>${escapeHtml(fe.cufe.trim())}</div>`
+          : ""
+      }
+      ${
+        fe.enviadoAt?.trim()
+          ? `<div class="fe-dian-row"><span class="fe-dian-k">Emitido</span>${escapeHtml(fe.enviadoAt.trim())}</div>`
+          : ""
+      }
+      <div class="fe-dian-row"><span class="fe-dian-k">Proveedor tecnológico</span>${escapeHtml(fe.proveedorTecnologico?.trim() || "Alegra / e-provider Colombia")}</div>
+    </div>
+    <div class="fe-qr">
+      <p class="fe-section-t">Código CUFE con QR</p>
+      ${
+        fe.qrDataUrl?.trim()
+          ? `<img src="${escapeHtml(fe.qrDataUrl.trim())}" width="${rollo58 ? 128 : 150}" height="${rollo58 ? 128 : 150}" alt="QR CUFE DIAN" />`
+          : `<div class="fe-qr-box">Espacio físico reservado para QR CUFE</div>`
+      }
+    </div>
   </div>`
       : "";
 
@@ -959,20 +1067,24 @@ function construirHtmlTirillaTicket(
   }
   .fe-dian-t {
     font-weight: 800;
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.04em;
     color: #0f172a;
     margin: 0 0 6px;
     text-align: center;
-    font-size: 7px;
+    font-size: 8px;
   }
+  .fe-section { margin-top: 7px; padding-top: 6px; border-top: 1px dashed #cbd5e1; }
+  .fe-section-t { margin: 0 0 4px; font-size: 6.7px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.08em; color: #0f172a; text-align: center; }
   .fe-dian-row { margin: 4px 0; color: #334155; }
   .fe-dian-k { font-weight: 700; color: #64748b; display: block; margin-bottom: 2px; }
+  .fe-qr { margin-top: 8px; padding-top: 7px; border-top: 1px dashed #cbd5e1; text-align: center; }
+  .fe-qr img { image-rendering: pixelated; display: inline-block; margin-top: 4px; }
+  .fe-qr-box { margin: 6px auto 0; width: 128px; min-height: 92px; border: 1px dashed #64748b; display: flex; align-items: center; justify-content: center; padding: 6px; font-size: 6.5px; color: #475569; text-transform: uppercase; }
 </style></head><body>
 <div class="tirilla">
   ${domiciliosBlock}
   ${logoHtml}
-  <p class="tagline">${escapeHtml(p.titulo)}</p>
+  <p class="tagline">${escapeHtml(tituloDocumento)}</p>
   <p class="subtag">POS GEB · ${escapeHtml(p.fechaHora)}</p>
   <div class="rule"></div>
   <div class="meta">
@@ -986,29 +1098,7 @@ function construirHtmlTirillaTicket(
   ${lineasHtml}
   ${desgloseIvaHtml}
   <div class="total"><span>TOTAL</span><span>$ ${escapeHtml(formatCopTicket(p.total))}</span></div>
-  ${
-    p.facturaElectronica &&
-    (p.facturaElectronica.cufe?.trim() || p.facturaElectronica.numero?.trim())
-      ? `<div class="fe-dian">
-    <p class="fe-dian-t">Factura electrónica (DIAN)</p>
-    ${
-      p.facturaElectronica.numero?.trim()
-        ? `<div class="fe-dian-row"><span class="fe-dian-k">Número</span>${escapeHtml(p.facturaElectronica.numero.trim())}</div>`
-        : ""
-    }
-    ${
-      p.facturaElectronica.cufe?.trim()
-        ? `<div class="fe-dian-row"><span class="fe-dian-k">CUFE</span>${escapeHtml(p.facturaElectronica.cufe.trim())}</div>`
-        : ""
-    }
-    ${
-      p.facturaElectronica.enviadoAt?.trim()
-        ? `<div class="fe-dian-row"><span class="fe-dian-k">Emitido</span>${escapeHtml(p.facturaElectronica.enviadoAt.trim())}</div>`
-        : ""
-    }
-  </div>`
-      : ""
-  }
+  ${facturaElectronicaHtml}
   ${p.notaPie?.trim() ? `<p class="nota">${escapeHtml(p.notaPie.trim())}</p>` : `<p class="nota">Gracias por elegirnos — calidad y sabor en cada visita.</p>`}
   <div class="social">
     <p class="social-hint">Seguinos en redes</p>
@@ -1253,6 +1343,9 @@ export async function imprimirTicketConQz(prefs: ImpresionPosPrefs, payload: Tic
   });
   const bloqueDomicilios = domUrl ? escPosBloqueQrDomicilios(domUrl, cols) : "";
   const bloqueSaldoClub = tieneSaldoClub ? escPosBloqueClubMillasSaldo(payload, cols) : "";
+  const bloqueQrFacturaElectronica = payload.facturaElectronica
+    ? escPosBloqueQrFacturaElectronica(payload.facturaElectronica, cols)
+    : "";
   const bloqueQr =
     !tieneSaldoClub && contenidoQrClub
       ? escPosBloqueQrFidelizacion(contenidoQrClub, cols, payload.clubMillasCodigoCorto)
@@ -1264,7 +1357,7 @@ export async function imprimirTicketConQz(prefs: ImpresionPosPrefs, payload: Tic
   const init = "\x1B\x40";
   const abrirCajon = escPosAbrirCajon();
   const plainLegible = aplicarLegibilidadEscPosTextoPlano(plain, cols);
-  const data = `${init}${bloqueDomicilios}${plainLegible}${bloqueSaldoClub}${bloqueQr}${bloqueInvitacion}\n\n${abrirCajon}\n\x1D\x56\x00`;
+  const data = `${init}${bloqueDomicilios}${plainLegible}${bloqueQrFacturaElectronica}${bloqueSaldoClub}${bloqueQr}${bloqueInvitacion}\n\n${abrirCajon}\n\x1D\x56\x00`;
   await qz.print(config, [data]);
 }
 

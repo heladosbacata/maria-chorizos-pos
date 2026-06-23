@@ -82,5 +82,16 @@ export interface TicketVentaPayload {
     numero?: string;
     cufe?: string;
     enviadoAt?: string;
+    qrDataUrl?: string;
+    qrContenido?: string;
+    emisorNombre?: string;
+    emisorNit?: string;
+    adquirenteNombre?: string;
+    adquirenteNit?: string;
+    resolucionNumero?: string;
+    prefijo?: string;
+    rangoDesde?: string;
+    rangoHasta?: string;
+    proveedorTecnologico?: string;
   };
 }

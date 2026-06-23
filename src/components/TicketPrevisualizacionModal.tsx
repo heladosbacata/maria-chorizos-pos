@@ -266,6 +266,34 @@ export default function TicketPrevisualizacionModal({
               <span className="tabular-nums">$ {formatCop(ticket.total)}</span>
             </div>
 
+            {ticket.facturaElectronica &&
+            (ticket.facturaElectronica.cufe?.trim() || ticket.facturaElectronica.numero?.trim()) ? (
+              <div className="mt-3 rounded-md border border-slate-300 bg-slate-50 px-2 py-2 text-[8px] leading-relaxed text-slate-700">
+                <p className="text-center text-[9px] font-black tracking-wide text-slate-950">
+                  Factura Electrónica de Venta
+                </p>
+                <p className="mt-2 text-center font-black uppercase tracking-wide text-slate-700">Emisor</p>
+                <p>{ticket.facturaElectronica.emisorNombre?.trim() || "María Chorizos"}</p>
+                {ticket.facturaElectronica.emisorNit?.trim() ? <p>NIT: {ticket.facturaElectronica.emisorNit}</p> : null}
+                <p className="mt-2 text-center font-black uppercase tracking-wide text-slate-700">Adquirente</p>
+                <p>{ticket.facturaElectronica.adquirenteNombre?.trim() || ticket.clienteNombre}</p>
+                {ticket.facturaElectronica.adquirenteNit?.trim() ? (
+                  <p>Doc/NIT: {ticket.facturaElectronica.adquirenteNit}</p>
+                ) : null}
+                <p className="mt-2 text-center font-black uppercase tracking-wide text-slate-700">DIAN</p>
+                {ticket.facturaElectronica.numero?.trim() ? <p>No: {ticket.facturaElectronica.numero}</p> : null}
+                {ticket.facturaElectronica.resolucionNumero?.trim() ? (
+                  <p>Resolución: {ticket.facturaElectronica.resolucionNumero}</p>
+                ) : null}
+                <p>
+                  Rango: {ticket.facturaElectronica.rangoDesde?.trim() || "1"} al{" "}
+                  {ticket.facturaElectronica.rangoHasta?.trim() || "—"}
+                </p>
+                {ticket.facturaElectronica.cufe?.trim() ? <p className="break-all">CUFE: {ticket.facturaElectronica.cufe}</p> : null}
+                <p>Proveedor: {ticket.facturaElectronica.proveedorTecnologico?.trim() || "Alegra / e-provider Colombia"}</p>
+              </div>
+            ) : null}
+
             <p className="mt-3 text-center text-[8px] leading-relaxed text-slate-600">{notaPie}</p>
 
             <div className="mt-4 border-t-2 border-slate-200 pt-3 text-center">
