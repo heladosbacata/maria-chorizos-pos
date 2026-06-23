@@ -89,6 +89,8 @@ export default function PosDianFacturacionPanel({
   const [consecutivoDesde, setConsecutivoDesde] = useState(CONSECUTIVO_FE_INICIAL);
   const [consecutivoHasta, setConsecutivoHasta] = useState("");
   const [habilitado, setHabilitado] = useState(false);
+  const [tipoComprobantePredeterminado, setTipoComprobantePredeterminado] =
+    useState<"documento_interno" | "factura_electronica">("documento_interno");
   const [cargando, setCargando] = useState(true);
   const [guardando, setGuardando] = useState(false);
   const [probando, setProbando] = useState(false);
@@ -134,6 +136,7 @@ export default function PosDianFacturacionPanel({
     dianResolutionNumber: dianResolutionNumber.trim(),
     razonSocialDian: razonSocialDian.trim(),
     prefijoFactura: prefijoFactura.trim(),
+    tipoComprobantePredeterminado,
     habilitado: habilitadoFlag,
   });
 
@@ -158,6 +161,7 @@ export default function PosDianFacturacionPanel({
       setRazonSocialDian(r.razonSocialDian);
       setPrefijoFactura(r.prefijoFactura);
       setHabilitado(r.habilitado);
+      setTipoComprobantePredeterminado(r.tipoComprobantePredeterminado);
     } finally {
       setCargando(false);
     }
@@ -340,7 +344,17 @@ export default function PosDianFacturacionPanel({
         debounceSyncRef.current = null;
       }
     };
-  }, [user, cargando, step, emisorNit, alegraCompanyId, dianResolutionNumber, razonSocialDian, prefijoFactura]);
+  }, [
+    user,
+    cargando,
+    step,
+    emisorNit,
+    alegraCompanyId,
+    dianResolutionNumber,
+    razonSocialDian,
+    prefijoFactura,
+    tipoComprobantePredeterminado,
+  ]);
 
   useEffect(() => {
     if (step !== 4) return;

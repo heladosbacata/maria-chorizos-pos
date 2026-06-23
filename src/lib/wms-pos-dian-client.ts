@@ -18,6 +18,8 @@ export type DianConfigResponse = {
   /** Prefijo en hoja; vacío = SETT u omisión según WMS. */
   prefijoFactura: string;
   habilitado: boolean;
+  /** Valor inicial de la caja. Default servidor/cliente: documento_interno. */
+  tipoComprobantePredeterminado: "documento_interno" | "factura_electronica";
 };
 
 export type DianPingOk = {
@@ -77,6 +79,10 @@ export async function wmsPosDianConfigGet(
       razonSocialDian: String(data.razonSocialDian ?? "").trim(),
       prefijoFactura: String(data.prefijoFactura ?? "").trim(),
       habilitado: Boolean(data.habilitado),
+      tipoComprobantePredeterminado:
+        data.tipoComprobantePredeterminado === "factura_electronica"
+          ? "factura_electronica"
+          : "documento_interno",
     };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Red" };
@@ -91,6 +97,7 @@ export async function wmsPosDianConfigPut(
     dianResolutionNumber?: string;
     razonSocialDian?: string;
     prefijoFactura?: string;
+    tipoComprobantePredeterminado?: "documento_interno" | "factura_electronica";
     habilitado: boolean;
   }
 ): Promise<{ ok: true } | { ok: false; error: string }> {

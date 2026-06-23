@@ -5,6 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import { auth } from "@/lib/firebase";
 import ConfirmarDianTestSetModal from "@/components/ConfirmarDianTestSetModal";
 import { posDianTestSetGet, posDianTestSetGuardarBorrador } from "@/lib/pos-dian-test-set-client";
+import { wmsPosDianConfigGet, wmsPosDianConfigPut } from "@/lib/wms-pos-dian-client";
 import {
   ALEGRA_DIAN_HABILITACION_DOC_URL,
   ALEGRA_DIAN_HABILITACION_INTRO,
@@ -191,6 +192,13 @@ export default function DianAlegraHabilitacionGuiaPanel({
   onIrAProbarConexion,
 }: Props) {
   const { user } = useAuth();
+  const [tipoComprobantePredeterminado, setTipoComprobantePredeterminado] =
+    useState<"documento_interno" | "factura_electronica">("documento_interno");
+  const [facturacionHabilitada, setFacturacionHabilitada] = useState(false);
+  const [cargandoComprobantePredeterminado, setCargandoComprobantePredeterminado] = useState(true);
+  const [guardandoComprobantePredeterminado, setGuardandoComprobantePredeterminado] = useState(false);
+  const [mensajeComprobantePredeterminado, setMensajeComprobantePredeterminado] = useState<string | null>(null);
+  const [errorComprobantePredeterminado, setErrorComprobantePredeterminado] = useState<string | null>(null);
   const [testSetId, setTestSetId] = useState("");
   const [cargandoTestSet, setCargandoTestSet] = useState(true);
   const [guardandoTestSet, setGuardandoTestSet] = useState(false);
@@ -227,6 +235,75 @@ export default function DianAlegraHabilitacionGuiaPanel({
   useEffect(() => {
     void cargarTestSet();
   }, [cargarTestSet]);
+
+  const cargarComprobantePredeterminado = useCallback(async () => {
+    if (!user) return;
+    setCargandoComprobantePredeterminado(true);
+    setErrorComprobantePredeterminado(null);
+    try {
+      const token = await auth?.currentUser?.getIdToken();
+      if (!token) return;
+      const r = await wmsPosDianConfigGet(token);
+      if (!r.ok) {
+        setErrorComprobantePredeterminado(r.error);
+        return;
+      }
+      setTipoComprobantePredeterminado(r.tipoComprobantePredeterminado);
+      setFacturacionHabilitada(r.habilitado);
+    } finally {
+      setCargandoComprobantePredeterminado(false);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    void cargarComprobantePredeterminado();
+  }, [cargarComprobantePredeterminado]);
+
+  const guardarComprobantePredeterminado = async (tipo: "documento_interno" | "factura_electronica") => {
+    if (!user) return;
+    setGuardandoComprobantePredeterminado(true);
+    setMensajeComprobantePredeterminado(null);
+    setErrorComprobantePredeterminado(null);
+    try {
+      const token = await auth?.currentUser?.getIdToken();
+      if (!token) {
+        setErrorComprobantePredeterminado("No hay sesión.");
+        return;
+      }
+      const cfg = await wmsPosDianConfigGet(token);
+      if (!cfg.ok) {
+        setErrorComprobantePredeterminado(cfg.error);
+        return;
+      }
+      if (tipo === "factura_electronica" && !cfg.habilitado) {
+        setErrorComprobantePredeterminado("Primero activá la facturación electrónica del punto.");
+        setFacturacionHabilitada(false);
+        return;
+      }
+      const put = await wmsPosDianConfigPut(token, {
+        emisorNit: cfg.emisorNit,
+        alegraCompanyId: cfg.alegraCompanyId,
+        dianResolutionNumber: cfg.dianResolutionNumber,
+        razonSocialDian: cfg.razonSocialDian,
+        prefijoFactura: cfg.prefijoFactura,
+        habilitado: cfg.habilitado,
+        tipoComprobantePredeterminado: tipo,
+      });
+      if (!put.ok) {
+        setErrorComprobantePredeterminado(put.error);
+        return;
+      }
+      setTipoComprobantePredeterminado(tipo);
+      setFacturacionHabilitada(cfg.habilitado);
+      setMensajeComprobantePredeterminado(
+        tipo === "factura_electronica"
+          ? "Listo: al abrir caja se seleccionará Factura electrónica de venta."
+          : "Listo: al abrir caja se mantendrá Doc. interno como predeterminado."
+      );
+    } finally {
+      setGuardandoComprobantePredeterminado(false);
+    }
+  };
 
   const confirmarYEnviarTestSet = async () => {
     setTestSetError(null);
@@ -307,6 +384,53 @@ export default function DianAlegraHabilitacionGuiaPanel({
               >
                 Probar conexión
               </button>
+            ) : null}
+          </div>
+          <div className="mt-4 rounded-lg border border-amber-200 bg-white/80 px-3 py-3">
+            <p className="text-xs font-semibold text-amber-950">Comprobante predeterminado al abrir caja</p>
+            <p className="mt-1 text-xs text-amber-950/85">
+              Todos los puntos inician con <strong>Doc. interno</strong>. Si tu punto ya quedó habilitado, podés elegir
+              que la caja abra directamente en factura electrónica.
+            </p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                disabled={guardandoComprobantePredeterminado || cargandoComprobantePredeterminado}
+                onClick={() => void guardarComprobantePredeterminado("documento_interno")}
+                className={`rounded-lg border px-3 py-2 text-left text-xs transition-colors ${
+                  tipoComprobantePredeterminado === "documento_interno"
+                    ? "border-amber-500 bg-amber-100 text-amber-950"
+                    : "border-gray-200 bg-white text-gray-700 hover:bg-amber-50"
+                } disabled:opacity-60`}
+              >
+                <span className="block font-semibold">Doc. interno</span>
+                <span className="mt-0.5 block text-[11px] opacity-80">Recomendado por defecto para todos.</span>
+              </button>
+              <button
+                type="button"
+                disabled={
+                  guardandoComprobantePredeterminado ||
+                  cargandoComprobantePredeterminado ||
+                  !facturacionHabilitada
+                }
+                onClick={() => void guardarComprobantePredeterminado("factura_electronica")}
+                className={`rounded-lg border px-3 py-2 text-left text-xs transition-colors ${
+                  tipoComprobantePredeterminado === "factura_electronica"
+                    ? "border-emerald-500 bg-emerald-50 text-emerald-950"
+                    : "border-gray-200 bg-white text-gray-700 hover:bg-emerald-50"
+                } disabled:cursor-not-allowed disabled:opacity-60`}
+              >
+                <span className="block font-semibold">Factura electrónica</span>
+                <span className="mt-0.5 block text-[11px] opacity-80">
+                  Disponible cuando la facturación electrónica esté activa.
+                </span>
+              </button>
+            </div>
+            {mensajeComprobantePredeterminado ? (
+              <p className="mt-2 text-xs font-medium text-emerald-800">{mensajeComprobantePredeterminado}</p>
+            ) : null}
+            {errorComprobantePredeterminado ? (
+              <p className="mt-2 text-xs font-medium text-red-700">{errorComprobantePredeterminado}</p>
             ) : null}
           </div>
         </div>

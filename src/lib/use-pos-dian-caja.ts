@@ -12,6 +12,7 @@ export type PosDianCajaEstado = {
   error: string | null;
   /** Según contrato WMS: habilitado + NIT emisor con al menos 8 dígitos. */
   puedeEmitirFe: boolean;
+  tipoComprobantePredeterminado: "documento_interno" | "factura_electronica";
   fePendientes: number;
   recargarDian: () => Promise<void>;
   refrescarFePendientes: () => void;
@@ -23,6 +24,8 @@ export function usePosDianCajaEstado(uid: string | undefined, activo = true): Po
   const [cargando, setCargando] = useState(true);
   const [habilitado, setHabilitado] = useState(false);
   const [emisorNit, setEmisorNit] = useState("");
+  const [tipoComprobantePredeterminado, setTipoComprobantePredeterminado] =
+    useState<"documento_interno" | "factura_electronica">("documento_interno");
   const [error, setError] = useState<string | null>(null);
   const [fePendientes, setFePendientes] = useState(0);
 
@@ -52,6 +55,7 @@ export function usePosDianCajaEstado(uid: string | undefined, activo = true): Po
       }
       setHabilitado(r.habilitado);
       setEmisorNit(r.emisorNit.trim());
+      setTipoComprobantePredeterminado(r.tipoComprobantePredeterminado);
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo cargar la configuración DIAN.");
     } finally {
@@ -91,6 +95,7 @@ export function usePosDianCajaEstado(uid: string | undefined, activo = true): Po
     emisorNit,
     error,
     puedeEmitirFe,
+    tipoComprobantePredeterminado,
     fePendientes,
     recargarDian,
     refrescarFePendientes,

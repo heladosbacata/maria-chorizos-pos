@@ -653,12 +653,32 @@ export default function CajaPageClient() {
   const [errorSolicitudPrecio, setErrorSolicitudPrecio] = useState<string | null>(null);
   /** Tipo de comprobante: Doc. interno (predeterminado) o Factura electrónica */
   const [tipoComprobante, setTipoComprobante] = useState<TipoComprobante>("documento_interno");
+  const tipoComprobanteDefaultAplicadoUidRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!dianCaja.cargando && !dianCaja.puedeEmitirFe && tipoComprobante === "factura_electronica") {
       setTipoComprobante("documento_interno");
     }
   }, [dianCaja.cargando, dianCaja.puedeEmitirFe, tipoComprobante]);
+
+  useEffect(() => {
+    const uid = user?.uid ?? "";
+    if (!uid || dianCaja.cargando || tipoComprobanteDefaultAplicadoUidRef.current === uid) return;
+    tipoComprobanteDefaultAplicadoUidRef.current = uid;
+    if (
+      dianCaja.tipoComprobantePredeterminado === "factura_electronica" &&
+      dianCaja.puedeEmitirFe
+    ) {
+      setTipoComprobante("factura_electronica");
+    } else {
+      setTipoComprobante("documento_interno");
+    }
+  }, [
+    user?.uid,
+    dianCaja.cargando,
+    dianCaja.puedeEmitirFe,
+    dianCaja.tipoComprobantePredeterminado,
+  ]);
   const [clientePorPrecuenta, setClientePorPrecuenta] = useState<Record<string, ClienteVentaRef>>(() => ({
     "1": { id: CONSUMIDOR_FINAL_ID, nombreDisplay: "Consumidor final" },
   }));
