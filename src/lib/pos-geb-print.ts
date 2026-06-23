@@ -573,6 +573,7 @@ function construirHtmlTirillaTicket(
 
   const fe = p.facturaElectronica;
   const esFacturaElectronica = Boolean(fe && (fe.cufe?.trim() || fe.numero?.trim()));
+  const incluirQrPromocionales = !esFacturaElectronica;
   const tituloDocumento = esFacturaElectronica ? "Factura Electrónica de Venta" : p.titulo;
   const facturaElectronicaHtml =
     esFacturaElectronica && fe
@@ -642,7 +643,7 @@ function construirHtmlTirillaTicket(
       : "";
 
   const domiciliosBlock =
-    p.domiciliosQrDataUrl?.trim() || p.domiciliosLandingUrl?.trim()
+    incluirQrPromocionales && (p.domiciliosQrDataUrl?.trim() || p.domiciliosLandingUrl?.trim())
       ? `<div class="domicilios-promo">
           <p class="domicilios-msg">${escapeHtml(MENSAJE_DOMICILIOS_TIRILLA_LINEA1)}</p>
           <p class="domicilios-aqui">${escapeHtml(MENSAJE_DOMICILIOS_TIRILLA_LINEA2)}</p>
@@ -662,7 +663,7 @@ function construirHtmlTirillaTicket(
   const ganadasClub = p.clubMillasGanadasCompra ?? 0;
   const qrConsultaClub = p.clubMillasConsultaQrDataUrl?.trim();
   const clubSaldoClass = termico ? "qr club-saldo-promo termico-claro" : "qr club-saldo-promo";
-  const clubSaldoBlock = tieneSaldoClub
+  const clubSaldoBlock = incluirQrPromocionales && tieneSaldoClub
     ? `<div class="${clubSaldoClass}">
           <p class="club-saldo-sep" aria-hidden="true">${"=".repeat(rollo58 ? 24 : 28)}</p>
           <p class="qr-t">${escapeHtml(MENSAJE_TIRILLA_CLUB_SALDO_TITULO)}</p>
@@ -707,7 +708,7 @@ function construirHtmlTirillaTicket(
   const tieneAcumulacionClub = ticketTieneQrAcumulacionClubMillas(p);
   const esAvisoClub = esAvisoErrorClubMillasEnTicket(p);
   const esBloqueClubLegacy = Boolean(!tieneSaldoClub && (tieneAcumulacionClub || esAvisoClub));
-  const qrFrecuenteBlock = esBloqueClubLegacy
+  const qrFrecuenteBlock = incluirQrPromocionales && esBloqueClubLegacy
     ? `<div class="qr club-frecuente-promo">
           <p class="qr-t">${escapeHtml(MENSAJE_TIRILLA_CLUB_FRECUENTE_TITULO)}</p>
           ${
@@ -737,6 +738,7 @@ function construirHtmlTirillaTicket(
     : "";
 
   const qrInvitacionBlock =
+    incluirQrPromocionales &&
     !tieneAcumulacionClub &&
     (p.clubMillasInvitacionQrDataUrl?.trim() || p.clubMillasInvitacionUrl?.trim())
       ? `<div class="club-invitacion-promo">
@@ -1330,24 +1332,28 @@ export async function imprimirTicketConQz(prefs: ImpresionPosPrefs, payload: Tic
     },
   });
   const cols = columnasTicketPorTamanoPapel(prefs.tamanoPapel);
+  const esFacturaElectronica = Boolean(
+    payload.facturaElectronica && (payload.facturaElectronica.cufe?.trim() || payload.facturaElectronica.numero?.trim())
+  );
+  const incluirQrPromocionales = !esFacturaElectronica;
   const tieneSaldoClub = ticketTieneSaldoClubMillasEnTirilla(payload);
   const contenidoQrClub = contenidoQrEscaneableClubMillasDesdeTicket(payload);
-  const domUrl = payload.domiciliosLandingUrl?.trim();
-  const invUrl = payload.clubMillasInvitacionUrl?.trim();
+  const domUrl = incluirQrPromocionales ? payload.domiciliosLandingUrl?.trim() : "";
+  const invUrl = incluirQrPromocionales ? payload.clubMillasInvitacionUrl?.trim() : "";
   const tieneQrInvitacion = Boolean(payload.clubMillasInvitacionQrDataUrl?.trim());
   const plain = construirTextoTicketPlano(payload, cols, {
-    ...(tieneSaldoClub ? { omitirBloqueClubSaldoTexto: true } : {}),
-    ...(contenidoQrClub && !tieneSaldoClub ? { omitirBloqueFidelizacionTexto: true } : {}),
-    ...(domUrl ? { omitirBloqueDomiciliosTexto: true } : {}),
-    ...(invUrl && tieneQrInvitacion ? { omitirBloqueInvitacionClubTexto: true } : {}),
+    ...(tieneSaldoClub || esFacturaElectronica ? { omitirBloqueClubSaldoTexto: true } : {}),
+    ...((contenidoQrClub && !tieneSaldoClub) || esFacturaElectronica ? { omitirBloqueFidelizacionTexto: true } : {}),
+    ...(domUrl || esFacturaElectronica ? { omitirBloqueDomiciliosTexto: true } : {}),
+    ...(invUrl || esFacturaElectronica ? { omitirBloqueInvitacionClubTexto: true } : {}),
   });
   const bloqueDomicilios = domUrl ? escPosBloqueQrDomicilios(domUrl, cols) : "";
-  const bloqueSaldoClub = tieneSaldoClub ? escPosBloqueClubMillasSaldo(payload, cols) : "";
+  const bloqueSaldoClub = incluirQrPromocionales && tieneSaldoClub ? escPosBloqueClubMillasSaldo(payload, cols) : "";
   const bloqueQrFacturaElectronica = payload.facturaElectronica
     ? escPosBloqueQrFacturaElectronica(payload.facturaElectronica, cols)
     : "";
   const bloqueQr =
-    !tieneSaldoClub && contenidoQrClub
+    incluirQrPromocionales && !tieneSaldoClub && contenidoQrClub
       ? escPosBloqueQrFidelizacion(contenidoQrClub, cols, payload.clubMillasCodigoCorto)
       : "";
   const bloqueInvitacion =

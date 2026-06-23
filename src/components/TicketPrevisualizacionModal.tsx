@@ -89,6 +89,10 @@ export default function TicketPrevisualizacionModal({
 
   if (!mounted || !open || !ticket) return null;
 
+  const esFacturaElectronica = Boolean(
+    ticket.facturaElectronica && (ticket.facturaElectronica.cufe?.trim() || ticket.facturaElectronica.numero?.trim())
+  );
+  const incluirQrPromocionales = !esFacturaElectronica;
   const tieneSaldoClub = ticketTieneSaldoClubMillasEnTirilla(ticket);
   const qrConsultaClub = ticket.clubMillasConsultaQrDataUrl?.trim();
   const qr = ticket.fidelizacionQrDataUrl?.trim();
@@ -97,13 +101,13 @@ export default function TicketPrevisualizacionModal({
   const tieneAcumulacionClub = ticketTieneQrAcumulacionClubMillas(ticket);
   const esAvisoClub = esAvisoErrorClubMillasEnTicket(ticket);
   const qrInvitacionClub = ticket.clubMillasInvitacionQrDataUrl?.trim();
-  const mostrarClubSaldo = tieneSaldoClub;
-  const mostrarClubFrecuente = Boolean(!tieneSaldoClub && (tieneAcumulacionClub || esAvisoClub));
+  const mostrarClubSaldo = incluirQrPromocionales && tieneSaldoClub;
+  const mostrarClubFrecuente = Boolean(incluirQrPromocionales && !tieneSaldoClub && (tieneAcumulacionClub || esAvisoClub));
   const mostrarInvitacionClub = Boolean(
-    !tieneAcumulacionClub && (qrInvitacionClub || ticket.clubMillasInvitacionUrl?.trim())
+    incluirQrPromocionales && !tieneAcumulacionClub && (qrInvitacionClub || ticket.clubMillasInvitacionUrl?.trim())
   );
   const qrDomicilios = ticket.domiciliosQrDataUrl?.trim();
-  const mostrarPromoDomicilios = Boolean(qrDomicilios || ticket.domiciliosLandingUrl?.trim());
+  const mostrarPromoDomicilios = Boolean(incluirQrPromocionales && (qrDomicilios || ticket.domiciliosLandingUrl?.trim()));
   const busy = cancelandoTransaccion;
   const notaPie =
     ticket.notaPie?.trim() || "Gracias por elegirnos — calidad y sabor en cada visita.";
