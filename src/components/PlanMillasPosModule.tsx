@@ -163,14 +163,25 @@ export default function PlanMillasPosModule({
               .
             </p>
           </div>
-          <a
-            href={CLUB_MILLAS_PORTAL_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="shrink-0 rounded-xl border border-emerald-400/40 bg-emerald-500/15 px-4 py-2.5 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/25"
-          >
-            Abrir portal del club ↗
-          </a>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={onAbrirCanjeCodigo}
+              disabled={!canjeCodigoHabilitado || !onAbrirCanjeCodigo}
+              className="rounded-xl border border-brand-yellow/60 bg-brand-yellow px-4 py-2.5 text-sm font-black text-slate-950 shadow-md transition hover:brightness-105 disabled:cursor-not-allowed disabled:border-slate-500/30 disabled:bg-slate-700 disabled:text-slate-300"
+              title={canjeCodigoHabilitado ? "Escribir código de premio" : "Abre el turno para canjear códigos"}
+            >
+              Canjear código
+            </button>
+            <a
+              href={CLUB_MILLAS_PORTAL_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-xl border border-emerald-400/40 bg-emerald-500/15 px-4 py-2.5 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/25"
+            >
+              Abrir portal del club ↗
+            </a>
+          </div>
         </div>
       </header>
 
