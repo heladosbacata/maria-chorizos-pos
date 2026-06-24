@@ -10,6 +10,14 @@ import {
 
 const COLLECTION = "posVentasCloud";
 const PAGE = 800;
+const PAGE_RANGO = 1000;
+const MAX_PAGES_RANGO = 50;
+
+function queryYmd(v: string | string[] | undefined): string {
+  const s = Array.isArray(v) ? v[0] : v;
+  const t = typeof s === "string" ? s.trim().slice(0, 10) : "";
+  return /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : "";
+}
 
 function docToVenta(id: string, data: DocumentData): VentaGuardadaLocal | null {
   const lineas = data.lineas;
@@ -122,12 +130,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const db = getFirestore(app);
   const pvCanon = ctx.puntoVenta;
   const pvNorm = normalizarPuntoVentaClave(pvCanon);
+  const desde = queryYmd(req.query.desde);
+  const hasta = queryYmd(req.query.hasta);
+  const usarRangoFecha = Boolean(desde && hasta && desde <= hasta);
 
   const incorporarSnap = (docs: QueryDocumentSnapshot[], map: Map<string, VentaGuardadaLocal>) => {
     for (const d of docs) {
       const row = docToVenta(d.id, d.data());
       if (!row) continue;
       if (!puntoVentaCoincide(row.puntoVenta, pvCanon)) continue;
+      if (usarRangoFecha && (row.fechaYmd < desde || row.fechaYmd > hasta)) continue;
       map.set(row.id, row);
     }
   };
@@ -169,6 +181,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return snap.docs;
   };
 
+  const listarPorRangoFecha = async (): Promise<QueryDocumentSnapshot[]> => {
+    const out: QueryDocumentSnapshot[] = [];
+    let last: QueryDocumentSnapshot | null = null;
+    for (let page = 0; page < MAX_PAGES_RANGO; page++) {
+      let q = db
+        .collection(COLLECTION)
+        .where("fechaYmd", ">=", desde)
+        .where("fechaYmd", "<=", hasta)
+        .orderBy("fechaYmd", "desc")
+        .limit(PAGE_RANGO);
+      if (last) q = q.startAfter(last);
+      const snap = await q.get();
+      if (snap.empty) break;
+      out.push(...snap.docs);
+      last = snap.docs[snap.docs.length - 1] ?? null;
+      if (snap.docs.length < PAGE_RANGO) break;
+    }
+    return out;
+  };
+
   try {
     const porId = new Map<string, VentaGuardadaLocal>();
     const ordenMs = new Map<string, number>();
@@ -186,7 +218,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     };
 
-    let docsPv = await listarConOrderBy("puntoVenta", pvCanon);
+    if (usarRangoFecha) {
+      absorber(await listarPorRangoFecha());
+    }
+
+    let docsPv = usarRangoFecha && porId.size > 0 ? [] : await listarConOrderBy("puntoVenta", pvCanon);
     let usoFallback = docsPv === null;
     if (docsPv === null) {
       console.warn(
@@ -196,7 +232,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
     absorber(docsPv);
 
-    if (porId.size < PAGE) {
+    if (!usarRangoFecha && porId.size < PAGE) {
       let docsNorm = await listarConOrderBy("puntoVentaNorm", pvNorm);
       if (docsNorm === null) {
         usoFallback = true;
