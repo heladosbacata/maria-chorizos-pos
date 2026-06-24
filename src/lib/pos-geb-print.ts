@@ -231,6 +231,15 @@ function escPosNegritaOff(): string {
   return "\x1B\x45\x00";
 }
 
+/** Doble golpe: aumenta la oscuridad en muchas térmicas ESC/POS sin cambiar el tamaño. */
+function escPosDobleGolpeOn(): string {
+  return "\x1B\x47\x01";
+}
+
+function escPosDobleGolpeOff(): string {
+  return "\x1B\x47\x00";
+}
+
 /** Font A (12×24): más nítida que Font B en la mayoría de Xprinter / Epson. */
 function escPosFontA(): string {
   return "\x1B\x4D\x00";
@@ -242,7 +251,7 @@ function escPosFontA(): string {
  */
 function aplicarLegibilidadEscPosTextoPlano(plain: string, columnas: number): string {
   const lines = plain.split("\n");
-  let out = escPosFontA() + escPosNegritaOn();
+  let out = escPosFontA() + escPosNegritaOn() + escPosDobleGolpeOn();
   let lineasTitulo = 0;
   for (const ln of lines) {
     const trimmed = ln.trim();
@@ -261,7 +270,7 @@ function aplicarLegibilidadEscPosTextoPlano(plain: string, columnas: number): st
     if (esTotal) {
       out += escPosTextoDobleAlturaNegrita();
       out += ln + "\n";
-      out += escPosReiniciarEstiloTexto();
+      out += escPosReiniciarEstiloTexto() + escPosDobleGolpeOn() + escPosNegritaOn();
       continue;
     }
     if (esSeparador || esTitulo) {
@@ -271,7 +280,7 @@ function aplicarLegibilidadEscPosTextoPlano(plain: string, columnas: number): st
     }
     out += ln + "\n";
   }
-  out += escPosNegritaOff() + escPosTextoNormal();
+  out += escPosDobleGolpeOff() + escPosNegritaOff() + escPosTextoNormal();
   return out;
 }
 
@@ -771,6 +780,11 @@ function construirHtmlTirillaTicket(
 <style>
   @page { size: ${mm}mm auto; margin: 0; }
   * { box-sizing: border-box; }
+  * {
+    color: #000 !important;
+    opacity: 1 !important;
+    text-shadow: none !important;
+  }
   body {
     margin: 0;
     padding: ${rollo58 ? "1.5mm 1.5mm 2.5mm" : mm <= 80 ? "2mm 2.5mm 3mm" : "6mm"};
@@ -788,6 +802,8 @@ function construirHtmlTirillaTicket(
   .tirilla {
     max-width: ${rollo58 ? "48mm" : mm <= 80 ? mm + "mm" : "72mm"};
     margin: 0 auto;
+    color: #000;
+    font-weight: ${termico ? "700" : "500"};
   }
   .logo-wrap { text-align: center; margin-bottom: 6px; }
   .logo { margin-bottom: 4px; }
@@ -820,9 +836,10 @@ function construirHtmlTirillaTicket(
   .subtag {
     text-align: center;
     font-size: ${termico ? "8pt" : "7px"};
-    color: #222;
+    color: #000;
     margin: 0 0 8px;
     letter-spacing: ${termico ? "0" : "0.12em"};
+    font-weight: ${termico ? "700" : "500"};
   }
   .rule {
     height: 0;
@@ -830,39 +847,42 @@ function construirHtmlTirillaTicket(
     border-top: 1px solid #000;
     margin: 8px 0;
   }
-  .meta { font-size: ${termico ? "8.5pt" : "8.5px"}; line-height: 1.45; margin-bottom: 8px; font-weight: ${termico ? "600" : "400"}; }
+  .meta { font-size: ${termico ? "8.8pt" : "8.5px"}; line-height: 1.45; margin-bottom: 8px; font-weight: ${termico ? "700" : "500"}; }
   .meta-row { display: flex; justify-content: space-between; gap: 6px; margin: 3px 0; }
-  .meta-k { color: ${termico ? "#000" : "#64748b"}; flex-shrink: 0; font-weight: ${termico ? "700" : "400"}; }
-  .meta-v { text-align: right; font-weight: ${termico ? "700" : "500"}; word-break: break-word; }
+  .meta-k { color: #000; flex-shrink: 0; font-weight: 800; }
+  .meta-v { text-align: right; font-weight: 800; word-break: break-word; }
   .li {
     display: flex;
     justify-content: space-between;
     gap: 8px;
-    font-size: ${termico ? "9pt" : "9px"};
-    font-weight: ${termico ? "600" : "400"};
+    font-size: ${termico ? "9.2pt" : "9px"};
+    font-weight: ${termico ? "700" : "500"};
     margin: 6px 0;
     padding-bottom: 5px;
-    border-bottom: 1px ${termico ? "solid #000" : "dotted #e2e8f0"};
+    border-bottom: 1px ${termico ? "solid #000" : "dotted #000"};
   }
   .li-t { flex: 1; min-width: 0; line-height: 1.35; }
-  .li-p { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
-  .muted { color: #64748b; font-weight: 400; font-size: 8px; }
+  .li-p { font-weight: 900; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .muted { color: #000; font-weight: 700; font-size: ${termico ? "8pt" : "8px"}; }
   .iva-desglose {
     margin-top: 8px;
     padding: 6px 8px;
-    background: #f1f5f9;
-    border-radius: 6px;
-    font-size: 8px;
+    background: #fff;
+    border: 1px solid #000;
+    border-radius: ${termico ? "0" : "4px"};
+    font-size: ${termico ? "8.2pt" : "8px"};
     line-height: 1.45;
+    font-weight: ${termico ? "700" : "500"};
   }
   .iva-row { display: flex; justify-content: space-between; gap: 8px; margin: 3px 0; }
-  .iva-k { color: #64748b; font-weight: 600; }
-  .iva-v { font-weight: 700; font-variant-numeric: tabular-nums; }
+  .iva-k { color: #000; font-weight: 800; }
+  .iva-v { font-weight: 900; font-variant-numeric: tabular-nums; }
   .total {
     margin-top: 10px;
     padding: 8px 10px;
-    background: ${termico ? "#000" : "#0f172a"};
-    color: #fff;
+    background: #fff;
+    color: #000;
+    border: ${termico ? "2px solid #000" : "1px solid #000"};
     border-radius: ${termico ? "0" : "6px"};
     display: flex;
     justify-content: space-between;
@@ -884,26 +904,26 @@ function construirHtmlTirillaTicket(
   .social {
     margin-top: 12px;
     padding-top: 10px;
-    border-top: 2px solid #e2e8f0;
+    border-top: 2px solid #000;
     text-align: center;
   }
   .social-ig {
     font-size: 12px;
     font-weight: 800;
-    color: #be185d;
+    color: #000;
     letter-spacing: 0.02em;
     margin: 0 0 4px;
   }
   .social-hint {
     font-size: 7.5px;
-    color: #64748b;
+    color: #000;
     text-transform: uppercase;
     letter-spacing: 0.14em;
     margin: 0 0 6px;
   }
   .social-brand {
     font-size: 7px;
-    color: #94a3b8;
+    color: #000;
     letter-spacing: 0.1em;
     margin: 0;
   }
@@ -911,16 +931,16 @@ function construirHtmlTirillaTicket(
     margin-bottom: 8px;
     padding: 8px 4px 6px;
     text-align: center;
-    background: linear-gradient(180deg, #ecfeff 0%, #fff 100%);
-    border: 1px solid #a5f3fc;
-    border-radius: 8px;
+    background: #fff;
+    border: 1px solid #000;
+    border-radius: ${termico ? "0" : "6px"};
   }
   .domicilios-msg {
     margin: 0;
     font-size: 8.5px;
     font-weight: 700;
     line-height: 1.35;
-    color: #0e7490;
+    color: #000;
     text-transform: uppercase;
     letter-spacing: 0.06em;
   }
@@ -929,12 +949,12 @@ function construirHtmlTirillaTicket(
     font-size: 13px;
     font-weight: 900;
     letter-spacing: 0.2em;
-    color: #0f766e;
+    color: #000;
   }
   .domicilios-hint {
     margin: 4px 0 0;
     font-size: 7px;
-    color: #64748b;
+    color: #000;
     letter-spacing: 0.08em;
     text-transform: uppercase;
   }
@@ -943,10 +963,10 @@ function construirHtmlTirillaTicket(
     margin-top: 12px;
     padding: 10px 6px 8px;
     text-align: center;
-    background: linear-gradient(165deg, #fef3c7 0%, #fff7ed 45%, #fff 100%);
-    border: 2px solid #f59e0b;
-    border-radius: 10px;
-    box-shadow: 0 2px 0 #d97706;
+    background: #fff;
+    border: 2px solid #000;
+    border-radius: ${termico ? "0" : "8px"};
+    box-shadow: none;
   }
   .club-invitacion-badge {
     margin: 0 0 4px;
@@ -954,7 +974,7 @@ function construirHtmlTirillaTicket(
     font-weight: 800;
     letter-spacing: 0.18em;
     text-transform: uppercase;
-    color: #b45309;
+    color: #000;
   }
   .club-invitacion-titulo {
     margin: 0;
@@ -963,22 +983,22 @@ function construirHtmlTirillaTicket(
     line-height: 1.3;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: #78350f;
+    color: #000;
   }
   .club-invitacion-llamado {
     margin: 4px 0 6px;
     font-size: 15px;
     font-weight: 900;
     letter-spacing: 0.12em;
-    color: #c2410c;
-    text-shadow: 0 1px 0 #fff;
+    color: #000;
+    text-shadow: none;
   }
   .club-invitacion-cuerpo {
     margin: 0 0 8px;
     font-size: 7.5px;
     font-weight: 600;
     line-height: 1.4;
-    color: #92400e;
+    color: #000;
   }
   .club-invitacion-hint {
     margin: 6px 0 0;
@@ -986,26 +1006,26 @@ function construirHtmlTirillaTicket(
     font-weight: 700;
     letter-spacing: 0.1em;
     text-transform: uppercase;
-    color: #b45309;
+    color: #000;
   }
   .club-invitacion-promo img { image-rendering: pixelated; display: inline-block; margin-top: 2px; }
-  .qr { margin-top: 12px; text-align: center; padding-top: 10px; border-top: 1px dashed #cbd5e1; }
+  .qr { margin-top: 12px; text-align: center; padding-top: 10px; border-top: 1px dashed #000; }
   .club-frecuente-promo {
     padding: 8px 4px;
-    background: linear-gradient(180deg, #fffbeb 0%, #fff 100%);
-    border: 1px solid #fcd34d;
-    border-radius: 8px;
+    background: #fff;
+    border: 1px solid #000;
+    border-radius: ${termico ? "0" : "6px"};
   }
-  .qr-t { margin: 0 0 4px; font-size: 7.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; color: #92400e; line-height: 1.3; }
-  .qr-paso { margin: 0 0 4px; font-size: 7px; font-weight: 600; line-height: 1.35; color: #b45309; }
-  .qr-codigo-label { margin: 6px 0 2px; font-size: 7px; font-weight: 800; letter-spacing: 0.14em; text-transform: uppercase; color: #92400e; }
-  .qr-codigo-valor { margin: 0 0 8px; font-size: 18px; font-weight: 900; letter-spacing: 0.28em; color: #c2410c; }
+  .qr-t { margin: 0 0 4px; font-size: 7.5px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.08em; color: #000; line-height: 1.3; }
+  .qr-paso { margin: 0 0 4px; font-size: 7px; font-weight: 700; line-height: 1.35; color: #000; }
+  .qr-codigo-label { margin: 6px 0 2px; font-size: 7px; font-weight: 900; letter-spacing: 0.12em; text-transform: uppercase; color: #000; }
+  .qr-codigo-valor { margin: 0 0 8px; font-size: 18px; font-weight: 900; letter-spacing: 0.24em; color: #000; }
   .club-saldo-promo {
     margin-top: 10px;
     padding: 10px 8px;
-    border: 2px solid #f59e0b;
-    border-radius: 8px;
-    background: linear-gradient(180deg, #fffbeb 0%, #fff 100%);
+    border: 2px solid #000;
+    border-radius: ${termico ? "0" : "6px"};
+    background: #fff;
     text-align: center;
   }
   .club-saldo-promo.termico-claro {
@@ -1055,39 +1075,57 @@ function construirHtmlTirillaTicket(
     margin-top: 8px;
     padding-top: 8px;
   }
-  .club-saldo-label { margin: 8px 0 2px; font-size: 8px; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: #92400e; }
-  .club-saldo-valor { margin: 0 0 6px; font-size: ${rollo58 ? "22px" : "28px"}; font-weight: 900; line-height: 1.1; letter-spacing: 0.04em; color: #c2410c; }
-  .club-saldo-despues { font-size: ${rollo58 ? "24px" : "32px"}; color: #15803d; }
+  .club-saldo-label { margin: 8px 0 2px; font-size: 8px; font-weight: 900; letter-spacing: 0.08em; text-transform: uppercase; color: #000; }
+  .club-saldo-valor { margin: 0 0 6px; font-size: ${rollo58 ? "22px" : "28px"}; font-weight: 900; line-height: 1.1; letter-spacing: 0.04em; color: #000; }
+  .club-saldo-despues { font-size: ${rollo58 ? "24px" : "32px"}; color: #000; }
   .club-saldo-label-despues { margin-top: 8px; }
-  .club-ganadas-label { margin: 4px 0 2px; font-size: 7px; font-weight: 700; color: #b45309; }
-  .club-ganadas-valor { margin: 0 0 8px; font-size: 16px; font-weight: 800; color: #ea580c; }
-  .qr-s { margin: 6px 0 0; font-size: 7px; font-weight: 700; color: #78350f; text-transform: uppercase; letter-spacing: 0.08em; }
+  .club-ganadas-label { margin: 4px 0 2px; font-size: 7px; font-weight: 800; color: #000; }
+  .club-ganadas-valor { margin: 0 0 8px; font-size: 16px; font-weight: 900; color: #000; }
+  .qr-s { margin: 6px 0 0; font-size: 7px; font-weight: 800; color: #000; text-transform: uppercase; letter-spacing: 0.06em; }
   .qr img { image-rendering: pixelated; display: inline-block; }
   .fe-dian {
     margin-top: 10px;
     padding: 8px 6px;
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 6px;
-    font-size: 7.5px;
+    background: #fff;
+    border: 1px solid #000;
+    border-radius: ${termico ? "0" : "4px"};
+    font-size: ${termico ? "7.8pt" : "7.5px"};
     line-height: 1.35;
     word-break: break-all;
+    font-weight: ${termico ? "700" : "500"};
   }
   .fe-dian-t {
     font-weight: 800;
     letter-spacing: 0.04em;
-    color: #0f172a;
+    color: #000;
     margin: 0 0 6px;
     text-align: center;
     font-size: 8px;
   }
-  .fe-section { margin-top: 7px; padding-top: 6px; border-top: 1px dashed #cbd5e1; }
-  .fe-section-t { margin: 0 0 4px; font-size: 6.7px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.08em; color: #0f172a; text-align: center; }
-  .fe-dian-row { margin: 4px 0; color: #334155; }
-  .fe-dian-k { font-weight: 700; color: #64748b; display: block; margin-bottom: 2px; }
-  .fe-qr { margin-top: 8px; padding-top: 7px; border-top: 1px dashed #cbd5e1; text-align: center; }
+  .fe-section { margin-top: 7px; padding-top: 6px; border-top: 1px dashed #000; }
+  .fe-section-t { margin: 0 0 4px; font-size: 6.7px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.06em; color: #000; text-align: center; }
+  .fe-dian-row { margin: 4px 0; color: #000; }
+  .fe-dian-k { font-weight: 900; color: #000; display: block; margin-bottom: 2px; }
+  .fe-qr { margin-top: 8px; padding-top: 7px; border-top: 1px dashed #000; text-align: center; }
   .fe-qr img { image-rendering: pixelated; display: inline-block; margin-top: 4px; }
-  .fe-qr-box { margin: 6px auto 0; width: 128px; min-height: 92px; border: 1px dashed #64748b; display: flex; align-items: center; justify-content: center; padding: 6px; font-size: 6.5px; color: #475569; text-transform: uppercase; }
+  .fe-qr-box { margin: 6px auto 0; width: 128px; min-height: 92px; border: 1px dashed #000; display: flex; align-items: center; justify-content: center; padding: 6px; font-size: 6.5px; color: #000; text-transform: uppercase; font-weight: 800; }
+  @media print {
+    * {
+      color: #000 !important;
+      opacity: 1 !important;
+      -webkit-print-color-adjust: exact;
+      print-color-adjust: exact;
+    }
+    body {
+      background: #fff !important;
+      filter: contrast(1.25);
+    }
+    .total {
+      background: #fff !important;
+      color: #000 !important;
+      border: 2px solid #000 !important;
+    }
+  }
 </style></head><body>
 <div class="tirilla">
   ${domiciliosBlock}

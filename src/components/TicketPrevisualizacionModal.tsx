@@ -150,15 +150,15 @@ export default function TicketPrevisualizacionModal({
         <div className="min-h-0 flex-1 overflow-y-auto bg-slate-100/80 px-4 py-5">
           {/* Simula rollo térmico 58 mm (~220px) */}
           <article
-            className="mx-auto rounded-lg border border-slate-200/90 bg-white px-3 py-4 shadow-[0_12px_40px_-12px_rgba(15,23,42,0.35)] ring-1 ring-black/[0.04]"
+            className="mx-auto rounded-lg border border-black bg-white px-3 py-4 font-semibold text-black shadow-[0_12px_40px_-12px_rgba(15,23,42,0.35)] ring-1 ring-black/[0.08]"
             style={{ width: "min(58mm, 100%)", maxWidth: "100%" }}
           >
             {mostrarPromoDomicilios ? (
-              <div className="mb-3 rounded-lg border border-cyan-200 bg-gradient-to-b from-cyan-50 to-white px-2 py-2.5 text-center">
-                <p className="text-[8px] font-bold uppercase leading-snug tracking-wide text-cyan-800">
+              <div className="mb-3 rounded-lg border border-black bg-white px-2 py-2.5 text-center text-black">
+                <p className="text-[8px] font-extrabold uppercase leading-snug tracking-wide text-black">
                   {MENSAJE_DOMICILIOS_TIRILLA_LINEA1}
                 </p>
-                <p className="mt-0.5 text-[13px] font-black tracking-[0.22em] text-teal-800">
+                <p className="mt-0.5 text-[13px] font-black tracking-[0.22em] text-black">
                   {MENSAJE_DOMICILIOS_TIRILLA_LINEA2}
                 </p>
                 {qrDomicilios ? (
@@ -171,13 +171,13 @@ export default function TicketPrevisualizacionModal({
                       alt="QR pedidos a domicilio"
                       className="mx-auto mt-1"
                     />
-                    <p className="mt-1 text-[7px] uppercase tracking-widest text-slate-500">Escanea y pide a domicilio</p>
+                    <p className="mt-1 text-[7px] font-bold uppercase tracking-widest text-black">Escanea y pide a domicilio</p>
                   </>
                 ) : null}
               </div>
             ) : null}
             {!ocultarLogo ? (
-              <div className="mb-3 border-b border-slate-100 pb-3 text-center">
+              <div className="mb-3 border-b border-black pb-3 text-center">
                 <div className="flex justify-center">
                   <Image
                     src={LOGO_ORG_URL}
@@ -188,63 +188,63 @@ export default function TicketPrevisualizacionModal({
                     priority
                   />
                 </div>
-                <p className="mt-2 text-[10px] font-extrabold tracking-[0.22em] text-red-700">MARÍA CHORIZOS</p>
+                <p className="mt-2 text-[10px] font-black tracking-[0.22em] text-black">MARÍA CHORIZOS</p>
               </div>
             ) : (
-              <p className="mb-2 text-center text-[10px] font-extrabold tracking-[0.22em] text-red-700">
+              <p className="mb-2 text-center text-[10px] font-black tracking-[0.22em] text-black">
                 MARÍA CHORIZOS
               </p>
             )}
 
-            <p className="text-center text-[9px] font-semibold uppercase tracking-[0.2em] text-slate-500">
+            <p className="text-center text-[9px] font-black uppercase tracking-[0.16em] text-black">
               {ticket.titulo}
             </p>
-            <p className="mt-0.5 text-center text-[8px] tracking-[0.14em] text-slate-400">POS GEB</p>
-            <p className="mt-1 text-center text-[8px] tabular-nums text-slate-500">{ticket.fechaHora}</p>
+            <p className="mt-0.5 text-center text-[8px] font-bold tracking-[0.12em] text-black">POS GEB</p>
+            <p className="mt-1 text-center text-[8px] font-bold tabular-nums text-black">{ticket.fechaHora}</p>
 
-            <div className="my-3 h-px bg-gradient-to-r from-transparent via-slate-300 to-transparent" />
+            <div className="my-3 h-px bg-black" />
 
-            <dl className="space-y-1.5 text-[8.5px] leading-snug text-slate-700">
+            <dl className="space-y-1.5 text-[8.5px] font-bold leading-snug text-black">
               <div className="flex justify-between gap-2">
-                <dt className="shrink-0 text-slate-500">Punto de venta</dt>
-                <dd className="text-right font-medium text-slate-800">{ticket.puntoVenta}</dd>
+                <dt className="shrink-0 text-black">Punto de venta</dt>
+                <dd className="text-right font-extrabold text-black">{ticket.puntoVenta}</dd>
               </div>
               <div className="flex justify-between gap-2">
-                <dt className="shrink-0 text-slate-500">Cuenta</dt>
-                <dd className="text-right font-medium text-slate-800">{ticket.precuentaNombre}</dd>
+                <dt className="shrink-0 text-black">Cuenta</dt>
+                <dd className="text-right font-extrabold text-black">{ticket.precuentaNombre}</dd>
               </div>
               <div className="flex justify-between gap-2">
-                <dt className="shrink-0 text-slate-500">Cliente</dt>
-                <dd className="text-right font-medium text-slate-800">{ticket.clienteNombre}</dd>
+                <dt className="shrink-0 text-black">Cliente</dt>
+                <dd className="text-right font-extrabold text-black">{ticket.clienteNombre}</dd>
               </div>
               <div className="flex justify-between gap-2">
-                <dt className="shrink-0 text-slate-500">Documento</dt>
-                <dd className="text-right font-medium text-slate-800">{ticket.tipoComprobanteLabel}</dd>
+                <dt className="shrink-0 text-black">Documento</dt>
+                <dd className="text-right font-extrabold text-black">{ticket.tipoComprobanteLabel}</dd>
               </div>
               <div className="flex justify-between gap-2">
-                <dt className="shrink-0 text-slate-500">Vendedor</dt>
-                <dd className="break-all text-right font-medium text-slate-800">{ticket.vendedorLabel}</dd>
+                <dt className="shrink-0 text-black">Vendedor</dt>
+                <dd className="break-all text-right font-extrabold text-black">{ticket.vendedorLabel}</dd>
               </div>
             </dl>
 
-            <div className="my-3 h-px bg-gradient-to-r from-transparent via-slate-300 to-transparent" />
+            <div className="my-3 h-px bg-black" />
 
             <ul className="space-y-2">
               {ticket.lineas.map((l, i) => (
                 <li
                   key={`${l.descripcion}-${i}`}
-                  className="border-b border-dotted border-slate-200 pb-2 text-[9px] last:border-0"
+                  className="border-b border-dotted border-black pb-2 text-[9px] font-bold text-black last:border-0"
                 >
                   <div className="flex justify-between gap-2">
-                    <div className="min-w-0 flex-1 leading-relaxed text-slate-800">
-                      <span className="font-semibold tabular-nums">{l.cantidad}</span>
-                      <span className="text-slate-400"> × </span>
+                    <div className="min-w-0 flex-1 leading-relaxed text-black">
+                      <span className="font-black tabular-nums">{l.cantidad}</span>
+                      <span className="text-black"> × </span>
                       <span>{l.descripcion}</span>
                       {l.detalleVariante ? (
-                        <span className="block text-[8px] text-slate-500">({l.detalleVariante})</span>
+                        <span className="block text-[8px] font-bold text-black">({l.detalleVariante})</span>
                       ) : null}
                     </div>
-                    <div className="shrink-0 font-bold tabular-nums text-slate-900">$ {formatCop(l.subtotal)}</div>
+                    <div className="shrink-0 font-black tabular-nums text-black">$ {formatCop(l.subtotal)}</div>
                   </div>
                 </li>
               ))}
@@ -253,38 +253,38 @@ export default function TicketPrevisualizacionModal({
             {ticket.desgloseIvaPreciosIncluidos &&
             (ticket.desgloseIvaPreciosIncluidos.subtotalSinIva > 0 ||
               ticket.desgloseIvaPreciosIncluidos.iva > 0) ? (
-              <div className="mt-2 space-y-1 rounded-md bg-slate-100 px-2 py-2 text-[8px] text-slate-700">
-                <div className="flex justify-between gap-2 font-medium">
+              <div className="mt-2 space-y-1 rounded-md border border-black bg-white px-2 py-2 text-[8px] font-bold text-black">
+                <div className="flex justify-between gap-2 font-extrabold">
                   <span>Subtotal (sin IVA)</span>
                   <span className="tabular-nums">$ {formatCop(ticket.desgloseIvaPreciosIncluidos.subtotalSinIva)}</span>
                 </div>
-                <div className="flex justify-between gap-2 font-medium">
+                <div className="flex justify-between gap-2 font-extrabold">
                   <span>IVA {ticket.desgloseIvaPreciosIncluidos.tasaPorcentaje}%</span>
                   <span className="tabular-nums">$ {formatCop(ticket.desgloseIvaPreciosIncluidos.iva)}</span>
                 </div>
               </div>
             ) : null}
 
-            <div className="mt-3 flex items-center justify-between rounded-md bg-slate-900 px-2.5 py-2 text-[11px] font-extrabold tracking-wide text-white">
+            <div className="mt-3 flex items-center justify-between rounded-md border-2 border-black bg-white px-2.5 py-2 text-[11px] font-black tracking-wide text-black">
               <span>TOTAL</span>
               <span className="tabular-nums">$ {formatCop(ticket.total)}</span>
             </div>
 
             {ticket.facturaElectronica &&
             (ticket.facturaElectronica.cufe?.trim() || ticket.facturaElectronica.numero?.trim()) ? (
-              <div className="mt-3 rounded-md border border-slate-300 bg-slate-50 px-2 py-2 text-[8px] leading-relaxed text-slate-700">
-                <p className="text-center text-[9px] font-black tracking-wide text-slate-950">
+              <div className="mt-3 rounded-md border border-black bg-white px-2 py-2 text-[8px] font-bold leading-relaxed text-black">
+                <p className="text-center text-[9px] font-black tracking-wide text-black">
                   Factura Electrónica de Venta
                 </p>
-                <p className="mt-2 text-center font-black uppercase tracking-wide text-slate-700">Emisor</p>
+                <p className="mt-2 text-center font-black uppercase tracking-wide text-black">Emisor</p>
                 <p>{ticket.facturaElectronica.emisorNombre?.trim() || "María Chorizos"}</p>
                 {ticket.facturaElectronica.emisorNit?.trim() ? <p>NIT: {ticket.facturaElectronica.emisorNit}</p> : null}
-                <p className="mt-2 text-center font-black uppercase tracking-wide text-slate-700">Adquirente</p>
+                <p className="mt-2 text-center font-black uppercase tracking-wide text-black">Adquirente</p>
                 <p>{ticket.facturaElectronica.adquirenteNombre?.trim() || ticket.clienteNombre}</p>
                 {ticket.facturaElectronica.adquirenteNit?.trim() ? (
                   <p>Doc/NIT: {ticket.facturaElectronica.adquirenteNit}</p>
                 ) : null}
-                <p className="mt-2 text-center font-black uppercase tracking-wide text-slate-700">DIAN</p>
+                <p className="mt-2 text-center font-black uppercase tracking-wide text-black">DIAN</p>
                 {ticket.facturaElectronica.numero?.trim() ? <p>No: {ticket.facturaElectronica.numero}</p> : null}
                 {ticket.facturaElectronica.resolucionNumero?.trim() ? (
                   <p>Resolución: {ticket.facturaElectronica.resolucionNumero}</p>
@@ -298,12 +298,12 @@ export default function TicketPrevisualizacionModal({
               </div>
             ) : null}
 
-            <p className="mt-3 text-center text-[8px] leading-relaxed text-slate-600">{notaPie}</p>
+            <p className="mt-3 text-center text-[8px] font-bold leading-relaxed text-black">{notaPie}</p>
 
-            <div className="mt-4 border-t-2 border-slate-200 pt-3 text-center">
-              <p className="text-[7px] font-semibold uppercase tracking-[0.2em] text-slate-500">Seguinos en redes</p>
-              <p className="mt-1 text-[12px] font-extrabold tracking-wide text-pink-700">@{MARIA_CHORIZOS_IG_HANDLE}</p>
-              <p className="mt-1 text-[7px] tracking-[0.12em] text-slate-400">María Chorizos · POS GEB</p>
+            <div className="mt-4 border-t-2 border-black pt-3 text-center">
+              <p className="text-[7px] font-black uppercase tracking-[0.16em] text-black">Seguinos en redes</p>
+              <p className="mt-1 text-[12px] font-black tracking-wide text-black">@{MARIA_CHORIZOS_IG_HANDLE}</p>
+              <p className="mt-1 text-[7px] font-bold tracking-[0.1em] text-black">María Chorizos · POS GEB</p>
             </div>
 
             {mostrarClubSaldo ? (
