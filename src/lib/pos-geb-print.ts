@@ -558,7 +558,6 @@ function construirHtmlTirillaTicket(
   const mm = prefs.tamanoPapel === "58mm" ? 58 : prefs.tamanoPapel === "80mm" ? 80 : 210;
   const rollo58 = prefs.tamanoPapel === "58mm";
   const termico = esTamanoPapelTermico(prefs.tamanoPapel);
-  const anchoContenidoMm = rollo58 ? 54 : prefs.tamanoPapel === "80mm" ? 74 : 72;
   const qrDomPx = rollo58 ? 128 : 150;
   const qrClubPx = rollo58 ? 140 : 168;
   const logoSrc = `${origin}${LOGO_ORG_URL}`;
@@ -780,11 +779,6 @@ function construirHtmlTirillaTicket(
   return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"/><title>Ticket POS GEB</title>
 <style>
   @page { size: ${mm}mm auto; margin: 0; }
-  html {
-    width: ${mm}mm;
-    margin: 0 auto;
-    background: #fff;
-  }
   * { box-sizing: border-box; }
   * {
     color: #000 !important;
@@ -793,9 +787,7 @@ function construirHtmlTirillaTicket(
   }
   body {
     margin: 0;
-    width: ${mm}mm;
-    min-width: ${mm}mm;
-    padding: ${rollo58 ? "1.5mm 0.8mm 2.5mm" : mm <= 80 ? "2mm 1.5mm 3mm" : "6mm"};
+    padding: ${rollo58 ? "1.5mm 1.5mm 2.5mm" : mm <= 80 ? "2mm 2.5mm 3mm" : "6mm"};
     font-family: ${termico ? '"Courier New", Courier, "Lucida Console", monospace' : 'ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'};
     font-size: ${rollo58 ? "10pt" : termico ? "9.5pt" : "10pt"};
     line-height: ${termico ? "1.28" : "1.4"};
@@ -806,23 +798,20 @@ function construirHtmlTirillaTicket(
     print-color-adjust: exact;
     color: #000;
     background: #fff;
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
+    font-weight: ${termico ? "900" : "700"};
   }
   .tirilla {
-    width: ${termico ? `${anchoContenidoMm}mm` : "72mm"};
-    max-width: 100%;
+    max-width: ${rollo58 ? "48mm" : mm <= 80 ? mm + "mm" : "72mm"};
     margin: 0 auto;
     color: #000;
-    font-weight: ${termico ? "700" : "500"};
+    font-weight: ${termico ? "900" : "700"};
   }
   .logo-wrap { text-align: center; margin-bottom: 6px; }
   .logo { margin-bottom: 4px; }
   .logo img { max-height: 44px; width: auto; object-fit: contain; display: inline-block; }
   .brand-name {
     text-align: center;
-    font-weight: 800;
+    font-weight: 900;
     font-size: ${termico ? "10pt" : "11px"};
     letter-spacing: ${termico ? "0.06em" : "0.2em"};
     color: #000;
@@ -830,7 +819,7 @@ function construirHtmlTirillaTicket(
   }
   .brand-only {
     text-align: center;
-    font-weight: 800;
+    font-weight: 900;
     font-size: ${termico ? "10pt" : "11px"};
     letter-spacing: ${termico ? "0.06em" : "0.2em"};
     color: #000;
@@ -839,7 +828,7 @@ function construirHtmlTirillaTicket(
   .tagline {
     text-align: center;
     font-size: ${termico ? "9pt" : "8px"};
-    font-weight: 700;
+    font-weight: 900;
     letter-spacing: ${termico ? "0.04em" : "0.18em"};
     text-transform: uppercase;
     color: #000;
@@ -851,7 +840,7 @@ function construirHtmlTirillaTicket(
     color: #000;
     margin: 0 0 8px;
     letter-spacing: ${termico ? "0" : "0.12em"};
-    font-weight: ${termico ? "700" : "500"};
+    font-weight: ${termico ? "900" : "700"};
   }
   .rule {
     height: 0;
@@ -859,7 +848,7 @@ function construirHtmlTirillaTicket(
     border-top: 1px solid #000;
     margin: 8px 0;
   }
-  .meta { font-size: ${termico ? "8.8pt" : "8.5px"}; line-height: 1.45; margin-bottom: 8px; font-weight: ${termico ? "700" : "500"}; }
+  .meta { font-size: ${termico ? "8.8pt" : "8.5px"}; line-height: 1.45; margin-bottom: 8px; font-weight: ${termico ? "900" : "700"}; }
   .meta-row { display: flex; justify-content: space-between; gap: 6px; margin: 3px 0; }
   .meta-k { color: #000; flex-shrink: 0; font-weight: 800; }
   .meta-v { text-align: right; font-weight: 800; word-break: break-word; }
@@ -868,7 +857,7 @@ function construirHtmlTirillaTicket(
     justify-content: space-between;
     gap: 8px;
     font-size: ${termico ? "9.2pt" : "9px"};
-    font-weight: ${termico ? "700" : "500"};
+    font-weight: ${termico ? "900" : "700"};
     margin: 6px 0;
     padding-bottom: 5px;
     border-bottom: 1px ${termico ? "solid #000" : "dotted #000"};
@@ -884,7 +873,7 @@ function construirHtmlTirillaTicket(
     border-radius: ${termico ? "0" : "4px"};
     font-size: ${termico ? "8.2pt" : "8px"};
     line-height: 1.45;
-    font-weight: ${termico ? "700" : "500"};
+    font-weight: ${termico ? "900" : "700"};
   }
   .iva-row { display: flex; justify-content: space-between; gap: 8px; margin: 3px 0; }
   .iva-k { color: #000; font-weight: 800; }
@@ -909,7 +898,7 @@ function construirHtmlTirillaTicket(
     font-size: ${termico ? "8pt" : "8px"};
     line-height: 1.4;
     color: #000;
-    font-weight: ${termico ? "600" : "400"};
+    font-weight: ${termico ? "900" : "700"};
     text-align: center;
     padding: 0 2px;
   }
@@ -1130,19 +1119,8 @@ function construirHtmlTirillaTicket(
     }
     body {
       background: #fff !important;
-      filter: contrast(1.25);
-      display: flex !important;
-      justify-content: center !important;
-      width: ${mm}mm !important;
-      min-width: ${mm}mm !important;
-      padding-left: ${rollo58 ? "0.8mm" : mm <= 80 ? "1.5mm" : "6mm"} !important;
-      padding-right: ${rollo58 ? "0.8mm" : mm <= 80 ? "1.5mm" : "6mm"} !important;
-    }
-    .tirilla {
-      width: ${termico ? `${anchoContenidoMm}mm` : "72mm"} !important;
-      max-width: 100% !important;
-      margin-left: auto !important;
-      margin-right: auto !important;
+      filter: none !important;
+      font-weight: 900 !important;
     }
     .total {
       background: #fff !important;
