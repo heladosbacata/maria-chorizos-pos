@@ -2580,8 +2580,6 @@ export default function CajaPageClient() {
     const esCanjeClubMillas = itemsCuentaActiva.some(itemEsPremioClubMillas);
     if (!(total > 0)) {
       if (!esCanjeClubMillas) return;
-      const ok = window.confirm("La cuenta es un premio Club de Millas por $0. ¿Deseas canjearlo ahora?");
-      if (!ok) return;
       void ejecutarCobroVenta(itemsCuentaActiva, { notaPie: "Premio Club de Millas canjeado en POS" });
       return;
     }
