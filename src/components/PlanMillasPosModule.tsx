@@ -76,7 +76,15 @@ function TarjetaPremio({
   );
 }
 
-export default function PlanMillasPosModule() {
+type PlanMillasPosModuleProps = {
+  canjeCodigoHabilitado?: boolean;
+  onAbrirCanjeCodigo?: () => void;
+};
+
+export default function PlanMillasPosModule({
+  canjeCodigoHabilitado = false,
+  onAbrirCanjeCodigo,
+}: PlanMillasPosModuleProps) {
   const [documento, setDocumento] = useState("");
   const [consultando, setConsultando] = useState(false);
   const [errorConsulta, setErrorConsulta] = useState<string | null>(null);
@@ -211,6 +219,33 @@ export default function PlanMillasPosModule() {
             </p>
           </div>
         ) : null}
+      </section>
+
+      <section className="relative overflow-hidden rounded-2xl border border-emerald-300 bg-gradient-to-r from-emerald-50 via-white to-yellow-50 p-5 shadow-sm md:p-6">
+        <div className="pointer-events-none absolute -right-10 -top-16 h-40 w-40 rounded-full bg-emerald-400/20 blur-3xl" aria-hidden />
+        <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-bold uppercase tracking-wide text-emerald-800">Redención en caja POS</p>
+            <h3 className="mt-1 text-xl font-black text-gray-950">Canjear código de premio</h3>
+            <p className="mt-1 max-w-2xl text-sm text-gray-700">
+              Si el socio ya generó su código en el Club de Millas, escríbelo aquí para cargar el producto a la cuenta
+              con precio $0 y descontar inventario al finalizar la venta.
+            </p>
+            {!canjeCodigoHabilitado ? (
+              <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
+                Abre el turno de caja para poder agregar el premio a la cuenta.
+              </p>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            onClick={onAbrirCanjeCodigo}
+            disabled={!canjeCodigoHabilitado || !onAbrirCanjeCodigo}
+            className="shrink-0 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-black text-white shadow-md transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-600"
+          >
+            Escribir código
+          </button>
+        </div>
       </section>
 
       {registrado && cliente ? (

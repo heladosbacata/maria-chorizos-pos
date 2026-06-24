@@ -2111,7 +2111,13 @@ export default function CajaPageClient() {
       const sid = turnoSesionId.trim();
 
       const total = itemsSnap.reduce((s, i) => s + totalLineaItem(i), 0);
-      const codigosClubMillas = [...new Set(itemsSnap.map((it) => it.clubMillasRedencionCodigo?.trim()).filter(Boolean))] as string[];
+      const codigosClubMillas = Array.from(
+        new Set(
+          itemsSnap
+            .map((it) => it.clubMillasRedencionCodigo?.trim())
+            .filter((codigo): codigo is string => Boolean(codigo))
+        )
+      );
       const esCanjeClubMillas = codigosClubMillas.length > 0;
       if (!(total > 0) && !esCanjeClubMillas) return false;
       const tipoComprobanteVenta: TipoComprobanteVenta =
@@ -4509,7 +4515,15 @@ export default function CajaPageClient() {
               }}
             />
           ) : moduloActivo === "planMillas" ? (
-            <PlanMillasPosModule />
+            <PlanMillasPosModule
+              canjeCodigoHabilitado={turnoAbierto}
+              onAbrirCanjeCodigo={() => {
+                setCodigoCanjeClubMillas("");
+                setModalCanjeClubMillasAbierto(true);
+                setMensajeCanjeClubMillas(null);
+                setResultadoCanjeClubMillas(null);
+              }}
+            />
           ) : moduloActivo === "domicilios" ? (
             <PosDomiciliosModule puntoVenta={user.puntoVenta} />
           ) : moduloActivo === "mas" ? (

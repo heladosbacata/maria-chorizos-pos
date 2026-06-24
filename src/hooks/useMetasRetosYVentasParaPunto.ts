@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { auth } from "@/lib/firebase";
-import { ymdReferenciaMetas } from "@/lib/metas-retos-avance-ventas";
+import { rangoConteoCadenciaReto, ymdReferenciaMetas } from "@/lib/metas-retos-avance-ventas";
 import { listarVentasPosCloud } from "@/lib/pos-ventas-cloud-client";
 import type { VentaGuardadaLocal } from "@/lib/pos-ventas-local-storage";
 import { EVENT_POS_VENTA_LOCAL_REGISTRADA } from "@/lib/pos-metas-ventas-event";
@@ -51,6 +51,18 @@ export function useMetasRetosYVentasParaPunto(
   const loadGenRef = useRef(0);
 
   const refrescarVentas = useCallback(() => setVentasTick((t) => t + 1), []);
+  const ymdRef = useMemo(() => ymdReferenciaMetas(fechaRef), [fechaRef]);
+  const rangoVentasNube = useMemo(() => {
+    let desde = "";
+    let hasta = "";
+    for (const reto of retos) {
+      const rango = rangoConteoCadenciaReto(reto, ymdRef);
+      if (!rango) continue;
+      if (!desde || rango.desde < desde) desde = rango.desde;
+      if (!hasta || rango.hasta > hasta) hasta = rango.hasta;
+    }
+    return desde && hasta ? { desde, hasta } : null;
+  }, [retos, ymdRef]);
 
   const cargarVentasNube = useCallback(async () => {
     if (!u || !pv) {
@@ -60,7 +72,7 @@ export function useMetasRetosYVentasParaPunto(
     try {
       const token = await auth?.currentUser?.getIdToken();
       if (!token) return;
-      const rows = await listarVentasPosCloud(token);
+      const rows = await listarVentasPosCloud(token, rangoVentasNube ?? undefined);
       setVentasNube(rows.filter((v) => puntoVentaCoincide(v.puntoVenta, pv)));
     } catch (e) {
       setVentasNube([]);
@@ -68,7 +80,7 @@ export function useMetasRetosYVentasParaPunto(
         console.warn("[Metas] Ventas nube no disponibles; avance con tickets locales.", e);
       }
     }
-  }, [u, pv]);
+  }, [u, pv, rangoVentasNube]);
 
   const cargar = useCallback(async () => {
     if (!enabled) return;
@@ -165,8 +177,6 @@ export function useMetasRetosYVentasParaPunto(
     void ventasTick;
     return ventasParaMetasAvance(pv, ventasNube);
   }, [pv, ventasTick, ventasNube]);
-
-  const ymdRef = useMemo(() => ymdReferenciaMetas(fechaRef), [fechaRef]);
 
   const refrescar = useCallback(() => {
     void cargar();

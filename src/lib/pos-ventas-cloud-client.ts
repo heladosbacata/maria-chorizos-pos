@@ -82,8 +82,15 @@ export async function anularVentaPosCloud(
   return { ok: true };
 }
 
-export async function listarVentasPosCloud(idToken: string): Promise<VentaGuardadaLocal[]> {
-  const r = await fetch("/api/pos_ventas_cloud", {
+export async function listarVentasPosCloud(
+  idToken: string,
+  filtros?: { desde?: string; hasta?: string }
+): Promise<VentaGuardadaLocal[]> {
+  const params = new URLSearchParams();
+  if (filtros?.desde) params.set("desde", filtros.desde);
+  if (filtros?.hasta) params.set("hasta", filtros.hasta);
+  const qs = params.toString();
+  const r = await fetch(`/api/pos_ventas_cloud${qs ? `?${qs}` : ""}`, {
     headers: { Authorization: `Bearer ${idToken}` },
   });
   const data = (await r.json().catch(() => ({}))) as {
