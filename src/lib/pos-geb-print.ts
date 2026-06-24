@@ -558,6 +558,7 @@ function construirHtmlTirillaTicket(
   const mm = prefs.tamanoPapel === "58mm" ? 58 : prefs.tamanoPapel === "80mm" ? 80 : 210;
   const rollo58 = prefs.tamanoPapel === "58mm";
   const termico = esTamanoPapelTermico(prefs.tamanoPapel);
+  const anchoContenidoMm = rollo58 ? 54 : prefs.tamanoPapel === "80mm" ? 74 : 72;
   const qrDomPx = rollo58 ? 128 : 150;
   const qrClubPx = rollo58 ? 140 : 168;
   const logoSrc = `${origin}${LOGO_ORG_URL}`;
@@ -779,6 +780,11 @@ function construirHtmlTirillaTicket(
   return `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8"/><title>Ticket POS GEB</title>
 <style>
   @page { size: ${mm}mm auto; margin: 0; }
+  html {
+    width: ${mm}mm;
+    margin: 0 auto;
+    background: #fff;
+  }
   * { box-sizing: border-box; }
   * {
     color: #000 !important;
@@ -787,7 +793,9 @@ function construirHtmlTirillaTicket(
   }
   body {
     margin: 0;
-    padding: ${rollo58 ? "1.5mm 1.5mm 2.5mm" : mm <= 80 ? "2mm 2.5mm 3mm" : "6mm"};
+    width: ${mm}mm;
+    min-width: ${mm}mm;
+    padding: ${rollo58 ? "1.5mm 0.8mm 2.5mm" : mm <= 80 ? "2mm 1.5mm 3mm" : "6mm"};
     font-family: ${termico ? '"Courier New", Courier, "Lucida Console", monospace' : 'ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif'};
     font-size: ${rollo58 ? "10pt" : termico ? "9.5pt" : "10pt"};
     line-height: ${termico ? "1.28" : "1.4"};
@@ -798,9 +806,13 @@ function construirHtmlTirillaTicket(
     print-color-adjust: exact;
     color: #000;
     background: #fff;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
   }
   .tirilla {
-    max-width: ${rollo58 ? "48mm" : mm <= 80 ? mm + "mm" : "72mm"};
+    width: ${termico ? `${anchoContenidoMm}mm` : "72mm"};
+    max-width: 100%;
     margin: 0 auto;
     color: #000;
     font-weight: ${termico ? "700" : "500"};
@@ -1119,6 +1131,18 @@ function construirHtmlTirillaTicket(
     body {
       background: #fff !important;
       filter: contrast(1.25);
+      display: flex !important;
+      justify-content: center !important;
+      width: ${mm}mm !important;
+      min-width: ${mm}mm !important;
+      padding-left: ${rollo58 ? "0.8mm" : mm <= 80 ? "1.5mm" : "6mm"} !important;
+      padding-right: ${rollo58 ? "0.8mm" : mm <= 80 ? "1.5mm" : "6mm"} !important;
+    }
+    .tirilla {
+      width: ${termico ? `${anchoContenidoMm}mm` : "72mm"} !important;
+      max-width: 100% !important;
+      margin-left: auto !important;
+      margin-right: auto !important;
     }
     .total {
       background: #fff !important;
