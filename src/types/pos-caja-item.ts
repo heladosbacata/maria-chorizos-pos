@@ -14,4 +14,7 @@ export interface ItemCuenta {
   descuentoModo?: DescuentoModoLinea;
   descuentoValor?: number;
   cargo1?: string;
+  clubMillasRedencionCodigo?: string;
+  clubMillasPedidoId?: string;
+  clubMillasTituloPremio?: string;
 }

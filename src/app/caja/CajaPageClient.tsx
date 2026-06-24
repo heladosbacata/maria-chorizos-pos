@@ -162,6 +162,11 @@ import {
   type WmsTurnoCajeroPayload,
 } from "@/lib/wms-turnos-client";
 import { wmsPosAlegraEmitirCobro, wmsPosDianConfigGet } from "@/lib/wms-pos-dian-client";
+import {
+  confirmarCanjeCodigoClubMillasPos,
+  consultarCodigoClubMillasPos,
+  type ClubMillasCodigoCanje,
+} from "@/lib/wms-club-millas-canjear-codigo";
 import { posDianTestSetGet } from "@/lib/pos-dian-test-set-client";
 import {
   aplicarVentaEnsambleWms,
@@ -334,6 +339,10 @@ function totalLineaItem(it: ItemCuenta): number {
   return subtotalNetoLinea(lineInputDesdeItemCuentaLike(it));
 }
 
+function itemEsPremioClubMillas(it: ItemCuenta): boolean {
+  return Boolean(it.clubMillasRedencionCodigo?.trim());
+}
+
 function etiquetaTipoComprobanteTicket(t: TipoComprobanteVenta): string {
   return t === "documento_interno" ? "Doc. interno" : "Factura electrónica de venta";
 }
@@ -411,6 +420,11 @@ export default function CajaPageClient() {
   const [posGebTutorialAbierto, setPosGebTutorialAbierto] = useState(false);
   const [posGebTutorialPaso, setPosGebTutorialPaso] = useState(0);
   const [posGebAyudaAbierta, setPosGebAyudaAbierta] = useState(false);
+  const [modalCanjeClubMillasAbierto, setModalCanjeClubMillasAbierto] = useState(false);
+  const [codigoCanjeClubMillas, setCodigoCanjeClubMillas] = useState("");
+  const [consultandoCanjeClubMillas, setConsultandoCanjeClubMillas] = useState(false);
+  const [resultadoCanjeClubMillas, setResultadoCanjeClubMillas] = useState<ClubMillasCodigoCanje | null>(null);
+  const [mensajeCanjeClubMillas, setMensajeCanjeClubMillas] = useState<{ tipo: "ok" | "err"; texto: string } | null>(null);
   const [precuentas, setPrecuentas] = useState<PrecuentaTab[]>([
     { id: "1", nombre: "Nueva pre-cuenta" },
   ]);
@@ -1558,6 +1572,74 @@ export default function CajaPageClient() {
     });
   };
 
+  const consultarCanjeClubMillas = async () => {
+    const codigo = codigoCanjeClubMillas.trim().toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4);
+    setCodigoCanjeClubMillas(codigo);
+    setMensajeCanjeClubMillas(null);
+    setResultadoCanjeClubMillas(null);
+    if (codigo.length !== 4) {
+      setMensajeCanjeClubMillas({ tipo: "err", texto: "El código debe tener 4 caracteres." });
+      return;
+    }
+    const token = await auth?.currentUser?.getIdToken();
+    if (!token) {
+      setMensajeCanjeClubMillas({ tipo: "err", texto: "Sesión POS vencida. Inicia sesión de nuevo." });
+      return;
+    }
+    setConsultandoCanjeClubMillas(true);
+    try {
+      const res = await consultarCodigoClubMillasPos(token, codigo);
+      if (!res.ok) {
+        setMensajeCanjeClubMillas({ tipo: "err", texto: res.error });
+        return;
+      }
+      if (res.productosPos.length === 0) {
+        setMensajeCanjeClubMillas({ tipo: "err", texto: "El código no tiene productos POS asociados." });
+        return;
+      }
+      setResultadoCanjeClubMillas(res);
+      setMensajeCanjeClubMillas({
+        tipo: "ok",
+        texto: `Premio válido para reclamar en ${res.puntoReclamo}. Agrégalo a la cuenta y cóbralo a $0.`,
+      });
+    } finally {
+      setConsultandoCanjeClubMillas(false);
+    }
+  };
+
+  const agregarCanjeClubMillasACuenta = () => {
+    if (!resultadoCanjeClubMillas) return;
+    const codigo = resultadoCanjeClubMillas.codigo;
+    const itemsNuevos: ItemCuenta[] = resultadoCanjeClubMillas.productosPos.map((p) => {
+      const sku = String(p.skuProducto ?? p.skuBarcode ?? p.sku ?? "").trim();
+      const producto: ProductoPOS = {
+        sku,
+        descripcion: p.descripcion,
+        categoria: p.categoria ?? "Club de Millas",
+        precioUnitario: 0,
+        urlImagen: p.imagenUrl ?? null,
+      };
+      return {
+        lineId: `club-millas-${codigo}-${sku}`,
+        producto,
+        cantidad: Math.max(1, Math.trunc(Number(p.cantidad) || 1)),
+        precioUnitarioOverride: 0,
+        clubMillasRedencionCodigo: codigo,
+        clubMillasPedidoId: resultadoCanjeClubMillas.pedidoId,
+        clubMillasTituloPremio: p.tituloPremio ?? "Premio Club de Millas",
+      };
+    });
+    setItemsPorPrecuenta((prev) => {
+      const actual = prev[activePrecuentaId] ?? [];
+      const sinMismoCodigo = actual.filter((it) => it.clubMillasRedencionCodigo !== codigo);
+      return { ...prev, [activePrecuentaId]: [...sinMismoCodigo, ...itemsNuevos] };
+    });
+    setModalCanjeClubMillasAbierto(false);
+    setMensajeCanjeClubMillas(null);
+    setResultadoCanjeClubMillas(null);
+    setCodigoCanjeClubMillas("");
+  };
+
   const confirmarAgregarChorizoModal = () => {
     if (!modalProductoChorizo) return;
     const p = modalProductoChorizo;
@@ -2029,9 +2111,13 @@ export default function CajaPageClient() {
       const sid = turnoSesionId.trim();
 
       const total = itemsSnap.reduce((s, i) => s + totalLineaItem(i), 0);
-      if (!(total > 0)) return false;
+      const codigosClubMillas = [...new Set(itemsSnap.map((it) => it.clubMillasRedencionCodigo?.trim()).filter(Boolean))] as string[];
+      const esCanjeClubMillas = codigosClubMillas.length > 0;
+      if (!(total > 0) && !esCanjeClubMillas) return false;
+      const tipoComprobanteVenta: TipoComprobanteVenta =
+        esCanjeClubMillas && total === 0 ? "documento_interno" : tipoComprobante;
       const mediosPago =
-        mediosPagoRaw != null ? normalizarMediosPagoVenta(mediosPagoRaw, total) : undefined;
+        mediosPagoRaw != null && total > 0 ? normalizarMediosPagoVenta(mediosPagoRaw, total) : undefined;
 
       setCobrando(true);
       try {
@@ -2040,7 +2126,7 @@ export default function CajaPageClient() {
         const filaVenta: VentaReporte = {
           puntoVenta: pv,
           valorVenta: total,
-          tipoComprobante,
+          tipoComprobante: tipoComprobanteVenta,
           ...(ct
             ? {
                 cajeroTurnoId: ct.id,
@@ -2092,7 +2178,15 @@ export default function CajaPageClient() {
         if (tokenTurnoSync) void wmsTurnosSincronizarSilent(tokenTurnoSync, totalVentasEnTurnoRef.current, cajeroWmsSyncRef.current);
 
         const notaPieTicket =
-          ventaSoloEnPos && notaPie
+          esCanjeClubMillas
+            ? [
+                notaPie,
+                `Premio Club de Millas · código ${codigosClubMillas.join(", ")} · valor $0`,
+                ventaSoloEnPos ? "[Cobro guardado en caja — pendiente de envío por internet]" : "",
+              ]
+                .filter(Boolean)
+                .join("\n")
+            : ventaSoloEnPos && notaPie
             ? `${notaPie}\n[Cobro guardado en caja — pendiente de envío por internet]`
             : ventaSoloEnPos
               ? "[Cobro guardado en caja — pendiente de envío por internet]"
@@ -2171,7 +2265,7 @@ export default function CajaPageClient() {
           ventaLocalId ?? `ens-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
         const prefsImpresionCobro = loadImpresionPrefs();
         const aplazarEnsambleHastaImprimir =
-          prefsImpresionCobro.imprimirAutomaticoAlCobrar && lineasEnsamble.length > 0;
+          prefsImpresionCobro.imprimirAutomaticoAlCobrar && lineasEnsamble.length > 0 && !esCanjeClubMillas;
         if (lineasEnsamble.length > 0) {
           const bodyEnsamble: WmsAplicarVentaEnsambleBody = {
             lineas: lineasEnsamble,
@@ -2223,7 +2317,7 @@ export default function CajaPageClient() {
 
         let ticket = ticketBase;
 
-        if (tipoComprobante === "factura_electronica") {
+        if (tipoComprobanteVenta === "factura_electronica") {
           const tokenFe = await auth?.currentUser?.getIdToken();
           if (tokenFe) {
             let dianMeta: {
@@ -2328,6 +2422,26 @@ export default function CajaPageClient() {
                 });
               }
               ticket = { ...ticket, facturaElectronica: feBlock };
+            }
+          }
+        }
+
+        if (codigosClubMillas.length > 0) {
+          const tokenCanje = await auth?.currentUser?.getIdToken();
+          if (!tokenCanje) {
+            window.alert("La venta quedó registrada, pero no se pudo marcar el código Club de Millas como usado: sesión vencida.");
+          } else {
+            for (const codigo of codigosClubMillas) {
+              const rCanje = await confirmarCanjeCodigoClubMillasPos(tokenCanje, {
+                codigo,
+                ventaLocalId: ventaLocalId ?? undefined,
+                numeroFactura: ticket.facturaElectronica?.numero ?? undefined,
+              });
+              if (!rCanje.ok) {
+                window.alert(
+                  `La venta quedó registrada, pero no se pudo cerrar el código Club de Millas ${codigo}: ${rCanje.error}`
+                );
+              }
             }
           }
         }
@@ -2457,7 +2571,14 @@ export default function CajaPageClient() {
       return;
     }
     const total = itemsCuentaActiva.reduce((s, i) => s + totalLineaItem(i), 0);
-    if (!(total > 0)) return;
+    const esCanjeClubMillas = itemsCuentaActiva.some(itemEsPremioClubMillas);
+    if (!(total > 0)) {
+      if (!esCanjeClubMillas) return;
+      const ok = window.confirm("La cuenta es un premio Club de Millas por $0. ¿Deseas canjearlo ahora?");
+      if (!ok) return;
+      void ejecutarCobroVenta(itemsCuentaActiva, { notaPie: "Premio Club de Millas canjeado en POS" });
+      return;
+    }
     setRegistrarPagoAbierto(true);
   };
 
@@ -3995,6 +4116,31 @@ export default function CajaPageClient() {
                   </p>
                 </div>
               )}
+              {turnoAbierto ? (
+                <div className="rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50 to-yellow-50 p-4 shadow-sm">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-bold uppercase tracking-wide text-emerald-800">
+                        Club de Millas
+                      </p>
+                      <p className="mt-1 text-sm text-emerald-950">
+                        Canjea códigos de premios reclamados en punto de venta. Se agregan a la cuenta con precio $0.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setModalCanjeClubMillasAbierto(true);
+                        setMensajeCanjeClubMillas(null);
+                        setResultadoCanjeClubMillas(null);
+                      }}
+                      className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-bold text-white shadow-md transition hover:bg-emerald-700"
+                    >
+                      Canjear código
+                    </button>
+                  </div>
+                </div>
+              ) : null}
               {/* Pestañas de pre-cuenta */}
               <div
                 data-pos-tutorial="precuentas"
@@ -4566,6 +4712,11 @@ export default function CajaPageClient() {
                           Cod. {it.producto.sku} · P. unit. $ {Number(pUnit).toLocaleString("es-CO")}
                           {it.precioUnitarioOverride != null ? " · editado" : ""}
                         </p>
+                        {itemEsPremioClubMillas(it) ? (
+                          <p className="mt-1 inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide text-emerald-700">
+                            Premio Club de Millas · código {it.clubMillasRedencionCodigo}
+                          </p>
+                        ) : null}
                       </div>
                       <div className="flex flex-shrink-0 gap-0.5">
                         <button
@@ -4788,6 +4939,84 @@ export default function CajaPageClient() {
         item={itemEditando}
         onGuardar={guardarItemCuentaEditado}
       />
+
+      {modalCanjeClubMillasAbierto ? (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/55 px-4 py-6 backdrop-blur-sm">
+          <div className="w-full max-w-lg overflow-hidden rounded-2xl border border-emerald-200 bg-white shadow-2xl">
+            <div className="border-b border-emerald-100 bg-gradient-to-r from-emerald-50 to-yellow-50 px-5 py-4">
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-700">Club de Millas</p>
+              <h2 className="text-lg font-black text-gray-950">Canjear código</h2>
+              <p className="mt-1 text-sm text-gray-600">
+                Escribe el código de 4 caracteres que trae el socio para reclamar su premio.
+              </p>
+            </div>
+            <div className="space-y-4 px-5 py-4">
+              <div className="flex gap-2">
+                <input
+                  value={codigoCanjeClubMillas}
+                  onChange={(e) =>
+                    setCodigoCanjeClubMillas(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4))
+                  }
+                  placeholder="A7K2"
+                  maxLength={4}
+                  className="flex-1 rounded-xl border border-gray-300 px-4 py-3 text-center font-mono text-2xl font-black uppercase tracking-[0.25em] text-gray-950 focus:border-emerald-500 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  disabled={consultandoCanjeClubMillas}
+                  onClick={() => void consultarCanjeClubMillas()}
+                  className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-emerald-700 disabled:opacity-60"
+                >
+                  {consultandoCanjeClubMillas ? "Buscando..." : "Buscar"}
+                </button>
+              </div>
+              {mensajeCanjeClubMillas ? (
+                <p
+                  className={`rounded-xl border px-3 py-2 text-sm ${
+                    mensajeCanjeClubMillas.tipo === "ok"
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                      : "border-red-200 bg-red-50 text-red-800"
+                  }`}
+                >
+                  {mensajeCanjeClubMillas.texto}
+                </p>
+              ) : null}
+              {resultadoCanjeClubMillas ? (
+                <div className="rounded-xl border border-gray-200 bg-gray-50 p-3">
+                  <p className="text-sm font-bold text-gray-950">
+                    Código {resultadoCanjeClubMillas.codigo} · {resultadoCanjeClubMillas.puntoReclamo}
+                  </p>
+                  <ul className="mt-2 space-y-2 text-sm">
+                    {resultadoCanjeClubMillas.productosPos.map((p) => (
+                      <li key={`${p.sku}-${p.descripcion}`} className="flex justify-between gap-3 rounded-lg bg-white px-3 py-2">
+                        <span className="font-medium text-gray-800">{p.descripcion}</span>
+                        <span className="font-mono text-gray-500">x{p.cantidad} · $0</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+            <div className="flex gap-2 border-t border-gray-100 bg-gray-50 px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setModalCanjeClubMillasAbierto(false)}
+                className="flex-1 rounded-xl border border-gray-300 bg-white py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-100"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={!resultadoCanjeClubMillas}
+                onClick={agregarCanjeClubMillasACuenta}
+                className="flex-1 rounded-xl bg-emerald-600 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
+              >
+                Agregar premio a la cuenta
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {!esContador && (
         <RegistrarPagoPanel
