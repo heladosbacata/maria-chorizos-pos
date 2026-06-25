@@ -16,6 +16,8 @@ export type PosVentaCloudBody = {
   mediosPago?: MediosPagoVentaGuardados;
   /** `true` si el WMS aceptó el reporte; `false` si quedó solo POS / red. */
   wmsSincronizado: boolean;
+  /** Venta operativa de $0 por premio Club de Millas, no venta monetaria. */
+  esCanjeClubMillas?: boolean;
   tipoComprobanteAlCobro?: "factura_electronica" | "documento_interno";
 };
 

@@ -183,8 +183,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ ok: false, message: "isoTimestamp inválido." });
   }
 
+  const esCanjeClubMillas = b?.esCanjeClubMillas === true;
   const total = typeof b?.total === "number" ? b.total : NaN;
-  if (!Number.isFinite(total) || total <= 0 || total > 5e9) {
+  if (!Number.isFinite(total) || total < 0 || total > 5e9 || (total === 0 && !esCanjeClubMillas)) {
     return res.status(400).json({ ok: false, message: "total inválido." });
   }
 
@@ -207,6 +208,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     wmsSincronizado,
     serverCreatedAt: FieldValue.serverTimestamp(),
   };
+  if (esCanjeClubMillas) {
+    doc.esCanjeClubMillas = true;
+  }
 
   if (typeof b?.turnoSesionId === "string" && b.turnoSesionId.trim()) {
     doc.turnoSesionId = b.turnoSesionId.trim().slice(0, 120);

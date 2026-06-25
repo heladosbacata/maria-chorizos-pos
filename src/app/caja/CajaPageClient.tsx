@@ -2120,6 +2120,7 @@ export default function CajaPageClient() {
       );
       const esCanjeClubMillas = codigosClubMillas.length > 0;
       if (!(total > 0) && !esCanjeClubMillas) return false;
+      const omitirReporteVentaWms = esCanjeClubMillas && !(total > 0);
       const tipoComprobanteVenta: TipoComprobanteVenta =
         esCanjeClubMillas && total === 0 ? "documento_interno" : tipoComprobante;
       const mediosPago =
@@ -2156,7 +2157,12 @@ export default function CajaPageClient() {
           ventas: [filaVenta],
         };
 
-        const resultado = await enviarReporteVenta(payloadWms);
+        const resultado = omitirReporteVentaWms
+          ? {
+              estado: "exito" as const,
+              mensaje: "Canje Club de Millas $0: no se reporta como venta monetaria al WMS.",
+            }
+          : await enviarReporteVenta(payloadWms);
 
         let ventaSoloEnPos = false;
         if (resultado.estado !== "exito") {
@@ -2306,6 +2312,7 @@ export default function CajaPageClient() {
                 ...(notaPieTicket ? { pagoResumen: notaPieTicket } : {}),
                 ...(mediosPago ? { mediosPago } : {}),
                 wmsSincronizado: !ventaSoloEnPos,
+                ...(esCanjeClubMillas ? { esCanjeClubMillas: true } : {}),
               });
               if (!sync.ok) {
                 console.warn("Venta guardada en el equipo; nube POS:", sync.message ?? sync);
