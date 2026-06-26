@@ -12,7 +12,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const base = getWmsPublicBaseUrl().replace(/\/$/, "");
   const pv = typeof req.query.puntoVenta === "string" ? req.query.puntoVenta.trim() : "";
-  const qs = pv ? `?${new URLSearchParams({ puntoVenta: pv }).toString()}` : "";
+  const cajeroTurnoId = typeof req.query.cajeroTurnoId === "string" ? req.query.cajeroTurnoId.trim() : "";
+  const params = new URLSearchParams();
+  if (pv) params.set("puntoVenta", pv);
+  if (cajeroTurnoId) params.set("cajeroTurnoId", cajeroTurnoId);
+  const qs = params.toString() ? `?${params.toString()}` : "";
   const url = `${base}/api/pos/metas-retos/activas${qs}`;
 
   try {

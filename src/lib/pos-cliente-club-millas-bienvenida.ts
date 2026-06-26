@@ -21,6 +21,8 @@ export type ClientePosFirestoreLike = {
   email?: string;
   indicativoTelefono?: string;
   telefono?: string;
+  cajeroTurnoId?: string;
+  cajeroNombre?: string;
   [CAMPO_PIN_CLUB_MILLAS_POS]?: string;
 };
 
@@ -78,6 +80,8 @@ export function construirBodyWmsUpsertSocio(
     pinAccesoClubMillasInicial: pin,
     idDocumentoFirestore: idFirestore,
     origenAlta: "pos",
+    registradoPorCajeroTurnoId: str(c.cajeroTurnoId) || null,
+    registradoPorCajeroNombre: str(c.cajeroNombre) || null,
   };
 }
 
@@ -174,6 +178,8 @@ export async function aplicarBienvenidaClubMillasACliente(
         ? FieldValue.serverTimestamp()
         : FieldValue.delete(),
       clubMillasPinSincronizadoWmsAt: wms.ok ? FieldValue.serverTimestamp() : FieldValue.delete(),
+      ...(str(c.cajeroTurnoId) ? { clubMillasRegistradoPorCajeroTurnoId: str(c.cajeroTurnoId) } : {}),
+      ...(str(c.cajeroNombre) ? { clubMillasRegistradoPorCajeroNombre: str(c.cajeroNombre) } : {}),
       updatedAt: FieldValue.serverTimestamp(),
     },
     { merge: true }

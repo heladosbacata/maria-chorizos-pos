@@ -53,6 +53,8 @@ export async function cobrarClienteFrecuenteClubMillasEnFirestore(
     idFacturaPos?: string;
     cajaId?: string;
     ventaId?: string;
+    cajeroTurnoId?: string;
+    cajeroNombre?: string;
   }
 ): Promise<CobroClubMillasFirestoreResult> {
   const documento = normalizarDocumentoClubMillasPos(opts.documento);
@@ -130,6 +132,8 @@ export async function cobrarClienteFrecuenteClubMillasEnFirestore(
           idFacturaPos: opts.idFacturaPos?.trim() || null,
           cajaId: opts.cajaId?.trim() || null,
           puntoVenta: opts.puntoVenta?.trim() || null,
+          cajeroTurnoId: opts.cajeroTurnoId?.trim() || null,
+          cajeroNombre: opts.cajeroNombre?.trim() || null,
           documentoSocio: documento,
           socioIdPos: socioId,
           ventaId: opts.ventaId?.trim() || null,
@@ -172,6 +176,9 @@ export async function cobrarClienteFrecuenteClubMillasEnFirestore(
         montoTotalCop,
         idFacturaPos: opts.idFacturaPos?.trim() || null,
         ventaId: opts.ventaId?.trim() || null,
+        puntoVenta: opts.puntoVenta?.trim() || null,
+        cajeroTurnoId: opts.cajeroTurnoId?.trim() || null,
+        cajeroNombre: opts.cajeroNombre?.trim() || null,
         createdAt: FieldValue.serverTimestamp(),
       });
 

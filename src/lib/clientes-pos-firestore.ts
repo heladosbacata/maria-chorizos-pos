@@ -128,6 +128,8 @@ export interface CrearClientePosInput {
   telefono?: string;
   datosComplementarios?: Record<string, string>;
   createdByUid: string;
+  cajeroTurnoId?: string;
+  cajeroNombre?: string;
 }
 
 export type CrearClientePosResult =
@@ -171,6 +173,8 @@ export async function crearClientePos(input: CrearClientePosInput): Promise<Crea
           ...(input.datosComplementarios && Object.keys(input.datosComplementarios).length
             ? { datosComplementarios: input.datosComplementarios }
             : {}),
+          ...(input.cajeroTurnoId?.trim() ? { cajeroTurnoId: input.cajeroTurnoId.trim() } : {}),
+          ...(input.cajeroNombre?.trim() ? { cajeroNombre: input.cajeroNombre.trim() } : {}),
         }),
       });
       let data: {

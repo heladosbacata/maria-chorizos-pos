@@ -32,11 +32,12 @@ export type UseMetasRetosYVentasParaPuntoResult = {
 export function useMetasRetosYVentasParaPunto(
   puntoVenta: string | null | undefined,
   uid: string | null | undefined,
-  opts?: { enabled?: boolean }
+  opts?: { enabled?: boolean; cajeroTurnoId?: string | null }
 ): UseMetasRetosYVentasParaPuntoResult {
   const enabled = opts?.enabled !== false;
   const pv = (puntoVenta ?? "").replace(/\u00a0/g, " ").trim();
   const u = (uid ?? "").trim();
+  const cajeroTurnoId = (opts?.cajeroTurnoId ?? "").trim();
 
   const [cargando, setCargando] = useState(enabled);
   const [error, setError] = useState<string | null>(null);
@@ -91,7 +92,7 @@ export function useMetasRetosYVentasParaPunto(
     setCargando(true);
     setError(null);
     try {
-      const r = await fetchMetasRetosActivas(pv || null, ac.signal);
+      const r = await fetchMetasRetosActivas(pv || null, cajeroTurnoId || null, ac.signal);
       if (gen !== loadGenRef.current) return;
       if (!r.ok) {
         setError(r.message);
@@ -111,7 +112,7 @@ export function useMetasRetosYVentasParaPunto(
     } finally {
       if (gen === loadGenRef.current) setCargando(false);
     }
-  }, [pv, refrescarVentas, enabled]);
+  }, [pv, cajeroTurnoId, refrescarVentas, enabled]);
 
   useEffect(() => {
     if (!enabled) {

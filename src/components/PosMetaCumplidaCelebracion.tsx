@@ -63,6 +63,7 @@ function textoCorreoReconocimiento(input: {
 }): string {
   const { puntoVenta, meta } = input;
   const { reto } = meta;
+  const bonoReconocido = reto.bonoDetalle?.trim() || `$${formatPesosCop(reto.bonoCOP, false)} COP`;
   return [
     "¡Felicitaciones!",
     "",
@@ -74,7 +75,7 @@ function textoCorreoReconocimiento(input: {
     `- Periodo: ${meta.periodo}`,
     `- Meta: ${meta.meta} unidades`,
     `- Avance registrado: ${meta.avance} unidades`,
-    `- Bono reconocido: $${formatPesosCop(reto.bonoCOP, false)} COP`,
+    `- Bono reconocido: ${bonoReconocido}`,
     reto.descripcionReto?.trim() ? `- Mensaje del reto: ${reto.descripcionReto.trim()}` : "",
     "",
     "Solicitamos reconocer este bono según las políticas comerciales vigentes de Grupo Bacatá.",
@@ -83,6 +84,10 @@ function textoCorreoReconocimiento(input: {
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+function etiquetaBono(reto: MetaRetoActiva): string {
+  return reto.bonoDetalle?.trim() || `$${formatPesosCop(reto.bonoCOP, false)} COP`;
 }
 
 export default function PosMetaCumplidaCelebracion({ puntoVenta, emailSesion, getIdToken }: Props) {
@@ -247,8 +252,8 @@ export default function PosMetaCumplidaCelebracion({ puntoVenta, emailSesion, ge
         </h2>
         <p className="relative mt-3 text-sm leading-relaxed text-slate-700">
           <strong>{pv}</strong> cumplió el reto <strong>{metaActiva.reto.descripcionProducto || "programado"}</strong>.
-          El bono a reconocer es de{" "}
-          <strong className="text-emerald-700">${formatPesosCop(metaActiva.reto.bonoCOP, false)} COP</strong>.
+          El bono a reconocer es{" "}
+          <strong className="text-emerald-700">{etiquetaBono(metaActiva.reto)}</strong>.
         </p>
 
         <div className="relative mt-5 grid gap-3 rounded-2xl border border-amber-200 bg-white/75 p-4 text-left text-sm shadow-inner">

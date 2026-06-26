@@ -16,6 +16,8 @@ export interface ClienteFrecuenteDocumentoModalProps {
   /** Punto de venta y usuario: si vienen, el cajero puede abrir «Crear cliente» (misma base POS que caja). */
   puntoVentaPos?: string;
   uidUsuarioPos?: string;
+  cajeroTurnoId?: string;
+  cajeroNombre?: string;
   onClientePosCreado?: (doc: ClientePosFirestoreDoc) => void;
   /**
    * Tras validar en WMS que está registrado: descuento sticker + abrir aviso al cajero.
@@ -34,6 +36,8 @@ export default function ClienteFrecuenteDocumentoModal({
   onClienteRegistradoEnPlanMillas,
   puntoVentaPos,
   uidUsuarioPos,
+  cajeroTurnoId,
+  cajeroNombre,
   onClientePosCreado,
 }: ClienteFrecuenteDocumentoModalProps) {
   const [mounted, setMounted] = useState(false);
@@ -180,6 +184,8 @@ export default function ClienteFrecuenteDocumentoModal({
           onClose={() => setCrearClienteOpen(false)}
           puntoVenta={puntoVentaTrim}
           uid={uidUsuarioTrim}
+          cajeroTurnoId={cajeroTurnoId}
+          cajeroNombre={cajeroNombre}
           portalZClassName="z-[115]"
           numeroIdentificacionInicial={documento}
           onCreado={(doc) => {

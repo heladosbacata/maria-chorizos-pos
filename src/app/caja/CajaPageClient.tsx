@@ -2491,6 +2491,8 @@ export default function CajaPageClient() {
                 montoTotalCop,
                 idFacturaPos: ventaLocalId ?? ventaIdFid,
                 ...(sid || ct?.id ? { cajaId: String(sid || ct?.id) } : {}),
+                ...(ct?.id ? { cajeroTurnoId: ct.id } : {}),
+                ...(ct?.nombreDisplay ? { cajeroNombre: ct.nombreDisplay } : {}),
                 isoTimestamp: isoVenta,
                 lineas: itemsSnap.map((it) => ({
                   sku: it.producto.sku,
@@ -4054,7 +4056,12 @@ export default function CajaPageClient() {
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pl-52 lg:flex-row">
       <main className="min-h-0 min-w-0 flex-1 overflow-y-auto pt-0">
         <div className="p-4 sm:p-5 lg:p-4">
-          <MetasRetosCajaProvider puntoVenta={user.puntoVenta} uid={user.uid} enabled={metasActivas}>
+          <MetasRetosCajaProvider
+            puntoVenta={user.puntoVenta}
+            uid={user.uid}
+            cajeroTurnoId={cajeroTurnoActivo?.id ?? null}
+            enabled={metasActivas}
+          >
             <PosMetaCumplidaCelebracion
               puntoVenta={user.puntoVenta}
               emailSesion={user.email}
@@ -5057,6 +5064,8 @@ export default function CajaPageClient() {
           clienteNumeroIdentificacion={clienteActivoPrecuenta.numeroIdentificacion}
           puntoVentaParaCrearCliente={user?.puntoVenta ?? undefined}
           uidParaCrearCliente={user?.uid ?? undefined}
+          cajeroTurnoIdParaCrearCliente={cajeroTurnoActivo?.id}
+          cajeroNombreParaCrearCliente={cajeroTurnoActivo?.nombreDisplay}
           onClientePosCreadoDesdeRegistrarPago={(doc) => {
             setClientesPosLista((prev) => [doc, ...prev.filter((x) => x.id !== doc.id)]);
             setClientePorPrecuenta((prev) => ({

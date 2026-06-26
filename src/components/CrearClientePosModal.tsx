@@ -19,6 +19,8 @@ export interface CrearClientePosModalProps {
   onClose: () => void;
   puntoVenta: string;
   uid: string;
+  cajeroTurnoId?: string;
+  cajeroNombre?: string;
   onCreado: (doc: ClientePosFirestoreDoc) => void;
   /** z-index del overlay (p. ej. `z-[115]` encima del modal plan de millas `z-[105]`). */
   portalZClassName?: string;
@@ -31,6 +33,8 @@ export default function CrearClientePosModal({
   onClose,
   puntoVenta,
   uid,
+  cajeroTurnoId,
+  cajeroNombre,
   onCreado,
   portalZClassName = "z-[60]",
   numeroIdentificacionInicial,
@@ -110,6 +114,8 @@ export default function CrearClientePosModal({
       telefono: telefono.trim(),
       datosComplementarios: Object.keys(datosComplementarios).length ? datosComplementarios : undefined,
       createdByUid: uid,
+      cajeroTurnoId: cajeroTurnoId?.trim() || undefined,
+      cajeroNombre: cajeroNombre?.trim() || undefined,
     });
     setGuardando(false);
     if (!r.ok) {

@@ -171,8 +171,11 @@ export default function PosCajaMetasMotivationPanel() {
         if (meta <= 0 || avance < meta) return null;
         return {
           id: reto.id,
-          producto: reto.descripcionProducto.trim() || "Meta alcanzada",
+          producto:
+            reto.descripcionProducto.trim() ||
+            (reto.tipoReto === "fidelizacion_clientes" ? "Clientes fidelizados" : "Meta alcanzada"),
           bonoCOP: Math.max(0, Number(reto.bonoCOP) || 0),
+          bonoDetalle: reto.bonoDetalle?.trim() || "",
           avance,
           meta,
           periodo: rango ? etiquetaRangoPeriodo(rango.desde, rango.hasta) : ymdRef,
@@ -182,6 +185,7 @@ export default function PosCajaMetasMotivationPanel() {
       id: string;
       producto: string;
       bonoCOP: number;
+      bonoDetalle: string;
       avance: number;
       meta: number;
       periodo: string;
@@ -263,9 +267,11 @@ export default function PosCajaMetasMotivationPanel() {
             </div>
           </div>
           <div className="shrink-0 text-right">
-            <p className="text-[8px] font-bold uppercase tracking-wide text-emerald-200/60">Ganado</p>
+            <p className="text-[8px] font-bold uppercase tracking-wide text-emerald-200/60">
+              {billetera.totalCOP > 0 ? "Ganado" : "Premios"}
+            </p>
             <p className="text-lg font-black tabular-nums leading-tight text-emerald-200">
-              ${formatPesosCop(billetera.totalCOP, false)}
+              {billetera.totalCOP > 0 ? `$${formatPesosCop(billetera.totalCOP, false)}` : billetera.ganados.length}
             </p>
           </div>
         </div>
@@ -280,7 +286,7 @@ export default function PosCajaMetasMotivationPanel() {
                 <div className="flex items-start justify-between gap-2">
                   <p className="min-w-0 truncate text-[10px] font-bold text-[#F2FFF7]">{item.producto}</p>
                   <span className="shrink-0 text-[10px] font-black tabular-nums text-emerald-200">
-                    ${formatPesosCop(item.bonoCOP, false)}
+                    {item.bonoDetalle || `$${formatPesosCop(item.bonoCOP, false)}`}
                   </span>
                 </div>
                 <p className="mt-0.5 truncate text-[8px] font-medium text-emerald-100/55">

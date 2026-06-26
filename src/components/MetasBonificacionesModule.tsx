@@ -22,6 +22,16 @@ function etiquetaAlcance(a: MetaRetoActiva["alcancePuntoVenta"]): string {
   return a === "seleccion" ? "Puntos seleccionados" : "Todos los puntos de venta";
 }
 
+function unidadReto(reto: MetaRetoActiva): string {
+  return reto.tipoReto === "fidelizacion_clientes" ? "clientes" : "unidades";
+}
+
+function etiquetaBonoReto(reto: MetaRetoActiva): string {
+  const detalle = reto.bonoDetalle?.trim();
+  if (detalle) return detalle;
+  return `$${formatPesosCop(reto.bonoCOP, false)} COP`;
+}
+
 function formatearRangoYmd(inicio: string, fin: string): string {
   if (!inicio && !fin) return "—";
   if (inicio === fin) return inicio;
@@ -179,7 +189,7 @@ export default function MetasBonificacionesModule({ puntoVenta, uid }: MetasBoni
                   <div className="mb-1 flex justify-between text-xs font-medium text-gray-600">
                     <span>
                       <span className="tabular-nums text-emerald-800">{avance}</span> /{" "}
-                      <span className="tabular-nums">{meta}</span> unidades
+                      <span className="tabular-nums">{meta}</span> {unidadReto(reto)}
                     </span>
                     {avance >= meta && meta > 0 ? (
                       <span className="font-semibold text-emerald-700">Meta alcanzada</span>
@@ -201,14 +211,14 @@ export default function MetasBonificacionesModule({ puntoVenta, uid }: MetasBoni
 
                 <dl className="relative mt-4 grid gap-2 text-sm">
                   <div className="flex flex-wrap items-baseline justify-between gap-2 border-t border-amber-100/80 pt-3">
-                    <dt className="text-gray-600">Meta (unidades)</dt>
+                    <dt className="text-gray-600">
+                      Meta ({reto.tipoReto === "fidelizacion_clientes" ? "clientes" : "unidades"})
+                    </dt>
                     <dd className="text-lg font-bold tabular-nums text-gray-900">{reto.metaUnidades}</dd>
                   </div>
                   <div className="flex flex-wrap items-baseline justify-between gap-2">
                     <dt className="text-gray-600">Bono</dt>
-                    <dd className="text-lg font-extrabold tabular-nums text-emerald-800">
-                      ${formatPesosCop(reto.bonoCOP, false)} COP
-                    </dd>
+                    <dd className="text-right text-lg font-extrabold text-emerald-800">{etiquetaBonoReto(reto)}</dd>
                   </div>
                   <div className="flex flex-wrap items-baseline justify-between gap-2 text-xs">
                     <dt className="text-gray-500">Vigencia campaña</dt>
@@ -228,8 +238,9 @@ export default function MetasBonificacionesModule({ puntoVenta, uid }: MetasBoni
                 ) : null}
 
                 <p className="relative mt-3 text-[11px] leading-relaxed text-gray-500">
-                  El avance suma líneas de venta de este punto de venta con el mismo SKU que el reto (tickets en este equipo y,
-                  si hay conexión, en la nube del POS). Las anuladas no cuentan.
+                  {reto.tipoReto === "fidelizacion_clientes"
+                    ? `Cuenta clientes registrados desde POS que hicieron primera compra de mínimo ${reto.millasMinimasPrimeraCompra} millas.`
+                    : "El avance suma líneas de venta de este punto de venta con el mismo SKU que el reto (tickets en este equipo y, si hay conexión, en la nube del POS). Las anuladas no cuentan."}
                 </p>
               </li>
             );

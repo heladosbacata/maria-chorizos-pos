@@ -87,6 +87,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const email = str(b.email).toLowerCase();
   const indicativoTelefono = str(b.indicativoTelefono);
   const telefono = str(b.telefono);
+  const cajeroTurnoId = str(b.cajeroTurnoId).slice(0, 120);
+  const cajeroNombre = str(b.cajeroNombre).slice(0, 200);
   const datosComplementarios = sanitizeComplementarios(b.datosComplementarios);
 
   if (!tipoIdentificacion) {
@@ -113,6 +115,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     ...(email ? { email } : {}),
     ...(indicativoTelefono ? { indicativoTelefono } : {}),
     ...(telefono ? { telefono } : {}),
+    ...(cajeroTurnoId ? { cajeroTurnoId } : {}),
+    ...(cajeroNombre ? { cajeroNombre } : {}),
     ...(datosComplementarios ? { datosComplementarios } : {}),
   };
 

@@ -4,14 +4,27 @@ const PATH_PROXY_POS = "/api/pos_metas_retos_activas";
 
 export type CadenciaReto = "diario" | "semanal" | "mensual";
 export type AlcancePuntoVentaReto = "todos" | "seleccion";
+export type TipoMetaReto = "venta_producto" | "fidelizacion_clientes";
 
 export interface MetaRetoActiva {
   id: string;
+  tipoReto: TipoMetaReto;
   skuBarcode: string;
   descripcionProducto: string;
   urlImagen: string | null;
   metaUnidades: number;
   bonoCOP: number;
+  bonoDetalle: string;
+  millasMinimasPrimeraCompra: number;
+  avanceActual?: number;
+  pendientesPrimeraCompra?: number;
+  clientesFidelizadosPreview?: Array<{
+    socioId?: string;
+    documento?: string;
+    nombre?: string;
+    cajeroNombre?: string;
+    primeraCompraMillas?: number;
+  }>;
   cadencia: CadenciaReto;
   fechaInicio: string;
   fechaFin: string;
@@ -31,12 +44,19 @@ function stripTrailingSlash(s: string): string {
 }
 
 /** URL GET activas; con PV filtra según lógica del WMS; sin PV solo retos de alcance «todos». */
-export function buildMetasRetosActivasUrl(puntoVenta: string | null | undefined): string {
+export function buildMetasRetosActivasUrl(
+  puntoVenta: string | null | undefined,
+  cajeroTurnoId?: string | null
+): string {
   const base = stripTrailingSlash(getWmsPublicBaseUrl());
   const path = "/api/pos/metas-retos/activas";
   const pv = (puntoVenta ?? "").replace(/\u00a0/g, " ").trim();
-  if (!pv) return `${base}${path}`;
-  return `${base}${path}?${new URLSearchParams({ puntoVenta: pv }).toString()}`;
+  const params = new URLSearchParams();
+  if (pv) params.set("puntoVenta", pv);
+  const cajero = (cajeroTurnoId ?? "").trim();
+  if (cajero) params.set("cajeroTurnoId", cajero);
+  const qs = params.toString();
+  return `${base}${path}${qs ? `?${qs}` : ""}`;
 }
 
 function parseCadencia(v: unknown): CadenciaReto {
@@ -55,6 +75,7 @@ function normalizeReto(raw: unknown): MetaRetoActiva | null {
   const urlRaw = r.urlImagen;
   return {
     id,
+    tipoReto: r.tipoReto === "fidelizacion_clientes" ? "fidelizacion_clientes" : "venta_producto",
     skuBarcode: String(r.skuBarcode ?? "").trim(),
     descripcionProducto: String(r.descripcionProducto ?? "").trim(),
     urlImagen:
@@ -65,6 +86,23 @@ function normalizeReto(raw: unknown): MetaRetoActiva | null {
           : null,
     metaUnidades: Number.isFinite(metaU) && metaU >= 0 ? metaU : 0,
     bonoCOP: Number.isFinite(bono) && bono >= 0 ? bono : 0,
+    bonoDetalle: String(r.bonoDetalle ?? "").trim(),
+    millasMinimasPrimeraCompra: Number.isFinite(Number(r.millasMinimasPrimeraCompra))
+      ? Math.max(1, Math.trunc(Number(r.millasMinimasPrimeraCompra)))
+      : 3,
+    avanceActual: Number.isFinite(Number(r.avanceActual)) ? Math.max(0, Math.trunc(Number(r.avanceActual))) : undefined,
+    pendientesPrimeraCompra: Number.isFinite(Number(r.pendientesPrimeraCompra))
+      ? Math.max(0, Math.trunc(Number(r.pendientesPrimeraCompra)))
+      : undefined,
+    clientesFidelizadosPreview: Array.isArray(r.clientesFidelizadosPreview)
+      ? r.clientesFidelizadosPreview.slice(0, 12).map((x) => (x && typeof x === "object" ? (x as Record<string, unknown>) : {})).map((x) => ({
+          socioId: String(x.socioId ?? "").trim() || undefined,
+          documento: String(x.documento ?? "").trim() || undefined,
+          nombre: String(x.nombre ?? "").trim() || undefined,
+          cajeroNombre: String(x.cajeroNombre ?? "").trim() || undefined,
+          primeraCompraMillas: Number.isFinite(Number(x.primeraCompraMillas)) ? Math.trunc(Number(x.primeraCompraMillas)) : undefined,
+        }))
+      : undefined,
     cadencia: parseCadencia(r.cadencia),
     fechaInicio: String(r.fechaInicio ?? "").trim(),
     fechaFin: String(r.fechaFin ?? "").trim(),
@@ -77,10 +115,17 @@ export type FetchMetasRetosActivasResult =
   | { ok: true; data: MetasRetosActivasPayload }
   | { ok: false; message: string };
 
-function buildMetasRetosActivasProxyUrl(puntoVenta: string | null | undefined): string {
+function buildMetasRetosActivasProxyUrl(
+  puntoVenta: string | null | undefined,
+  cajeroTurnoId?: string | null
+): string {
   const pv = (puntoVenta ?? "").replace(/\u00a0/g, " ").trim();
-  if (!pv) return PATH_PROXY_POS;
-  return `${PATH_PROXY_POS}?${new URLSearchParams({ puntoVenta: pv }).toString()}`;
+  const params = new URLSearchParams();
+  if (pv) params.set("puntoVenta", pv);
+  const cajero = (cajeroTurnoId ?? "").trim();
+  if (cajero) params.set("cajeroTurnoId", cajero);
+  const qs = params.toString();
+  return `${PATH_PROXY_POS}${qs ? `?${qs}` : ""}`;
 }
 
 /**
@@ -88,9 +133,13 @@ function buildMetasRetosActivasProxyUrl(puntoVenta: string | null | undefined): 
  */
 export async function fetchMetasRetosActivas(
   puntoVenta: string | null | undefined,
+  cajeroTurnoId?: string | null,
   signal?: AbortSignal
 ): Promise<FetchMetasRetosActivasResult> {
-  const urls = [buildMetasRetosActivasProxyUrl(puntoVenta), buildMetasRetosActivasUrl(puntoVenta)];
+  const urls = [
+    buildMetasRetosActivasProxyUrl(puntoVenta, cajeroTurnoId),
+    buildMetasRetosActivasUrl(puntoVenta, cajeroTurnoId),
+  ];
   let lastNetworkMessage =
     "No se pudo conectar con el WMS. Revisá NEXT_PUBLIC_WMS_URL y la conexión a internet.";
 

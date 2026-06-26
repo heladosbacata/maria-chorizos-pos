@@ -165,6 +165,9 @@ export function avanceUnidadesReto(
 ): { avance: number; rango: { desde: string; hasta: string } | null } {
   const rango = rangoConteoCadenciaReto(reto, fechaReferenciaYmd);
   if (!rango) return { avance: 0, rango: null };
+  if (reto.tipoReto === "fidelizacion_clientes") {
+    return { avance: Math.max(0, Math.trunc(Number(reto.avanceActual ?? 0) || 0)), rango };
+  }
   const avance = unidadesVendidasSkuEnRango(ventas, reto.skuBarcode, rango.desde, rango.hasta);
   return { avance, rango };
 }

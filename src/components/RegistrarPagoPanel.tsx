@@ -66,6 +66,8 @@ export interface RegistrarPagoPanelProps {
   /** Crear cliente POS desde el modal plan de millas (misma base que caja). */
   puntoVentaParaCrearCliente?: string;
   uidParaCrearCliente?: string;
+  cajeroTurnoIdParaCrearCliente?: string;
+  cajeroNombreParaCrearCliente?: string;
   onClientePosCreadoDesdeRegistrarPago?: (doc: ClientePosFirestoreDoc) => void;
 }
 
@@ -92,6 +94,8 @@ export default function RegistrarPagoPanel({
   clienteNumeroIdentificacion,
   puntoVentaParaCrearCliente,
   uidParaCrearCliente,
+  cajeroTurnoIdParaCrearCliente,
+  cajeroNombreParaCrearCliente,
   onClientePosCreadoDesdeRegistrarPago,
 }: RegistrarPagoPanelProps) {
   const baseId = useId();
@@ -703,6 +707,8 @@ export default function RegistrarPagoPanel({
       onClienteRegistradoEnPlanMillas={(resumen) => activarClienteFrecuenteTrasValidarWms(resumen)}
       puntoVentaPos={puntoVentaParaCrearCliente}
       uidUsuarioPos={uidParaCrearCliente}
+      cajeroTurnoId={cajeroTurnoIdParaCrearCliente}
+      cajeroNombre={cajeroNombreParaCrearCliente}
       onClientePosCreado={onClientePosCreadoDesdeRegistrarPago}
     />
     <ClienteFrecuenteAvisoModal

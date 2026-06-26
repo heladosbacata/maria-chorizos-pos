@@ -50,6 +50,10 @@ type BodyIn = {
 
   cajaId?: unknown;
 
+  cajeroTurnoId?: unknown;
+
+  cajeroNombre?: unknown;
+
 };
 
 
@@ -576,6 +580,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
       ventaId,
 
+      cajeroTurnoId: str(b.cajeroTurnoId),
+
+      cajeroNombre: str(b.cajeroNombre),
+
     });
 
     if (firestoreResult.ok || ("omitido" in firestoreResult && firestoreResult.omitido)) {
@@ -617,6 +625,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     ...(str(b.idFacturaPos) ? { idFacturaPos: str(b.idFacturaPos) } : {}),
 
     ...(str(b.cajaId) ? { cajaId: str(b.cajaId) } : {}),
+
+    ...(str(b.cajeroTurnoId) ? { cajeroTurnoId: str(b.cajeroTurnoId) } : {}),
+
+    ...(str(b.cajeroNombre) ? { cajeroNombre: str(b.cajeroNombre) } : {}),
 
   };
 
