@@ -12,8 +12,56 @@ function etiquetaCadenciaCorta(c: MetaRetoActiva["cadencia"]): string {
   return "Diario";
 }
 
-/** Prioriza el reto diario; si no hay, el primero activo del periodo. */
+function esFidelizacion(reto: MetaRetoActiva): boolean {
+  return reto.tipoReto === "fidelizacion_clientes";
+}
+
+function etiquetaUnidadReto(reto: MetaRetoActiva, cadencia: MetaRetoActiva["cadencia"]): string {
+  if (esFidelizacion(reto)) {
+    return cadencia === "diario" ? " clientes hoy" : " clientes en el periodo";
+  }
+  return cadencia === "diario" ? " u. hoy" : " u. en el periodo";
+}
+
+const NOMBRES_MES = [
+  "Enero",
+  "Febrero",
+  "Marzo",
+  "Abril",
+  "Mayo",
+  "Junio",
+  "Julio",
+  "Agosto",
+  "Septiembre",
+  "Octubre",
+  "Noviembre",
+  "Diciembre",
+] as const;
+
+function nombreMesDesdeYmd(ymd: string): string {
+  const m = Number(ymd.slice(5, 7));
+  return NOMBRES_MES[m - 1] ?? "";
+}
+
+function diasEntreYmdInclusive(desde: string, hasta: string): number {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(desde) || !/^\d{4}-\d{2}-\d{2}$/.test(hasta)) return 0;
+  const a = new Date(`${desde}T12:00:00-05:00`).getTime();
+  const b = new Date(`${hasta}T12:00:00-05:00`).getTime();
+  if (!Number.isFinite(a) || !Number.isFinite(b) || b < a) return 0;
+  return Math.floor((b - a) / 86_400_000) + 1;
+}
+
+function metaClientesDiariosSugerida(meta: number, reto: MetaRetoActiva): number {
+  if (meta <= 0) return 0;
+  const dias = diasEntreYmdInclusive(reto.fechaInicio.trim(), reto.fechaFin.trim());
+  if (dias > 0) return Math.max(1, Math.ceil(meta / dias));
+  return Math.max(1, Math.ceil(meta / 30));
+}
+
+/** Prioriza fidelización; luego el reto diario; si no hay, el primero activo del periodo. */
 function retoDestacadoParaHoy(retos: MetaRetoActiva[]): MetaRetoActiva | null {
+  const fidelizacion = retos.filter((r) => esFidelizacion(r));
+  if (fidelizacion.length > 0) return fidelizacion[0] ?? null;
   const diarios = retos.filter((r) => r.cadencia === "diario");
   if (diarios.length > 0) return diarios[0] ?? null;
   return retos[0] ?? null;
@@ -104,6 +152,122 @@ function IconWallet({ className }: { className?: string }) {
       <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12h4.25v4H16.5a2 2 0 010-4z" />
       <path strokeLinecap="round" strokeLinejoin="round" d="M17.5 14h.01" />
     </svg>
+  );
+}
+
+function IconUsersHeart({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden>
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"
+      />
+      <circle cx="9" cy="7" r="4" />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M22 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"
+      />
+    </svg>
+  );
+}
+
+function BannerConcursoFidelizacion({
+  reto,
+  avance,
+  pct,
+}: {
+  reto: MetaRetoActiva;
+  avance: number;
+  pct: number;
+}) {
+  const meta = Math.max(0, Number(reto.metaUnidades) || 0);
+  const mes = nombreMesDesdeYmd(reto.fechaInicio.trim() || reto.fechaFin.trim());
+  const titulo = mes ? `Concurso Fidelización ${mes}` : "Concurso Fidelización";
+  const diarios = metaClientesDiariosSugerida(meta, reto);
+  const premio = reto.bonoDetalle?.trim() || "Premio especial";
+
+  return (
+    <div className="relative mt-2 overflow-hidden rounded-xl border border-violet-300/30 bg-gradient-to-br from-violet-950/70 via-[#1a1428]/80 to-[#0f0d14]/90 px-3 py-3 shadow-inner ring-1 ring-violet-200/15">
+      <div
+        className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-[radial-gradient(circle,rgba(167,139,250,0.35),transparent_68%)] blur-2xl"
+        aria-hidden
+      />
+      <div
+        className="pointer-events-none absolute -left-6 bottom-0 h-20 w-24 rounded-full bg-[radial-gradient(circle,rgba(255,200,60,0.18),transparent_70%)] blur-xl"
+        aria-hidden
+      />
+
+      <div className="relative flex gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1 rounded-full border border-violet-200/30 bg-violet-400/15 px-2 py-0.5 text-[8px] font-black uppercase tracking-[0.16em] text-violet-100">
+              <IconUsersHeart className="h-3 w-3" />
+              Concurso especial
+            </span>
+            <span className="rounded border border-[#FFE9B8]/25 bg-[#FFC81C]/10 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-[#E8DCC4]">
+              {etiquetaCadenciaCorta(reto.cadencia)}
+            </span>
+          </div>
+
+          <h3 className="mt-2 text-[15px] font-black leading-tight tracking-tight text-[#FFF8E8] drop-shadow-sm">
+            {titulo}
+          </h3>
+
+          <p className="mt-1.5 text-[12px] font-bold leading-snug text-violet-100/95">
+            Meta:{" "}
+            <span className="tabular-nums text-[#FFE9B8]">{meta}</span> clientes fidelizados
+          </p>
+
+          {diarios > 0 ? (
+            <p className="mt-1 text-[11px] font-semibold leading-snug text-emerald-200/90">
+              {diarios} {diarios === 1 ? "cliente diario" : "clientes diarios"} te ponen en camino al premio
+            </p>
+          ) : null}
+
+          <p className="mt-2 inline-flex max-w-full items-center gap-1.5 rounded-lg border border-[#FFE08A]/30 bg-[#FFC81C]/12 px-2 py-1 text-[10px] font-bold text-[#FFF2CC]">
+            <span className="text-[8px] font-black uppercase tracking-wider text-[#FFE9A8]/80">Premio</span>
+            <span className="truncate">{premio}</span>
+          </p>
+
+          <p className="mt-2 text-[10px] leading-snug text-[#C4B49A]">
+            Registro + 2 millas, primera compra +1 milla = cliente fidelizado
+          </p>
+
+          <div className="mt-2.5 flex items-baseline justify-between gap-2">
+            <span className="text-[10px] font-medium text-[#B8A88C]">
+              <span className="tabular-nums font-bold text-[#FFE9B8]">{avance}</span>
+              <span> / </span>
+              <span className="tabular-nums">{meta}</span>
+              <span> clientes en el periodo</span>
+            </span>
+            <span className="text-sm font-black tabular-nums text-[#FFF8E8]">{pct}%</span>
+          </div>
+          <div className="relative mt-1 h-2 overflow-hidden rounded-full bg-[#1a1510] ring-1 ring-violet-200/25">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-violet-700 via-[#FFC81C] to-[#FFF2A8] motion-safe:transition-[width] motion-safe:duration-500 motion-safe:ease-out"
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+        </div>
+
+        {reto.urlImagen ? (
+          <div className="relative shrink-0 self-start">
+            {/* eslint-disable-next-line @next/next/no-img-element -- URL externa del WMS */}
+            <img
+              src={reto.urlImagen}
+              alt={premio}
+              className="h-[5.5rem] w-[5.5rem] rounded-xl border border-violet-200/25 bg-white/10 object-cover shadow-lg ring-1 ring-black/20 sm:h-24 sm:w-24"
+              loading="lazy"
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+              }}
+            />
+          </div>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -216,7 +380,7 @@ export default function PosCajaMetasMotivationPanel() {
 
   return (
     <div
-      className="relative w-full min-w-0 overflow-hidden rounded-xl border border-[#FFE9B8]/30 bg-gradient-to-br from-[#2a2318]/90 via-[#1f1a14]/85 to-[#14110d]/90 px-3.5 py-3 shadow-[0_12px_36px_-14px_rgba(0,0,0,0.65)] backdrop-blur-md backdrop-saturate-150 sm:max-w-[min(100%,20rem)] lg:shrink-0"
+      className="relative w-full min-w-0 overflow-hidden rounded-xl border border-[#FFE9B8]/30 bg-gradient-to-br from-[#2a2318]/90 via-[#1f1a14]/85 to-[#14110d]/90 px-4 py-3.5 shadow-[0_12px_36px_-14px_rgba(0,0,0,0.65)] backdrop-blur-md backdrop-saturate-150"
       role="region"
       aria-label="Resumen motivacional de metas del periodo"
     >
@@ -278,7 +442,11 @@ export default function PosCajaMetasMotivationPanel() {
 
         {billetera.ganados.length > 0 ? (
           <div className="relative mt-2 max-h-24 space-y-1 overflow-y-auto pr-1">
-            {billetera.ganados.map((item) => (
+            {billetera.ganados.map((item) => {
+              const retoGanado = retos.find((r) => r.id === item.id);
+              const sufijoUnidad =
+                retoGanado && esFidelizacion(retoGanado) ? " clientes" : " u.";
+              return (
               <div
                 key={`${item.id}:${item.periodo}`}
                 className="rounded-lg border border-emerald-300/15 bg-white/[0.055] px-2 py-1.5"
@@ -290,18 +458,22 @@ export default function PosCajaMetasMotivationPanel() {
                   </span>
                 </div>
                 <p className="mt-0.5 truncate text-[8px] font-medium text-emerald-100/55">
-                  {item.avance}/{item.meta} u. · {item.periodo}
+                  {item.avance}/{item.meta}
+                  {sufijoUnidad} · {item.periodo}
                 </p>
               </div>
-            ))}
+            );
+            })}
           </div>
         ) : null}
       </div>
 
       <div className="relative mt-3 rounded-lg border border-[#FFE08A]/25 bg-[#0d0b08]/55 px-2.5 py-2 shadow-inner ring-1 ring-black/20">
         <div className="flex items-center justify-between gap-2 border-b border-[#3d3428]/80 pb-1.5">
-          <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#FFC81C]/95">Reto activo hoy</p>
-          {retoHoy ? (
+          <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#FFC81C]/95">
+            {retoHoy && esFidelizacion(retoHoy) ? "Concurso de fidelización" : "Reto activo hoy"}
+          </p>
+          {retoHoy && !esFidelizacion(retoHoy) ? (
             <span className="shrink-0 rounded border border-[#FFE9B8]/25 bg-[#FFC81C]/10 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wide text-[#E8DCC4]">
               {etiquetaCadenciaCorta(retoHoy.cadencia)}
             </span>
@@ -313,6 +485,9 @@ export default function PosCajaMetasMotivationPanel() {
             <div className="h-2 w-full animate-pulse rounded bg-[#3d3428]/50" />
           </div>
         ) : retoHoy && avanceRetoHoy ? (
+          esFidelizacion(retoHoy) ? (
+            <BannerConcursoFidelizacion reto={retoHoy} avance={avanceRetoHoy.avance} pct={pctRetoHoy} />
+          ) : (
           <div className="mt-2 min-w-0">
             <p className="text-[12px] font-bold leading-snug text-[#FFF8E8]">
               {retoHoy.descripcionProducto.trim() || "Producto del reto"}
@@ -328,7 +503,7 @@ export default function PosCajaMetasMotivationPanel() {
                 <span className="tabular-nums font-bold text-[#FFE9B8]">{avanceRetoHoy.avance}</span>
                 <span> / </span>
                 <span className="tabular-nums">{Math.max(0, retoHoy.metaUnidades)}</span>
-                <span>{retoHoy.cadencia === "diario" ? " u. hoy" : " u. en el periodo"}</span>
+                <span>{etiquetaUnidadReto(retoHoy, retoHoy.cadencia)}</span>
               </span>
               <span className="text-sm font-black tabular-nums text-[#FFF8E8]">{pctRetoHoy}%</span>
             </div>
@@ -339,6 +514,7 @@ export default function PosCajaMetasMotivationPanel() {
               />
             </div>
           </div>
+          )
         ) : tieneError ? (
           <p className="mt-2 text-[10px] leading-snug text-[#D4A574]">
             {error?.trim() || "No se pudo cargar el reto. Reintentá al actualizar metas."}

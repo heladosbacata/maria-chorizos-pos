@@ -210,7 +210,7 @@ export default function PosCajaPremiumHeader({
 
       {/* Barra información — cristal con acentos amarillo pastel */}
       <div className="relative z-10 flex min-h-[5.75rem] flex-col justify-end px-4 pb-3.5 pt-10 sm:min-h-[6.25rem] sm:px-6 sm:pb-4 sm:pt-11">
-        <div className="flex flex-wrap items-stretch justify-between gap-3 lg:items-end">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0 flex-1 rounded-xl border border-[#FFE9B8]/25 bg-gradient-to-br from-[#FFFDF8]/[0.14] via-[#FFF6E0]/[0.08] to-white/[0.05] px-4 py-3 shadow-[0_12px_40px_-12px_rgba(0,0,0,0.45)] backdrop-blur-md backdrop-saturate-150">
             <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-[#FFF2CC]/90">Punto de venta</p>
             {mostrarAccesoChatAdmin ? (
@@ -224,7 +224,11 @@ export default function PosCajaPremiumHeader({
               <span className="text-xs font-medium text-[#F5E6C8]/70">Módulo: {etiquetaModulo}</span>
             </div>
           </div>
-          {mostrarPanelMetas ? <PosCajaMetasMotivationPanel /> : null}
+          {mostrarPanelMetas ? (
+            <div className="w-full shrink-0 lg:w-[28rem]">
+              <PosCajaMetasMotivationPanel />
+            </div>
+          ) : null}
         </div>
       </div>
 
