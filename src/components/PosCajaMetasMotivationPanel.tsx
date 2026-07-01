@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo } from "react";
+import { useEffect, useId, useMemo } from "react";
 import { useMetasRetosCaja } from "@/components/MetasRetosCajaProvider";
 import { avanceUnidadesReto, etiquetaRangoPeriodo } from "@/lib/metas-retos-avance-ventas";
 import { formatPesosCop } from "@/lib/pesos-cop-input";
@@ -189,7 +189,7 @@ function BannerConcursoFidelizacion({
   const premio = reto.bonoDetalle?.trim() || "Premio especial";
 
   return (
-    <div className="relative mt-2 overflow-hidden rounded-xl border border-violet-300/30 bg-gradient-to-br from-violet-950/70 via-[#1a1428]/80 to-[#0f0d14]/90 px-3 py-3 shadow-inner ring-1 ring-violet-200/15">
+    <div className="relative overflow-hidden rounded-xl border border-violet-300/30 bg-gradient-to-br from-violet-950/70 via-[#1a1428]/80 to-[#0f0d14]/90 px-3 py-3 shadow-inner ring-1 ring-violet-200/15">
       <div
         className="pointer-events-none absolute -right-8 -top-10 h-28 w-28 rounded-full bg-[radial-gradient(circle,rgba(167,139,250,0.35),transparent_68%)] blur-2xl"
         aria-hidden
@@ -308,7 +308,11 @@ function mensajeMotivacional(
  * Resumen emocional del avance en metas (retos WMS), alineado al banner premium oscuro de caja.
  */
 export default function PosCajaMetasMotivationPanel() {
-  const { retos, ventas, ymdRef, cargando, error } = useMetasRetosCaja();
+  const { retos, ventas, ymdRef, cargando, error, refrescar } = useMetasRetosCaja();
+
+  useEffect(() => {
+    refrescar();
+  }, [refrescar]);
 
   const stats = useMemo(() => {
     let sumPct = 0;
@@ -359,6 +363,7 @@ export default function PosCajaMetasMotivationPanel() {
   }, [retos, ventas, ymdRef]);
 
   const retoHoy = useMemo(() => retoDestacadoParaHoy(retos), [retos]);
+  const retoFidelizacion = useMemo(() => retos.find((r) => esFidelizacion(r)) ?? null, [retos]);
   const avanceRetoHoy = useMemo(() => {
     if (!retoHoy) return null;
     return avanceUnidadesReto(retoHoy, ventas, ymdRef);
@@ -376,7 +381,16 @@ export default function PosCajaMetasMotivationPanel() {
   const msg = mensajeMotivacional(stats.promedioPct, stats.completados, stats.total, cargando && !tieneError, tieneError);
   const barPct = tieneError ? 0 : stats.promedioPct;
   const pctEstrella =
-    tieneError || (cargando && retos.length === 0) ? 0 : stats.total === 0 ? 0 : stats.promedioPct;
+    tieneError || (cargando && retos.length === 0)
+      ? 0
+      : retoFidelizacion && avanceRetoHoy && esFidelizacion(retoFidelizacion)
+        ? pctRetoHoy
+        : stats.total === 0
+          ? 0
+          : stats.promedioPct;
+
+  const mostrarHeroFidelizacion =
+    Boolean(retoFidelizacion && avanceRetoHoy && esFidelizacion(retoFidelizacion) && !tieneError);
 
   return (
     <div
@@ -408,6 +422,12 @@ export default function PosCajaMetasMotivationPanel() {
           <p className="mt-1.5 text-[11px] font-medium leading-snug text-[#F5E6C8]/92">{msg}</p>
         </div>
       </div>
+
+      {mostrarHeroFidelizacion && retoFidelizacion && avanceRetoHoy ? (
+        <div className="relative mt-3">
+          <BannerConcursoFidelizacion reto={retoFidelizacion} avance={avanceRetoHoy.avance} pct={pctRetoHoy} />
+        </div>
+      ) : null}
 
       <div className="relative mt-3 overflow-hidden rounded-xl border border-emerald-300/25 bg-gradient-to-br from-emerald-950/55 via-[#11140d]/65 to-[#0d0b08]/70 px-3 py-2.5 shadow-inner ring-1 ring-black/20">
         <div
@@ -468,6 +488,7 @@ export default function PosCajaMetasMotivationPanel() {
         ) : null}
       </div>
 
+      {!mostrarHeroFidelizacion ? (
       <div className="relative mt-3 rounded-lg border border-[#FFE08A]/25 bg-[#0d0b08]/55 px-2.5 py-2 shadow-inner ring-1 ring-black/20">
         <div className="flex items-center justify-between gap-2 border-b border-[#3d3428]/80 pb-1.5">
           <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#FFC81C]/95">
@@ -485,9 +506,6 @@ export default function PosCajaMetasMotivationPanel() {
             <div className="h-2 w-full animate-pulse rounded bg-[#3d3428]/50" />
           </div>
         ) : retoHoy && avanceRetoHoy ? (
-          esFidelizacion(retoHoy) ? (
-            <BannerConcursoFidelizacion reto={retoHoy} avance={avanceRetoHoy.avance} pct={pctRetoHoy} />
-          ) : (
           <div className="mt-2 min-w-0">
             <p className="text-[12px] font-bold leading-snug text-[#FFF8E8]">
               {retoHoy.descripcionProducto.trim() || "Producto del reto"}
@@ -514,7 +532,6 @@ export default function PosCajaMetasMotivationPanel() {
               />
             </div>
           </div>
-          )
         ) : tieneError ? (
           <p className="mt-2 text-[10px] leading-snug text-[#D4A574]">
             {error?.trim() || "No se pudo cargar el reto. Reintentá al actualizar metas."}
@@ -526,6 +543,7 @@ export default function PosCajaMetasMotivationPanel() {
           </p>
         )}
       </div>
+      ) : null}
 
       <div className="relative mt-3">
         {cargando && retos.length === 0 && !tieneError ? (

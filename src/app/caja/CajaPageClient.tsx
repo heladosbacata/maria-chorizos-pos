@@ -4071,7 +4071,7 @@ export default function CajaPageClient() {
               puntoVenta={user.puntoVenta}
               etiquetaModulo={tituloModulo}
               mostrarAccesoChatAdmin={!esContador && moduloActivo !== "domicilios"}
-              mostrarPanelMetas={serviciosSecundarios && metasActivas}
+              mostrarPanelMetas={metasActivas}
               getIdToken={getIdTokenCajaMensajes}
             />
             {!esContador && serviciosSecundarios && turnoAbierto && moduloActivo === "ventas" ? (
