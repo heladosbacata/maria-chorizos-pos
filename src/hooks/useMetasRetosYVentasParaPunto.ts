@@ -10,8 +10,12 @@ import { ventasParaMetasAvance } from "@/lib/pos-ventas-metas-sync";
 import { puntoVentaCoincide } from "@/lib/punto-venta-clave";
 import { fetchMetasRetosActivas, type MetaRetoActiva } from "@/lib/wms-metas-retos-activas";
 
-const POLL_METAS_MS = 60_000;
-const POLL_VENTAS_MS = 20_000;
+// Intervalos ampliados a propósito para reducir lecturas de Firestore.
+// Antes: metas 60 s y ventas-nube 20 s → con el panel siempre visible en caja
+// (cada punto, todo el día) esto disparó el costo a miles de millones de lecturas.
+// Ahora las ventas-nube se refrescan en el evento de venta y con un intervalo largo.
+const POLL_METAS_MS = 600_000; // 10 min
+const POLL_VENTAS_MS = 600_000; // 10 min
 
 export type UseMetasRetosYVentasParaPuntoResult = {
   pvNorm: string;
@@ -53,6 +57,13 @@ export function useMetasRetosYVentasParaPunto(
 
   const refrescarVentas = useCallback(() => setVentasTick((t) => t + 1), []);
   const ymdRef = useMemo(() => ymdReferenciaMetas(fechaRef), [fechaRef]);
+  // Solo los retos de venta de producto necesitan cruzar contra las ventas de la
+  // nube. Los de fidelización traen su avance ya calculado del WMS (`avanceActual`),
+  // así que si no hay retos de venta_producto evitamos leer `posVentasCloud`.
+  const necesitaVentasNube = useMemo(
+    () => retos.some((r) => (r.tipoReto ?? "venta_producto") === "venta_producto"),
+    [retos]
+  );
   const rangoVentasNube = useMemo(() => {
     let desde = "";
     let hasta = "";
@@ -66,7 +77,7 @@ export function useMetasRetosYVentasParaPunto(
   }, [retos, ymdRef]);
 
   const cargarVentasNube = useCallback(async () => {
-    if (!u || !pv) {
+    if (!u || !pv || !necesitaVentasNube) {
       setVentasNube(null);
       return;
     }
@@ -81,7 +92,7 @@ export function useMetasRetosYVentasParaPunto(
         console.warn("[Metas] Ventas nube no disponibles; avance con tickets locales.", e);
       }
     }
-  }, [u, pv, rangoVentasNube]);
+  }, [u, pv, rangoVentasNube, necesitaVentasNube]);
 
   const cargar = useCallback(async () => {
     if (!enabled) return;
