@@ -20,6 +20,7 @@ import {
   type VentaGuardadaLocal,
 } from "@/lib/pos-ventas-local-storage";
 import type { MovimientoCajaTurno, TipoMovimientoCaja } from "@/lib/turno-movimientos-caja";
+import { listarReporteVentasPosWms, type WmsVentaDiaPos } from "@/lib/wms-reportes-ventas-pos";
 import ReporteVentasRangoCajeroPanel from "@/components/ReporteVentasRangoCajeroPanel";
 
 export interface CajeroReportesDashboardProps {
@@ -70,6 +71,8 @@ export default function CajeroReportesDashboard({
   const [anulHasta, setAnulHasta] = useState(hoyYmd);
   const [tick, setTick] = useState(0);
   const [ventasNube, setVentasNube] = useState<VentaGuardadaLocal[] | null>(null);
+  const [ventasAgregadoWms, setVentasAgregadoWms] = useState<WmsVentaDiaPos[]>([]);
+  const [agregadoWmsAviso, setAgregadoWmsAviso] = useState<string | null>(null);
   const [nubeAviso, setNubeAviso] = useState<string | null>(null);
   /** `null` = cargando o aún no hubo intento con sesión+PV; `true` = GET nube OK; `false` = falló. */
   const [nubeSincronizada, setNubeSincronizada] = useState<boolean | null>(null);
@@ -91,7 +94,10 @@ export default function CajeroReportesDashboard({
       try {
         const token = await auth?.currentUser?.getIdToken();
         if (!token || cancelled) return;
-        const rows = await listarVentasPosCloud(token);
+        const rows = await listarVentasPosCloud(token, {
+          desde: ymdColombiaMenosDias(hoyYmd, 6),
+          hasta: hoyYmd,
+        });
         if (!cancelled) {
           setVentasNube(rows);
           setNubeAviso(null);
@@ -112,7 +118,45 @@ export default function CajeroReportesDashboard({
     return () => {
       cancelled = true;
     };
-  }, [u, pv, tick, mostrarDetalleErrorNube]);
+  }, [u, pv, tick, mostrarDetalleErrorNube, hoyYmd]);
+
+  useEffect(() => {
+    if (!u || !pv) {
+      setVentasAgregadoWms([]);
+      setAgregadoWmsAviso(null);
+      return;
+    }
+    let cancelled = false;
+    setAgregadoWmsAviso(null);
+    (async () => {
+      try {
+        const token = await auth?.currentUser?.getIdToken();
+        if (!token || cancelled) return;
+        const desde = ymdColombiaMenosDias(diaSeleccionado, 6);
+        const data = await listarReporteVentasPosWms(token, { desde, hasta: diaSeleccionado });
+        if (cancelled) return;
+        setVentasAgregadoWms(data.ventasPorDia);
+        const sinResumen = data.resumen.diasSinResumen ?? 0;
+        setAgregadoWmsAviso(
+          sinResumen > 0
+            ? "Algunos días aún no tienen resumen sincronizado en WMS. Si ves $0, pide ejecutar el backfill del marcador diario."
+            : null
+        );
+      } catch (e) {
+        if (!cancelled) {
+          setVentasAgregadoWms([]);
+          setAgregadoWmsAviso(
+            e instanceof Error
+              ? e.message
+              : "No se pudo consultar el resumen agregado del WMS."
+          );
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [u, pv, diaSeleccionado, tick]);
 
   const ventas = useMemo(() => {
     void tick;
@@ -128,11 +172,40 @@ export default function CajeroReportesDashboard({
     [ventas, diaSeleccionado]
   );
 
+  const agregadoDia = useMemo(
+    () => ventasAgregadoWms.find((d) => d.fecha === diaSeleccionado) ?? null,
+    [ventasAgregadoWms, diaSeleccionado]
+  );
+
+  const resumenDiaVisible = useMemo<ResumenDiaCajero>(() => {
+    if (!agregadoDia) return resumenDia;
+    const totalAgregado = Number(agregadoDia.totalVentas) || 0;
+    const ticketsAgregado = Number(agregadoDia.totalComprobantes) || 0;
+    if (totalAgregado <= 0 && ticketsAgregado <= 0) return resumenDia;
+    return {
+      ...resumenDia,
+      totalPesos: totalAgregado,
+      numTickets: ticketsAgregado,
+    };
+  }, [agregadoDia, resumenDia]);
+
   const semana = useMemo(() => {
     const [y, m, d] = diaSeleccionado.split("-").map(Number);
     const base = new Date(y, m - 1, d);
-    return resumenUltimos7Dias(ventas, base);
-  }, [ventas, diaSeleccionado]);
+    const localSemana = resumenUltimos7Dias(ventas, base);
+    const porFecha = new Map(ventasAgregadoWms.map((row) => [row.fecha, row]));
+    return localSemana.map((dia) => {
+      const agregado = porFecha.get(dia.fechaYmd);
+      const totalAgregado = Number(agregado?.totalVentas) || 0;
+      const ticketsAgregado = Number(agregado?.totalComprobantes) || 0;
+      if (totalAgregado <= 0 && ticketsAgregado <= 0) return dia;
+      return {
+        ...dia,
+        totalPesos: totalAgregado,
+        numTickets: ticketsAgregado,
+      };
+    });
+  }, [ventas, diaSeleccionado, ventasAgregadoWms]);
 
   const maxCant = resumenDia.productos[0]?.cantidad ?? 1;
 
@@ -211,9 +284,13 @@ export default function CajeroReportesDashboard({
           <p className="mx-auto mt-3 max-w-xl rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
             {nubeAviso}
           </p>
+        ) : agregadoWmsAviso ? (
+          <p className="mx-auto mt-3 max-w-xl rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+            {agregadoWmsAviso}
+          </p>
         ) : nubeSincronizada === true ? (
           <p className="mt-2 text-xs text-emerald-800">
-            La nube agrupa ventas del mismo punto de venta aunque las haya cobrado otro cajero o equipo (si sincronizaron).
+            Totales principales desde el resumen diario WMS; detalle/productos desde tickets sincronizados recientes.
           </p>
         ) : null}
       </header>
@@ -267,9 +344,9 @@ export default function CajeroReportesDashboard({
         <div className="rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 p-6 text-white shadow-lg">
           <p className="text-sm font-medium text-emerald-100">Total del día</p>
           <p className="mt-2 text-4xl font-black tabular-nums tracking-tight md:text-5xl">
-            {formatMoney(resumenDia.totalPesos)}
+            {formatMoney(resumenDiaVisible.totalPesos)}
           </p>
-          <p className="mt-2 text-sm text-emerald-100">Suma de cobros con carrito (todo el PV en vista)</p>
+          <p className="mt-2 text-sm text-emerald-100">Suma del resumen diario WMS para todo el PV</p>
         </div>
         <div className="rounded-2xl bg-gradient-to-br from-sky-500 to-indigo-600 p-6 text-white shadow-lg">
           <p className="text-sm font-medium text-sky-100">Unidades vendidas</p>
@@ -278,8 +355,8 @@ export default function CajeroReportesDashboard({
         </div>
         <div className="rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 p-6 text-gray-900 shadow-lg">
           <p className="text-sm font-bold text-gray-800/90">Tickets del día</p>
-          <p className="mt-2 text-4xl font-black tabular-nums md:text-5xl">{resumenDia.numTickets}</p>
-          <p className="mt-2 text-sm font-medium text-gray-800/80">Tickets del día en el punto de venta</p>
+          <p className="mt-2 text-4xl font-black tabular-nums md:text-5xl">{resumenDiaVisible.numTickets}</p>
+          <p className="mt-2 text-sm font-medium text-gray-800/80">Tickets del resumen diario WMS</p>
         </div>
       </div>
 
