@@ -536,46 +536,61 @@ function LigaTurnoBadgeFidelizados({
   variante?: VarianteFoto;
 }) {
   const compacto = variante === "compact";
+  const etiqueta = compacto ? "Fideliz." : "Fidelizados";
+
   return (
     <motion.div
-      initial={{ scale: 0.85, opacity: 0 }}
-      animate={{ scale: 1, opacity: 1 }}
-      transition={{ type: "spring", stiffness: 420, damping: 22 }}
-      className={`absolute z-[55] flex flex-col items-center ${
-        compacto ? "-left-2 top-0" : "-left-2.5 top-1 sm:-left-3"
-      }`}
+      initial={{ scale: 0.9, opacity: 0, x: -4 }}
+      animate={{ scale: 1, opacity: 1, x: 0 }}
+      transition={{ type: "spring", stiffness: 420, damping: 24 }}
+      className="flex shrink-0 flex-col items-center"
       title={
         meta
           ? `${count} clientes fidelizados · meta ${meta} · actualiza cada hora`
           : `${count} clientes fidelizados · actualiza cada hora`
       }
+      aria-label={`${count} clientes fidelizados`}
     >
-      <span
-        className="pointer-events-none absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,#fde68a,#f59e0b,#a855f7,#fde68a)] opacity-80 motion-safe:animate-liga-cumple-ring"
-        aria-hidden
-      />
-      <div
-        className={`relative flex flex-col items-center justify-center rounded-full border-2 border-[#1a1610] bg-gradient-to-br from-[#FFF8E8] via-[#FFD700] to-[#B8860B] shadow-[0_0_14px_rgba(255,215,0,0.45)] ${
-          compacto ? "h-9 w-9" : "h-10 w-10 sm:h-11 sm:w-11"
+      <p
+        className={`mb-0.5 max-w-[3.5rem] text-center font-bold uppercase leading-tight tracking-wide text-[#FFD700] ${
+          compacto ? "text-[7px]" : "text-[8px] sm:text-[9px]"
         }`}
       >
-        <User
-          className={`text-[#1a140c] ${compacto ? "h-3.5 w-3.5" : "h-4 w-4 sm:h-[18px] sm:w-[18px]"}`}
-          strokeWidth={2.25}
+        {etiqueta}
+      </p>
+      <div className="relative">
+        <span
+          className="pointer-events-none absolute -inset-1 rounded-full bg-[conic-gradient(from_0deg,#fde68a,#f59e0b,#a855f7,#fde68a)] opacity-70 motion-safe:animate-liga-cumple-ring"
           aria-hidden
         />
-        <Crown
-          className={`absolute -top-1 text-[#B8860B] drop-shadow ${compacto ? "h-2.5 w-2.5" : "h-3 w-3"}`}
-          aria-hidden
-        />
+        <div
+          className={`relative flex items-center gap-1 rounded-full border-2 border-[#1a1610] bg-gradient-to-r from-[#FFF8E8] via-[#FFD700] to-[#B8860B] shadow-[0_0_12px_rgba(255,215,0,0.4)] ${
+            compacto ? "px-1.5 py-1" : "px-2 py-1"
+          }`}
+        >
+          <span className="relative flex shrink-0 items-center justify-center">
+            <User
+              className={`text-[#1a140c] ${compacto ? "h-3 w-3" : "h-3.5 w-3.5 sm:h-4 sm:w-4"}`}
+              strokeWidth={2.25}
+              aria-hidden
+            />
+            <Crown
+              className={`absolute -right-0.5 -top-1 text-[#B8860B] drop-shadow ${compacto ? "h-2 w-2" : "h-2.5 w-2.5"}`}
+              aria-hidden
+            />
+          </span>
+          <span
+            className={`font-black tabular-nums leading-none text-[#1a140c] ${
+              compacto ? "text-xs" : "text-sm sm:text-base"
+            }`}
+          >
+            {count}
+          </span>
+        </div>
       </div>
-      <span
-        className={`relative -mt-1 min-w-[1.35rem] rounded-full border border-[#1a1610] bg-[#111827] px-1 text-center font-black leading-none text-[#FFD700] shadow-md ${
-          compacto ? "text-[9px]" : "text-[10px] sm:text-[11px]"
-        }`}
-      >
-        {count}
-      </span>
+      {meta && !compacto ? (
+        <p className="mt-0.5 text-[7px] font-medium text-[#9A8B74] sm:text-[8px]">meta {meta}</p>
+      ) : null}
     </motion.div>
   );
 }
@@ -738,16 +753,19 @@ function LigaTurnoMarcoFoto({
       ) : null}
 
       <div className={`relative mx-auto w-fit ${fotoAmpliada ? "invisible" : ""}`} aria-hidden={fotoAmpliada}>
-        {decoracionesFestivas}
-        {mostrarFidelizados && clientesFidelizados != null ? (
-          <LigaTurnoBadgeFidelizados
-            count={clientesFidelizados}
-            meta={metaFidelizacion}
-            variante={variante}
-          />
-        ) : null}
-        {renderMarcoPremium(false)}
-        {renderMedallaPuesto(false)}
+        <div className="flex items-center justify-center gap-1.5 sm:gap-2">
+          {mostrarFidelizados && clientesFidelizados != null ? (
+            <LigaTurnoBadgeFidelizados
+              count={clientesFidelizados}
+              meta={metaFidelizacion}
+              variante={variante}
+            />
+          ) : null}
+          <div className="relative shrink-0">
+            {decoracionesFestivas}
+            {renderMarcoPremium(false)}
+          </div>
+        </div>
       </div>
 
       {fotoAmpliada && mostrarFoto ? (
