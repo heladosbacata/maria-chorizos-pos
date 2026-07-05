@@ -31,6 +31,8 @@ export type LigaTurnoFila = {
   cajeroTurnoId?: string;
   /** 0–100 según WMS (si viene 0–1 se convierte). */
   barPct?: number;
+  abiertoHoraCorta?: string;
+  uid?: string;
   /** Clientes fidelizados en el concurso activo (julio, ≥3 millas). */
   clientesFidelizados?: number;
   /** Meta del concurso de fidelización (p. ej. 100). */
