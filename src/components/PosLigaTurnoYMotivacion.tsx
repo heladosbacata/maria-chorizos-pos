@@ -1,7 +1,7 @@
 "use client";
 
 import { AnimatePresence, motion } from "framer-motion";
-import { Cake, Sparkles, User, ZoomIn } from "lucide-react";
+import { Cake, Crown, Sparkles, User, ZoomIn } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import LigaCumpleMuroPanel from "@/components/LigaCumpleMuroPanel";
 import {
@@ -31,8 +31,10 @@ export type LigaTurnoFila = {
   cajeroTurnoId?: string;
   /** 0–100 según WMS (si viene 0–1 se convierte). */
   barPct?: number;
-  abiertoHoraCorta?: string;
-  uid?: string;
+  /** Clientes fidelizados en el concurso activo (julio, ≥3 millas). */
+  clientesFidelizados?: number;
+  /** Meta del concurso de fidelización (p. ej. 100). */
+  metaFidelizacion?: number;
 };
 
 type MetaLiga = {
@@ -40,6 +42,18 @@ type MetaLiga = {
   miUid: string | null;
   gapAlPrimero: number | null;
   miTurnoAbierto: boolean | null;
+};
+
+type FidelizacionConcursoLiga = {
+  activo: boolean;
+  desde: string;
+  hasta: string;
+  millasMinimas: number;
+  metaUnidades: number;
+  descripcionReto: string;
+  actualizadoEn: string;
+  proximaActualizacionEn: string;
+  intervaloSegundos: number;
 };
 
 type Props = {
@@ -130,6 +144,34 @@ function extraerRankingPayload(data: unknown): unknown[] {
   }
   if (Array.isArray(data)) return data;
   return [];
+}
+
+function extraerFidelizacionConcurso(data: unknown): FidelizacionConcursoLiga | null {
+  if (!data || typeof data !== "object") return null;
+  const o = data as Record<string, unknown>;
+  const raw = o.fidelizacionConcurso ?? o.fidelizacion_concurso;
+  if (!raw || typeof raw !== "object") return null;
+  const c = raw as Record<string, unknown>;
+  return {
+    activo: c.activo === true,
+    desde: typeof c.desde === "string" ? c.desde : "",
+    hasta: typeof c.hasta === "string" ? c.hasta : "",
+    millasMinimas: typeof c.millasMinimas === "number" ? c.millasMinimas : 3,
+    metaUnidades: typeof c.metaUnidades === "number" ? c.metaUnidades : 100,
+    descripcionReto: typeof c.descripcionReto === "string" ? c.descripcionReto : "",
+    actualizadoEn: typeof c.actualizadoEn === "string" ? c.actualizadoEn : "",
+    proximaActualizacionEn: typeof c.proximaActualizacionEn === "string" ? c.proximaActualizacionEn : "",
+    intervaloSegundos: typeof c.intervaloSegundos === "number" ? c.intervaloSegundos : 3600,
+  };
+}
+
+function numEnteroPositivo(raw: unknown): number | undefined {
+  if (typeof raw === "number" && Number.isFinite(raw)) return Math.max(0, Math.trunc(raw));
+  if (typeof raw === "string" && raw.trim()) {
+    const n = Number(raw.replace(/\s/g, "").replace(",", "."));
+    if (Number.isFinite(n)) return Math.max(0, Math.trunc(n));
+  }
+  return undefined;
 }
 
 function extraerMetaDesdeRespuesta(data: unknown): MetaLiga {
@@ -310,6 +352,9 @@ function normalizarFila(raw: unknown, idx: number): LigaTurnoFila | null {
         ? r.abierto_hora_corta.trim()
         : undefined;
   const barPct = normalizarBarPct(r.barPct ?? r.bar_pct);
+  const clientesFidelizados = numEnteroPositivo(
+    r.clientesFidelizados ?? r.clientes_fidelizados ?? r.fidelizados
+  );
 
   return {
     posicion: pos,
@@ -324,6 +369,7 @@ function normalizarFila(raw: unknown, idx: number): LigaTurnoFila | null {
     barPct,
     abiertoHoraCorta,
     uid,
+    ...(clientesFidelizados != null ? { clientesFidelizados } : {}),
   };
 }
 
@@ -478,6 +524,60 @@ function tamanoFotoAmpliada(): { foto: string; medalla: string } {
   };
 }
 
+function LigaTurnoBadgeFidelizados({
+  count,
+  meta,
+  variante = "podio",
+}: {
+  count: number;
+  meta?: number;
+  variante?: VarianteFoto;
+}) {
+  const compacto = variante === "compact";
+  return (
+    <motion.div
+      initial={{ scale: 0.85, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      transition={{ type: "spring", stiffness: 420, damping: 22 }}
+      className={`absolute z-[55] flex flex-col items-center ${
+        compacto ? "-left-2 top-0" : "-left-2.5 top-1 sm:-left-3"
+      }`}
+      title={
+        meta
+          ? `${count} clientes fidelizados · meta ${meta} · actualiza cada hora`
+          : `${count} clientes fidelizados · actualiza cada hora`
+      }
+    >
+      <span
+        className="pointer-events-none absolute inset-0 rounded-full bg-[conic-gradient(from_0deg,#fde68a,#f59e0b,#a855f7,#fde68a)] opacity-80 motion-safe:animate-liga-cumple-ring"
+        aria-hidden
+      />
+      <div
+        className={`relative flex flex-col items-center justify-center rounded-full border-2 border-[#1a1610] bg-gradient-to-br from-[#FFF8E8] via-[#FFD700] to-[#B8860B] shadow-[0_0_14px_rgba(255,215,0,0.45)] ${
+          compacto ? "h-9 w-9" : "h-10 w-10 sm:h-11 sm:w-11"
+        }`}
+      >
+        <User
+          className={`text-[#1a140c] ${compacto ? "h-3.5 w-3.5" : "h-4 w-4 sm:h-[18px] sm:w-[18px]"}`}
+          strokeWidth={2.25}
+          aria-hidden
+        />
+        <Crown
+          className={`absolute -top-1 text-[#B8860B] drop-shadow ${compacto ? "h-2.5 w-2.5" : "h-3 w-3"}`}
+          aria-hidden
+        />
+      </div>
+      <span
+        className={`relative -mt-1 min-w-[1.35rem] rounded-full border border-[#1a1610] bg-[#111827] px-1 text-center font-black leading-none text-[#FFD700] shadow-md ${
+          compacto ? "text-[9px]" : "text-[10px] sm:text-[11px]"
+        }`}
+      >
+        {count}
+      </span>
+    </motion.div>
+  );
+}
+
 function LigaTurnoMarcoFoto({
   posicion,
   cajeroFotoUrl,
@@ -485,6 +585,9 @@ function LigaTurnoMarcoFoto({
   variante = "podio",
   esMiTurno = false,
   esCumpleFestivo = false,
+  clientesFidelizados,
+  metaFidelizacion,
+  mostrarFidelizados = false,
 }: {
   posicion: number;
   cajeroFotoUrl?: string;
@@ -492,6 +595,9 @@ function LigaTurnoMarcoFoto({
   variante?: VarianteFoto;
   esMiTurno?: boolean;
   esCumpleFestivo?: boolean;
+  clientesFidelizados?: number;
+  metaFidelizacion?: number;
+  mostrarFidelizados?: boolean;
 }) {
   const podio = estilosPodio(posicion);
   const { foto, medalla } = tamanoFoto(variante);
@@ -631,6 +737,13 @@ function LigaTurnoMarcoFoto({
 
       <div className={`relative mx-auto w-fit ${fotoAmpliada ? "invisible" : ""}`} aria-hidden={fotoAmpliada}>
         {decoracionesFestivas}
+        {mostrarFidelizados && clientesFidelizados != null ? (
+          <LigaTurnoBadgeFidelizados
+            count={clientesFidelizados}
+            meta={metaFidelizacion}
+            variante={variante}
+          />
+        ) : null}
         {renderMarcoPremium(false)}
         {renderMedallaPuesto(false)}
       </div>
@@ -709,12 +822,14 @@ function LigaTurnoTarjetaRanking({
   variante = "podio",
   esMiTurno = false,
   esCumpleFestivo = false,
+  mostrarFidelizados = false,
 }: {
   fila: LigaTurnoFila;
   title?: string;
   variante?: VarianteFoto;
   esMiTurno?: boolean;
   esCumpleFestivo?: boolean;
+  mostrarFidelizados?: boolean;
 }) {
   const podio = estilosPodio(fila.posicion);
   const elevacion =
@@ -757,6 +872,9 @@ function LigaTurnoTarjetaRanking({
         variante={variante}
         esMiTurno={esMiTurno}
         esCumpleFestivo={esCumpleFestivo}
+        clientesFidelizados={fila.clientesFidelizados}
+        metaFidelizacion={fila.metaFidelizacion}
+        mostrarFidelizados={mostrarFidelizados}
       />
       <LigaTurnoTextoCajero fila={fila} esCumpleFestivo={esCumpleFestivo} mostrarEtiquetaPuesto={false} />
     </motion.div>
@@ -767,10 +885,12 @@ function LigaTurnoPanelTuPunto({
   fila,
   puesto,
   esCumpleFestivo = false,
+  mostrarFidelizados = false,
 }: {
   fila: LigaTurnoFila;
   puesto?: number | null;
   esCumpleFestivo?: boolean;
+  mostrarFidelizados?: boolean;
 }) {
   return (
     <div
@@ -788,6 +908,9 @@ function LigaTurnoPanelTuPunto({
         variante="compact"
         esMiTurno
         esCumpleFestivo={esCumpleFestivo}
+        clientesFidelizados={fila.clientesFidelizados}
+        metaFidelizacion={fila.metaFidelizacion}
+        mostrarFidelizados={mostrarFidelizados}
       />
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex flex-wrap items-center gap-2">
@@ -828,6 +951,7 @@ export default function PosLigaTurnoYMotivacion({
 }: Props) {
   const [filas, setFilas] = useState<LigaTurnoFila[]>([]);
   const [meta, setMeta] = useState<MetaLiga>(metaVacio);
+  const [fidelizacionConcurso, setFidelizacionConcurso] = useState<FidelizacionConcursoLiga | null>(null);
   const [mensajeApi, setMensajeApi] = useState<string | null>(null);
   const [cargando, setCargando] = useState(true);
   const [ocultar, setOcultar] = useState(false);
@@ -906,11 +1030,19 @@ export default function PosLigaTurnoYMotivacion({
         }
       }
       setMensajeApi(null);
+      const concursoFidelizacion = extraerFidelizacionConcurso(data);
+      setFidelizacionConcurso(concursoFidelizacion);
       const rawList = extraerRankingPayload(data);
       const next: LigaTurnoFila[] = [];
       rawList.forEach((item, i) => {
         const row = normalizarFila(item, i);
-        if (row) next.push(row);
+        if (row) {
+          if (concursoFidelizacion?.activo) {
+            row.metaFidelizacion = concursoFidelizacion.metaUnidades;
+            if (row.clientesFidelizados == null) row.clientesFidelizados = 0;
+          }
+          next.push(row);
+        }
       });
       next.sort((a, b) => a.posicion - b.posicion);
       setFilas(next);
@@ -1047,9 +1179,12 @@ export default function PosLigaTurnoYMotivacion({
         variante={variante}
         esMiTurno={esMiTurno}
         esCumpleFestivo={esCumpleFestivo}
+        mostrarFidelizados={Boolean(fidelizacionConcurso?.activo)}
       />
     );
   }
+
+  const mostrarFidelizados = Boolean(fidelizacionConcurso?.activo);
 
   if (ocultar) return null;
 
@@ -1180,7 +1315,20 @@ export default function PosLigaTurnoYMotivacion({
                     ) : null}
                   </p>
                 ) : (
-                  <span className="text-[10px] text-[#9A8B74]">Ranking en vivo · actualiza cada ~45 s</span>
+                  <span className="text-[10px] text-[#9A8B74]">
+                    Ventas en vivo · cada ~45 s
+                    {mostrarFidelizados ? (
+                      <>
+                        {" "}
+                        · Fidelizados julio · cada hora
+                        {fidelizacionConcurso?.actualizadoEn ? (
+                          <span className="block text-[9px] text-[#8A7B64] sm:inline sm:before:content-['_']">
+                            Últ. sync fidelizados: {fidelizacionConcurso.actualizadoEn}
+                          </span>
+                        ) : null}
+                      </>
+                    ) : null}
+                  </span>
                 )}
               </div>
 
@@ -1189,6 +1337,7 @@ export default function PosLigaTurnoYMotivacion({
                   fila={miFilaRanking}
                   puesto={meta.miRank}
                   esCumpleFestivo={esCumpleFestivoFila(miFilaRanking)}
+                  mostrarFidelizados={mostrarFidelizados}
                 />
               ) : null}
 
