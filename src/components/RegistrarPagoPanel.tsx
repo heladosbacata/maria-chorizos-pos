@@ -10,10 +10,18 @@ import {
 import type { PlanMillasClienteResumen } from "@/lib/plan-millas-validar-resumen";
 import { consultarDocumentoPlanMillasWms } from "@/lib/wms-fidelizacion-consulta-documento";
 import type { ClientePosFirestoreDoc } from "@/types/clientes-pos";
+import {
+  INFLUENCER_PROMO_DESCUENTO_PCT,
+  calcularDescuentoInfluencerMonto,
+  esCodigoInfluencerValido,
+  normalizarCodigoInfluencer,
+  totalConDescuentoInfluencer,
+} from "@/lib/influencer-descuento";
 import { formatPesosCop, parsePesosCopInput } from "@/lib/pesos-cop-input";
 
 const TIPO_PAGO_OTRO = "Otro";
 const TIPO_OTRO_MAX_LEN = 80;
+const CODIGO_INFLUENCER_MAX = 32;
 
 export const TIPOS_PAGO_LINEA = [
   { value: "", label: "Seleccione tipo" },
@@ -40,6 +48,10 @@ export interface DetallePagoConfirmado {
   clienteFrecuenteSocioId?: string;
   /** Millas actuales del socio al validar documento (WMS). */
   clienteFrecuenteMillasActuales?: number;
+  /** Código promocional influencer aplicado (normalizado). */
+  codigoInfluencer?: string;
+  /** Monto descontado por código influencer (10 % del total bruto). */
+  descuentoInfluencerMonto?: number;
 }
 
 export interface RegistrarPagoPanelProps {
@@ -117,6 +129,9 @@ export default function RegistrarPagoPanel({
     null
   );
   const [prefetchPlanMillasListo, setPrefetchPlanMillasListo] = useState(false);
+  const [codigoInfluencerInput, setCodigoInfluencerInput] = useState("");
+  const [codigoInfluencerAplicado, setCodigoInfluencerAplicado] = useState("");
+  const [errorCodigoInfluencer, setErrorCodigoInfluencer] = useState("");
 
   const resetForm = useCallback(() => {
     setTab("contado");
@@ -133,6 +148,9 @@ export default function RegistrarPagoPanel({
     setSocioIdClienteFrecuenteValidado("");
     setResumenPlanMillasPrefetch(null);
     setPrefetchPlanMillasListo(false);
+    setCodigoInfluencerInput("");
+    setCodigoInfluencerAplicado("");
+    setErrorCodigoInfluencer("");
   }, []);
 
   useEffect(() => {
@@ -186,11 +204,33 @@ export default function RegistrarPagoPanel({
     [valorEfectivo, valorLineaSum]
   );
 
-  const restante = useMemo(() => Math.max(0, Math.round((totalAPagar - totalPagado) * 100) / 100), [totalAPagar, totalPagado]);
+  const descuentoInfluencerMonto = useMemo(
+    () =>
+      codigoInfluencerAplicado
+        ? calcularDescuentoInfluencerMonto(totalAPagar)
+        : 0,
+    [codigoInfluencerAplicado, totalAPagar]
+  );
 
-  const cambio = useMemo(() => Math.max(0, Math.round((totalPagado - totalAPagar) * 100) / 100), [totalAPagar, totalPagado]);
+  const totalAPagarEfectivo = useMemo(
+    () =>
+      codigoInfluencerAplicado
+        ? totalConDescuentoInfluencer(totalAPagar)
+        : Math.max(0, Math.round(totalAPagar * 100) / 100),
+    [codigoInfluencerAplicado, totalAPagar]
+  );
 
-  const cubreTotal = totalPagado + EPS >= totalAPagar;
+  const restante = useMemo(
+    () => Math.max(0, Math.round((totalAPagarEfectivo - totalPagado) * 100) / 100),
+    [totalAPagarEfectivo, totalPagado]
+  );
+
+  const cambio = useMemo(
+    () => Math.max(0, Math.round((totalPagado - totalAPagarEfectivo) * 100) / 100),
+    [totalAPagarEfectivo, totalPagado]
+  );
+
+  const cubreTotal = totalPagado + EPS >= totalAPagarEfectivo;
 
   const millasActualesFrecuente =
     typeof planMillasResumenTrasValidar?.millas === "number" &&
@@ -199,14 +239,26 @@ export default function RegistrarPagoPanel({
       : undefined;
 
   const millasGanadasEstaCompra = useMemo(
-    () => millasGanadasPorMontoCop(Math.round(totalAPagar)),
-    [totalAPagar]
+    () => millasGanadasPorMontoCop(Math.round(totalAPagarEfectivo)),
+    [totalAPagarEfectivo]
   );
 
   const millasProyectadasTrasCompra = useMemo(
-    () => millasSaldoProyectadoTrasCompra(millasActualesFrecuente, Math.round(totalAPagar)),
-    [millasActualesFrecuente, totalAPagar]
+    () => millasSaldoProyectadoTrasCompra(millasActualesFrecuente, Math.round(totalAPagarEfectivo)),
+    [millasActualesFrecuente, totalAPagarEfectivo]
   );
+
+  const aplicarCodigoInfluencer = () => {
+    const code = normalizarCodigoInfluencer(codigoInfluencerInput);
+    if (!esCodigoInfluencerValido(code)) {
+      setErrorCodigoInfluencer("El código debe tener al menos 3 caracteres.");
+      setCodigoInfluencerAplicado("");
+      return;
+    }
+    setErrorCodigoInfluencer("");
+    setCodigoInfluencerAplicado(code);
+    setCodigoInfluencerInput(code);
+  };
 
   const activarClienteFrecuenteTrasValidarWms = useCallback(
     async (resumen?: PlanMillasClienteResumen): Promise<boolean> => {
@@ -287,9 +339,9 @@ export default function RegistrarPagoPanel({
     }
 
     const tp = Math.round((valorEfectivo + pagosLinea.reduce((s, p) => s + p.monto, 0)) * 100) / 100;
-    if (tp + EPS < totalAPagar) {
+    if (tp + EPS < totalAPagarEfectivo) {
       window.alert(
-        `El total registrado ($${formatPesosCop(tp)}) no cubre el total a pagar ($${formatPesosCop(totalAPagar)}). Falta $${formatPesosCop(totalAPagar - tp)}.`
+        `El total registrado ($${formatPesosCop(tp)}) no cubre el total a pagar ($${formatPesosCop(totalAPagarEfectivo)}). Falta $${formatPesosCop(totalAPagarEfectivo - tp)}.`
       );
       return;
     }
@@ -308,6 +360,12 @@ export default function RegistrarPagoPanel({
             ...(millasActualesFrecuente !== undefined
               ? { clienteFrecuenteMillasActuales: millasActualesFrecuente }
               : {}),
+          }
+        : {}),
+      ...(codigoInfluencerAplicado && descuentoInfluencerMonto > 0
+        ? {
+            codigoInfluencer: codigoInfluencerAplicado,
+            descuentoInfluencerMonto,
           }
         : {}),
     });
@@ -581,8 +639,24 @@ export default function RegistrarPagoPanel({
             </div>
             <div className="flex justify-between gap-2">
               <dt className="text-slate-600">Descuento aplicado</dt>
-              <dd className="tabular-nums text-slate-900">${formatPesosCop(descuento)}</dd>
+              <dd
+                className={`tabular-nums ${
+                  descuentoInfluencerMonto > 0 || descuento > 0
+                    ? "font-semibold text-emerald-700"
+                    : "text-slate-900"
+                }`}
+              >
+                ${formatPesosCop(descuento + descuentoInfluencerMonto)}
+              </dd>
             </div>
+            {codigoInfluencerAplicado && descuentoInfluencerMonto > 0 ? (
+              <div className="flex justify-between gap-2 text-xs">
+                <dt className="text-violet-700">Influencer {codigoInfluencerAplicado}</dt>
+                <dd className="tabular-nums text-violet-800">
+                  −{INFLUENCER_PROMO_DESCUENTO_PCT}% ${formatPesosCop(descuentoInfluencerMonto)}
+                </dd>
+              </div>
+            ) : null}
             <div className="flex justify-between gap-2">
               <dt className="text-slate-600">IVA discriminado</dt>
               <dd className="tabular-nums text-slate-900">${formatPesosCop(iva)}</dd>
@@ -599,7 +673,14 @@ export default function RegistrarPagoPanel({
 
           <div className="mt-5 rounded-xl border border-sky-200 bg-sky-50/90 px-4 py-4 text-center">
             <p className="text-xs font-medium uppercase tracking-wide text-sky-800">Total a pagar</p>
-            <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">${formatPesosCop(totalAPagar)}</p>
+            <p className="mt-1 text-2xl font-bold tabular-nums text-slate-900">
+              ${formatPesosCop(totalAPagarEfectivo)}
+            </p>
+            {codigoInfluencerAplicado && descuentoInfluencerMonto > 0 ? (
+              <p className="mt-1 text-[11px] font-medium text-violet-700">
+                Incluye descuento influencer ({INFLUENCER_PROMO_DESCUENTO_PCT}%)
+              </p>
+            ) : null}
           </div>
 
           <div className="mt-4 space-y-2 text-sm">
@@ -674,13 +755,59 @@ export default function RegistrarPagoPanel({
                   </p>
                   <p className="mt-2 text-[11px] font-semibold text-amber-900">
                     {millasGanadasEstaCompra > 0
-                      ? `+ ${millasGanadasEstaCompra.toLocaleString("es-CO")} milla(s) por $${formatPesosCop(totalAPagar)}`
+                      ? `+ ${millasGanadasEstaCompra.toLocaleString("es-CO")} milla(s) por $${formatPesosCop(totalAPagarEfectivo)}`
                       : `Compra menor a $9.000: no suma millas en esta venta`}
                   </p>
                 </>
               ) : null}
             </div>
           ) : null}
+
+          <div className="mt-3 rounded-xl border border-violet-200 bg-violet-50/80 px-3 py-3">
+            <p className="text-[10px] font-extrabold uppercase tracking-[0.14em] text-violet-900">
+              Código influencer
+            </p>
+            <p className="mt-1 text-[11px] leading-snug text-violet-800/90">
+              Al aplicar se descuenta {INFLUENCER_PROMO_DESCUENTO_PCT}% del total de la factura.
+            </p>
+            <div className="mt-2 flex gap-2">
+              <input
+                type="text"
+                value={codigoInfluencerInput}
+                maxLength={CODIGO_INFLUENCER_MAX}
+                disabled={cobrando}
+                onChange={(e) => {
+                  setCodigoInfluencerInput(e.target.value.slice(0, CODIGO_INFLUENCER_MAX));
+                  if (errorCodigoInfluencer) setErrorCodigoInfluencer("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    aplicarCodigoInfluencer();
+                  }
+                }}
+                placeholder="Ej. MARIA10"
+                className="w-full rounded-lg border border-violet-300 bg-white px-3 py-2.5 text-center text-sm font-semibold uppercase tracking-wide text-slate-900 outline-none placeholder:normal-case placeholder:tracking-normal placeholder:font-normal placeholder:text-slate-400 focus:border-violet-400 focus:ring-2 focus:ring-violet-200 disabled:opacity-50"
+              />
+              <button
+                type="button"
+                disabled={cobrando || !esCodigoInfluencerValido(codigoInfluencerInput)}
+                onClick={aplicarCodigoInfluencer}
+                className="shrink-0 rounded-lg bg-violet-600 px-3 py-2.5 text-xs font-bold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                Aplicar ({INFLUENCER_PROMO_DESCUENTO_PCT}%)
+              </button>
+            </div>
+            {errorCodigoInfluencer ? (
+              <p className="mt-1.5 text-center text-xs font-medium text-red-600">{errorCodigoInfluencer}</p>
+            ) : null}
+            {codigoInfluencerAplicado && descuentoInfluencerMonto > 0 ? (
+              <p className="mt-1.5 text-center text-[11px] font-semibold text-emerald-700">
+                Aplicado: {codigoInfluencerAplicado} · −${formatPesosCop(descuentoInfluencerMonto)}
+              </p>
+            ) : null}
+          </div>
+
           <p className="mt-1.5 text-center text-[11px] leading-snug text-slate-500">
             {onAntesActivarClienteFrecuente
               ? stickerFidelizacionConfigurado
@@ -715,7 +842,7 @@ export default function RegistrarPagoPanel({
       open={avisoClienteFrecuenteOpen}
       onCerrar={() => setAvisoClienteFrecuenteOpen(false)}
       planMillasResumen={planMillasResumenTrasValidar}
-      totalCompraCop={Math.round(totalAPagar)}
+      totalCompraCop={Math.round(totalAPagarEfectivo)}
     />
     </>
   );
