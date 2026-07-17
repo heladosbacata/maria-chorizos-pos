@@ -267,9 +267,13 @@ function construirNotaPiePago(d: DetallePagoConfirmado): string | undefined {
     parts.push(`${p.tipo} $${fmt(p.monto)}`);
   }
   const pagoLine = parts.length ? `Pago: ${parts.join(" · ")}` : "";
+  const influencer =
+    d.codigoInfluencer && d.descuentoInfluencerMonto != null && d.descuentoInfluencerMonto > EPS_PAGO
+      ? `Influencer ${d.codigoInfluencer}: −$${fmt(d.descuentoInfluencerMonto)}`
+      : "";
   const obs = d.observaciones.trim();
-  if (obs) return [pagoLine, `Obs.: ${obs}`].filter(Boolean).join("\n");
-  return pagoLine || undefined;
+  const lines = [pagoLine, influencer, obs ? `Obs.: ${obs}` : ""].filter(Boolean);
+  return lines.length ? lines.join("\n") : undefined;
 }
 
 export interface PrecuentaTab {
@@ -2110,7 +2114,15 @@ export default function CajaPageClient() {
         opts?.detallePago != null ? mediosPagoDesdeDetalle(opts.detallePago) : undefined;
       const sid = turnoSesionId.trim();
 
-      const total = itemsSnap.reduce((s, i) => s + totalLineaItem(i), 0);
+      const totalBrutoItems = itemsSnap.reduce((s, i) => s + totalLineaItem(i), 0);
+      const descuentoInfluencerMonto =
+        opts?.detallePago?.descuentoInfluencerMonto != null &&
+        opts.detallePago.descuentoInfluencerMonto > 0
+          ? Math.max(0, Math.round(opts.detallePago.descuentoInfluencerMonto * 100) / 100)
+          : 0;
+      const total = Math.max(0, Math.round((totalBrutoItems - descuentoInfluencerMonto) * 100) / 100);
+      const factorDescuentoInfluencer =
+        totalBrutoItems > 0 && descuentoInfluencerMonto > 0 ? total / totalBrutoItems : 1;
       const codigosClubMillas = Array.from(
         new Set(
           itemsSnap
@@ -2207,7 +2219,7 @@ export default function CajaPageClient() {
         const isoVenta = new Date().toISOString();
         const lineasVenta = itemsSnap.map((it) => {
           const li = lineInputDesdeItemCuentaLike(it);
-          const sub = subtotalNetoLinea(li);
+          const sub = subtotalNetoLinea(li) * factorDescuentoInfluencer;
           const qty = Math.max(0.0001, it.cantidad);
           return {
             lineId: it.lineId,
@@ -2328,7 +2340,16 @@ export default function CajaPageClient() {
         const ticketBase = construirPayloadTicket("TICKET DE VENTA", itemsSnap, notaPieTicket);
         if (!ticketBase) return false;
 
-        let ticket = ticketBase;
+        let ticket =
+          descuentoInfluencerMonto > 0
+            ? {
+                ...ticketBase,
+                total,
+                ...(ticketBase.desgloseIvaPreciosIncluidos
+                  ? { desgloseIvaPreciosIncluidos: resumenIvaDesdeTotalConIvaIncluido(total) }
+                  : {}),
+              }
+            : ticketBase;
 
         if (tipoComprobanteVenta === "factura_electronica") {
           const tokenFe = await auth?.currentUser?.getIdToken();
@@ -2366,11 +2387,12 @@ export default function CajaPageClient() {
             const lineasFe = itemsSnap.map((it) => {
               const varTxt = detalleVarianteTicketLinea(it);
               const desc = [it.producto.descripcion.trim(), varTxt].filter(Boolean).join(" · ");
+              const montoLinea = totalLineaItem(it);
               return {
                 descripcion: (desc.slice(0, 500) || "Ítem").trim(),
                 sku: it.producto.sku,
                 cantidad: it.cantidad,
-                montoConIva: totalLineaItem(it),
+                montoConIva: Math.round(montoLinea * factorDescuentoInfluencer * 100) / 100,
               };
             });
             let clienteNombreFe = "Consumidor final";
