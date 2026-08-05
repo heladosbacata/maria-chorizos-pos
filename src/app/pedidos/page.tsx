@@ -740,13 +740,19 @@ function PedidosLandingClient() {
   /** null = consultando al WMS; true/false = turno de caja abierto/cerrado. */
   const [turnoCajaAbierto, setTurnoCajaAbierto] = useState<boolean | null>(null);
 
-  const tienePedidoActivo = Boolean(pedidoCreadoId || pedidoIdEnUrl);
+  const tienePedidoVinculado = Boolean(pedidoCreadoId || pedidoIdEnUrl);
 
   const pedidoEnCurso = useMemo(() => {
     if (!pedidoCreadoId) return false;
     if (!estadoPedido) return true;
     return estadoPedido !== "ENTREGADO" && estadoPedido !== "RECHAZADO" && estadoPedido !== "CANCELADO";
   }, [pedidoCreadoId, estadoPedido]);
+
+  /** Pedido terminado (rechazado/cancelado/entregado): ya no bloquea armar uno nuevo. */
+  const pedidoFinalizado = useMemo(
+    () => Boolean(pedidoCreadoId && estadoPedido && esEstadoTerminalPedidoDomicilio(estadoPedido)),
+    [pedidoCreadoId, estadoPedido]
+  );
 
   const puedeCancelarPedido = useMemo(() => {
     if (!pedidoCreadoId || !estadoPedido) return false;
@@ -766,6 +772,34 @@ function PedidosLandingClient() {
     },
     [router]
   );
+
+  /** Libera el pedido terminado para que el cliente pueda armar uno nuevo. */
+  const liberarPedidoParaNuevo = useCallback(() => {
+    limpiarSesionPedidoDomicilio(puntoVenta);
+    setPedidoCreadoId(null);
+    sincronizarPedidoEnUrl(null);
+    setEstadoPedido(null);
+    setRechazoMotivoPedido(null);
+    setPedidoCreadoEnIso(null);
+    setPedidoResumenChat(null);
+    setChatMensajes([]);
+    setChatError(null);
+    setChatVista("cerrado");
+    setChatMensajesNoLeidos(0);
+    setMensaje(null);
+    setAnimacionCambioEstadoPedido(null);
+    setModalCancelarPedidoAbierto(false);
+    setModalPushPedidoAbierto(false);
+    estadoPedidoAnteriorRef.current = null;
+    ultimoMensajePosIdRef.current = null;
+    setTipoEntregaElegido(false);
+    const pref = leerClientePreferidoPedidos(puntoVenta);
+    if (pref?.nombre) setCliente(pref.nombre);
+    if (pref?.telefono) {
+      setTelefono(pref.telefono);
+      setHistorialTelefono(pref.telefono);
+    }
+  }, [puntoVenta, sincronizarPedidoEnUrl]);
 
   useEffect(() => {
     sesionRestauradaRef.current = false;
@@ -861,6 +895,8 @@ function PedidosLandingClient() {
         const row = (json.data ?? []).find((x) => pedidoIdChatClave(x.id) === sesion.pedidoId);
         if (row && esEstadoTerminalPedidoDomicilio(row.estado)) {
           limpiarSesionPedidoDomicilio(puntoVenta);
+          sincronizarPedidoEnUrl(null);
+          setPedidoCreadoId(null);
           return;
         }
         // Si el listado aún no trae el pedido, igual restauramos desde localStorage.
@@ -1084,7 +1120,8 @@ function PedidosLandingClient() {
   }, []);
 
   useEffect(() => {
-    if (tienePedidoActivo) return;
+    // Mientras hay pedido en curso no hace falta reconsultar el turno cada 30s.
+    if (pedidoEnCurso) return;
     let cancel = false;
     const verificarTurno = async () => {
       try {
@@ -1101,7 +1138,7 @@ function PedidosLandingClient() {
       cancel = true;
       window.clearInterval(t);
     };
-  }, [puntoVenta, tienePedidoActivo]);
+  }, [puntoVenta, pedidoEnCurso]);
 
   const recepcionPedidosWebOk = useMemo(() => {
     void tickHorarioRecepcion;
@@ -1746,16 +1783,30 @@ function PedidosLandingClient() {
     setEstadoPedidoLoading(true);
     try {
       const url = `/api/pos_domicilios?${new URLSearchParams({ puntoVenta }).toString()}`;
-      const res = await fetch(url, { method: "GET" });
+      const res = await fetch(url, { method: "GET", cache: "no-store" });
       const json = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         data?: Array<{ id?: string; estado?: EstadoPedidoDomicilio; creadoEnIso?: string; rechazoMotivo?: string }>;
       };
-      const row = (json.data ?? []).find((x) => x.id === pid);
-      const estado = row?.estado ?? null;
+      const row = (json.data ?? []).find(
+        (x) => pedidoIdChatClave(x.id ?? "") === pedidoIdChatClave(pid)
+      );
+      if (!row) {
+        // Ya no está en bandeja (rechazado/eliminado): marcar finalizado para desbloquear.
+        setEstadoPedido((prev) => (prev && esEstadoTerminalPedidoDomicilio(prev) ? prev : "RECHAZADO"));
+        setRechazoMotivoPedido(
+          (prev) => prev?.trim() || "El punto rechazó o cerró este pedido. Puede hacer uno nuevo."
+        );
+        limpiarSesionPedidoDomicilio(puntoVenta);
+        return;
+      }
+      const estado = row.estado ?? null;
       if (estado) setEstadoPedido(estado);
-      if (row?.creadoEnIso) setPedidoCreadoEnIso(row.creadoEnIso);
-      setRechazoMotivoPedido(typeof row?.rechazoMotivo === "string" && row.rechazoMotivo.trim() ? row.rechazoMotivo.trim() : null);
+      if (row.creadoEnIso) setPedidoCreadoEnIso(row.creadoEnIso);
+      setRechazoMotivoPedido(typeof row.rechazoMotivo === "string" && row.rechazoMotivo.trim() ? row.rechazoMotivo.trim() : null);
+      if (estado && esEstadoTerminalPedidoDomicilio(estado)) {
+        limpiarSesionPedidoDomicilio(puntoVenta);
+      }
     } finally {
       setEstadoPedidoLoading(false);
     }
@@ -1775,11 +1826,20 @@ function PedidosLandingClient() {
         };
         if (!activo) return;
         const row = (json.data ?? []).find((x) => pedidoIdChatClave(x.id) === pedidoIdChatClave(pedidoCreadoId));
-        const estado = row?.estado ?? null;
+        if (!row) {
+          // Pedido desapareció de la bandeja (p. ej. rechazado y limpiado): desbloquear cliente.
+          setEstadoPedido((prev) => (prev && esEstadoTerminalPedidoDomicilio(prev) ? prev : "RECHAZADO"));
+          setRechazoMotivoPedido(
+            (prev) => prev?.trim() || "El punto rechazó o cerró este pedido. Puede hacer uno nuevo."
+          );
+          limpiarSesionPedidoDomicilio(puntoVenta);
+          return;
+        }
+        const estado = row.estado ?? null;
         if (estado) setEstadoPedido(estado);
-        if (row?.creadoEnIso) setPedidoCreadoEnIso(row.creadoEnIso);
-        setRechazoMotivoPedido(typeof row?.rechazoMotivo === "string" && row.rechazoMotivo.trim() ? row.rechazoMotivo.trim() : null);
-        if (row && !esEstadoTerminalPedidoDomicilio(row.estado)) {
+        if (row.creadoEnIso) setPedidoCreadoEnIso(row.creadoEnIso);
+        setRechazoMotivoPedido(typeof row.rechazoMotivo === "string" && row.rechazoMotivo.trim() ? row.rechazoMotivo.trim() : null);
+        if (!esEstadoTerminalPedidoDomicilio(row.estado)) {
           const resumen = resumenDesdePedidoApi(row);
           setPedidoResumenChat((prev) => prev ?? {
             lineasItems: resumen.lineasItems,
@@ -1799,7 +1859,7 @@ function PedidosLandingClient() {
             creadoEnIso: row.creadoEnIso,
             resumen,
           });
-        } else if (row && esEstadoTerminalPedidoDomicilio(row.estado)) {
+        } else {
           limpiarSesionPedidoDomicilio(puntoVenta);
         }
       } finally {
@@ -2486,6 +2546,22 @@ function PedidosLandingClient() {
             {rechazoMotivoPedido?.trim() || "Canceló este pedido."}
           </p>
         ) : null}
+        {pedidoFinalizado ? (
+          <div className="mt-4 space-y-2 border-t border-red-100 pt-4">
+            <p className="text-sm font-semibold text-slate-800">
+              {estadoPedido === "ENTREGADO"
+                ? "¿Quiere pedir de nuevo?"
+                : "Este pedido ya no está activo. Puede armar uno nuevo cuando quiera."}
+            </p>
+            <button
+              type="button"
+              onClick={liberarPedidoParaNuevo}
+              className="w-full rounded-xl bg-gradient-to-r from-red-700 to-amber-500 px-3 py-3 text-sm font-black text-white shadow-md transition hover:from-red-800 hover:to-amber-600 active:scale-[0.99]"
+            >
+              Hacer un nuevo pedido
+            </button>
+          </div>
+        ) : null}
         {puedeCancelarPedido ? (
           <div className="mt-4 border-t border-red-100 pt-4">
             <button
@@ -2516,7 +2592,7 @@ function PedidosLandingClient() {
     );
   };
 
-  if (!tienePedidoActivo) {
+  if (!tienePedidoVinculado) {
     if (turnoCajaAbierto === null) {
       return (
         <main className="flex min-h-screen items-center justify-center bg-[#0a0e1a] px-6">
@@ -2736,7 +2812,7 @@ function PedidosLandingClient() {
           </article>
         </section>
 
-        {tipoEntregaElegido || tienePedidoActivo ? (
+        {tipoEntregaElegido || pedidoEnCurso ? (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-red-100 bg-white px-4 py-3 shadow-sm">
             <p className="text-sm font-semibold text-gray-800">
               Entrega:{" "}
@@ -2744,7 +2820,7 @@ function PedidosLandingClient() {
                 {tipoEntrega === "domicilio" ? "Domicilio a su dirección" : `Recoger en ${puntoVenta}`}
               </span>
             </p>
-            {!tienePedidoActivo ? (
+            {!pedidoEnCurso ? (
               <button
                 type="button"
                 onClick={() => setTipoEntregaElegido(false)}
@@ -2758,12 +2834,14 @@ function PedidosLandingClient() {
           <div className="rounded-2xl border-2 border-dashed border-amber-400 bg-gradient-to-br from-amber-50 to-orange-50 px-4 py-8 text-center shadow-sm">
             <p className="text-base font-black text-amber-950">¿Cómo desea recibir su pedido?</p>
             <p className="mt-1 text-sm text-amber-900/80">
-              Elija en la ventana emergente para continuar armando su pedido.
+              {pedidoFinalizado
+                ? "Toque «Hacer un nuevo pedido» en el rastreador para volver a pedir."
+                : "Elija en la ventana emergente para continuar armando su pedido."}
             </p>
           </div>
         )}
 
-        {tipoEntregaElegido || tienePedidoActivo ? (
+        {tipoEntregaElegido || pedidoEnCurso ? (
         <div className="grid gap-4 lg:grid-cols-[1fr_360px] lg:gap-5">
           <section className="min-w-0 space-y-4">
             <div className="rounded-2xl border border-red-100 bg-white p-3 shadow-sm sm:p-4">
@@ -3004,7 +3082,7 @@ function PedidosLandingClient() {
       ) : null}
       <div
         className={`fixed inset-x-3 bottom-3 z-40 flex gap-2 lg:hidden ${
-          !tienePedidoActivo && !tipoEntregaElegido ? "pointer-events-none opacity-40" : ""
+          !pedidoEnCurso && !tipoEntregaElegido ? "pointer-events-none opacity-40" : ""
         }`}
       >
         <button
@@ -3156,7 +3234,7 @@ function PedidosLandingClient() {
           </div>
         </div>
       ) : null}
-      {!tienePedidoActivo && !tipoEntregaElegido && turnoCajaAbierto ? (
+      {!pedidoEnCurso && !pedidoFinalizado && !tipoEntregaElegido && turnoCajaAbierto ? (
         <div className="fixed inset-0 z-[118] flex items-end justify-center p-3 sm:items-center sm:p-4">
           <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-[3px]" aria-hidden />
           <div
