@@ -13,6 +13,7 @@ import {
 import { reproducirTonoDomiciliosPos, type VolumenSonidoDomicilios } from "@/lib/pos-domicilios-sonidos";
 import { construirLandingPedidosUrl } from "@/lib/pos-domicilios-landing-url";
 import { emitirDomiciliosContadorNuevos, EVENT_DOMICILIOS_FORZAR_REFRESH } from "@/lib/pos-domicilios-nuevos-event";
+import { enviarPedidoDomicilioAFacturacion } from "@/lib/pos-domicilios-enviar-facturacion";
 import { DEFAULT_COSTO_DOMICILIO_COP, DEFAULT_UMBRAL_GRATIS_COP } from "@/lib/pos-domicilios-tarifa-defaults";
 import {
   aplicarFranjaATodosLosDias,
@@ -654,6 +655,7 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
   const moverPedido = async (id: string, to: EstadoDomicilio, motivo?: string): Promise<boolean> => {
     if (!puntoVentaActivo || actualizandoId) return false;
     const anterior = pedidos;
+    const pedidoAntes = pedidos.find((p) => p.id === id) ?? null;
     setActualizandoId(id);
     setSyncInfo(null);
     setPedidos((prev) =>
@@ -680,7 +682,38 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
       setActualizandoId(null);
       return false;
     }
-    setSyncInfo(result.message ?? "Estado actualizado.");
+
+    let syncMsg = result.message ?? "Estado actualizado.";
+    if (to === "LISTO_PARA_DESPACHO" && pedidoAntes) {
+      const pedidoListo: PedidoDomicilio = {
+        ...pedidoAntes,
+        ...(result.pedido ?? {}),
+        estado: "LISTO_PARA_DESPACHO",
+      };
+      try {
+        const fact = await enviarPedidoDomicilioAFacturacion(pedidoListo);
+        syncMsg = fact.message;
+        if (fact.ok && fact.ventaLocalId) {
+          setPedidos((prev) =>
+            prev.map((p) =>
+              p.id === id
+                ? {
+                    ...p,
+                    estado: "LISTO_PARA_DESPACHO",
+                    facturaVentaLocalId: fact.ventaLocalId,
+                    enviadoAFacturacionEnIso: new Date().toISOString(),
+                  }
+                : p
+            )
+          );
+        }
+      } catch {
+        syncMsg =
+          "Pedido marcado listo, pero no se pudo enviar a facturación. Reintentá desde Ventas o volvé a marcar listo.";
+      }
+    }
+
+    setSyncInfo(syncMsg);
     setActualizandoId(null);
     return true;
   };
@@ -1344,6 +1377,11 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
                           <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">
                             {etiquetaPago(pedido.metodoPago)}
                           </span>
+                          {pedido.enviadoAFacturacionEnIso || pedido.facturaVentaLocalId ? (
+                            <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-bold text-amber-900">
+                              {pedido.facturaElectronicaCufe ? "Facturado" : "En facturación"}
+                            </span>
+                          ) : null}
                         </div>
 
                         <div className="flex items-end justify-between gap-2">

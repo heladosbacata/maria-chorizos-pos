@@ -42,6 +42,12 @@ export interface PedidoDomicilio {
   tiempoObjetivoMin: number;
   rechazoMotivo?: string;
   rechazadoEnIso?: string;
+  /** Venta local creada al marcar LISTO (puente a facturación / Ventas). */
+  facturaVentaLocalId?: string;
+  /** ISO cuando el pedido se envió a la cola de facturación. */
+  enviadoAFacturacionEnIso?: string;
+  /** CUFE si ya se emitió FE desde domicilios. */
+  facturaElectronicaCufe?: string;
 }
 
 export interface DomiciliosListadoResponse {

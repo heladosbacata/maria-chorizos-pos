@@ -107,6 +107,15 @@ function toPedido(raw: Record<string, unknown>): PedidoDomicilio | null {
     rechazoMotivo:
       typeof raw.rechazoMotivo === "string" && raw.rechazoMotivo.trim() ? raw.rechazoMotivo.trim() : undefined,
     rechazadoEnIso: maybeIso(raw.rechazadoEnIso),
+    facturaVentaLocalId:
+      typeof raw.facturaVentaLocalId === "string" && raw.facturaVentaLocalId.trim()
+        ? raw.facturaVentaLocalId.trim()
+        : undefined,
+    enviadoAFacturacionEnIso: maybeIso(raw.enviadoAFacturacionEnIso),
+    facturaElectronicaCufe:
+      typeof raw.facturaElectronicaCufe === "string" && raw.facturaElectronicaCufe.trim()
+        ? raw.facturaElectronicaCufe.trim()
+        : undefined,
   };
 }
 
@@ -313,6 +322,57 @@ export async function actualizarEstadoPedidoPersistente(params: {
   const base = toPedido(snap.data() as Record<string, unknown>);
   if (!base) return null;
   const next = aplicarCierrePedidoDomicilio(base, params.estado, params.motivo);
+  await ref.set(
+    Object.fromEntries(Object.entries({ ...next, puntoVentaNorm: normPv(pv) }).filter(([, v]) => v !== undefined)),
+    { merge: true }
+  );
+  return next;
+}
+
+/** Marca el pedido como enviado a facturación (venta local / FE). Idempotente por merge. */
+export async function marcarPedidoDomicilioFacturacionPersistente(params: {
+  puntoVenta: string;
+  pedidoId: string;
+  facturaVentaLocalId: string;
+  enviadoAFacturacionEnIso: string;
+  facturaElectronicaCufe?: string;
+}): Promise<PedidoDomicilio | null> {
+  const pv = params.puntoVenta.trim();
+  const id = params.pedidoId.trim();
+  const ventaId = params.facturaVentaLocalId.trim();
+  if (!pv || !id || !ventaId) return null;
+  const app = getFirebaseAdminApp();
+  if (!app) {
+    const pedidos = getPedidosMemory(pv);
+    const idx = pedidos.findIndex((p) => p.id === id || pedidoIdChatClave(p.id) === pedidoIdChatClave(id));
+    if (idx < 0) return null;
+    const next: PedidoDomicilio = {
+      ...pedidos[idx],
+      facturaVentaLocalId: ventaId,
+      enviadoAFacturacionEnIso: params.enviadoAFacturacionEnIso,
+      ...(params.facturaElectronicaCufe?.trim()
+        ? { facturaElectronicaCufe: params.facturaElectronicaCufe.trim() }
+        : {}),
+    };
+    const copia = [...pedidos];
+    copia[idx] = next;
+    setPedidosMemory(pv, copia);
+    return next;
+  }
+  const db = getFirestore(app);
+  const ref = db.collection(COLL_PEDIDOS).doc(pedidoDocId(pv, id));
+  const snap = await ref.get();
+  if (!snap.exists) return null;
+  const base = toPedido(snap.data() as Record<string, unknown>);
+  if (!base) return null;
+  const next: PedidoDomicilio = {
+    ...base,
+    facturaVentaLocalId: ventaId,
+    enviadoAFacturacionEnIso: params.enviadoAFacturacionEnIso,
+    ...(params.facturaElectronicaCufe?.trim()
+      ? { facturaElectronicaCufe: params.facturaElectronicaCufe.trim() }
+      : {}),
+  };
   await ref.set(
     Object.fromEntries(Object.entries({ ...next, puntoVentaNorm: normPv(pv) }).filter(([, v]) => v !== undefined)),
     { merge: true }
