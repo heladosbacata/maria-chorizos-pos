@@ -321,6 +321,69 @@ html.pos-viewport-scaled body {
   }
 }
 
+/* Landing pedidos — chips premium de tipo de entrega */
+@keyframes pedidos-entrega-chip-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 16px rgba(251, 191, 36, 0.4);
+  }
+  50% {
+    transform: scale(1.03);
+    box-shadow: 0 0 26px rgba(251, 191, 36, 0.7);
+  }
+}
+
+@keyframes pedidos-entrega-chip-shine {
+  0% {
+    transform: translateX(-120%) skewX(-18deg);
+    opacity: 0;
+  }
+  35% {
+    opacity: 0.55;
+  }
+  100% {
+    transform: translateX(220%) skewX(-18deg);
+    opacity: 0;
+  }
+}
+
+@keyframes pedidos-entrega-icon-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-1.5px);
+  }
+}
+
+.pedidos-entrega-chip--on {
+  animation: pedidos-entrega-chip-pulse 2.2s ease-in-out infinite;
+}
+
+.pedidos-entrega-chip-shine {
+  background: linear-gradient(
+    105deg,
+    transparent 30%,
+    rgba(255, 255, 255, 0.55) 50%,
+    transparent 70%
+  );
+  animation: pedidos-entrega-chip-shine 2.4s ease-in-out infinite;
+}
+
+.pedidos-entrega-chip--on .pedidos-entrega-chip-icon {
+  animation: pedidos-entrega-icon-bob 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pedidos-entrega-chip--on,
+  .pedidos-entrega-chip-shine,
+  .pedidos-entrega-chip--on .pedidos-entrega-chip-icon {
+    animation: none !important;
+  }
+}
+
 /* Landing pedidos — celebración al avanzar estado del pedido */
 @keyframes pedidos-estado-confetti-fall {
   0% {

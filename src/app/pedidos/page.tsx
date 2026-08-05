@@ -935,19 +935,7 @@ function PedidosLandingClient() {
     return "recogida";
   }, [tarifaDomicilio.recogerEnTiendaHabilitado, tarifaDomicilio.domicilioConDomiciliarioHabilitado]);
 
-  useEffect(() => {
-    if (tipoEntrega === "recogida" && !tarifaDomicilio.recogerEnTiendaHabilitado) {
-      setTipoEntrega(tarifaDomicilio.domicilioConDomiciliarioHabilitado ? "domicilio" : "recogida");
-      return;
-    }
-    if (tipoEntrega === "domicilio" && !tarifaDomicilio.domicilioConDomiciliarioHabilitado) {
-      setTipoEntrega(tarifaDomicilio.recogerEnTiendaHabilitado ? "recogida" : "domicilio");
-    }
-  }, [
-    tipoEntrega,
-    tarifaDomicilio.recogerEnTiendaHabilitado,
-    tarifaDomicilio.domicilioConDomiciliarioHabilitado,
-  ]);
+  // tipoEntrega lo controlan el header (chips) y el Paso 1.
 
   const mostrarOpcionRecogida = tarifaDomicilio.recogerEnTiendaHabilitado;
   const mostrarOpcionDomicilio = tarifaDomicilio.domicilioConDomiciliarioHabilitado;
@@ -955,11 +943,8 @@ function PedidosLandingClient() {
   const soloRecogidaEnTienda = mostrarOpcionRecogida && !mostrarOpcionDomicilio;
   const soloDomicilio = !mostrarOpcionRecogida && mostrarOpcionDomicilio;
 
-  const subtituloLandingPedidos = soloRecogidaEnTienda
-    ? "Escoja sus productos y páselos a recoger en nuestro punto. Por ahora solo tenemos recogida en tienda."
-    : soloDomicilio
-      ? "Escoja sus productos y se los llevamos hasta su dirección."
-      : "Escoja sus productos, díganos cómo quiere recibirlos y listo.";
+  const subtituloLandingPedidos =
+    "Estás a un solo click de probar el mejor chorizo santarrosano de todo Colombia, te ahorramos el viaje hasta Santa Rosa de Cabal.";
 
   useEffect(() => {
     if (tipoEntrega === "domicilio" && metodoPago === "datafono") {
@@ -2282,7 +2267,6 @@ function PedidosLandingClient() {
             >
               Activar alertas
             </button>
-          ) : null}
         </div>
       </section>
     );
@@ -2324,9 +2308,8 @@ function PedidosLandingClient() {
               : ". En este punto solo está habilitado el domicilio."}
         </p>
 
-        <div className={`mt-4 grid gap-3 ${elegirTipoEntrega ? "sm:grid-cols-2" : "sm:grid-cols-1"}`}>
-          {mostrarOpcionDomicilio ? (
-            <button
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <button
               type="button"
               onClick={() => {
                 setTipoEntrega("domicilio");
@@ -2343,9 +2326,7 @@ function PedidosLandingClient() {
                 <p className="mt-1 text-xs font-medium text-gray-600">Domiciliario hasta su dirección.</p>
               </div>
             </button>
-          ) : null}
-          {mostrarOpcionRecogida ? (
-            <button
+          <button
               type="button"
               onClick={() => setTipoEntrega("recogida")}
               className={`${cardBase} ${tipoEntrega === "recogida" ? cardOn : cardOff}`}
@@ -2410,7 +2391,7 @@ function PedidosLandingClient() {
               <div className="min-w-0 pt-0.5">
                 <p className="text-[11px] font-black uppercase tracking-[0.22em] text-amber-200">María Chorizos</p>
                 <h1 className="mt-1 text-2xl font-black leading-tight drop-shadow-sm sm:text-3xl md:text-4xl">
-                  Pida fácil, como en domicilio
+                  Pide fácil y Calma tu antojo.
                 </h1>
                 <p className="mt-1.5 max-w-xl text-sm text-amber-50/95">{subtituloLandingPedidos}</p>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -2429,6 +2410,59 @@ function PedidosLandingClient() {
                     className="rounded-full border border-white/45 bg-white/15 px-3 py-1.5 text-xs font-bold text-white backdrop-blur transition hover:bg-white/25"
                   >
                     Mis pedidos
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={tipoEntrega === "recogida"}
+                    title="Recoger en tienda"
+                    onClick={() => setTipoEntrega("recogida")}
+                    className={`pedidos-entrega-chip group relative inline-flex items-center gap-2 overflow-hidden rounded-full px-3 py-1.5 text-xs font-black transition duration-300 active:scale-95 ${
+                      tipoEntrega === "recogida"
+                        ? "pedidos-entrega-chip--on bg-gradient-to-r from-amber-300 via-yellow-300 to-amber-200 text-red-950 shadow-[0_0_20px_rgba(251,191,36,0.55)] ring-2 ring-white/80"
+                        : "border border-white/45 bg-white/10 text-white backdrop-blur hover:bg-white/20"
+                    }`}
+                  >
+                    <span
+                      className={`pedidos-entrega-chip-icon flex h-6 w-6 items-center justify-center rounded-full transition ${
+                        tipoEntrega === "recogida"
+                          ? "bg-red-700 text-amber-200 shadow-inner"
+                          : "bg-white/20 text-amber-200"
+                      }`}
+                    >
+                      <Store className="h-3.5 w-3.5" strokeWidth={2.4} aria-hidden />
+                    </span>
+                    <span>Recoger en tienda</span>
+                    {tipoEntrega === "recogida" ? (
+                      <span className="pointer-events-none absolute inset-0 pedidos-entrega-chip-shine" aria-hidden />
+                    ) : null}
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={tipoEntrega === "domicilio"}
+                    title="Domicilio a su dirección"
+                    onClick={() => {
+                      setTipoEntrega("domicilio");
+                      setMetodoPago((m) => (m === "datafono" ? "efectivo" : m));
+                    }}
+                    className={`pedidos-entrega-chip group relative inline-flex items-center gap-2 overflow-hidden rounded-full px-3 py-1.5 text-xs font-black transition duration-300 active:scale-95 ${
+                      tipoEntrega === "domicilio"
+                        ? "pedidos-entrega-chip--on bg-gradient-to-r from-white via-amber-50 to-yellow-200 text-red-900 shadow-[0_0_22px_rgba(255,255,255,0.45)] ring-2 ring-amber-300/90"
+                        : "border border-white/45 bg-white/10 text-white backdrop-blur hover:bg-white/20"
+                    }`}
+                  >
+                    <span
+                      className={`pedidos-entrega-chip-icon flex h-6 w-6 items-center justify-center rounded-full transition ${
+                        tipoEntrega === "domicilio"
+                          ? "bg-gradient-to-br from-red-600 to-amber-500 text-white shadow-inner"
+                          : "bg-white/20 text-amber-100"
+                      }`}
+                    >
+                      <Bike className="h-3.5 w-3.5" strokeWidth={2.4} aria-hidden />
+                    </span>
+                    <span>Domicilio</span>
+                    {tipoEntrega === "domicilio" ? (
+                      <span className="pointer-events-none absolute inset-0 pedidos-entrega-chip-shine" aria-hidden />
+                    ) : null}
                   </button>
                 </div>
               </div>
@@ -2492,8 +2526,8 @@ function PedidosLandingClient() {
               {tipoEntrega === "recogida"
                 ? "Sin costo de envío"
                 : subtotal >= tarifaDomicilio.umbralGratisCop
-                  ? "Domicilio gratis aplicado"
-                  : `Domicilio gratis desde ${formatoMoneda(tarifaDomicilio.umbralGratisCop)}`}
+                  ? "Domicilio gratis aplicado · compras superiores a $100.000"
+                  : "Sin costo de envío por compras superiores a $100.000"}
             </p>
           </article>
         </section>
