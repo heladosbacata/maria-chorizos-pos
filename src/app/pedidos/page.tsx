@@ -2309,26 +2309,44 @@ function PedidosLandingClient() {
           <div className="pointer-events-none absolute -right-8 -top-8 h-44 w-44 rounded-full bg-amber-300/30 blur-2xl" />
           <div className="pointer-events-none absolute -bottom-16 left-10 h-40 w-40 rounded-full bg-yellow-200/25 blur-2xl" />
 
-          <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex min-w-0 flex-1 items-start gap-3 sm:gap-4">
-              <div className="shrink-0 rounded-2xl bg-white p-1.5 shadow-lg ring-2 ring-amber-300/70 sm:p-2">
-                <Image
-                  src={LOGO_ORG_URL}
-                  alt="María Chorizos"
-                  width={200}
-                  height={200}
-                  priority
-                  className="h-16 w-16 rounded-xl object-contain sm:h-20 sm:w-20 md:h-24 md:w-24"
-                />
+          <div className="relative flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+            <div className="flex min-w-0 flex-1 items-start gap-2.5 sm:gap-4">
+              <div className="flex w-[4.5rem] shrink-0 flex-col items-center gap-1.5 sm:w-auto sm:gap-2 lg:w-auto">
+                <div className="rounded-2xl bg-white p-1.5 shadow-lg ring-2 ring-amber-300/70 sm:p-2">
+                  <Image
+                    src={LOGO_ORG_URL}
+                    alt="María Chorizos"
+                    width={200}
+                    height={200}
+                    priority
+                    className="h-14 w-14 rounded-xl object-contain sm:h-20 sm:w-20 md:h-24 md:w-24"
+                  />
+                </div>
+                {/* Solo celular/tablet: mascota debajo del logo para acortar el banner */}
+                <div className="relative flex w-full flex-col items-center rounded-2xl bg-black/35 p-1 ring-2 ring-amber-300/70 lg:hidden">
+                  <img
+                    src={MASCOTA_DOMICILIOS_URL}
+                    alt="Personaje de domicilios María Chorizos"
+                    className="h-[4.75rem] w-auto max-w-full object-contain drop-shadow-[0_6px_12px_rgba(0,0,0,0.35)] sm:h-28"
+                    draggable={false}
+                  />
+                  <span className="-mt-0.5 rounded-full bg-amber-300 px-2 py-0.5 text-[8px] font-black uppercase tracking-wider text-red-900 shadow-sm sm:text-[10px]">
+                    Domicilios
+                  </span>
+                </div>
               </div>
-              <div className="min-w-0 pt-0.5">
-                <p className="text-[11px] font-black uppercase tracking-[0.22em] text-amber-200">María Chorizos</p>
-                <h1 className="mt-1 text-2xl font-black leading-tight drop-shadow-sm sm:text-3xl md:text-4xl">
+              <div className="min-w-0 flex-1 pt-0.5">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-200 sm:text-[11px] sm:tracking-[0.22em]">
+                  María Chorizos
+                </p>
+                <h1 className="mt-0.5 text-xl font-black leading-tight drop-shadow-sm sm:mt-1 sm:text-3xl md:text-4xl">
                   Pide fácil y Calma tu antojo.
                 </h1>
-                <p className="mt-1.5 max-w-xl text-sm text-amber-50/95">{subtituloLandingPedidos}</p>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-white/40 bg-black/20 px-3 py-1.5 text-xs font-semibold backdrop-blur-sm">
+                <p className="mt-1 max-w-xl text-xs leading-snug text-amber-50/95 sm:mt-1.5 sm:text-sm sm:leading-normal">
+                  {subtituloLandingPedidos}
+                </p>
+                <div className="mt-2.5 flex flex-wrap items-center gap-1.5 sm:mt-3 sm:gap-2">
+                  <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-white/40 bg-black/20 px-2.5 py-1 text-[11px] font-semibold backdrop-blur-sm sm:px-3 sm:py-1.5 sm:text-xs">
                     <span className="inline-block h-2 w-2 rounded-full bg-lime-300" />
                     <span className="truncate">{puntoVenta}</span>
                   </div>
@@ -2340,7 +2358,7 @@ function PedidosLandingClient() {
                       if (!historialTelefono && telefono) setHistorialTelefono(telefono);
                       setModalHistorialAbierto(true);
                     }}
-                    className="rounded-full border border-white/45 bg-white/15 px-3 py-1.5 text-xs font-bold text-white backdrop-blur transition hover:bg-white/25"
+                    className="rounded-full border border-white/45 bg-white/15 px-2.5 py-1 text-[11px] font-bold text-white backdrop-blur transition hover:bg-white/25 sm:px-3 sm:py-1.5 sm:text-xs"
                   >
                     Mis pedidos
                   </button>
@@ -2348,14 +2366,14 @@ function PedidosLandingClient() {
                     <button
                       type="button"
                       onClick={() => setTipoEntregaElegido(false)}
-                      className="pedidos-entrega-chip pedidos-entrega-chip--on inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-amber-300 via-yellow-300 to-amber-200 px-3 py-1.5 text-xs font-black text-red-950 shadow-[0_0_18px_rgba(251,191,36,0.45)] ring-2 ring-white/80 transition active:scale-95"
+                      className="pedidos-entrega-chip pedidos-entrega-chip--on inline-flex items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-300 via-yellow-300 to-amber-200 px-2.5 py-1 text-[11px] font-black text-red-950 shadow-[0_0_18px_rgba(251,191,36,0.45)] ring-2 ring-white/80 transition active:scale-95 sm:gap-2 sm:px-3 sm:py-1.5 sm:text-xs"
                       title="Cambiar tipo de entrega"
                     >
-                      <span className="pedidos-entrega-chip-icon flex h-6 w-6 items-center justify-center rounded-full bg-red-700 text-amber-200">
+                      <span className="pedidos-entrega-chip-icon flex h-5 w-5 items-center justify-center rounded-full bg-red-700 text-amber-200 sm:h-6 sm:w-6">
                         {tipoEntrega === "domicilio" ? (
-                          <Bike className="h-3.5 w-3.5" strokeWidth={2.4} aria-hidden />
+                          <Bike className="h-3 w-3 sm:h-3.5 sm:w-3.5" strokeWidth={2.4} aria-hidden />
                         ) : (
-                          <Store className="h-3.5 w-3.5" strokeWidth={2.4} aria-hidden />
+                          <Store className="h-3 w-3 sm:h-3.5 sm:w-3.5" strokeWidth={2.4} aria-hidden />
                         )}
                       </span>
                       <span>{tipoEntrega === "domicilio" ? "Domicilio" : "Recoger en tienda"}</span>
@@ -2368,12 +2386,13 @@ function PedidosLandingClient() {
               </div>
             </div>
 
-            <div className="flex shrink-0 justify-center lg:justify-end">
-              <div className="relative flex flex-col items-center rounded-3xl bg-black/35 p-2 ring-2 ring-amber-300/80 sm:p-3">
+            {/* Desktop/large: mascota a la derecha del banner */}
+            <div className="hidden shrink-0 justify-end lg:flex">
+              <div className="relative flex flex-col items-center rounded-3xl bg-black/35 p-3 ring-2 ring-amber-300/80">
                 <img
                   src={MASCOTA_DOMICILIOS_URL}
                   alt="Personaje de domicilios María Chorizos"
-                  className="h-36 w-auto max-w-[9.5rem] object-contain drop-shadow-[0_8px_16px_rgba(0,0,0,0.35)] sm:h-44 sm:max-w-[11.5rem] md:h-52 md:max-w-[13rem]"
+                  className="h-52 w-auto max-w-[13rem] object-contain drop-shadow-[0_8px_16px_rgba(0,0,0,0.35)]"
                   draggable={false}
                 />
                 <span className="-mt-1 rounded-full bg-amber-300 px-3 py-0.5 text-[10px] font-black uppercase tracking-wider text-red-900 shadow-sm">
@@ -2388,7 +2407,7 @@ function PedidosLandingClient() {
             onClick={abrirClubMillasEnVentanaEmergente}
             role="region"
             aria-label="Club de millas María Chorizos"
-            className="relative mt-4 flex w-full items-center gap-3 overflow-hidden rounded-2xl border border-amber-200/50 bg-black/25 px-3 py-2.5 text-left shadow-md backdrop-blur-sm transition hover:bg-black/35 active:scale-[0.995] sm:gap-4 sm:px-4 sm:py-3"
+            className="relative mt-3 flex w-full items-center gap-2.5 overflow-hidden rounded-2xl border border-amber-200/50 bg-black/25 px-3 py-2 text-left shadow-md backdrop-blur-sm transition hover:bg-black/35 active:scale-[0.995] sm:mt-4 sm:gap-4 sm:px-4 sm:py-3"
           >
             <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-300 to-yellow-400 text-lg font-black text-red-900 shadow-inner sm:h-12 sm:w-12 sm:text-xl">
               ★
@@ -2424,10 +2443,10 @@ function PedidosLandingClient() {
             <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">Beneficio</p>
             <p className="mt-1 text-base font-extrabold leading-snug text-amber-950 sm:text-lg">
               {tipoEntrega === "recogida"
-                ? "Sin costo de envío"
+                ? "Sin costo de envío · por recoger en tienda"
                 : subtotal >= tarifaDomicilio.umbralGratisCop
                   ? "Domicilio gratis aplicado · compras superiores a $100.000"
-                  : "Sin costo de envío por compras superiores a $100.000"}
+                  : "Envío gratis por compras superiores a $100.000"}
             </p>
           </article>
         </section>
