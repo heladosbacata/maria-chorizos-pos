@@ -2267,6 +2267,7 @@ function PedidosLandingClient() {
             >
               Activar alertas
             </button>
+          ) : null}
         </div>
       </section>
     );
@@ -2340,7 +2341,6 @@ function PedidosLandingClient() {
                 <p className="mt-1 text-xs font-medium text-gray-600">Sin costo de envío.</p>
               </div>
             </button>
-          ) : null}
         </div>
       </section>
     );
