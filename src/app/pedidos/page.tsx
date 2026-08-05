@@ -58,14 +58,11 @@ import {
 import type { ProductoPOS } from "@/types";
 import type { MensajeChatDomicilio } from "@/types/pos-domicilios-chat";
 import {
-  OPCIONES_SALSA_FAVORITA,
+  OPCIONES_SELECCION_SALSA_UI,
   esTokenSalsaPedido,
   etiquetaTokenSalsaPedido,
-  parseSalsasDeToken,
   productoRequiereSalsaFavorita,
   productoRequiereSoloTipoArepaPeto,
-  toggleSalsaFavoritaEnToken,
-  tokenSinSalsa,
   type TokenSalsaPedido,
 } from "@/lib/chorizo-variante-pos";
 import {
@@ -2275,59 +2272,51 @@ function PedidosLandingClient() {
             </div>
           ) : null}
           {pideSalsa ? (
-            <div className="space-y-1">
-              <p className="text-[11px] font-semibold text-gray-600">Salsa favorita</p>
-              <div className="flex flex-wrap gap-1">
-                {OPCIONES_SALSA_FAVORITA.map((op) => {
-                  const activo = salsaActiva != null && salsaActiva !== "sin" && parseSalsasDeToken(salsaActiva).includes(op.key);
+            <div className="space-y-1.5">
+              <p className="text-[11px] font-semibold text-gray-600">
+                Salsa favorita{" "}
+                <span className="font-normal text-gray-500">(elija una opción)</span>
+              </p>
+              <div className="grid grid-cols-2 gap-1.5">
+                {OPCIONES_SELECCION_SALSA_UI.map((op) => {
+                  const activo = salsaActiva === op.token;
+                  const esSin = op.token === "sin";
+                  const esAmbas = op.token === "ajo+chimichurri";
                   return (
                     <button
-                      key={`${prod.sku}-salsa-${op.key}`}
+                      key={`${prod.sku}-salsa-${op.token}`}
                       type="button"
                       onClick={() =>
                         setSalsaSeleccionadaPorSku((prev) => {
-                          const next = toggleSalsaFavoritaEnToken(prev[prod.sku] ?? null, op.key);
-                          if (!next) {
+                          if (prev[prod.sku] === op.token) {
                             const { [prod.sku]: _, ...rest } = prev;
                             return rest;
                           }
-                          return { ...prev, [prod.sku]: next };
+                          return { ...prev, [prod.sku]: op.token };
                         })
                       }
-                      className={`rounded-full border px-2 py-1 text-[11px] font-semibold transition ${
+                      className={`rounded-lg border px-2 py-2 text-left text-[11px] font-semibold leading-tight transition active:scale-[0.98] ${
                         activo
-                          ? "border-amber-500 bg-amber-500 text-white"
-                          : "border-amber-300 bg-amber-50 text-amber-950 hover:bg-amber-100"
+                          ? esSin
+                            ? "border-slate-700 bg-slate-700 text-white shadow-sm"
+                            : esAmbas
+                              ? "border-orange-600 bg-orange-500 text-white shadow-sm"
+                              : "border-amber-500 bg-amber-500 text-white shadow-sm"
+                          : esSin
+                            ? "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                            : esAmbas
+                              ? "border-orange-300 bg-orange-50 text-orange-950 hover:bg-orange-100"
+                              : "border-amber-300 bg-amber-50 text-amber-950 hover:bg-amber-100"
                       }`}
                     >
                       {op.label}
                     </button>
                   );
                 })}
-                <button
-                  key={`${prod.sku}-salsa-sin`}
-                  type="button"
-                  onClick={() =>
-                    setSalsaSeleccionadaPorSku((prev) => {
-                      if (prev[prod.sku] === "sin") {
-                        const { [prod.sku]: _, ...rest } = prev;
-                        return rest;
-                      }
-                      return { ...prev, [prod.sku]: tokenSinSalsa() };
-                    })
-                  }
-                  className={`rounded-full border px-2 py-1 text-[11px] font-semibold transition ${
-                    salsaActiva === "sin"
-                      ? "border-slate-600 bg-slate-600 text-white"
-                      : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
-                  }`}
-                >
-                  Sin salsas
-                </button>
               </div>
               {!salsaActiva ? (
                 <p className="text-[10px] font-medium text-amber-800">
-                  Elija una, ambas o sin salsas para poder agregar unidades.
+                  Elija ajo, chimichurri, ambas o sin salsas para agregar.
                 </p>
               ) : null}
             </div>

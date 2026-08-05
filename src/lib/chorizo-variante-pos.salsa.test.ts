@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ProductoPOS } from "@/types";
 import {
+  OPCIONES_SELECCION_SALSA_UI,
   esTokenSalsaPedido,
   etiquetaSalsaFavorita,
   etiquetaTokenSalsaPedido,
@@ -24,7 +25,8 @@ describe("salsa favorita pedidos", () => {
     expect(etiquetaSalsaFavorita("ajo")).toBe("Salsa de ajo");
     expect(etiquetaSalsaFavorita("chimichurri")).toBe("Salsa de chimichurri");
     expect(etiquetaTokenSalsaPedido("sin")).toBe("Sin salsas");
-    expect(etiquetaTokenSalsaPedido("ajo+chimichurri")).toBe("Salsa de ajo + Salsa de chimichurri");
+    expect(etiquetaTokenSalsaPedido("ajo+chimichurri")).toBe("Ambas salsas");
+    expect(etiquetaTokenSalsaPedido("ajo")).toBe("Salsa de ajo");
   });
 
   it("detecta hawaiano", () => {
@@ -60,6 +62,12 @@ describe("salsa favorita pedidos", () => {
     expect(tokenDesdeSalsas(["chimichurri", "ajo"])).toBe("ajo+chimichurri");
     expect(esTokenSalsaPedido("ajo+chimichurri")).toBe(true);
     expect(esTokenSalsaPedido("chimichurri+ajo")).toBe(false);
+    expect(OPCIONES_SELECCION_SALSA_UI.map((o) => o.token)).toEqual([
+      "ajo",
+      "chimichurri",
+      "ajo+chimichurri",
+      "sin",
+    ]);
 
     expect(toggleSalsaFavoritaEnToken(null, "ajo")).toBe("ajo");
     expect(toggleSalsaFavoritaEnToken("ajo", "chimichurri")).toBe("ajo+chimichurri");

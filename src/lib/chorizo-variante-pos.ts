@@ -123,6 +123,14 @@ export const OPCIONES_SALSA_FAVORITA: { key: SalsaFavorita; label: string }[] = 
   { key: "chimichurri", label: "Salsa de chimichurri" },
 ];
 
+/** Opciones visibles en /pedidos (una, ambas o ninguna). */
+export const OPCIONES_SELECCION_SALSA_UI: { token: TokenSalsaPedido; label: string }[] = [
+  { token: "ajo", label: "Salsa de ajo" },
+  { token: "chimichurri", label: "Salsa de chimichurri" },
+  { token: "ajo+chimichurri", label: "Ambas salsas" },
+  { token: "sin", label: "Sin salsas" },
+];
+
 const ORDEN_SALSAS_FAVORITAS: SalsaFavorita[] = ["ajo", "chimichurri"];
 
 export function etiquetaSalsaFavorita(v: SalsaFavorita): string {
@@ -154,7 +162,8 @@ export function esTokenSalsaPedido(raw: string | null | undefined): raw is Token
 
 export function etiquetaTokenSalsaPedido(token: TokenSalsaPedido): string {
   if (token === "sin") return "Sin salsas";
-  return parseSalsasDeToken(token).map(etiquetaSalsaFavorita).join(" + ");
+  if (token === "ajo+chimichurri") return "Ambas salsas";
+  return etiquetaSalsaFavorita(token);
 }
 
 /** Alterna ajo/chimichurri (multi). Quita “sin salsas”. Si quedan cero, retorna null. */
@@ -170,6 +179,10 @@ export function toggleSalsaFavoritaEnToken(
 
 export function tokenSinSalsa(): "sin" {
   return "sin";
+}
+
+export function tokenAmbasSalsas(): "ajo+chimichurri" {
+  return "ajo+chimichurri";
 }
 
 /** Combo o producto hawaiano (piña): también pide salsa favorita. */
