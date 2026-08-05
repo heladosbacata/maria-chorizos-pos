@@ -3637,7 +3637,9 @@ export default function CajaPageClient() {
               }}
             >
               <p className="text-sm text-gray-600">
-                Ingresá la clave maestra para abrir configuración y herramientas adicionales.
+                {destinoMasFacturacion
+                  ? `Ingrese la clave para abrir Ventas y facturación del pedido ${destinoMasFacturacion.busqueda}.`
+                  : "Ingresá la clave maestra para abrir configuración y herramientas adicionales."}
               </p>
               <label htmlFor="clave-mas-input" className="mb-1 mt-4 block text-xs font-medium text-gray-700">
                 Clave
