@@ -32,7 +32,13 @@ import {
   leerMapaVistoChatDomicilios,
   marcarChatDomicilioLeido,
 } from "@/lib/pos-domicilios-chat-utils";
-import { EVENT_DOMICILIOS_FORZAR_REFRESH } from "@/lib/pos-domicilios-nuevos-event";
+import {
+  EVENT_DOMICILIOS_ALERTA_ATENDIDA,
+  EVENT_DOMICILIOS_AVISO_PEDIDO_NUEVO,
+  EVENT_DOMICILIOS_FORZAR_REFRESH,
+  emitirDomiciliosAbrirAlertaPedido,
+  type DomiciliosAvisoPedidoNuevoDetail,
+} from "@/lib/pos-domicilios-nuevos-event";
 import { reproducirAlertaNuevoPedidoDomicilio } from "@/lib/pos-domicilios-sonidos";
 import type { PedidoDomicilio } from "@/types/pos-domicilios";
 
@@ -57,6 +63,7 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
     texto: string;
     pedidoId: string;
   } | null>(null);
+  const [avisoPedidoNuevo, setAvisoPedidoNuevo] = useState<DomiciliosAvisoPedidoNuevoDetail | null>(null);
   const unreadPrevRef = useRef<UnreadPorPedido>({});
   const totalUnreadPrevRef = useRef(0);
   const lastAlertAtRef = useRef(0);
@@ -77,6 +84,33 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
   useEffect(() => {
     chatPedidoIdAbiertoRef.current = chatPedido?.id ?? null;
   }, [chatPedido?.id]);
+
+  useEffect(() => {
+    const onAviso = (e: Event) => {
+      const detail = (e as CustomEvent<DomiciliosAvisoPedidoNuevoDetail>).detail;
+      if (!detail?.pedido) return;
+      setAvisoPedidoNuevo(detail);
+      try {
+        if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+          navigator.vibrate([120, 60, 120, 60, 180, 80, 220]);
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+    const onAtendida = () => setAvisoPedidoNuevo(null);
+    window.addEventListener(EVENT_DOMICILIOS_AVISO_PEDIDO_NUEVO, onAviso);
+    window.addEventListener(EVENT_DOMICILIOS_ALERTA_ATENDIDA, onAtendida);
+    return () => {
+      window.removeEventListener(EVENT_DOMICILIOS_AVISO_PEDIDO_NUEVO, onAviso);
+      window.removeEventListener(EVENT_DOMICILIOS_ALERTA_ATENDIDA, onAtendida);
+    };
+  }, []);
+
+  const abrirAlertaPedidoNuevo = useCallback(() => {
+    setAvisoPedidoNuevo(null);
+    emitirDomiciliosAbrirAlertaPedido();
+  }, []);
 
   useEffect(() => {
     const prevTotal = totalUnreadPrevRef.current;
@@ -271,9 +305,35 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
 
   if (!visible || !pv) return null;
 
+  const hayAvisoPedido = Boolean(avisoPedidoNuevo);
+
   return (
     <>
-      {toastMensajeCliente ? (
+      {avisoPedidoNuevo ? (
+        <PosBodyPortal open>
+          <div className="fixed inset-x-0 bottom-[5.5rem] z-[231] flex justify-center px-3 sm:bottom-28 pointer-events-none">
+            <button
+              type="button"
+              onClick={abrirAlertaPedidoNuevo}
+              className="pointer-events-auto max-w-md animate-[pos-domicilios-shake_0.55s_ease-in-out_infinite] rounded-2xl border-2 border-amber-400 bg-gradient-to-r from-amber-50 via-orange-50 to-rose-50 px-4 py-3.5 text-left shadow-[0_20px_50px_-12px_rgba(245,158,11,0.55)] ring-4 ring-amber-400/50"
+            >
+              <p className="text-[10px] font-black uppercase tracking-wide text-amber-800">
+                Chat domicilios · pedido nuevo
+              </p>
+              <p className="mt-0.5 text-sm font-black text-slate-900">
+                ¡Llegó un pedido de {avisoPedidoNuevo.pedido.cliente.trim() || "un cliente"}!
+              </p>
+              <p className="mt-1 text-[11px] font-semibold text-rose-700">
+                Tocá aquí para aceptar o rechazar
+                {avisoPedidoNuevo.cantidadEnCola > 1
+                  ? ` · +${avisoPedidoNuevo.cantidadEnCola - 1} en cola`
+                  : ""}
+              </p>
+            </button>
+          </div>
+        </PosBodyPortal>
+      ) : null}
+      {toastMensajeCliente && !avisoPedidoNuevo ? (
         <PosBodyPortal open>
           <div className="fixed inset-x-0 top-3 z-[230] flex justify-center px-3 pointer-events-none">
             <button
@@ -305,12 +365,18 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
         >
           <div
             className={`relative flex items-center gap-2 rounded-[1.35rem] border-2 px-3.5 py-2.5 shadow-[0_22px_60px_-12px_rgba(15,23,42,0.75)] ${
-              totalNoLeidos > 0
-                ? "border-amber-400/90 bg-gradient-to-br from-amber-50 via-cyan-50 to-sky-50 ring-2 ring-amber-400/50 animate-[pulse_2s_ease-in-out_infinite]"
-                : "border-cyan-300/80 bg-gradient-to-br from-white via-cyan-50/95 to-sky-50/95 ring-2 ring-cyan-400/30"
+              hayAvisoPedido
+                ? "animate-[pos-domicilios-shake_0.5s_ease-in-out_infinite] border-rose-500 bg-gradient-to-br from-amber-100 via-orange-50 to-rose-100 ring-4 ring-rose-400/60"
+                : totalNoLeidos > 0
+                  ? "border-amber-400/90 bg-gradient-to-br from-amber-50 via-cyan-50 to-sky-50 ring-2 ring-amber-400/50 animate-[pulse_2s_ease-in-out_infinite]"
+                  : "border-cyan-300/80 bg-gradient-to-br from-white via-cyan-50/95 to-sky-50/95 ring-2 ring-cyan-400/30"
             }`}
           >
-            {totalNoLeidos > 0 ? (
+            {hayAvisoPedido ? (
+              <span className="pointer-events-none absolute -right-1.5 -top-1.5 z-20 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-gradient-to-br from-rose-500 to-red-600 px-1.5 text-[10px] font-bold text-white shadow-lg ring-2 ring-white">
+                !
+              </span>
+            ) : totalNoLeidos > 0 ? (
               <span className="pointer-events-none absolute -right-1.5 -top-1.5 z-20 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-gradient-to-br from-rose-500 to-red-600 px-1.5 text-[10px] font-bold text-white shadow-lg ring-2 ring-white">
                 {totalNoLeidos > 9 ? "9+" : totalNoLeidos}
               </span>
@@ -330,16 +396,24 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
                 ))}
               </span>
               <div className="hidden min-w-0 sm:block">
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-cyan-700">Domicilios</p>
+                <p
+                  className={`text-[10px] font-black uppercase tracking-[0.2em] ${
+                    hayAvisoPedido ? "text-rose-700" : "text-cyan-700"
+                  }`}
+                >
+                  Domicilios
+                </p>
                 <p className="text-[11px] font-semibold text-slate-800">
-                  {pedidosActivos.length} chat{pedidosActivos.length === 1 ? "" : "s"} activo
-                  {pedidosActivos.length === 1 ? "" : "s"}
+                  {hayAvisoPedido
+                    ? "¡Pedido nuevo!"
+                    : `${pedidosActivos.length} chat${pedidosActivos.length === 1 ? "" : "s"} activo${
+                        pedidosActivos.length === 1 ? "" : "s"
+                      }`}
                 </p>
               </div>
             </div>
             <div className="h-9 w-px bg-cyan-200/80" aria-hidden />
             <div className="relative flex flex-col items-center justify-end">
-              {/* Personaje arriba del botón Chats; se achica en celular */}
               <img
                 src={MASCOTA_DOMICILIOS_URL}
                 alt=""
@@ -349,17 +423,29 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
               />
               <button
                 type="button"
-                onClick={() => setPanelAbierto((v) => !v)}
-                className="relative z-10 flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-600 to-sky-600 px-3 py-2 text-xs font-bold text-white shadow-md transition hover:brightness-110 active:scale-[0.98]"
+                onClick={() => {
+                  if (hayAvisoPedido) {
+                    abrirAlertaPedidoNuevo();
+                    return;
+                  }
+                  setPanelAbierto((v) => !v);
+                }}
+                className={`relative z-10 flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-bold text-white shadow-md transition hover:brightness-110 active:scale-[0.98] ${
+                  hayAvisoPedido
+                    ? "bg-gradient-to-r from-rose-600 to-orange-500"
+                    : "bg-gradient-to-r from-cyan-600 to-sky-600"
+                }`}
                 aria-expanded={panelAbierto}
                 aria-label={
-                  totalNoLeidos > 0
-                    ? `Abrir chats de domicilios, ${totalNoLeidos} mensaje${totalNoLeidos === 1 ? "" : "s"} sin leer`
-                    : "Abrir chats de domicilios"
+                  hayAvisoPedido
+                    ? "Abrir pedido nuevo para aceptar o rechazar"
+                    : totalNoLeidos > 0
+                      ? `Abrir chats de domicilios, ${totalNoLeidos} mensaje${totalNoLeidos === 1 ? "" : "s"} sin leer`
+                      : "Abrir chats de domicilios"
                 }
               >
                 <Truck className="h-4 w-4" strokeWidth={2} />
-                <span className="hidden sm:inline">Chats</span>
+                <span className="hidden sm:inline">{hayAvisoPedido ? "Atender" : "Chats"}</span>
               </button>
             </div>
           </div>

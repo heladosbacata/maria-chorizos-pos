@@ -33,36 +33,49 @@ function gananciaMaximaVolumen(volumen: VolumenSonidoDomicilios): number {
   return volumen === "bajo" ? 0.03 : 0.06;
 }
 
+function gananciaAlertaFuerte(volumen: VolumenSonidoDomicilios): number {
+  // Pedido nuevo: más fuerte que el tono normal de chat.
+  return volumen === "bajo" ? 0.09 : 0.16;
+}
+
 export function reproducirTonoDomiciliosPos(
   tipo: "crear" | "reabrir" | "alerta",
-  volumen: VolumenSonidoDomicilios
+  volumen: VolumenSonidoDomicilios,
+  opts?: { fuerte?: boolean }
 ): void {
   if (typeof window === "undefined" || typeof window.AudioContext === "undefined") return;
   try {
     const ctx = new window.AudioContext();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.type = tipo === "alerta" ? "triangle" : "sine";
-    osc.frequency.value = tipo === "crear" || tipo === "alerta" ? 880 : 740;
-    const gananciaObjetivo = gananciaMaximaVolumen(volumen) * (tipo === "alerta" ? 1.35 : 1);
+    const fuerte = Boolean(opts?.fuerte);
+    osc.type = tipo === "alerta" || fuerte ? "square" : tipo === "crear" ? "triangle" : "sine";
+    osc.frequency.value = tipo === "crear" || tipo === "alerta" || fuerte ? 920 : 740;
+    const gananciaObjetivo = fuerte
+      ? gananciaAlertaFuerte(volumen)
+      : gananciaMaximaVolumen(volumen) * (tipo === "alerta" ? 1.35 : 1);
+    const dur = fuerte ? 0.28 : tipo === "alerta" ? 0.35 : tipo === "crear" ? 0.2 : 0.16;
     gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(gananciaObjetivo, ctx.currentTime + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + (tipo === "alerta" ? 0.35 : tipo === "crear" ? 0.2 : 0.16));
+    gain.gain.exponentialRampToValueAtTime(gananciaObjetivo, ctx.currentTime + 0.015);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + dur);
     osc.connect(gain);
     gain.connect(ctx.destination);
     osc.start();
-    osc.stop(ctx.currentTime + (tipo === "alerta" ? 0.38 : tipo === "crear" ? 0.22 : 0.18));
+    osc.stop(ctx.currentTime + dur + 0.02);
     window.setTimeout(() => {
       void ctx.close().catch(() => undefined);
-    }, 420);
+    }, Math.ceil((dur + 0.05) * 1000));
   } catch {
     /* sin audio disponible */
   }
 }
 
+/** Alerta fuerte y repetida: llegó un pedido de domicilio. */
 export function reproducirAlertaNuevoPedidoDomicilio(puntoVenta: string): void {
   if (!leerSonidosDomiciliosActivos(puntoVenta)) return;
   const volumen = leerVolumenSonidoDomicilios(puntoVenta);
-  reproducirTonoDomiciliosPos("alerta", volumen);
-  window.setTimeout(() => reproducirTonoDomiciliosPos("crear", volumen), 220);
+  reproducirTonoDomiciliosPos("alerta", volumen, { fuerte: true });
+  window.setTimeout(() => reproducirTonoDomiciliosPos("crear", volumen, { fuerte: true }), 180);
+  window.setTimeout(() => reproducirTonoDomiciliosPos("alerta", volumen, { fuerte: true }), 360);
+  window.setTimeout(() => reproducirTonoDomiciliosPos("crear", volumen, { fuerte: true }), 540);
 }

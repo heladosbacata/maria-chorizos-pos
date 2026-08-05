@@ -322,6 +322,25 @@ html.pos-viewport-scaled body {
 }
 
 /* Landing pedidos — chips premium de tipo de entrega */
+@keyframes pos-domicilios-shake {
+  0%,
+  100% {
+    transform: translateX(0) rotate(0deg);
+  }
+  20% {
+    transform: translateX(-3px) rotate(-1.2deg);
+  }
+  40% {
+    transform: translateX(3px) rotate(1.2deg);
+  }
+  60% {
+    transform: translateX(-2px) rotate(-0.8deg);
+  }
+  80% {
+    transform: translateX(2px) rotate(0.8deg);
+  }
+}
+
 @keyframes pedidos-entrega-chip-pulse {
   0%,
   100% {
