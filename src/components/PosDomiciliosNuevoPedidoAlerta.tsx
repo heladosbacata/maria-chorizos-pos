@@ -5,8 +5,11 @@ import { AnimatePresence, motion } from "framer-motion";
 import { domicilioCambiarEstado, domiciliosListar } from "@/lib/pos-domicilios-api";
 import { enviarMensajeChatDomicilio } from "@/lib/pos-domicilios-chat-api";
 import {
+  EVENT_DOMICILIOS_ABRIR_ALERTA_PEDIDO,
   EVENT_DOMICILIOS_FORZAR_REFRESH,
   EVENT_DOMICILIOS_PEDIDO_NUEVO,
+  emitirDomiciliosAlertaAtendida,
+  emitirDomiciliosAvisoPedidoNuevo,
   type DomiciliosPedidoNuevoDetail,
 } from "@/lib/pos-domicilios-nuevos-event";
 import { reproducirAlertaNuevoPedidoDomicilio } from "@/lib/pos-domicilios-sonidos";
@@ -46,6 +49,8 @@ function etiquetaPago(metodo: PedidoDomicilio["metodoPago"]): string {
 export default function PosDomiciliosNuevoPedidoAlerta({ puntoVenta, habilitado = true }: Props) {
   const pv = (puntoVenta ?? "").trim();
   const [cola, setCola] = useState<PedidoDomicilio[]>([]);
+  /** El modal fullscreen solo aparece cuando el cajero abre el aviso del dock. */
+  const [modalAbierto, setModalAbierto] = useState(false);
   const [modoRechazo, setModoRechazo] = useState(false);
   const [motivoRechazo, setMotivoRechazo] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -56,6 +61,7 @@ export default function PosDomiciliosNuevoPedidoAlerta({ puntoVenta, habilitado 
   const resumenEnProcesoRef = useRef<Set<string>>(new Set());
 
   const pedidoVisible = cola[0] ?? null;
+  const mostrarModal = Boolean(pedidoVisible && modalAbierto);
 
   const enviarResumenSiFalta = useCallback(async (pedido: PedidoDomicilio) => {
     const pid = pedido.id;
@@ -83,7 +89,7 @@ export default function PosDomiciliosNuevoPedidoAlerta({ puntoVenta, habilitado 
         reproducirAlertaNuevoPedidoDomicilio(pv);
         if (typeof navigator !== "undefined" && "vibrate" in navigator) {
           try {
-            navigator.vibrate([140, 70, 140, 70, 220]);
+            navigator.vibrate([160, 80, 160, 80, 240, 100, 200]);
           } catch {
             /* ignore */
           }
@@ -94,6 +100,8 @@ export default function PosDomiciliosNuevoPedidoAlerta({ puntoVenta, habilitado 
         const extra = recien.filter((p) => !ids.has(p.id));
         return extra.length ? [...cur, ...extra] : cur;
       });
+      // No abrir el modal automáticamente: el dock muestra el aviso vibrante.
+      setModalAbierto(false);
       for (const p of recien) void enviarResumenSiFalta(p);
     },
     [pv, enviarResumenSiFalta]
@@ -133,6 +141,8 @@ export default function PosDomiciliosNuevoPedidoAlerta({ puntoVenta, habilitado 
       pedidosNuevosPrevRef.current = [];
       inicializadoRef.current = false;
       setCola([]);
+      setModalAbierto(false);
+      emitirDomiciliosAlertaAtendida();
       return;
     }
     let activo = true;
@@ -153,7 +163,7 @@ export default function PosDomiciliosNuevoPedidoAlerta({ puntoVenta, habilitado 
     };
   }, [pv, habilitado, cargarPedidos]);
 
-  // Refuerzo: si otro watcher emite el evento, encolar al instante.
+  // Refuerzo: si otro watcher emite el evento, encolar al instante (con sonido/aviso).
   useEffect(() => {
     if (!pv || !habilitado) return;
     const handler = (e: Event) => {
@@ -163,11 +173,38 @@ export default function PosDomiciliosNuevoPedidoAlerta({ puntoVenta, habilitado 
       if ((pedido.puntoVenta ?? "").trim() && (pedido.puntoVenta ?? "").trim() !== pv) return;
       pedidosNuevosPrevRef.current = Array.from(new Set([...pedidosNuevosPrevRef.current, pedido.id]));
       inicializadoRef.current = true;
-      encolarPedidos([pedido], { sonar: false });
+      encolarPedidos([pedido], { sonar: true });
     };
     window.addEventListener(EVENT_DOMICILIOS_PEDIDO_NUEVO, handler);
     return () => window.removeEventListener(EVENT_DOMICILIOS_PEDIDO_NUEVO, handler);
   }, [pv, habilitado, encolarPedidos]);
+
+  // Aviso en el dock mientras haya cola y el modal no esté abierto.
+  useEffect(() => {
+    if (!pedidoVisible || modalAbierto) return;
+    emitirDomiciliosAvisoPedidoNuevo({
+      pedido: pedidoVisible,
+      cantidadEnCola: cola.length,
+    });
+  }, [pedidoVisible, cola.length, modalAbierto]);
+
+  useEffect(() => {
+    if (cola.length === 0) {
+      setModalAbierto(false);
+      emitirDomiciliosAlertaAtendida();
+    }
+  }, [cola.length]);
+
+  // Cajero tocó el aviso del dock → mostrar modal completo.
+  useEffect(() => {
+    if (!pv || !habilitado) return;
+    const handler = () => {
+      setModalAbierto(true);
+      emitirDomiciliosAlertaAtendida();
+    };
+    window.addEventListener(EVENT_DOMICILIOS_ABRIR_ALERTA_PEDIDO, handler);
+    return () => window.removeEventListener(EVENT_DOMICILIOS_ABRIR_ALERTA_PEDIDO, handler);
+  }, [pv, habilitado]);
 
   useEffect(() => {
     if (!pedidoVisible) {
@@ -177,9 +214,9 @@ export default function PosDomiciliosNuevoPedidoAlerta({ puntoVenta, habilitado 
     }
   }, [pedidoVisible?.id]);
 
-  // Bloquear scroll y Escape mientras la alerta a pantalla completa está activa.
+  // Bloquear scroll y Escape solo con el modal abierto.
   useEffect(() => {
-    if (!pedidoVisible) return;
+    if (!mostrarModal) return;
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     const onKeyDown = (e: KeyboardEvent) => {
@@ -193,12 +230,13 @@ export default function PosDomiciliosNuevoPedidoAlerta({ puntoVenta, habilitado 
       document.body.style.overflow = prevOverflow;
       window.removeEventListener("keydown", onKeyDown, true);
     };
-  }, [pedidoVisible]);
+  }, [mostrarModal]);
 
   const cerrarActual = () => {
     setModoRechazo(false);
     setMotivoRechazo("");
     setError(null);
+    setModalAbierto(false);
     setCola((cur) => cur.slice(1));
   };
 
@@ -266,7 +304,7 @@ export default function PosDomiciliosNuevoPedidoAlerta({ puntoVenta, habilitado 
 
   return (
     <AnimatePresence>
-      {pedidoVisible ? (
+      {mostrarModal && pedidoVisible ? (
         <motion.div
           key={pedidoVisible.id}
           initial={{ opacity: 0 }}
@@ -307,7 +345,7 @@ export default function PosDomiciliosNuevoPedidoAlerta({ puntoVenta, habilitado 
                 ¡Llegó un pedido nuevo!
               </h2>
               <p className="mx-auto mt-2 max-w-2xl text-center text-sm font-semibold text-amber-50/95 sm:text-base">
-                Atendé este pedido antes de seguir en caja. No se puede cerrar hasta aceptar o rechazar.
+                Revisá el detalle y aceptá o rechazá el pedido. No se puede cerrar hasta decidir.
               </p>
               {cola.length > 1 ? (
                 <p className="mt-2 text-center text-xs font-bold text-amber-100">
