@@ -111,20 +111,31 @@ describe("tabCatalogoDeProducto", () => {
     ).toBe(textoChorizo);
     expect(
       subtituloTarjetaCatalogoPedidos(
-        prod({ sku: "HAW-01", descripcion: "Choripan Hawaiano", categoria: "Básicos" })
-      )
-    ).toBe(textoChorizo);
-    expect(
-      subtituloTarjetaCatalogoPedidos(
         prod({ sku: "COMBO-1", descripcion: "Combo chorizo arepa", categoria: "Especialidades" })
       )
     ).toBe(textoChorizo);
-    // Paquete de chorizos también
     expect(
       subtituloTarjetaCatalogoPedidos(
         prod({ sku: "PQ-CHO", descripcion: "Paquete chorizos x10", categoria: "Especialidades" })
       )
     ).toBe(textoChorizo);
+  });
+
+  it("subtítulo propio del hawaiano", () => {
+    expect(
+      subtituloTarjetaCatalogoPedidos(
+        prod({ sku: "HAW-01", descripcion: "Choripan Hawaiano", categoria: "Básicos" })
+      )
+    ).toBe(
+      "Chorizo santarrosano 100% artesanal, acompañado de pan, papa cabello de ángel y piña en trozos y salsas al gusto."
+    );
+    expect(
+      subtituloTarjetaCatalogoPedidos(
+        prod({ sku: "HAW", descripcion: "Hawaiano", categoria: "Imperdibles" })
+      )
+    ).toBe(
+      "Chorizo santarrosano 100% artesanal, acompañado de pan, papa cabello de ángel y piña en trozos y salsas al gusto."
+    );
   });
 
   it("subtítulo listo para llevar en paquetes sin chorizo y bebidas", () => {
