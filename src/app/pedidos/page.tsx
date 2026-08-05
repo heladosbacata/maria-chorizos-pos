@@ -57,7 +57,14 @@ import {
 } from "@/types/pos-domicilios-medios-transferencia";
 import type { ProductoPOS } from "@/types";
 import type { MensajeChatDomicilio } from "@/types/pos-domicilios-chat";
-import { productoRequiereSoloTipoArepaPeto } from "@/lib/chorizo-variante-pos";
+import {
+  OPCIONES_SALSA_FAVORITA,
+  esSalsaFavorita,
+  etiquetaSalsaFavorita,
+  productoRequiereSalsaFavorita,
+  productoRequiereSoloTipoArepaPeto,
+  type SalsaFavorita,
+} from "@/lib/chorizo-variante-pos";
 import {
   descripcionBebidaParaUi,
   variantesBebidaParaUi,
@@ -203,20 +210,46 @@ type CarritoLinea = {
   cantidad: number;
   varianteKey: string | null;
   varianteLabel: string | null;
+  salsaKey: SalsaFavorita | null;
+  salsaLabel: string | null;
   precioUnitarioLinea: number;
 };
 
 const VARIANTE_BASE_KEY = "__base";
+const SALSA_KEY_PREFIX = "salsa:";
 
-function keyLineaPedido(sku: string, varianteKey: string | null): string {
-  return `${sku}::${varianteKey ?? VARIANTE_BASE_KEY}`;
+function keyLineaPedido(
+  sku: string,
+  varianteKey: string | null,
+  salsaKey: SalsaFavorita | null = null
+): string {
+  const base = `${sku}::${varianteKey ?? VARIANTE_BASE_KEY}`;
+  if (!salsaKey) return base;
+  return `${base}::${SALSA_KEY_PREFIX}${salsaKey}`;
 }
 
-function parseKeyLineaPedido(lineKey: string): { sku: string; varianteKey: string | null } {
-  const [skuRaw, varianteRaw] = lineKey.split("::");
-  const sku = (skuRaw ?? "").trim();
-  const vk = (varianteRaw ?? VARIANTE_BASE_KEY).trim();
-  return { sku, varianteKey: vk && vk !== VARIANTE_BASE_KEY ? vk : null };
+function parseKeyLineaPedido(lineKey: string): {
+  sku: string;
+  varianteKey: string | null;
+  salsaKey: SalsaFavorita | null;
+} {
+  const parts = lineKey.split("::");
+  const sku = (parts[0] ?? "").trim();
+  const vk = (parts[1] ?? VARIANTE_BASE_KEY).trim();
+  const salsaRaw = (parts[2] ?? "").trim();
+  const salsaToken = salsaRaw.startsWith(SALSA_KEY_PREFIX)
+    ? salsaRaw.slice(SALSA_KEY_PREFIX.length)
+    : "";
+  return {
+    sku,
+    varianteKey: vk && vk !== VARIANTE_BASE_KEY ? vk : null,
+    salsaKey: esSalsaFavorita(salsaToken) ? salsaToken : null,
+  };
+}
+
+function etiquetaLineaPedido(varianteLabel: string | null, salsaLabel: string | null): string | null {
+  const parts = [varianteLabel, salsaLabel].filter(Boolean) as string[];
+  return parts.length ? parts.join(" · ") : null;
 }
 
 function textoVarianteNorm(v: string): string {
@@ -615,6 +648,7 @@ function PedidosLandingClient() {
   const [errorCatalogo, setErrorCatalogo] = useState<string | null>(null);
   const [cantidades, setCantidades] = useState<Record<string, number>>({});
   const [varianteSeleccionadaPorSku, setVarianteSeleccionadaPorSku] = useState<Record<string, string>>({});
+  const [salsaSeleccionadaPorSku, setSalsaSeleccionadaPorSku] = useState<Record<string, SalsaFavorita>>({});
   const [cliente, setCliente] = useState("");
   const [telefono, setTelefono] = useState("");
   const [direccion, setDireccion] = useState("");
@@ -1171,18 +1205,21 @@ function PedidosLandingClient() {
     const out: CarritoLinea[] = [];
     for (const [lineKey, cantidad] of Object.entries(cantidades)) {
       if (!Number.isFinite(cantidad) || cantidad <= 0) continue;
-      const { sku, varianteKey } = parseKeyLineaPedido(lineKey);
+      const { sku, varianteKey, salsaKey } = parseKeyLineaPedido(lineKey);
       const p = porSku.get(sku);
       if (!p) continue;
       const variantes = opcionesVariantesProducto(p);
       const variante = varianteKey ? variantes.find((v) => v.key === varianteKey) : null;
       const precioUnitarioLinea = variante?.precio ?? p.precioUnitario;
+      const salsaLabel = salsaKey ? etiquetaSalsaFavorita(salsaKey) : null;
       out.push({
         lineKey,
         p,
         cantidad,
         varianteKey: variante?.key ?? null,
         varianteLabel: variante?.label ?? null,
+        salsaKey,
+        salsaLabel,
         precioUnitarioLinea,
       });
     }
@@ -1249,13 +1286,27 @@ function PedidosLandingClient() {
     return out;
   }, [catalogoVisible, itemsCarrito]);
 
-  const subirCantidad = (sku: string, varianteKey: string | null = null) => {
-    const lineKey = keyLineaPedido(sku, varianteKey);
+  const subirCantidad = (
+    sku: string,
+    varianteKey: string | null = null,
+    salsaKey: SalsaFavorita | null = null
+  ) => {
+    const p = catalogo.find((x) => x.sku === sku);
+    if (p && productoRequiereSalsaFavorita(p) && !salsaKey) {
+      setMensaje("Elija su salsa favorita (ajo o chimichurri) antes de agregar el producto.");
+      return;
+    }
+    const lineKey = keyLineaPedido(sku, varianteKey, salsaKey);
+    setMensaje(null);
     setCantidades((prev) => ({ ...prev, [lineKey]: (prev[lineKey] ?? 0) + 1 }));
   };
 
-  const bajarCantidad = (sku: string, varianteKey: string | null = null) => {
-    const lineKey = keyLineaPedido(sku, varianteKey);
+  const bajarCantidad = (
+    sku: string,
+    varianteKey: string | null = null,
+    salsaKey: SalsaFavorita | null = null
+  ) => {
+    const lineKey = keyLineaPedido(sku, varianteKey, salsaKey);
     setCantidades((prev) => {
       const actual = prev[lineKey] ?? 0;
       if (actual <= 1) {
@@ -1282,7 +1333,11 @@ function PedidosLandingClient() {
         if (!p) continue;
         const vars = opcionesVariantesProducto(p);
         const varKey = varianteSeleccionadaPorSku[p.sku] ?? (vars[0]?.key ?? null);
-        const lk = keyLineaPedido(p.sku, varKey);
+        const salsaKey = productoRequiereSalsaFavorita(p)
+          ? salsaSeleccionadaPorSku[p.sku] ?? null
+          : null;
+        if (productoRequiereSalsaFavorita(p) && !salsaKey) continue;
+        const lk = keyLineaPedido(p.sku, varKey, salsaKey);
         next[lk] = (next[lk] ?? 0) + 1;
       }
       return next;
@@ -1318,8 +1373,8 @@ function PedidosLandingClient() {
     }
     slides.push({
       id: "club",
-      titulo: "Club de millas",
-      texto: "Acumule millas con cada factura y canjee beneficios.",
+      titulo: "Acumule millas en cada pedido",
+      texto: "Sume millas con su factura y canjee beneficios en el Club de millas.",
       cta: "Ver mi plan",
       accion: "club",
     });
@@ -1332,6 +1387,10 @@ function PedidosLandingClient() {
       setCarruselIdx((i) => (i + 1) % slidesCarrusel.length);
     }, 4500);
     return () => window.clearInterval(id);
+  }, [slidesCarrusel.length]);
+
+  useEffect(() => {
+    setCarruselIdx((i) => (slidesCarrusel.length ? i % slidesCarrusel.length : 0));
   }, [slidesCarrusel.length]);
 
   const validarPedidoAntesDeEnviar = (): boolean => {
@@ -1368,6 +1427,7 @@ function PedidosLandingClient() {
       setMensaje("Indique la dirección de entrega o elija pasar a recoger en la tienda.");
       return false;
     }
+<<<<<<< HEAD
     const mapa = tarifaDomicilio.catalogoDomiciliosPorSku;
     const hayDeshabilitado = itemsCarrito.some(
       (x) => !productoHabilitadoEnDomiciliosPunto(x.p.sku, mapa)
@@ -1377,6 +1437,13 @@ function PedidosLandingClient() {
         "Algunos productos de su carrito ya no están disponibles para domicilio. Revise el menú e intente de nuevo."
       );
       void refrescarTarifaDomicilio();
+=======
+    const faltaSalsa = itemsCarrito.some(
+      (x) => productoRequiereSalsaFavorita(x.p) && !x.salsaKey
+    );
+    if (faltaSalsa) {
+      setMensaje("Hay productos sin salsa favorita. Elija salsa de ajo o chimichurri.");
+>>>>>>> origin/main
       return false;
     }
     return true;
@@ -1418,11 +1485,12 @@ function PedidosLandingClient() {
       total: Math.round(total),
       metodoPago,
       canal,
-      items: itemsCarrito.map((x) =>
-        x.varianteLabel
-          ? `${x.cantidad}x ${descripcionBebidaParaUi(x.p)} (${x.varianteLabel})`
-          : `${x.cantidad}x ${descripcionBebidaParaUi(x.p)}`
-      ),
+      items: itemsCarrito.map((x) => {
+        const detalle = etiquetaLineaPedido(x.varianteLabel, x.salsaLabel);
+        return detalle
+          ? `${x.cantidad}x ${descripcionBebidaParaUi(x.p)} (${detalle})`
+          : `${x.cantidad}x ${descripcionBebidaParaUi(x.p)}`;
+      }),
       tiempoObjetivoMin: 35,
       tipoEntrega,
     };
@@ -1448,11 +1516,12 @@ function PedidosLandingClient() {
         setEnviando(false);
         return;
       }
-      const lineasResumen = itemsCarrito.map((x) =>
-        x.varianteLabel
-          ? `${x.cantidad}× ${descripcionBebidaParaUi(x.p)} (${x.varianteLabel})`
-          : `${x.cantidad}× ${descripcionBebidaParaUi(x.p)}`
-      );
+      const lineasResumen = itemsCarrito.map((x) => {
+        const detalle = etiquetaLineaPedido(x.varianteLabel, x.salsaLabel);
+        return detalle
+          ? `${x.cantidad}× ${descripcionBebidaParaUi(x.p)} (${detalle})`
+          : `${x.cantidad}× ${descripcionBebidaParaUi(x.p)}`;
+      });
       setPedidoResumenChat({
         lineasItems: lineasResumen,
         total: Math.round(total),
@@ -2049,13 +2118,15 @@ function PedidosLandingClient() {
         {itemsCarrito.length === 0 ? (
           <li className="text-gray-500">Todavía no ha agregado productos.</li>
         ) : (
-          itemsCarrito.map(({ lineKey, p, cantidad, varianteLabel, precioUnitarioLinea, varianteKey }) => (
+          itemsCarrito.map(({ lineKey, p, cantidad, varianteLabel, salsaLabel, salsaKey, precioUnitarioLinea, varianteKey }) => {
+            const detalle = etiquetaLineaPedido(varianteLabel, salsaLabel);
+            return (
             <li key={lineKey} className="rounded-xl border border-gray-100 bg-gray-50/80 p-2.5">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <p className="line-clamp-2 font-semibold text-gray-900">
                     {descripcionBebidaParaUi(p)}
-                    {varianteLabel ? <span className="font-normal text-gray-600"> ({varianteLabel})</span> : null}
+                    {detalle ? <span className="font-normal text-gray-600"> ({detalle})</span> : null}
                   </p>
                   <p className="mt-0.5 text-[11px] text-gray-500">{formatoMoneda(precioUnitarioLinea)} c/u</p>
                 </div>
@@ -2065,7 +2136,7 @@ function PedidosLandingClient() {
                     <button
                       type="button"
                       aria-label="Quitar una unidad"
-                      onClick={() => bajarCantidad(p.sku, varianteKey)}
+                      onClick={() => bajarCantidad(p.sku, varianteKey, salsaKey)}
                       className="flex h-7 w-7 items-center justify-center rounded-md border border-gray-200 bg-white text-sm font-bold text-gray-700 transition hover:bg-gray-100 active:scale-95"
                     >
                       -
@@ -2074,7 +2145,7 @@ function PedidosLandingClient() {
                     <button
                       type="button"
                       aria-label="Agregar una unidad"
-                      onClick={() => subirCantidad(p.sku, varianteKey)}
+                      onClick={() => subirCantidad(p.sku, varianteKey, salsaKey)}
                       className="flex h-7 w-7 items-center justify-center rounded-md bg-cyan-700 text-sm font-bold text-white transition hover:bg-cyan-800 active:scale-95"
                     >
                       +
@@ -2090,7 +2161,8 @@ function PedidosLandingClient() {
                 </div>
               </div>
             </li>
-          ))
+            );
+          })
         )}
       </ul>
       <div className="mt-3 space-y-1 rounded-xl bg-gray-50 p-3 text-xs text-gray-700">
@@ -2122,8 +2194,10 @@ function PedidosLandingClient() {
     const varianteActivaKey = varianteSeleccionadaPorSku[prod.sku] ?? (variantes[0]?.key ?? null);
     const varianteActiva = varianteActivaKey ? variantes.find((v) => v.key === varianteActivaKey) : null;
     const precioMostrar = varianteActiva?.precio ?? prod.precioUnitario;
-    const lineKey = keyLineaPedido(prod.sku, varianteActivaKey);
-    const cant = cantidades[lineKey] ?? 0;
+    const pideSalsa = productoRequiereSalsaFavorita(prod);
+    const salsaActiva = salsaSeleccionadaPorSku[prod.sku] ?? null;
+    const lineKey = keyLineaPedido(prod.sku, varianteActivaKey, pideSalsa ? salsaActiva : null);
+    const cant = pideSalsa && !salsaActiva ? 0 : cantidades[lineKey] ?? 0;
     const img = primeraImagenProducto(prod);
     const usarImageOptimizada = img ? imagenProductoOptimizable(img) : false;
     return (
@@ -2192,21 +2266,59 @@ function PedidosLandingClient() {
               </div>
             </div>
           ) : null}
+          {pideSalsa ? (
+            <div className="space-y-1">
+              <p className="text-[11px] font-semibold text-gray-600">
+                Salsa favorita <span className="font-normal text-rose-600">(obligatoria)</span>
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {OPCIONES_SALSA_FAVORITA.map((op) => {
+                  const activo = salsaActiva === op.key;
+                  return (
+                    <button
+                      key={`${prod.sku}-salsa-${op.key}`}
+                      type="button"
+                      onClick={() =>
+                        setSalsaSeleccionadaPorSku((prev) => ({
+                          ...prev,
+                          [prod.sku]: op.key,
+                        }))
+                      }
+                      className={`rounded-full border px-2 py-1 text-[11px] font-semibold transition ${
+                        activo
+                          ? "border-amber-500 bg-amber-500 text-white"
+                          : "border-amber-300 bg-amber-50 text-amber-950 hover:bg-amber-100"
+                      }`}
+                    >
+                      {op.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {!salsaActiva ? (
+                <p className="text-[10px] font-medium text-amber-800">
+                  Elija una salsa para poder agregar unidades.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           <div className="flex items-center justify-between gap-3">
             <p className="text-lg font-extrabold text-cyan-700">{formatoMoneda(precioMostrar)}</p>
             <div className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1">
               <button
                 type="button"
-                onClick={() => bajarCantidad(prod.sku, varianteActivaKey)}
-                className="h-8 w-8 rounded-md border border-gray-200 bg-white text-base font-bold text-gray-700 transition hover:bg-gray-100 active:scale-95"
+                onClick={() => bajarCantidad(prod.sku, varianteActivaKey, pideSalsa ? salsaActiva : null)}
+                disabled={pideSalsa && !salsaActiva}
+                className="h-8 w-8 rounded-md border border-gray-200 bg-white text-base font-bold text-gray-700 transition hover:bg-gray-100 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 -
               </button>
               <span className="w-7 text-center text-base font-semibold">{cant}</span>
               <button
                 type="button"
-                onClick={() => subirCantidad(prod.sku, varianteActivaKey)}
-                className="h-8 w-8 rounded-md bg-cyan-700 text-base font-bold text-white transition hover:bg-cyan-800 active:scale-95"
+                onClick={() => subirCantidad(prod.sku, varianteActivaKey, pideSalsa ? salsaActiva : null)}
+                disabled={pideSalsa && !salsaActiva}
+                className="h-8 w-8 rounded-md bg-cyan-700 text-base font-bold text-white transition hover:bg-cyan-800 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 +
               </button>
@@ -2479,24 +2591,72 @@ function PedidosLandingClient() {
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={abrirClubMillasEnVentanaEmergente}
-            role="region"
-            aria-label="Club de millas María Chorizos"
-            className="relative mt-3 flex w-full items-center gap-2.5 overflow-hidden rounded-2xl border border-amber-200/50 bg-black/25 px-3 py-2 text-left shadow-md backdrop-blur-sm transition hover:bg-black/35 active:scale-[0.995] sm:mt-4 sm:gap-4 sm:px-4 sm:py-3"
-          >
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-300 to-yellow-400 text-lg font-black text-red-900 shadow-inner sm:h-12 sm:w-12 sm:text-xl">
-              ★
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-[10px] font-bold uppercase tracking-[0.2em] text-amber-200">Club de millas</span>
-              <span className="block truncate text-sm font-extrabold text-white sm:text-base">Acumule millas en cada pedido</span>
-            </span>
-            <span className="shrink-0 rounded-xl bg-gradient-to-r from-amber-300 to-yellow-300 px-3 py-2 text-xs font-black text-red-950 shadow-sm sm:px-4 sm:text-sm">
-              Ver mi plan
-            </span>
-          </button>
+          {/* Carrusel de promos en el banner (incluye Club de millas) */}
+          {(() => {
+            const slide = slidesCarrusel[carruselIdx % Math.max(slidesCarrusel.length, 1)];
+            if (!slide) return null;
+            return (
+              <div className="relative mt-3 overflow-hidden rounded-2xl border border-amber-200/45 bg-black/30 shadow-md backdrop-blur-sm sm:mt-4">
+                <div className="flex items-stretch gap-2.5 px-3 py-2.5 sm:gap-3 sm:px-4 sm:py-3">
+                  <div className="flex min-w-0 flex-1 flex-col justify-center">
+                    <p className="text-[9px] font-black uppercase tracking-[0.18em] text-amber-200 sm:text-[10px] sm:tracking-[0.2em]">
+                      {slide.id === "club" ? "Club de millas" : "Promo"}
+                    </p>
+                    <p className="mt-0.5 text-sm font-black leading-snug text-white sm:text-base">{slide.titulo}</p>
+                    <p className="mt-0.5 text-[11px] leading-snug text-amber-50/95 sm:text-xs">{slide.texto}</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      {slide.cta ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (slide.accion === "combo" && combosSugeridos[0]) {
+                              agregarComboSugerido(combosSugeridos[0].skus);
+                            } else if (slide.accion === "club") {
+                              abrirClubMillasEnVentanaEmergente();
+                            }
+                          }}
+                          className="rounded-lg bg-gradient-to-r from-amber-300 to-yellow-300 px-3 py-1.5 text-[11px] font-black text-red-950 shadow-sm transition hover:from-amber-200 hover:to-yellow-200 sm:rounded-xl sm:px-3.5 sm:py-2 sm:text-xs"
+                        >
+                          {slide.cta}
+                        </button>
+                      ) : null}
+                      <div className="flex items-center gap-1">
+                        {slidesCarrusel.map((s, i) => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            aria-label={`Ir a promo ${i + 1}`}
+                            aria-current={i === carruselIdx % slidesCarrusel.length ? "true" : undefined}
+                            onClick={() => setCarruselIdx(i)}
+                            className={`h-1.5 rounded-full transition ${
+                              i === carruselIdx % slidesCarrusel.length
+                                ? "w-5 bg-amber-300"
+                                : "w-1.5 bg-white/40 hover:bg-white/60"
+                            }`}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-center justify-center">
+                    {slide.id === "club" ? (
+                      <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-amber-300 to-yellow-400 text-xl font-black text-red-900 shadow-inner sm:h-14 sm:w-14 sm:text-2xl">
+                        ★
+                      </span>
+                    ) : (
+                      <img
+                        src={MASCOTA_DOMICILIOS_URL}
+                        alt=""
+                        aria-hidden
+                        className="h-12 w-auto max-w-[3rem] object-contain drop-shadow-md sm:h-14 sm:max-w-[3.5rem]"
+                        draggable={false}
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </header>
 
         {renderRastreadorPedido()}
@@ -2645,59 +2805,6 @@ function PedidosLandingClient() {
           <aside ref={checkoutRef} className="min-w-0 space-y-3 lg:sticky lg:top-4 lg:h-fit lg:space-y-4">
             <section className="scroll-mt-20 hidden overflow-hidden rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm sm:p-4 lg:block">
               {renderContenidoCarrito()}
-            </section>
-
-            <section className="overflow-hidden rounded-2xl border border-amber-300 bg-gradient-to-br from-red-700 via-red-600 to-amber-500 p-3.5 text-white shadow-sm sm:p-4">
-              {(() => {
-                const slide = slidesCarrusel[carruselIdx % Math.max(slidesCarrusel.length, 1)];
-                if (!slide) return null;
-                return (
-                  <div className="space-y-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-200">Promos</p>
-                        <h3 className="mt-1 text-base font-black leading-snug">{slide.titulo}</h3>
-                        <p className="mt-1 text-xs text-amber-50/95">{slide.texto}</p>
-                      </div>
-                      <img
-                        src={MASCOTA_DOMICILIOS_URL}
-                        alt=""
-                        aria-hidden
-                        className="h-14 w-auto max-w-[3.25rem] shrink-0 object-contain drop-shadow-md"
-                        draggable={false}
-                      />
-                    </div>
-                    {slide.cta ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (slide.accion === "combo" && combosSugeridos[0]) {
-                            agregarComboSugerido(combosSugeridos[0].skus);
-                          } else if (slide.accion === "club") {
-                            abrirClubMillasEnVentanaEmergente();
-                          }
-                        }}
-                        className="rounded-xl bg-amber-300 px-3 py-2 text-xs font-black text-red-950 shadow-sm transition hover:bg-amber-200"
-                      >
-                        {slide.cta}
-                      </button>
-                    ) : null}
-                    <div className="flex items-center gap-1.5">
-                      {slidesCarrusel.map((s, i) => (
-                        <button
-                          key={s.id}
-                          type="button"
-                          aria-label={`Ir a promo ${i + 1}`}
-                          onClick={() => setCarruselIdx(i)}
-                          className={`h-1.5 rounded-full transition ${
-                            i === carruselIdx % slidesCarrusel.length ? "w-5 bg-amber-300" : "w-1.5 bg-white/40"
-                          }`}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                );
-              })()}
             </section>
 
             <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm sm:p-4">
