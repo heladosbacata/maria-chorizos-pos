@@ -66,8 +66,18 @@ export function productoRequiereSoloChorizoPan(p: ProductoPOS): boolean {
 /**
  * Arepa de peto sin chorizo (p. ej. "Arepa de Peto con Queso", SKU tipo PET-…QUESO…):
  * modal solo queso / queso y bocadillo.
+ * No aplica a paquetes: el nombre del paquete ya aclara queso o queso+bocadillo.
  */
+export function productoEsPaqueteArepa(p: ProductoPOS): boolean {
+  const t = `${p.descripcion ?? ""} ${p.categoria ?? ""} ${p.sku ?? ""}`
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  return t.includes("paquete") && t.includes("arepa");
+}
+
 export function productoRequiereSoloTipoArepaPeto(p: ProductoPOS): boolean {
+  if (productoEsPaqueteArepa(p)) return false;
   if (productoRequiereChorizoYArepa(p) || productoRequiereSoloChorizoPan(p)) return false;
   const sku = `${p.sku ?? ""}`.toUpperCase();
   const d = `${p.descripcion ?? ""}`.toLowerCase();

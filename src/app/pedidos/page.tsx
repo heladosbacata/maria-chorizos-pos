@@ -62,6 +62,7 @@ import {
   OPCIONES_SELECCION_SALSA_UI,
   esTokenSalsaPedido,
   etiquetaTokenSalsaPedido,
+  productoEsPaqueteArepa,
   productoRequiereSalsaFavorita,
   productoRequiereSoloTipoArepaPeto,
   type TokenSalsaPedido,
@@ -298,9 +299,13 @@ function precioOpcionArepaPeto(p: ProductoPOS, tipo: "queso_bocadillo" | "arepa_
 /**
  * Variantes del producto en el menú de domicilios.
  * Arepa de peto: solo 2 opciones (como en caja), aunque el WMS mande 3.
+ * Paquetes de arepas: sin variantes (el nombre ya dice queso / bocadillo).
  * Bebidas: dedupe + tamaño del nombre (ej. 600 ml) como variante.
  */
 function opcionesVariantesProducto(p: ProductoPOS): VarianteUi[] {
+  // Paquete arepa queso / paquete arepa queso+bocadillo: productos distintos, sin selector.
+  if (productoEsPaqueteArepa(p)) return [];
+
   if (productoRequiereSoloTipoArepaPeto(p)) {
     return [
       {
