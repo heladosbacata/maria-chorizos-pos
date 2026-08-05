@@ -67,14 +67,32 @@ export function productoEsComboTab(p: ProductoPOS): boolean {
 }
 
 export function productoEsPaqueteTab(p: ProductoPOS): boolean {
+  if (productoEsChimichurriPorLitroTab(p)) return true;
   const cat = categoriaCanon(p);
   if (cat === "Básicos" || cat === "Bebidas" || cat === "Complementos") return false;
   const t = textoNorm(`${p.descripcion} ${p.categoria ?? ""}`);
   return /paquete/.test(t) && !/combo/.test(t);
 }
 
+/**
+ * Salsa chimichurri por litro (para llevar): se muestra en el tab Paquetes.
+ * Acepta nombres tipo "Chimichurri por litro", "Salsa chimichurri 1L", etc.
+ */
+export function productoEsChimichurriPorLitroTab(p: ProductoPOS): boolean {
+  const t = textoNorm(`${p.descripcion} ${p.sku ?? ""} ${p.categoria ?? ""}`);
+  if (!/chimichurri/.test(t)) return false;
+  return (
+    /por\s*litro/.test(t) ||
+    /\b1\s*l(?:itro)?s?\b/.test(t) ||
+    /\bx?\s*1000\s*m\.?l\.?\b/.test(t) ||
+    /\blt\b/.test(t) ||
+    /\blitro\b/.test(t)
+  );
+}
+
 export function productoEsAdicionalTab(p: ProductoPOS): boolean {
   const cat = categoriaCanon(p);
+  if (productoEsChimichurriPorLitroTab(p)) return false;
   if (cat === "Complementos") return true;
   if (cat === "Básicos" || cat === "Bebidas" || cat === "Imperdibles") return false;
   // Solo por categoría explícita; no por “salsa/extra” en el nombre del plato.
@@ -100,6 +118,8 @@ export function tabCatalogoDeProducto(p: ProductoPOS): TabCatalogoPedidos {
   const cat = categoriaCanon(p);
 
   if (cat === "Bebidas" || productoEsBebidasTab(p)) return "bebidas";
+  // Chimichurri por litro: Paquetes (aunque venga como Complemento).
+  if (productoEsChimichurriPorLitroTab(p)) return "paquetes";
   if (cat === "Complementos") return "adicionales";
   if (productoEsComboTab(p)) return "combos";
   if (productoEsPaqueteTab(p)) return "paquetes";
@@ -112,4 +132,12 @@ export function tabCatalogoDeProducto(p: ProductoPOS): TabCatalogoPedidos {
 
 export function filtrarCatalogoPorTab(productos: ProductoPOS[], tab: TabCatalogoPedidos): ProductoPOS[] {
   return productos.filter((p) => tabCatalogoDeProducto(p) === tab);
+}
+
+/** Subtítulo bajo el nombre en la tarjeta del menú /pedidos. */
+export function subtituloTarjetaCatalogoPedidos(p: ProductoPOS): string {
+  if (tabCatalogoDeProducto(p) === "paquetes") {
+    return "Producto fresco listo para llevar.";
+  }
+  return "Producto fresco, preparado al momento.";
 }
