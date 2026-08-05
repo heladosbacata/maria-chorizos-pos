@@ -13,7 +13,12 @@ export const RESPUESTAS_RAPIDAS_CHAT_DOMICILIO: readonly { id: string; etiqueta:
   { id: "aceptado", etiqueta: "Pedido aceptado", texto: "Tu pedido fue aceptado. En breve comenzamos la preparación." },
   { id: "preparacion", etiqueta: "En preparación", texto: "Tu pedido está en preparación. Te avisamos cuando salga a entrega." },
   { id: "en-camino", etiqueta: "En camino", texto: "Tu pedido va en camino hacia tu dirección. ¡Gracias por tu compra!" },
-  { id: "listo-recoger", etiqueta: "Listo para recoger", texto: "Tu pedido está listo para recoger en el punto. Te esperamos." },
+  {
+    id: "listo-recoger",
+    etiqueta: "Listo para recoger",
+    texto:
+      "Tu pedido ya está listo para que puedas pasar por el punto de venta y recogerlo. Gracias",
+  },
   { id: "demora", etiqueta: "Demora", texto: "Te informamos que hay una demora un poco mayor de lo habitual. Gracias por tu paciencia." },
   { id: "direccion", etiqueta: "Confirmar dirección", texto: "¿Podés confirmarnos la dirección y una referencia para la entrega? Gracias." },
   { id: "pago-entrega", etiqueta: "Pago contraentrega", texto: "Recordá que el pago contraentrega se hace al recibir el pedido." },
