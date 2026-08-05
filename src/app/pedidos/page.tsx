@@ -1307,8 +1307,8 @@ function PedidosLandingClient() {
     }
     slides.push({
       id: "club",
-      titulo: "Club de millas",
-      texto: "Acumule millas con cada factura y canjee beneficios.",
+      titulo: "Acumule millas en cada pedido",
+      texto: "Sume millas con su factura y canjee beneficios en el Club de millas.",
       cta: "Ver mi plan",
       accion: "club",
     });
@@ -1321,6 +1321,10 @@ function PedidosLandingClient() {
       setCarruselIdx((i) => (i + 1) % slidesCarrusel.length);
     }, 4500);
     return () => window.clearInterval(id);
+  }, [slidesCarrusel.length]);
+
+  useEffect(() => {
+    setCarruselIdx((i) => (slidesCarrusel.length ? i % slidesCarrusel.length : 0));
   }, [slidesCarrusel.length]);
 
   const validarPedidoAntesDeEnviar = (): boolean => {
@@ -2509,24 +2513,72 @@ function PedidosLandingClient() {
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={abrirClubMillasEnVentanaEmergente}
-            role="region"
-            aria-label="Club de millas María Chorizos"
-            className="relative mt-3 flex w-full items-center gap-2.5 overflow-hidden rounded-2xl border border-amber-200/50 bg-black/25 px-3 py-2 text-left shadow-md backdrop-blur-sm transition hover:bg-black/35 active:scale-[0.995] sm:mt-4 sm:gap-4 sm:px-4 sm:py-3"
-          >
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-300 to-yellow-400 text-lg font-black text-red-900 shadow-inner sm:h-12 sm:w-12 sm:text-xl">
-              ★
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-[10px] font-bold uppercase tracking-[0.2em] text-amber-200">Club de millas</span>
-              <span className="block truncate text-sm font-extrabold text-white sm:text-base">Acumule millas en cada pedido</span>
-            </span>
-            <span className="shrink-0 rounded-xl bg-gradient-to-r from-amber-300 to-yellow-300 px-3 py-2 text-xs font-black text-red-950 shadow-sm sm:px-4 sm:text-sm">
-              Ver mi plan
-            </span>
-          </button>
+          {/* Carrusel de promos en el banner (incluye Club de millas) */}
+          {(() => {
+            const slide = slidesCarrusel[carruselIdx % Math.max(slidesCarrusel.length, 1)];
+            if (!slide) return null;
+            return (
+              <div className="relative mt-3 overflow-hidden rounded-2xl border border-amber-200/45 bg-black/30 shadow-md backdrop-blur-sm sm:mt-4">
+                <div className="flex items-stretch gap-2.5 px-3 py-2.5 sm:gap-3 sm:px-4 sm:py-3">
+                  <div className="flex min-w-0 flex-1 flex-col justify-center">
+                    <p className="text-[9px] font-black uppercase tracking-[0.18em] text-amber-200 sm:text-[10px] sm:tracking-[0.2em]">
+                      {slide.id === "club" ? "Club de millas" : "Promo"}
+                    </p>
+                    <p className="mt-0.5 text-sm font-black leading-snug text-white sm:text-base">{slide.titulo}</p>
+                    <p className="mt-0.5 text-[11px] leading-snug text-amber-50/95 sm:text-xs">{slide.texto}</p>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      {slide.cta ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (slide.accion === "combo" && combosSugeridos[0]) {
+                              agregarComboSugerido(combosSugeridos[0].skus);
+                            } else if (slide.accion === "club") {
+                              abrirClubMillasEnVentanaEmergente();
+                            }
+                          }}
+                          className="rounded-lg bg-gradient-to-r from-amber-300 to-yellow-300 px-3 py-1.5 text-[11px] font-black text-red-950 shadow-sm transition hover:from-amber-200 hover:to-yellow-200 sm:rounded-xl sm:px-3.5 sm:py-2 sm:text-xs"
+                        >
+                          {slide.cta}
+                        </button>
+                      ) : null}
+                      <div className="flex items-center gap-1">
+                        {slidesCarrusel.map((s, i) => (
+                          <button
+                            key={s.id}
+                            type="button"
+                            aria-label={`Ir a promo ${i + 1}`}
+                            aria-current={i === carruselIdx % slidesCarrusel.length ? "true" : undefined}
+                            onClick={() => setCarruselIdx(i)}
+                            className={`h-1.5 rounded-full transition ${
+                              i === carruselIdx % slidesCarrusel.length
+                                ? "w-5 bg-amber-300"
+                                : "w-1.5 bg-white/40 hover:bg-white/60"
+                            }`}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 flex-col items-center justify-center">
+                    {slide.id === "club" ? (
+                      <span className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-amber-300 to-yellow-400 text-xl font-black text-red-900 shadow-inner sm:h-14 sm:w-14 sm:text-2xl">
+                        ★
+                      </span>
+                    ) : (
+                      <img
+                        src={MASCOTA_DOMICILIOS_URL}
+                        alt=""
+                        aria-hidden
+                        className="h-12 w-auto max-w-[3rem] object-contain drop-shadow-md sm:h-14 sm:max-w-[3.5rem]"
+                        draggable={false}
+                      />
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
         </header>
 
         {renderRastreadorPedido()}
@@ -2675,59 +2727,6 @@ function PedidosLandingClient() {
           <aside ref={checkoutRef} className="min-w-0 space-y-3 lg:sticky lg:top-4 lg:h-fit lg:space-y-4">
             <section className="scroll-mt-20 hidden overflow-hidden rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm sm:p-4 lg:block">
               {renderContenidoCarrito()}
-            </section>
-
-            <section className="overflow-hidden rounded-2xl border border-amber-300 bg-gradient-to-br from-red-700 via-red-600 to-amber-500 p-3.5 text-white shadow-sm sm:p-4">
-              {(() => {
-                const slide = slidesCarrusel[carruselIdx % Math.max(slidesCarrusel.length, 1)];
-                if (!slide) return null;
-                return (
-                  <div className="space-y-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-200">Promos</p>
-                        <h3 className="mt-1 text-base font-black leading-snug">{slide.titulo}</h3>
-                        <p className="mt-1 text-xs text-amber-50/95">{slide.texto}</p>
-                      </div>
-                      <img
-                        src={MASCOTA_DOMICILIOS_URL}
-                        alt=""
-                        aria-hidden
-                        className="h-14 w-auto max-w-[3.25rem] shrink-0 object-contain drop-shadow-md"
-                        draggable={false}
-                      />
-                    </div>
-                    {slide.cta ? (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (slide.accion === "combo" && combosSugeridos[0]) {
-                            agregarComboSugerido(combosSugeridos[0].skus);
-                          } else if (slide.accion === "club") {
-                            abrirClubMillasEnVentanaEmergente();
-                          }
-                        }}
-                        className="rounded-xl bg-amber-300 px-3 py-2 text-xs font-black text-red-950 shadow-sm transition hover:bg-amber-200"
-                      >
-                        {slide.cta}
-                      </button>
-                    ) : null}
-                    <div className="flex items-center gap-1.5">
-                      {slidesCarrusel.map((s, i) => (
-                        <button
-                          key={s.id}
-                          type="button"
-                          aria-label={`Ir a promo ${i + 1}`}
-                          onClick={() => setCarruselIdx(i)}
-                          className={`h-1.5 rounded-full transition ${
-                            i === carruselIdx % slidesCarrusel.length ? "w-5 bg-amber-300" : "w-1.5 bg-white/40"
-                          }`}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                );
-              })()}
             </section>
 
             <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm sm:p-4">
