@@ -46,6 +46,7 @@ import {
 } from "@/lib/pos-domicilios-pedido-sesion";
 import {
   filtrarCatalogoPorTab,
+  subtituloTarjetaCatalogoPedidos,
   tabCatalogoDeProducto,
   TABS_CATALOGO_PEDIDOS,
   type TabCatalogoPedidos,
@@ -2240,7 +2241,7 @@ function PedidosLandingClient() {
         <div className="space-y-3 p-3 sm:p-3.5">
           <div>
             <p className="line-clamp-2 text-sm font-bold text-gray-900">{descripcionBebidaParaUi(prod)}</p>
-            <p className="text-[11px] text-gray-500">Producto fresco, preparado al momento.</p>
+            <p className="text-[11px] text-gray-500">{subtituloTarjetaCatalogoPedidos(prod)}</p>
           </div>
           {variantes.length > 0 ? (
             <div className="space-y-1">
