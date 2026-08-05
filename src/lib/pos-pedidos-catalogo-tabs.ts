@@ -142,8 +142,12 @@ export function filtrarCatalogoPorTab(productos: ProductoPOS[], tab: TabCatalogo
 
 /** Subtítulo bajo el nombre en la tarjeta del menú /pedidos. */
 export function subtituloTarjetaCatalogoPedidos(p: ProductoPOS): string {
-  if (tabCatalogoDeProducto(p) === "paquetes") {
+  const tab = tabCatalogoDeProducto(p);
+  if (tab === "paquetes") {
     return "Producto fresco listo para llevar.";
+  }
+  if (tab === "bebidas") {
+    return "Producto listo para llevar.";
   }
   return "Producto fresco, preparado al momento.";
 }
