@@ -5,5 +5,8 @@
  */
 export const LOGO_ORG_URL = "/images/logo-red-bg.png" as const;
 
+/** Mascota de domicilios (chorizo repartidor) para /pedidos y docks de caja. */
+export const MASCOTA_DOMICILIOS_URL = "/brand/mascota-domicilios.png" as const;
+
 /** Red social principal en tickets y pie de marca (sin @ en algunos textos se antepone manualmente). */
 export const MARIA_CHORIZOS_IG_HANDLE = "mariachorizos" as const;

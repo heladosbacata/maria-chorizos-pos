@@ -12,6 +12,7 @@ import {
 import { MessageCircle, Truck, X } from "lucide-react";
 import PosBodyPortal from "@/components/PosBodyPortal";
 import PosDomiciliosChatModal from "@/components/PosDomiciliosChatModal";
+import { MASCOTA_DOMICILIOS_URL } from "@/lib/brand";
 import { domiciliosListar } from "@/lib/pos-domicilios-api";
 import { listarMensajesChatDomicilio } from "@/lib/pos-domicilios-chat-api";
 import {
@@ -337,20 +338,30 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
               </div>
             </div>
             <div className="h-9 w-px bg-cyan-200/80" aria-hidden />
-            <button
-              type="button"
-              onClick={() => setPanelAbierto((v) => !v)}
-              className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-600 to-sky-600 px-3 py-2 text-xs font-bold text-white shadow-md transition hover:brightness-110 active:scale-[0.98]"
-              aria-expanded={panelAbierto}
-              aria-label={
-                totalNoLeidos > 0
-                  ? `Abrir chats de domicilios, ${totalNoLeidos} mensaje${totalNoLeidos === 1 ? "" : "s"} sin leer`
-                  : "Abrir chats de domicilios"
-              }
-            >
-              <Truck className="h-4 w-4" strokeWidth={2} />
-              <span className="hidden sm:inline">Chats</span>
-            </button>
+            <div className="relative flex flex-col items-center justify-end">
+              {/* Personaje arriba del botón Chats; se achica en celular */}
+              <img
+                src={MASCOTA_DOMICILIOS_URL}
+                alt=""
+                aria-hidden
+                className="pointer-events-none mb-[-4px] h-10 w-auto max-w-[2.75rem] select-none object-contain drop-shadow-md sm:mb-[-6px] sm:h-14 sm:max-w-[3.75rem] md:h-16 md:max-w-[4.25rem]"
+                draggable={false}
+              />
+              <button
+                type="button"
+                onClick={() => setPanelAbierto((v) => !v)}
+                className="relative z-10 flex items-center gap-2 rounded-xl bg-gradient-to-r from-cyan-600 to-sky-600 px-3 py-2 text-xs font-bold text-white shadow-md transition hover:brightness-110 active:scale-[0.98]"
+                aria-expanded={panelAbierto}
+                aria-label={
+                  totalNoLeidos > 0
+                    ? `Abrir chats de domicilios, ${totalNoLeidos} mensaje${totalNoLeidos === 1 ? "" : "s"} sin leer`
+                    : "Abrir chats de domicilios"
+                }
+              >
+                <Truck className="h-4 w-4" strokeWidth={2} />
+                <span className="hidden sm:inline">Chats</span>
+              </button>
+            </div>
           </div>
         </div>
       </PosBodyPortal>

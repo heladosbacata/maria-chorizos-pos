@@ -23,23 +23,40 @@ import { comprimirComprobanteTransferenciaParaChat } from "@/lib/pos-domicilios-
 import { domicilioCancelarCliente } from "@/lib/pos-domicilios-api";
 import { enviarMensajeChatDomicilio, listarMensajesChatDomicilio } from "@/lib/pos-domicilios-chat-api";
 import { pedidoPuedeCancelarsePorCliente, type PedidoDomicilio } from "@/types/pos-domicilios";
-import { LOGO_ORG_URL } from "@/lib/brand";
+import { LOGO_ORG_URL, MASCOTA_DOMICILIOS_URL } from "@/lib/brand";
 import MediosTransferenciaClienteModal from "@/components/MediosTransferenciaClienteModal";
 import PuntoCerradoPremiumView from "@/components/PuntoCerradoPremiumView";
-import { consultarTurnoCajaAbiertoWms } from "@/lib/wms-punto-turno-abierto";
+import { consultarTurnoCajaAbierto } from "@/lib/pos-punto-turno-presencia";
 import { PosDomiciliosChatBurbuja } from "@/components/PosDomiciliosChatBurbuja";
 import { normalizarMediosTransferencia } from "@/lib/pos-domicilios-medios-transferencia";
 import { activarNotificacionesPedidoDomicilio, pedidosPushSoportadoEnEsteNavegador } from "@/lib/pedidos-push-client";
 import {
   esEstadoTerminalPedidoDomicilio,
+  guardarBorradorCarritoPedidos,
   guardarClientePreferidoPedidos,
   guardarSesionPedidoDomicilio,
+  leerBorradorCarritoPedidos,
   leerClientePreferidoPedidos,
   leerSesionPedidoDomicilio,
+  limpiarBorradorCarritoPedidos,
   limpiarSesionPedidoDomicilio,
   resumenDesdePedidoApi,
   telefonoDomicilioNorm,
 } from "@/lib/pos-domicilios-pedido-sesion";
+import {
+  filtrarCatalogoPorTab,
+  tabCatalogoDeProducto,
+  TABS_CATALOGO_PEDIDOS,
+  type TabCatalogoPedidos,
+} from "@/lib/pos-pedidos-catalogo-tabs";
+import {
+  guardarPuntoRecurrentePedidos,
+  leerPuntoRecurrentePedidos,
+  resolverTiendaPedido,
+  tiendasCercanasParaPedido,
+  urlEmbedMapaTienda,
+} from "@/lib/pos-pedidos-tiendas";
+import { Bike, MapPin, Store } from "lucide-react";
 import {
   MEDIOS_TRANSFERENCIA_VACIOS,
   type MediosTransferenciaConfig,
@@ -347,6 +364,27 @@ function estadoPaso(estado: EstadoPedidoDomicilio | null): number {
   return 0;
 }
 
+/** Semáforo en tiempo real: rojo espera · ámbar cocina · verde en camino/entregado. */
+function semaforoEstadoPedido(estado: EstadoPedidoDomicilio | null): {
+  color: "rojo" | "ambar" | "verde" | "apagado";
+  label: string;
+  hint: string;
+} {
+  if (!estado || estado === "NUEVO") {
+    return { color: "rojo", label: "En espera", hint: "El punto aún no acepta tu pedido" };
+  }
+  if (estado === "ACEPTADO" || estado === "EN_PREPARACION" || estado === "LISTO_PARA_DESPACHO") {
+    return { color: "ambar", label: "En cocina", hint: "Tu pedido se está preparando" };
+  }
+  if (estado === "EN_ENTREGA") {
+    return { color: "verde", label: "En camino", hint: "Ya salió hacia vos" };
+  }
+  if (estado === "ENTREGADO") {
+    return { color: "verde", label: "Entregado", hint: "¡Buen provecho!" };
+  }
+  return { color: "apagado", label: estadoEtiqueta(estado), hint: "Pedido finalizado" };
+}
+
 function rangoEtaEstado(estado: EstadoPedidoDomicilio | null, minutosTranscurridos: number): string {
   if (estado === "ENTREGADO") return "Pedido entregado";
   if (estado === "RECHAZADO") return "Pedido rechazado";
@@ -596,6 +634,11 @@ function PedidosLandingClient() {
   const [estadoPedidoLoading, setEstadoPedidoLoading] = useState(false);
   const [ahoraMs, setAhoraMs] = useState(Date.now());
   const [busqueda, setBusqueda] = useState("");
+  const [tabCatalogo, setTabCatalogo] = useState<TabCatalogoPedidos>("imperdibles");
+  const [carruselIdx, setCarruselIdx] = useState(0);
+  const [puntoRecurrente, setPuntoRecurrente] = useState<string | null>(null);
+  const [geoCliente, setGeoCliente] = useState<{ lat: number; lng: number } | null>(null);
+  const [alertaClienteToast, setAlertaClienteToast] = useState<string | null>(null);
   const [chatVista, setChatVista] = useState<"cerrado" | "minimizado" | "expandido">("cerrado");
   const [chatMensajes, setChatMensajes] = useState<MensajeChatDomicilio[]>([]);
   const [chatTexto, setChatTexto] = useState("");
@@ -697,9 +740,10 @@ function PedidosLandingClient() {
     setChatVista((v) => (v === "cerrado" ? "minimizado" : v));
   }, [pedidoIdEnUrl]);
 
-  /** Prefill nombre/teléfono guardados y restaurar pedido activo sin pedidoId en URL. */
+  /** Prefill nombre/teléfono, carrito borrador y restaurar pedido activo sin pedidoId en URL. */
   useEffect(() => {
     if (typeof window === "undefined") return;
+    setPuntoRecurrente(leerPuntoRecurrentePedidos());
     const pref = leerClientePreferidoPedidos(puntoVenta);
     if (pref) {
       if (pref.nombre) setCliente((c) => c || pref.nombre);
@@ -708,12 +752,59 @@ function PedidosLandingClient() {
         setHistorialTelefono((t) => t || pref.telefono);
       }
     }
+    const borrador = leerBorradorCarritoPedidos(puntoVenta);
+    if (borrador && !pedidoIdEnUrl) {
+      setCantidades((prev) => (Object.keys(prev).length ? prev : borrador.cantidades));
+      setTipoEntrega(borrador.tipoEntrega);
+      setMetodoPago(borrador.metodoPago);
+      if (borrador.direccion) setDireccion((d) => d || borrador.direccion);
+      if (borrador.referencia) setReferencia((r) => r || borrador.referencia);
+    }
     if (pedidoIdEnUrl || sesionRestauradaRef.current) return;
     sesionRestauradaRef.current = true;
     const sesion = leerSesionPedidoDomicilio(puntoVenta);
     if (!sesion?.pedidoId) return;
     let cancelled = false;
     void (async () => {
+      const aplicarDesdeSesion = (estado?: PedidoDomicilio["estado"] | null, row?: PedidoDomicilio) => {
+        sincronizarPedidoEnUrl(sesion.pedidoId);
+        setPedidoCreadoId(sesion.pedidoId);
+        if (estado) setEstadoPedido(estado);
+        if (row?.creadoEnIso) setPedidoCreadoEnIso(row.creadoEnIso);
+        else if (sesion.creadoEnIso) setPedidoCreadoEnIso(sesion.creadoEnIso);
+        setRechazoMotivoPedido(row?.rechazoMotivo ?? null);
+        setEtiquetaClienteChat(row?.cliente || sesion.cliente || "Cliente");
+        const resumen =
+          sesion.resumen ??
+          (row
+            ? resumenDesdePedidoApi({
+                items: row.items,
+                total: row.total,
+                metodoPago: row.metodoPago,
+                direccion: row.direccion,
+                referencia: row.referencia,
+                puntoVenta: row.puntoVenta,
+              })
+            : undefined);
+        if (resumen) {
+          setPedidoResumenChat({
+            lineasItems: resumen.lineasItems,
+            total: resumen.total,
+            metodoPago: resumen.metodoPago,
+            direccion: resumen.direccion,
+            referencia: resumen.referencia,
+            tipoEntrega: resumen.tipoEntrega,
+            puntoVenta: resumen.puntoVenta,
+          });
+        }
+        setChatVista("minimizado");
+        if (row?.cliente || sesion.cliente) setCliente(row?.cliente || sesion.cliente);
+        if (row?.telefono || sesion.telefono) {
+          const tel = telefonoDomicilioNorm(row?.telefono || sesion.telefono) || row?.telefono || sesion.telefono;
+          setTelefono(tel);
+        }
+      };
+
       try {
         const url = `/api/pos_domicilios?${new URLSearchParams({ puntoVenta }).toString()}`;
         const res = await fetch(url, { method: "GET", cache: "no-store" });
@@ -721,42 +812,21 @@ function PedidosLandingClient() {
           ok?: boolean;
           data?: PedidoDomicilio[];
         };
-        if (cancelled || !res.ok) return;
+        if (cancelled) return;
+        if (!res.ok) {
+          // Red/API falló: no borrar sesión; mostrar pedido guardado en el dispositivo.
+          aplicarDesdeSesion(null);
+          return;
+        }
         const row = (json.data ?? []).find((x) => pedidoIdChatClave(x.id) === sesion.pedidoId);
-        if (!row || esEstadoTerminalPedidoDomicilio(row.estado)) {
+        if (row && esEstadoTerminalPedidoDomicilio(row.estado)) {
           limpiarSesionPedidoDomicilio(puntoVenta);
           return;
         }
-        sincronizarPedidoEnUrl(sesion.pedidoId);
-        setPedidoCreadoId(sesion.pedidoId);
-        setEstadoPedido(row.estado);
-        if (row.creadoEnIso) setPedidoCreadoEnIso(row.creadoEnIso);
-        setRechazoMotivoPedido(row.rechazoMotivo ?? null);
-        setEtiquetaClienteChat(row.cliente || sesion.cliente || "Cliente");
-        const resumen =
-          sesion.resumen ??
-          resumenDesdePedidoApi({
-            items: row.items,
-            total: row.total,
-            metodoPago: row.metodoPago,
-            direccion: row.direccion,
-            referencia: row.referencia,
-            puntoVenta: row.puntoVenta,
-          });
-        setPedidoResumenChat({
-          lineasItems: resumen.lineasItems,
-          total: resumen.total,
-          metodoPago: resumen.metodoPago,
-          direccion: resumen.direccion,
-          referencia: resumen.referencia,
-          tipoEntrega: resumen.tipoEntrega,
-          puntoVenta: resumen.puntoVenta,
-        });
-        setChatVista("minimizado");
-        if (row.cliente) setCliente(row.cliente);
-        if (row.telefono) setTelefono(telefonoDomicilioNorm(row.telefono) || row.telefono);
+        // Si el listado aún no trae el pedido, igual restauramos desde localStorage.
+        aplicarDesdeSesion(row?.estado ?? null, row);
       } catch {
-        /* ignore */
+        if (!cancelled) aplicarDesdeSesion(null);
       }
     })();
     return () => {
@@ -765,6 +835,30 @@ function PedidosLandingClient() {
     // Solo al montar / cambiar punto
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [puntoVenta]);
+
+  /** Persistí carrito en borrador para que no se pierda al salir de la app. */
+  useEffect(() => {
+    if (pedidoCreadoId) return;
+    const t = window.setTimeout(() => {
+      guardarBorradorCarritoPedidos(puntoVenta, {
+        cantidades,
+        tipoEntrega,
+        metodoPago,
+        direccion,
+        referencia,
+      });
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [cantidades, tipoEntrega, metodoPago, direccion, referencia, puntoVenta, pedidoCreadoId]);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (pos) => setGeoCliente({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
+      () => setGeoCliente(null),
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 120_000 }
+    );
+  }, []);
 
   /** Si hay pedidoId en URL, hidratar resumen desde sesión o API. */
   useEffect(() => {
@@ -915,7 +1009,7 @@ function PedidosLandingClient() {
     let cancel = false;
     const verificarTurno = async () => {
       try {
-        const abierto = await consultarTurnoCajaAbiertoWms(puntoVenta);
+        const abierto = await consultarTurnoCajaAbierto(puntoVenta);
         if (!cancel) setTurnoCajaAbierto(abierto);
       } catch {
         if (!cancel) setTurnoCajaAbierto(false);
@@ -1015,28 +1109,31 @@ function PedidosLandingClient() {
     });
   }, [catalogoVisible, busqueda]);
 
-  const { productosBasicos, productosCombosPaquetes, productosBebidas, productosOtros } = useMemo(() => {
-    const basicos: ProductoPOS[] = [];
-    const combosPaquetes: ProductoPOS[] = [];
-    const bebidas: ProductoPOS[] = [];
-    const otros: ProductoPOS[] = [];
+  const productosPorTab = useMemo(() => {
+    const counts = Object.fromEntries(TABS_CATALOGO_PEDIDOS.map((t) => [t.id, 0])) as Record<
+      TabCatalogoPedidos,
+      number
+    >;
     for (const p of productosFiltrados) {
-      if (productoEsBebidas(p)) bebidas.push(p);
-      else if (productoEsBasicos(p) && !productoEsComboCatalogo(p) && !productoEsPaqueteCatalogo(p)) {
-        basicos.push(p);
-      } else if (productoEsComboCatalogo(p) || productoEsPaqueteCatalogo(p)) {
-        combosPaquetes.push(p);
-      } else {
-        otros.push(p);
-      }
+      counts[tabCatalogoDeProducto(p)] += 1;
     }
     return {
-      productosBasicos: basicos,
-      productosCombosPaquetes: combosPaquetes,
-      productosBebidas: bebidas,
-      productosOtros: otros,
+      counts,
+      lista: filtrarCatalogoPorTab(productosFiltrados, tabCatalogo),
     };
-  }, [productosFiltrados]);
+  }, [productosFiltrados, tabCatalogo]);
+
+  useEffect(() => {
+    if ((productosPorTab.counts[tabCatalogo] ?? 0) > 0) return;
+    const first = TABS_CATALOGO_PEDIDOS.find((t) => (productosPorTab.counts[t.id] ?? 0) > 0);
+    if (first) setTabCatalogo(first.id);
+  }, [productosPorTab.counts, tabCatalogo]);
+
+  const tiendaActualMapa = useMemo(() => resolverTiendaPedido(puntoVenta), [puntoVenta]);
+  const tiendasCercanas = useMemo(
+    () => tiendasCercanasParaPedido(puntoVenta, geoCliente),
+    [puntoVenta, geoCliente]
+  );
 
   const itemsCarrito = useMemo<CarritoLinea[]>(() => {
     const porSku = new Map(catalogo.map((p) => [p.sku, p]));
@@ -1093,18 +1190,6 @@ function PedidosLandingClient() {
     () => rangoEtaEstado(estadoPedido, minutosTranscurridosPedido),
     [estadoPedido, minutosTranscurridosPedido]
   );
-
-  const recomendaciones = useMemo(() => {
-    const carritoSkus = new Set(itemsCarrito.map((x) => x.p.sku));
-    const categoriasCarrito = new Set(itemsCarrito.map((x) => categoriaProducto(x.p)));
-    return catalogoVisible
-      .filter((p) => Number.isFinite(p.precioUnitario) && p.precioUnitario > 0)
-      .map((p) => ({ p, score: sugerenciaScore(p, carritoSkus, categoriasCarrito) }))
-      .filter((x) => x.score > -999)
-      .sort((a, b) => b.score - a.score || a.p.precioUnitario - b.p.precioUnitario)
-      .slice(0, 4)
-      .map((x) => x.p);
-  }, [catalogoVisible, itemsCarrito]);
 
   const combosSugeridos = useMemo(() => {
     const carritoSkus = new Set(itemsCarrito.map((x) => x.p.sku));
@@ -1172,6 +1257,51 @@ function PedidosLandingClient() {
       return next;
     });
   };
+
+  const slidesCarrusel = useMemo(() => {
+    const slides: { id: string; titulo: string; texto: string; cta?: string; accion?: "combo" | "club" }[] = [];
+    if (tipoEntrega === "domicilio") {
+      slides.push({
+        id: "domi-gratis",
+        titulo: faltanteDomicilioGratis > 0 ? "Domicilio gratis cerca" : "¡Domicilio gratis!",
+        texto:
+          faltanteDomicilioGratis > 0
+            ? `Te faltan ${formatoMoneda(faltanteDomicilioGratis)} para envío sin costo.`
+            : "Ya alcanzaste el umbral de domicilio gratis en este pedido.",
+      });
+    } else {
+      slides.push({
+        id: "recogida",
+        titulo: "Recogida en tienda",
+        texto: "Sin costo de envío. Retirás en el punto cuando esté listo.",
+      });
+    }
+    if (combosSugeridos[0]) {
+      slides.push({
+        id: "combo",
+        titulo: combosSugeridos[0].titulo,
+        texto: combosSugeridos[0].descripcion,
+        cta: "Agregar combo",
+        accion: "combo",
+      });
+    }
+    slides.push({
+      id: "club",
+      titulo: "Club de millas",
+      texto: "Acumulá millas con cada factura y canjeá beneficios.",
+      cta: "Ver plan",
+      accion: "club",
+    });
+    return slides;
+  }, [tipoEntrega, faltanteDomicilioGratis, combosSugeridos]);
+
+  useEffect(() => {
+    if (slidesCarrusel.length <= 1) return;
+    const id = window.setInterval(() => {
+      setCarruselIdx((i) => (i + 1) % slidesCarrusel.length);
+    }, 4500);
+    return () => window.clearInterval(id);
+  }, [slidesCarrusel.length]);
 
   const validarPedidoAntesDeEnviar = (): boolean => {
     if (!recepcionPedidosWebOk) {
@@ -1312,6 +1442,9 @@ function PedidosLandingClient() {
             telefono: telefonoDigitos,
           });
         }
+        guardarPuntoRecurrentePedidos(puntoVenta);
+        setPuntoRecurrente(puntoVenta);
+        limpiarBorradorCarritoPedidos(puntoVenta);
       }
       setPedidoCreadoEnIso(new Date().toISOString());
       setEtiquetaClienteChat(cliente.trim() || "Cliente");
@@ -1547,6 +1680,19 @@ function PedidosLandingClient() {
     setResaltarTarjetaEstadoPedido(true);
     const tPulse = window.setTimeout(() => setResaltarTarjetaEstadoPedido(false), 1400);
     const copy = textoMotivacionCambioEstado(estadoPedido, rechazoMotivoPedido);
+    const sem = semaforoEstadoPedido(estadoPedido);
+    setAlertaClienteToast(`${sem.label}: ${estadoEtiqueta(estadoPedido)}`);
+    const tToast = window.setTimeout(() => setAlertaClienteToast(null), 4500);
+    try {
+      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        new Notification(`María Chorizos · ${estadoEtiqueta(estadoPedido)}`, {
+          body: copy?.subtitulo ?? sem.hint,
+          tag: `pedido-estado-${pedidoCreadoId}`,
+        });
+      }
+    } catch {
+      /* ignore */
+    }
     let tOverlay: number | undefined;
     if (copy) {
       const reduceMotion =
@@ -1580,6 +1726,7 @@ function PedidosLandingClient() {
     }
     return () => {
       window.clearTimeout(tPulse);
+      window.clearTimeout(tToast);
       if (tOverlay) window.clearTimeout(tOverlay);
     };
   }, [
@@ -2056,24 +2203,45 @@ function PedidosLandingClient() {
 
   const renderRastreadorPedido = () => {
     if (!pedidoCreadoId) return null;
+    const sem = semaforoEstadoPedido(estadoPedido);
+    const luzClass =
+      sem.color === "rojo"
+        ? "bg-rose-500 shadow-[0_0_18px_rgba(244,63,94,0.65)]"
+        : sem.color === "ambar"
+          ? "bg-amber-400 shadow-[0_0_18px_rgba(251,191,36,0.7)]"
+          : sem.color === "verde"
+            ? "bg-emerald-500 shadow-[0_0_18px_rgba(16,185,129,0.65)]"
+            : "bg-slate-400";
     return (
       <section
         ref={rastreadorPedidoRef}
-        className={`scroll-mt-4 overflow-hidden rounded-2xl border-2 border-cyan-300 bg-gradient-to-br from-cyan-50 via-white to-sky-50 p-4 shadow-md transition-shadow sm:p-5 ${
-          resaltarTarjetaEstadoPedido ? "animate-pedidos-estado-tarjeta-pulse ring-2 ring-cyan-400/80" : ""
+        className={`scroll-mt-4 overflow-hidden rounded-2xl border-2 border-red-200 bg-gradient-to-br from-red-50 via-white to-amber-50 p-4 shadow-md transition-shadow sm:p-5 ${
+          resaltarTarjetaEstadoPedido ? "animate-pedidos-estado-tarjeta-pulse ring-2 ring-amber-400/80" : ""
         }`}
         aria-label="Rastreador de pedido"
       >
         <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-cyan-700">Tu pedido en curso</p>
-            <h2 className="mt-1 text-xl font-black text-cyan-950 sm:text-2xl">Estado de mi pedido</h2>
-            <p className="mt-1 text-sm font-semibold text-cyan-800">
-              {pedidoCreadoId} · {pedidoResumenChat?.tipoEntrega === "recogida" ? "Recogida en tienda" : "Envío a domicilio"}
-            </p>
+          <div className="flex items-start gap-3">
+            <div
+              className="flex flex-col items-center gap-1 rounded-2xl bg-slate-900 px-2.5 py-2"
+              title="Semáforo del pedido"
+              aria-label={`Semáforo: ${sem.label}`}
+            >
+              <span className={`h-3.5 w-3.5 rounded-full ${sem.color === "rojo" ? luzClass : "bg-rose-900/40"}`} />
+              <span className={`h-3.5 w-3.5 rounded-full ${sem.color === "ambar" ? luzClass : "bg-amber-900/40"}`} />
+              <span className={`h-3.5 w-3.5 rounded-full ${sem.color === "verde" ? luzClass : "bg-emerald-900/40"}`} />
+            </div>
+            <div>
+              <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-red-700">Estado en tiempo real</p>
+              <h2 className="mt-1 text-xl font-black text-slate-900 sm:text-2xl">{sem.label}</h2>
+              <p className="mt-1 text-sm font-semibold text-slate-700">
+                {pedidoCreadoId} · {pedidoResumenChat?.tipoEntrega === "recogida" ? "Para recoger" : "A domicilio"}
+              </p>
+              <p className="mt-0.5 text-xs text-slate-500">{sem.hint}</p>
+            </div>
           </div>
           <div className="flex flex-col items-end gap-2">
-            <span className="rounded-full bg-cyan-600 px-3 py-1 text-xs font-bold text-white shadow-sm">
+            <span className="rounded-full bg-red-700 px-3 py-1 text-xs font-bold text-white shadow-sm">
               {estadoPedidoLoading ? "Actualizando..." : estadoEtiqueta(estadoPedido)}
             </span>
             <button
@@ -2083,13 +2251,13 @@ function PedidosLandingClient() {
                 void refrescarEstadoPedidoConSpinner();
               }}
               disabled={estadoPedidoLoading}
-              className="rounded-lg border border-cyan-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-cyan-900 hover:bg-cyan-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg border border-red-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-red-900 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              Actualizar estado
+              Actualizar
             </button>
           </div>
         </div>
-        <p className="mt-3 text-sm font-semibold text-cyan-900">ETA estimada: {etaPedido}</p>
+        <p className="mt-3 text-sm font-semibold text-slate-800">ETA estimada: {etaPedido}</p>
         <div className="mt-4 grid grid-cols-6 gap-1.5">
           {Array.from({ length: 6 }).map((_, idx) => {
             const paso = idx + 1;
@@ -2097,12 +2265,12 @@ function PedidosLandingClient() {
             return (
               <span
                 key={`rastreador-paso-${paso}`}
-                className={`h-2.5 rounded-full transition ${activo ? "bg-cyan-600" : "bg-cyan-100"}`}
+                className={`h-2.5 rounded-full transition ${activo ? "bg-red-600" : "bg-red-100"}`}
               />
             );
           })}
         </div>
-        <div className="mt-2 grid grid-cols-3 gap-2 text-[11px] font-medium text-cyan-800">
+        <div className="mt-2 grid grid-cols-3 gap-2 text-[11px] font-medium text-slate-600">
           <span>Recibido</span>
           <span className="text-center">Preparación</span>
           <span className="text-right">En camino</span>
@@ -2118,7 +2286,7 @@ function PedidosLandingClient() {
           </p>
         ) : null}
         {puedeCancelarPedido ? (
-          <div className="mt-4 border-t border-cyan-200/80 pt-4">
+          <div className="mt-4 border-t border-red-100 pt-4">
             <button
               type="button"
               onClick={() => {
@@ -2129,89 +2297,134 @@ function PedidosLandingClient() {
             >
               Cancelar mi pedido
             </button>
-            <p className="mt-1.5 text-center text-[10px] text-slate-500">
-              Podés cancelar mientras el pedido no haya salido a entrega.
-            </p>
           </div>
         ) : null}
-        <p className="mt-3 text-[11px] text-slate-500">
-          El estado se actualiza automáticamente cada pocos segundos. También podés usar el chat con el punto.
-        </p>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[11px] text-slate-500">Se actualiza solo cada pocos segundos.</p>
+          {vapidPublicPedidos && pushPedidosNavOk && !pushPedidosExito ? (
+            <button
+              type="button"
+              onClick={() => void activarNotificacionesPedidoCelular()}
+              className="rounded-lg bg-amber-400 px-2.5 py-1 text-[11px] font-bold text-red-950"
+            >
+              Activar alertas
+            </button>
+          ) : null}
+        </div>
       </section>
     );
   };
 
-  const renderPasoTipoEntrega = () => (
-    <section
-      ref={tipoEntregaSectionRef}
-      className="scroll-mt-4 overflow-hidden rounded-2xl border-2 border-cyan-200 bg-white p-4 shadow-md sm:p-5"
-    >
-      <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-cyan-700">Paso 1</p>
-      <h2 className="mt-1 text-xl font-black text-gray-900 sm:text-2xl">¿Cómo quieres recibir tu pedido?</h2>
-      <p className="mt-1 text-sm text-gray-600">Definilo antes de armar el carrito para evitar confusiones.</p>
+  const renderPasoTipoEntrega = () => {
+    const cardBase =
+      "group relative flex flex-col items-start gap-3 rounded-2xl border-2 p-4 text-left transition active:scale-[0.99] sm:p-5";
+    const cardOn = "border-red-600 bg-gradient-to-br from-red-50 to-amber-50 text-red-950 shadow-md ring-2 ring-amber-300/70";
+    const cardOff = "border-slate-200 bg-white text-slate-800 hover:border-red-200 hover:bg-red-50/40";
 
-      {soloRecogidaEnTienda ? (
-        <div className="mt-4 rounded-2xl border-2 border-amber-300 bg-gradient-to-br from-amber-50 via-orange-50 to-yellow-50 p-4 shadow-inner">
-          <p className="text-lg font-black text-amber-950">🏪 Por ahora, solo recogida en tienda</p>
-          <p className="mt-2 text-sm font-medium leading-relaxed text-amber-900/95">
-            En este momento <strong>no tenemos domicilio a tu dirección</strong> en este punto. Preparamos tu pedido
-            para que lo recojas en <strong>{puntoVenta}</strong>. ¡Así sabés exactamente dónde pasar y evitás esperar un
-            envío que no está disponible!
-          </p>
+    return (
+      <section
+        ref={tipoEntregaSectionRef}
+        className="scroll-mt-4 overflow-hidden rounded-2xl border-2 border-red-200 bg-white p-4 shadow-md sm:p-5"
+      >
+        <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-red-700">Paso 1</p>
+        <h2 className="mt-1 text-xl font-black text-gray-900 sm:text-2xl">¿Cómo preferís recibir tu pedido?</h2>
+        <p className="mt-1 text-sm text-gray-600">Elegí con un toque. Podés cambiarlo antes de confirmar.</p>
+
+        <div className={`mt-4 grid gap-3 ${elegirTipoEntrega ? "sm:grid-cols-2" : "sm:grid-cols-1"}`}>
+          {mostrarOpcionDomicilio ? (
+            <button
+              type="button"
+              disabled={soloRecogidaEnTienda}
+              onClick={() => {
+                setTipoEntrega("domicilio");
+                setMetodoPago((m) => (m === "datafono" ? "efectivo" : m));
+              }}
+              className={`${cardBase} ${tipoEntrega === "domicilio" ? cardOn : cardOff}`}
+            >
+              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-red-600 to-amber-500 text-white shadow-lg">
+                <Bike className="h-7 w-7" strokeWidth={2.2} aria-hidden />
+              </span>
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-[0.18em] text-red-700">A domicilio</p>
+                <p className="mt-1 text-base font-extrabold">Te lo llevamos</p>
+                <p className="mt-1 text-xs font-medium text-gray-600">Repartidor hasta tu dirección.</p>
+              </div>
+            </button>
+          ) : null}
+          {mostrarOpcionRecogida ? (
+            <button
+              type="button"
+              disabled={soloDomicilio}
+              onClick={() => setTipoEntrega("recogida")}
+              className={`${cardBase} ${tipoEntrega === "recogida" ? cardOn : cardOff}`}
+            >
+              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 to-yellow-300 text-red-900 shadow-lg">
+                <Store className="h-7 w-7" strokeWidth={2.2} aria-hidden />
+              </span>
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-[0.18em] text-amber-800">Para recoger</p>
+                <p className="mt-1 text-base font-extrabold">Pasás por el punto</p>
+                <p className="mt-1 text-xs font-medium text-gray-600">
+                  Sin costo de envío · {puntoVenta}
+                </p>
+              </div>
+            </button>
+          ) : null}
         </div>
-      ) : null}
 
-      {soloDomicilio ? (
-        <div className="mt-4 rounded-2xl border-2 border-sky-300 bg-gradient-to-br from-sky-50 via-cyan-50 to-white p-4 shadow-inner">
-          <p className="text-lg font-black text-sky-950">🛵 Envío a domicilio habilitado</p>
-          <p className="mt-2 text-sm font-medium leading-relaxed text-sky-900/95">
-            En este punto recibimos pedidos con <strong>entrega a tu dirección</strong>. Indica dónde te llevamos el
-            pedido al finalizar la compra.
-          </p>
-        </div>
-      ) : null}
-
-      {elegirTipoEntrega ? (
-        <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <button
-            type="button"
-            onClick={() => setTipoEntrega("recogida")}
-            className={`rounded-2xl border-2 px-4 py-4 text-left transition ${
-              tipoEntrega === "recogida"
-                ? "border-cyan-600 bg-cyan-50 text-cyan-950 shadow-md ring-2 ring-cyan-300/60"
-                : "border-gray-200 bg-white text-gray-800 hover:border-gray-300 hover:bg-gray-50"
-            }`}
-          >
-            <span className="text-2xl" aria-hidden>
-              🏪
-            </span>
-            <p className="mt-2 text-base font-extrabold">Recoger en la tienda</p>
-            <p className="mt-1 text-xs font-medium text-gray-600">
-              Pasas por el punto <strong>{puntoVenta}</strong>. Sin costo de envío.
+        <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+          <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
+            <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-slate-700">
+              <MapPin className="h-3.5 w-3.5 text-red-600" aria-hidden />
+              Tiendas cercanas
             </p>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setTipoEntrega("domicilio");
-              setMetodoPago((m) => (m === "datafono" ? "efectivo" : m));
-            }}
-            className={`rounded-2xl border-2 px-4 py-4 text-left transition ${
-              tipoEntrega === "domicilio"
-                ? "border-cyan-600 bg-cyan-50 text-cyan-950 shadow-md ring-2 ring-cyan-300/60"
-                : "border-gray-200 bg-white text-gray-800 hover:border-gray-300 hover:bg-gray-50"
-            }`}
-          >
-            <span className="text-2xl" aria-hidden>
-              🛵
-            </span>
-            <p className="mt-2 text-base font-extrabold">Envío a domicilio</p>
-            <p className="mt-1 text-xs font-medium text-gray-600">Te llevamos el pedido a tu dirección.</p>
-          </button>
+            {puntoRecurrente ? (
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900">
+                Habitual: {puntoRecurrente}
+              </span>
+            ) : null}
+          </div>
+          <div className="relative h-40 w-full bg-slate-200 sm:h-48">
+            <iframe
+              title={`Mapa ${tiendaActualMapa.nombre}`}
+              src={urlEmbedMapaTienda(tiendaActualMapa)}
+              className="absolute inset-0 h-full w-full border-0"
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+            />
+          </div>
+          <ul className="max-h-40 divide-y divide-slate-100 overflow-y-auto">
+            {tiendasCercanas.slice(0, 5).map((t) => (
+              <li key={t.nombre}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    guardarPuntoRecurrentePedidos(t.nombre);
+                    setPuntoRecurrente(t.nombre);
+                    const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+                    params.set("puntoVenta", t.nombre);
+                    if (pedidoCreadoId) params.set("pedidoId", pedidoCreadoId);
+                    router.push(`/pedidos?${params.toString()}`);
+                  }}
+                  className={`flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-sm transition hover:bg-amber-50 ${
+                    t.esActual ? "bg-red-50/80" : "bg-white"
+                  }`}
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate font-bold text-slate-900">{t.nombre}</span>
+                    <span className="block truncate text-[11px] text-slate-500">{t.direccionCorta}</span>
+                  </span>
+                  <span className="shrink-0 text-[11px] font-semibold text-slate-500">
+                    {t.esActual ? "Actual" : t.distanciaKm != null ? `${t.distanciaKm} km` : ""}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
         </div>
-      ) : null}
-    </section>
-  );
+      </section>
+    );
+  };
 
   if (!tienePedidoActivo) {
     if (turnoCajaAbierto === null) {
@@ -2230,103 +2443,118 @@ function PedidosLandingClient() {
     <main
       className={`min-h-screen w-full overflow-x-hidden bg-slate-50 lg:pb-0 ${pedidoEnCurso ? "pb-40" : "pb-28"}`}
     >
+      {alertaClienteToast ? (
+        <div
+          role="status"
+          className="fixed inset-x-3 top-3 z-[120] mx-auto max-w-md rounded-2xl border border-amber-300 bg-slate-950/95 px-4 py-3 text-center text-sm font-bold text-amber-100 shadow-2xl backdrop-blur sm:inset-x-auto"
+        >
+          {alertaClienteToast}
+        </div>
+      ) : null}
       <section className="mx-auto max-w-6xl space-y-4 px-3 py-4 sm:px-4 sm:py-5 md:space-y-5 md:px-6 md:py-6">
-        <header className="relative overflow-hidden rounded-2xl border border-cyan-200 bg-gradient-to-br from-cyan-700 via-sky-700 to-sky-600 p-4 text-white shadow-xl md:rounded-3xl md:p-6">
-          <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/15 blur-2xl" />
-          <div className="pointer-events-none absolute -bottom-12 left-20 h-36 w-36 rounded-full bg-amber-200/20 blur-2xl" />
-          <div className="relative flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-100">App de pedidos Maria Chorizos</p>
-              <h1 className="mt-1 text-2xl font-black leading-tight sm:text-3xl md:text-4xl">Pide como en una app de delivery</h1>
-              <p className="mt-2 max-w-2xl text-sm text-cyan-50">{subtituloLandingPedidos}</p>
-              <div className="mt-3 inline-flex max-w-full items-center gap-2 rounded-full border border-white/35 bg-white/15 px-3 py-1.5 text-xs font-semibold">
-                <span className="inline-block h-2 w-2 rounded-full bg-lime-300" />
-                <span className="truncate">Punto de venta: {puntoVenta}</span>
+        <header className="relative overflow-hidden rounded-2xl border-2 border-amber-300/80 bg-gradient-to-br from-red-700 via-red-600 to-amber-500 p-4 text-white shadow-xl md:rounded-3xl md:p-6">
+          <div className="pointer-events-none absolute -right-8 -top-8 h-44 w-44 rounded-full bg-amber-300/30 blur-2xl" />
+          <div className="pointer-events-none absolute -bottom-16 left-10 h-40 w-40 rounded-full bg-yellow-200/25 blur-2xl" />
+
+          <div className="relative flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-w-0 flex-1 items-start gap-3 sm:gap-4">
+              <div className="shrink-0 rounded-2xl bg-white p-1.5 shadow-lg ring-2 ring-amber-300/70 sm:p-2">
+                <Image
+                  src={LOGO_ORG_URL}
+                  alt="María Chorizos"
+                  width={200}
+                  height={200}
+                  priority
+                  className="h-16 w-16 rounded-xl object-contain sm:h-20 sm:w-20 md:h-24 md:w-24"
+                />
+              </div>
+              <div className="min-w-0 pt-0.5">
+                <p className="text-[11px] font-black uppercase tracking-[0.22em] text-amber-200">María Chorizos</p>
+                <h1 className="mt-1 text-2xl font-black leading-tight drop-shadow-sm sm:text-3xl md:text-4xl">
+                  Pedí fácil, como en delivery
+                </h1>
+                <p className="mt-1.5 max-w-xl text-sm text-amber-50/95">{subtituloLandingPedidos}</p>
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-white/40 bg-black/20 px-3 py-1.5 text-xs font-semibold backdrop-blur-sm">
+                    <span className="inline-block h-2 w-2 rounded-full bg-lime-300" />
+                    <span className="truncate">{puntoVenta}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setHistorialError(null);
+                      setHistorialPedidos([]);
+                      if (!historialTelefono && telefono) setHistorialTelefono(telefono);
+                      setModalHistorialAbierto(true);
+                    }}
+                    className="rounded-full border border-white/45 bg-white/15 px-3 py-1.5 text-xs font-bold text-white backdrop-blur transition hover:bg-white/25"
+                  >
+                    Mis pedidos
+                  </button>
+                </div>
               </div>
             </div>
-            <div className="flex flex-col items-stretch gap-2 sm:items-end">
-              <div className="rounded-2xl border border-white/35 bg-white p-2 shadow-sm">
-                <Image src={LOGO_ORG_URL} alt="Maria Chorizos" width={168} height={60} className="h-9 w-auto rounded-lg object-contain sm:h-11" />
+
+            <div className="flex shrink-0 justify-center lg:justify-end">
+              <div className="relative flex flex-col items-center rounded-3xl bg-black/35 p-2 ring-2 ring-amber-300/80 sm:p-3">
+                <img
+                  src={MASCOTA_DOMICILIOS_URL}
+                  alt="Personaje de domicilios María Chorizos"
+                  className="h-36 w-auto max-w-[9.5rem] object-contain drop-shadow-[0_8px_16px_rgba(0,0,0,0.35)] sm:h-44 sm:max-w-[11.5rem] md:h-52 md:max-w-[13rem]"
+                  draggable={false}
+                />
+                <span className="-mt-1 rounded-full bg-amber-300 px-3 py-0.5 text-[10px] font-black uppercase tracking-wider text-red-900 shadow-sm">
+                  Domicilios
+                </span>
               </div>
-              <button
-                type="button"
-                onClick={() => {
-                  setHistorialError(null);
-                  setHistorialPedidos([]);
-                  if (!historialTelefono && telefono) setHistorialTelefono(telefono);
-                  setModalHistorialAbierto(true);
-                }}
-                className="rounded-xl border border-white/40 bg-white/15 px-3 py-2 text-xs font-bold text-white backdrop-blur transition hover:bg-white/25"
-              >
-                Mis pedidos
-              </button>
             </div>
           </div>
 
-          <div
+          <button
+            type="button"
+            onClick={abrirClubMillasEnVentanaEmergente}
             role="region"
-            aria-label="Club de millas Maria Chorizos"
-            className="relative mt-5 overflow-hidden rounded-2xl border border-amber-300/40 shadow-lg animate-pedidos-club-border-glow"
+            aria-label="Club de millas María Chorizos"
+            className="relative mt-4 flex w-full items-center gap-3 overflow-hidden rounded-2xl border border-amber-200/50 bg-black/25 px-3 py-2.5 text-left shadow-md backdrop-blur-sm transition hover:bg-black/35 active:scale-[0.995] sm:gap-4 sm:px-4 sm:py-3"
           >
-            <div
-              className="pointer-events-none absolute inset-0 bg-gradient-to-r from-indigo-950 via-fuchsia-900 to-amber-700 bg-[length:220%_100%] opacity-95 animate-pedidos-club-gradient"
-              aria-hidden
-            />
-            <div
-              className="pointer-events-none absolute inset-y-0 left-0 w-[42%] bg-gradient-to-r from-transparent via-white/25 to-transparent animate-pedidos-club-shimmer mix-blend-overlay"
-              aria-hidden
-            />
-            <div className="relative z-10 flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:p-5">
-              <div className="min-w-0 space-y-1.5">
-                <p className="text-[10px] font-bold uppercase tracking-[0.28em] text-amber-200/90">Club de millas · experiencia premium</p>
-                <p className="text-base font-extrabold leading-snug text-white drop-shadow-sm sm:text-lg">
-                  ¿Ya perteneces a nuestro club de millas? No olvides registrarte y acumular millas con cada factura.
-                </p>
-                <p className="text-xs text-fuchsia-100/90">Beneficios exclusivos, seguimiento de tu plan y recompensas pensadas para clientes fieles.</p>
-              </div>
-              <div className="flex shrink-0 flex-col gap-2 sm:items-end">
-                <button
-                  type="button"
-                  onClick={abrirClubMillasEnVentanaEmergente}
-                  className="inline-flex w-full items-center justify-center rounded-xl bg-gradient-to-r from-amber-400 via-yellow-300 to-amber-400 px-4 py-3 text-sm font-black text-indigo-950 shadow-md transition hover:brightness-110 active:scale-[0.98] sm:w-auto sm:px-5"
-                >
-                  Registrarme y ver mi plan
-                </button>
-                <p className="text-center text-[10px] text-white/70 sm:text-right">Se abre en una ventana emergente</p>
-              </div>
-            </div>
-          </div>
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-300 to-yellow-400 text-lg font-black text-red-900 shadow-inner sm:h-12 sm:w-12 sm:text-xl">
+              ★
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[10px] font-bold uppercase tracking-[0.2em] text-amber-200">Club de millas</span>
+              <span className="block truncate text-sm font-extrabold text-white sm:text-base">Acumulá millas en cada pedido</span>
+            </span>
+            <span className="shrink-0 rounded-xl bg-gradient-to-r from-amber-300 to-yellow-300 px-3 py-2 text-xs font-black text-red-950 shadow-sm sm:px-4 sm:text-sm">
+              Ver plan
+            </span>
+          </button>
         </header>
 
         {renderRastreadorPedido()}
 
-        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <article className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Tiempo estimado</p>
+        <section className={`grid gap-3 sm:grid-cols-2 ${elegirTipoEntrega ? "lg:grid-cols-4" : "lg:grid-cols-3"}`}>
+          <article className="rounded-xl border border-red-100 bg-white p-3 shadow-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-red-700/80">Tiempo estimado</p>
             <p className="mt-1 text-lg font-extrabold text-gray-900">35 - 45 min</p>
           </article>
-          <article className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Modo de entrega</p>
-            <p className="mt-1 text-lg font-extrabold text-gray-900">
-              {soloRecogidaEnTienda
-                ? "Solo recogida en tienda"
-                : soloDomicilio
-                  ? "Solo envío a domicilio"
-                  : "Recogida o domicilio"}
-            </p>
+          {elegirTipoEntrega ? (
+            <article className="rounded-xl border border-red-100 bg-white p-3 shadow-sm">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-red-700/80">Modo de entrega</p>
+              <p className="mt-1 text-lg font-extrabold text-gray-900">Recogida o domicilio</p>
+            </article>
+          ) : null}
+          <article className="rounded-xl border border-red-100 bg-white p-3 shadow-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-red-700/80">Pago seguro</p>
+            <p className="mt-1 text-lg font-extrabold text-gray-900">Efectivo · Transferencia · Datáfono</p>
           </article>
-          <article className="rounded-xl border border-gray-200 bg-white p-3 shadow-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Pago seguro</p>
-            <p className="mt-1 text-lg font-extrabold text-gray-900">Efectivo, Transferencia, Datáfono</p>
-          </article>
-          <article className="rounded-xl border border-cyan-200 bg-cyan-50 p-3 shadow-sm">
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-cyan-700">Beneficio</p>
-            <p className="mt-1 text-base font-extrabold leading-snug text-cyan-900 sm:text-lg">
+          <article className="rounded-xl border border-amber-300 bg-gradient-to-br from-amber-50 to-yellow-50 p-3 shadow-sm">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">Beneficio</p>
+            <p className="mt-1 text-base font-extrabold leading-snug text-amber-950 sm:text-lg">
               {tipoEntrega === "recogida"
-                ? "Recogida en tienda: sin costo de envío"
+                ? "Sin costo de envío"
                 : subtotal >= tarifaDomicilio.umbralGratisCop
                   ? "Domicilio gratis aplicado"
-                  : `Domicilio gratis por pedidos desde ${formatoMoneda(tarifaDomicilio.umbralGratisCop)}`}
+                  : `Domicilio gratis desde ${formatoMoneda(tarifaDomicilio.umbralGratisCop)}`}
             </p>
           </article>
         </section>
@@ -2335,21 +2563,42 @@ function PedidosLandingClient() {
 
         <div className="grid gap-4 lg:grid-cols-[1fr_360px] lg:gap-5">
           <section className="min-w-0 space-y-4">
-            <div className="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm sm:p-4">
+            <div className="rounded-2xl border border-red-100 bg-white p-3 shadow-sm sm:p-4">
               <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Paso 2</p>
-                  <h2 className="text-lg font-bold text-gray-900">Catalogo de productos</h2>
-                  <p className="text-sm text-gray-500">Productos habilitados para este punto. Buscá y agregá al instante.</p>
+                  <p className="text-[10px] font-bold uppercase tracking-wide text-red-700">Paso 2</p>
+                  <h2 className="text-lg font-bold text-gray-900">Catálogo de productos</h2>
+                  <p className="text-sm text-gray-500">Elegí por categoría y agregá al carrito.</p>
                 </div>
                 <div className="w-full md:w-80">
                   <input
                     value={busqueda}
                     onChange={(e) => setBusqueda(e.target.value)}
                     placeholder="Buscar producto..."
-                    className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 transition focus:border-cyan-500 focus:ring-2"
+                    className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm outline-none ring-amber-200 transition focus:border-red-500 focus:ring-2"
                   />
                 </div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {TABS_CATALOGO_PEDIDOS.map((tab) => {
+                  const n = productosPorTab.counts[tab.id] ?? 0;
+                  const activo = tabCatalogo === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setTabCatalogo(tab.id)}
+                      className={`rounded-full px-3 py-1.5 text-xs font-bold transition sm:text-sm ${
+                        activo
+                          ? "bg-red-700 text-white shadow-md"
+                          : "border border-red-200 bg-white text-red-900 hover:bg-red-50"
+                      }`}
+                    >
+                      {tab.label}
+                      <span className={`ml-1.5 ${activo ? "text-amber-200" : "text-slate-400"}`}>{n}</span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
             {loadingCatalogo ? (
@@ -2375,62 +2624,20 @@ function PedidosLandingClient() {
                 {errorCatalogo}
               </div>
             ) : (
-              <div className="space-y-6">
-                {productosBasicos.length > 0 ? (
-                  <div className="space-y-3">
-                    <h3 className="px-1 text-sm font-bold text-gray-900">Básicos</h3>
-                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                      {productosBasicos.map((prod, idx) => renderTarjetaProductoCatalogo(prod, idx))}
-                    </div>
+              <div className="space-y-3">
+                <h3 className="px-1 text-sm font-bold text-gray-900">
+                  {TABS_CATALOGO_PEDIDOS.find((t) => t.id === tabCatalogo)?.label ?? "Productos"}
+                </h3>
+                {productosPorTab.lista.length > 0 ? (
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {productosPorTab.lista.map((prod, idx) => renderTarjetaProductoCatalogo(prod, idx))}
                   </div>
-                ) : null}
-                {productosCombosPaquetes.length > 0 ? (
-                  <div className="space-y-3">
-                    <h3 className="px-1 text-sm font-bold text-gray-900">Combos y paquetes</h3>
-                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                      {productosCombosPaquetes.map((prod, idx) =>
-                        renderTarjetaProductoCatalogo(prod, productosBasicos.length + idx)
-                      )}
-                    </div>
-                  </div>
-                ) : null}
-                {productosBebidas.length > 0 ? (
-                  <div className="space-y-3">
-                    <h3 className="px-1 text-sm font-bold text-gray-900">Bebidas</h3>
-                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                      {productosBebidas.map((prod, idx) =>
-                        renderTarjetaProductoCatalogo(
-                          prod,
-                          productosBasicos.length + productosCombosPaquetes.length + idx
-                        )
-                      )}
-                    </div>
-                  </div>
-                ) : null}
-                {productosOtros.length > 0 ? (
-                  <div className="space-y-3">
-                    <h3 className="px-1 text-sm font-bold text-gray-900">Otros</h3>
-                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                      {productosOtros.map((prod, idx) =>
-                        renderTarjetaProductoCatalogo(
-                          prod,
-                          productosBasicos.length +
-                            productosCombosPaquetes.length +
-                            productosBebidas.length +
-                            idx
-                        )
-                      )}
-                    </div>
-                  </div>
-                ) : null}
-                {productosBasicos.length === 0 &&
-                productosCombosPaquetes.length === 0 &&
-                productosBebidas.length === 0 &&
-                productosOtros.length === 0 ? (
+                ) : (
                   <article className="rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500">
-                    No encontramos productos habilitados para domicilios con esa búsqueda.
+                    No hay productos en esta categoría
+                    {busqueda.trim() ? " con esa búsqueda" : ""}.
                   </article>
-                ) : null}
+                )}
               </div>
             )}
           </section>
@@ -2440,61 +2647,57 @@ function PedidosLandingClient() {
               {renderContenidoCarrito()}
             </section>
 
-            <section className="overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/70 p-3.5 shadow-sm sm:p-4">
-              <h3 className="text-sm font-bold text-amber-900">Promociones inteligentes</h3>
-              {tipoEntrega === "recogida" ? (
-                <p className="mt-2 text-xs font-medium text-amber-900">
-                  Elegiste recoger en tienda: sin costo de envío en este pedido.
-                </p>
-              ) : null}
-              {subtotal <= 0 ? (
-                <p className="mt-2 text-xs text-amber-800">Agrega productos para activar beneficios personalizados.</p>
-              ) : (
-                <div className="mt-2 space-y-3">
-                  {tipoEntrega === "domicilio" ? (
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between text-xs text-amber-900">
-                      <span>Domicilio gratis desde {formatoMoneda(tarifaDomicilio.umbralGratisCop)}</span>
-                      <strong>{progresoDomicilioGratis}%</strong>
-                    </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-amber-100">
-                      <div
-                        className="h-full rounded-full bg-amber-500 transition-all"
-                        style={{ width: `${progresoDomicilioGratis}%` }}
+            <section className="overflow-hidden rounded-2xl border border-amber-300 bg-gradient-to-br from-red-700 via-red-600 to-amber-500 p-3.5 text-white shadow-sm sm:p-4">
+              {(() => {
+                const slide = slidesCarrusel[carruselIdx % Math.max(slidesCarrusel.length, 1)];
+                if (!slide) return null;
+                return (
+                  <div className="space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-amber-200">Promos</p>
+                        <h3 className="mt-1 text-base font-black leading-snug">{slide.titulo}</h3>
+                        <p className="mt-1 text-xs text-amber-50/95">{slide.texto}</p>
+                      </div>
+                      <img
+                        src={MASCOTA_DOMICILIOS_URL}
+                        alt=""
+                        aria-hidden
+                        className="h-14 w-auto max-w-[3.25rem] shrink-0 object-contain drop-shadow-md"
+                        draggable={false}
                       />
                     </div>
-                    <p className="text-[11px] text-amber-800">
-                      {faltanteDomicilioGratis > 0
-                        ? `Te faltan ${formatoMoneda(faltanteDomicilioGratis)} para domicilio gratis.`
-                        : "Ya tienes domicilio gratis en este pedido."}
-                    </p>
-                  </div>
-                  ) : null}
-
-                  {combosSugeridos.length > 0 ? (
-                    <div className="space-y-2">
-                      {combosSugeridos.map((combo) => (
-                        <article key={combo.id} className="rounded-xl border border-amber-200 bg-white p-3">
-                          <p className="text-xs font-bold text-amber-900">{combo.titulo}</p>
-                          <p className="mt-1 text-xs text-gray-600">{combo.descripcion}</p>
-                          <div className="mt-2 flex items-center justify-between gap-2">
-                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800">
-                              Ahorro sugerido {formatoMoneda(combo.ahorro)}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => agregarComboSugerido(combo.skus)}
-                              className="rounded-lg bg-amber-600 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-amber-700 active:scale-95"
-                            >
-                              Agregar combo
-                            </button>
-                          </div>
-                        </article>
+                    {slide.cta ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (slide.accion === "combo" && combosSugeridos[0]) {
+                            agregarComboSugerido(combosSugeridos[0].skus);
+                          } else if (slide.accion === "club") {
+                            abrirClubMillasEnVentanaEmergente();
+                          }
+                        }}
+                        className="rounded-xl bg-amber-300 px-3 py-2 text-xs font-black text-red-950 shadow-sm transition hover:bg-amber-200"
+                      >
+                        {slide.cta}
+                      </button>
+                    ) : null}
+                    <div className="flex items-center gap-1.5">
+                      {slidesCarrusel.map((s, i) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          aria-label={`Ir a promo ${i + 1}`}
+                          onClick={() => setCarruselIdx(i)}
+                          className={`h-1.5 rounded-full transition ${
+                            i === carruselIdx % slidesCarrusel.length ? "w-5 bg-amber-300" : "w-1.5 bg-white/40"
+                          }`}
+                        />
                       ))}
                     </div>
-                  ) : null}
-                </div>
-              )}
+                  </div>
+                );
+              })()}
             </section>
 
             <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm sm:p-4">
@@ -2638,67 +2841,6 @@ function PedidosLandingClient() {
           </aside>
         </div>
 
-        {recomendaciones.length > 0 ? (
-          <section className="rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm sm:p-4">
-            <div className="mb-3 flex items-center justify-between gap-2">
-              <div>
-                <h3 className="text-base font-bold text-gray-900">Recomendados para ti</h3>
-                <p className="text-xs text-gray-500">Sugerencias inteligentes para mejorar tu pedido.</p>
-              </div>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {recomendaciones.map((prod, idx) => {
-                const img = primeraImagenProducto(prod);
-                const vars = opcionesVariantesProducto(prod);
-                const varKey = varianteSeleccionadaPorSku[prod.sku] ?? (vars[0]?.key ?? null);
-                const varActiva = varKey ? vars.find((v) => v.key === varKey) : null;
-                const precioRec = varActiva?.precio ?? prod.precioUnitario;
-                const usarImageOptimizada = img ? imagenProductoOptimizable(img) : false;
-                return (
-                  <article key={`rec-${prod.sku}`} className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-                    <div className="relative flex aspect-[16/10] items-center justify-center bg-slate-100">
-                      {img && usarImageOptimizada ? (
-                        <Image
-                          src={img}
-                          alt={prod.descripcion}
-                          fill
-                          sizes="(max-width: 640px) calc(100vw - 2rem), (max-width: 1024px) calc(50vw - 1.5rem), 280px"
-                          quality={64}
-                          priority={idx < 1}
-                          className="block bg-white object-contain object-center p-2 sm:object-cover sm:p-0"
-                        />
-                      ) : img ? (
-                        <img
-                          src={img}
-                          alt={prod.descripcion}
-                          className="block max-h-full max-w-full bg-white object-contain object-center p-2 sm:h-full sm:w-full sm:max-h-none sm:max-w-none sm:object-cover sm:p-0"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center">
-                          <Image src={LOGO_ORG_URL} alt="Maria Chorizos" width={88} height={32} className="h-7 w-auto opacity-70" />
-                        </div>
-                      )}
-                    </div>
-                    <div className="space-y-2 p-3">
-                      <p className="line-clamp-2 text-sm font-semibold text-gray-900">{descripcionBebidaParaUi(prod)}</p>
-                      <div className="flex items-center justify-between gap-2">
-                        <strong className="text-sm text-cyan-700">{formatoMoneda(precioRec)}</strong>
-                        <button
-                          type="button"
-                          onClick={() => subirCantidad(prod.sku, varKey)}
-                          className="rounded-lg bg-cyan-700 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-cyan-800 active:scale-95"
-                        >
-                          Agregar
-                        </button>
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          </section>
-        ) : null}
       </section>
       {pedidoEnCurso ? (
         <button
@@ -2726,9 +2868,18 @@ function PedidosLandingClient() {
         <button
           type="button"
           onClick={toggleChatCliente}
-          className="relative flex-1 rounded-xl bg-cyan-700 px-3 py-3 text-sm font-semibold text-white shadow-lg transition hover:bg-cyan-800 active:scale-[0.98]"
+          className="relative flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-red-700 px-2 py-2.5 text-sm font-semibold text-white shadow-lg transition hover:bg-red-800 active:scale-[0.98] sm:gap-2 sm:px-3 sm:py-3"
         >
-          {chatVista === "expandido" ? "Minimizar chat" : chatVista === "minimizado" ? "Abrir chat" : "Chat POS"}
+          <img
+            src={MASCOTA_DOMICILIOS_URL}
+            alt=""
+            aria-hidden
+            className="h-8 w-auto max-w-[2rem] object-contain sm:h-9 sm:max-w-[2.25rem]"
+            draggable={false}
+          />
+          <span className="truncate">
+            {chatVista === "expandido" ? "Minimizar" : chatVista === "minimizado" ? "Abrir chat" : "Chat"}
+          </span>
           {chatMensajesNoLeidos > 0 && chatVista !== "expandido" ? (
             <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold text-white">
               {chatMensajesNoLeidos > 9 ? "9+" : chatMensajesNoLeidos}
@@ -2755,11 +2906,18 @@ function PedidosLandingClient() {
         <button
           type="button"
           onClick={toggleChatCliente}
-          className="inline-flex items-center rounded-full bg-cyan-700 px-4 py-2 text-sm font-semibold text-white shadow-lg transition hover:bg-cyan-800 active:scale-[0.98]"
+          className="inline-flex items-center gap-2 rounded-full bg-red-700 py-1.5 pl-1.5 pr-4 text-sm font-semibold text-white shadow-lg transition hover:bg-red-800 active:scale-[0.98]"
         >
+          <img
+            src={MASCOTA_DOMICILIOS_URL}
+            alt=""
+            aria-hidden
+            className="h-9 w-auto max-w-[2.35rem] object-contain drop-shadow-sm"
+            draggable={false}
+          />
           {chatVista === "expandido" ? "Minimizar chat" : chatVista === "minimizado" ? "Abrir chat" : "Chat con el punto"}
           {chatMensajesNoLeidos > 0 && chatVista !== "expandido" ? (
-            <span className="ml-2 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold">
+            <span className="ml-1 inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold">
               {chatMensajesNoLeidos > 9 ? "9+" : chatMensajesNoLeidos}
             </span>
           ) : null}
@@ -3245,15 +3403,24 @@ function PedidosLandingClient() {
       ) : null}
       {chatVista === "minimizado" ? (
         <div
-          className={`fixed inset-x-3 z-50 md:inset-x-auto md:right-5 md:w-[340px] md:max-w-[calc(100vw-2rem)] ${
+          className={`fixed inset-x-3 z-50 md:inset-x-auto md:right-5 md:w-[360px] md:max-w-[calc(100vw-2rem)] ${
             pedidoEnCurso ? "bottom-[8.5rem] md:bottom-28" : "bottom-24 md:bottom-20"
           }`}
         >
-          <div className="flex overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-2xl ring-1 ring-cyan-500/15">
+          <div className="flex items-stretch overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-2xl ring-1 ring-cyan-500/15">
+            <div className="flex shrink-0 items-end bg-gradient-to-b from-cyan-50 to-sky-50 px-1.5 pb-1 pt-2 sm:px-2">
+              <img
+                src={MASCOTA_DOMICILIOS_URL}
+                alt=""
+                aria-hidden
+                className="h-11 w-auto max-w-[2.75rem] object-contain drop-shadow-sm sm:h-14 sm:max-w-[3.25rem]"
+                draggable={false}
+              />
+            </div>
             <button
               type="button"
               onClick={() => setChatVista("expandido")}
-              className="min-w-0 flex-1 px-4 py-3 text-left transition hover:bg-cyan-50/90 active:bg-cyan-100/80"
+              className="min-w-0 flex-1 px-3 py-3 text-left transition hover:bg-cyan-50/90 active:bg-cyan-100/80 sm:px-4"
             >
               <p className="text-xs font-extrabold uppercase tracking-wide text-cyan-800">Chat minimizado</p>
               <p className="mt-0.5 truncate text-sm font-bold text-slate-900">

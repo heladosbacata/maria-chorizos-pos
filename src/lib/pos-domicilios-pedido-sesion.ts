@@ -29,7 +29,17 @@ export type ClientePreferidoPedidos = {
   telefono: string;
 };
 
+export type BorradorCarritoPedidos = {
+  cantidades: Record<string, number>;
+  tipoEntrega: TipoEntregaDomicilio;
+  metodoPago: MetodoPagoDomicilio;
+  direccion: string;
+  referencia: string;
+  guardadoEnIso: string;
+};
+
 const ESTADOS_TERMINALES: readonly EstadoDomicilio[] = ["ENTREGADO", "CANCELADO", "RECHAZADO"];
+const CARRITO_PREFIX = "pos_mc_pedidos_carrito_v1:";
 
 export function esEstadoTerminalPedidoDomicilio(estado: EstadoDomicilio | null | undefined): boolean {
   if (!estado) return false;
@@ -135,6 +145,72 @@ export function guardarClientePreferidoPedidos(puntoVenta: string, datos: Client
     localStorage.setItem(keyClientePref(pv), JSON.stringify(payload));
   } catch {
     /* quota */
+  }
+}
+
+function keyCarrito(puntoVenta: string): string {
+  return `${CARRITO_PREFIX}${puntoVentaFirestoreClave(puntoVenta)}`;
+}
+
+export function leerBorradorCarritoPedidos(puntoVenta: string): BorradorCarritoPedidos | null {
+  if (typeof window === "undefined") return null;
+  const pv = puntoVenta.trim();
+  if (!pv) return null;
+  try {
+    const raw = localStorage.getItem(keyCarrito(pv));
+    if (!raw) return null;
+    const j = JSON.parse(raw) as Partial<BorradorCarritoPedidos>;
+    const cantidades =
+      j.cantidades && typeof j.cantidades === "object" ? (j.cantidades as Record<string, number>) : {};
+    const tieneItems = Object.values(cantidades).some((n) => Number.isFinite(n) && n > 0);
+    if (!tieneItems) return null;
+    return {
+      cantidades,
+      tipoEntrega: j.tipoEntrega === "domicilio" ? "domicilio" : "recogida",
+      metodoPago:
+        j.metodoPago === "transferencia" || j.metodoPago === "datafono" || j.metodoPago === "efectivo"
+          ? j.metodoPago
+          : "efectivo",
+      direccion: typeof j.direccion === "string" ? j.direccion : "",
+      referencia: typeof j.referencia === "string" ? j.referencia : "",
+      guardadoEnIso: typeof j.guardadoEnIso === "string" ? j.guardadoEnIso : new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function guardarBorradorCarritoPedidos(
+  puntoVenta: string,
+  data: Omit<BorradorCarritoPedidos, "guardadoEnIso">
+): void {
+  if (typeof window === "undefined") return;
+  const pv = puntoVenta.trim();
+  if (!pv) return;
+  const tieneItems = Object.values(data.cantidades).some((n) => Number.isFinite(n) && n > 0);
+  try {
+    if (!tieneItems) {
+      localStorage.removeItem(keyCarrito(pv));
+      return;
+    }
+    const payload: BorradorCarritoPedidos = {
+      ...data,
+      guardadoEnIso: new Date().toISOString(),
+    };
+    localStorage.setItem(keyCarrito(pv), JSON.stringify(payload));
+  } catch {
+    /* quota */
+  }
+}
+
+export function limpiarBorradorCarritoPedidos(puntoVenta: string): void {
+  if (typeof window === "undefined") return;
+  const pv = puntoVenta.trim();
+  if (!pv) return;
+  try {
+    localStorage.removeItem(keyCarrito(pv));
+  } catch {
+    /* ignore */
   }
 }
 

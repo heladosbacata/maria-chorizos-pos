@@ -86,6 +86,16 @@ export default function PosDomiciliosNuevosWatcher({
     if (leerSonidosActivos(pv)) {
       reproducirTonoDomicilios("crear", leerVolumen(pv));
     }
+    try {
+      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        new Notification("Nuevo pedido · María Chorizos", {
+          body: `${masReciente.cliente || "Cliente"} · ${masReciente.id}`,
+          tag: `domicilio-nuevo-${masReciente.id}`,
+        });
+      }
+    } catch {
+      /* ignore */
+    }
     emitirDomiciliosPedidoNuevo({ pedido: masReciente, cantidadNuevos: ids.length });
   }, [pv, activo, moduloDomiciliosActivo, soloContador]);
 

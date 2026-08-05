@@ -169,6 +169,10 @@ import {
   wmsTurnosSincronizarSilent,
   type WmsTurnoCajeroPayload,
 } from "@/lib/wms-turnos-client";
+import {
+  PRESENCIA_TURNO_HEARTBEAT_MS,
+  publicarPresenciaTurnoCaja,
+} from "@/lib/pos-punto-turno-presencia";
 import { wmsPosAlegraEmitirCobro, wmsPosDianConfigGet } from "@/lib/wms-pos-dian-client";
 import {
   confirmarCanjeCodigoClubMillasPos,
@@ -936,6 +940,48 @@ export default function CajaPageClient() {
     return () => window.clearInterval(id);
   }, [turnoAbierto, user?.puntoVenta, user?.role]);
 
+  /** Presencia para `/pedidos`: el cliente ve el punto abierto aunque el WMS diga cerrado. */
+  useEffect(() => {
+    if (!turnoHidratadoDesdeStorage) return;
+    if (!user?.puntoVenta?.trim() || esContadorInvitado(user.role)) return;
+    const pv = user.puntoVenta.trim();
+
+    let cancelled = false;
+    const publicar = async (abierto: boolean) => {
+      const t = await auth?.currentUser?.getIdToken().catch(() => null);
+      if (cancelled || !t) return;
+      const r = await publicarPresenciaTurnoCaja({
+        token: t,
+        puntoVenta: pv,
+        abierto,
+        turnoSesionId: abierto ? turnoSesionId : undefined,
+      });
+      if (!r.ok && abierto) {
+        console.warn("[POS] Presencia turno para pedidos no publicada —", r.message);
+      }
+    };
+
+    if (!turnoAbierto) {
+      void publicar(false);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void publicar(true);
+    const id = window.setInterval(() => void publicar(true), PRESENCIA_TURNO_HEARTBEAT_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [
+    turnoHidratadoDesdeStorage,
+    turnoAbierto,
+    turnoSesionId,
+    user?.puntoVenta,
+    user?.role,
+  ]);
+
   const cargarCatalogo = () => {
     if (user && esContadorInvitado(user.role)) return;
     if (moduloActivo !== "ventas") return;
@@ -1468,6 +1514,12 @@ export default function CajaPageClient() {
     setBaseInicialCaja(0);
     setTurnoSesionId("");
     setShowModalCierreTurno(false);
+    void (async () => {
+      const t = await auth?.currentUser?.getIdToken().catch(() => null);
+      if (t && pv) {
+        await publicarPresenciaTurnoCaja({ token: t, puntoVenta: pv, abierto: false });
+      }
+    })();
     } finally {
       setProcesandoCierreTurno(false);
     }
@@ -2778,6 +2830,12 @@ export default function CajaPageClient() {
       setShowModalAbrirTurno(false);
       setBaseInicialCajaInput("");
       await wmsTurnosSincronizarSilent(token, 0, cajeroWms);
+      void publicarPresenciaTurnoCaja({
+        token,
+        puntoVenta: pv,
+        abierto: true,
+        turnoSesionId: sesionId,
+      });
     } finally {
       setAbriendoTurnoWms(false);
     }
