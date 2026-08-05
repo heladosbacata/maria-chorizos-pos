@@ -14,6 +14,12 @@ import { reproducirTonoDomiciliosPos, type VolumenSonidoDomicilios } from "@/lib
 import { construirLandingPedidosUrl } from "@/lib/pos-domicilios-landing-url";
 import { emitirDomiciliosContadorNuevos, EVENT_DOMICILIOS_FORZAR_REFRESH } from "@/lib/pos-domicilios-nuevos-event";
 import { enviarPedidoDomicilioAFacturacion } from "@/lib/pos-domicilios-enviar-facturacion";
+import {
+  estadoDomicilioRequiereFacturacion,
+  mensajeBloqueoEntregaSinFacturacion,
+  pedidoDomicilioFacturaElectronicaEmitida,
+  pedidoDomicilioTieneVentaFacturacion,
+} from "@/lib/pos-domicilios-facturacion-guard";
 import { DEFAULT_COSTO_DOMICILIO_COP, DEFAULT_UMBRAL_GRATIS_COP } from "@/lib/pos-domicilios-tarifa-defaults";
 import {
   aplicarFranjaATodosLosDias,
@@ -35,8 +41,16 @@ import {
 } from "@/types/pos-domicilios-medios-transferencia";
 import type { EstadoDomicilio, PedidoDomicilio } from "@/types/pos-domicilios";
 
+export type AbrirFacturacionDomicilioOpts = {
+  pedidoId: string;
+  ventaLocalId?: string;
+  busqueda: string;
+};
+
 type Props = {
   puntoVenta?: string | null;
+  /** Abre Ventas / facturación (Espacio franquiciados → Ventas y comprobantes). */
+  onAbrirFacturacion?: (opts: AbrirFacturacionDomicilioOpts) => void;
 };
 
 type FiltroEstado = "todos" | EstadoDomicilio;
@@ -173,7 +187,7 @@ function keyVolumenDomicilios(puntoVenta: string): string {
   return `pos_mc_domicilios_volumen_v1:${puntoVenta.trim().toLowerCase() || "global"}`;
 }
 
-export default function PosDomiciliosModule({ puntoVenta }: Props) {
+export default function PosDomiciliosModule({ puntoVenta, onAbrirFacturacion }: Props) {
   const [pedidos, setPedidos] = useState<PedidoDomicilio[]>([]);
   const [filtro, setFiltro] = useState("");
   const [filtroEstado, setFiltroEstado] = useState<FiltroEstado>("todos");
@@ -655,10 +669,74 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
     [pedidosFiltrados]
   );
 
+  const abrirFacturacionPedido = (pedido: PedidoDomicilio) => {
+    const busqueda =
+      pedido.facturaVentaLocalId?.trim() ||
+      pedido.id ||
+      pedido.cliente.trim() ||
+      "";
+    if (onAbrirFacturacion) {
+      onAbrirFacturacion({
+        pedidoId: pedido.id,
+        ...(pedido.facturaVentaLocalId?.trim()
+          ? { ventaLocalId: pedido.facturaVentaLocalId.trim() }
+          : {}),
+        busqueda,
+      });
+      return;
+    }
+    setSyncInfo(
+      "Abra Espacio para franquiciados → Ventas → Ventas y comprobantes para facturar este pedido antes de entregarlo."
+    );
+  };
+
+  const asegurarFacturacionPedido = async (pedido: PedidoDomicilio): Promise<PedidoDomicilio | null> => {
+    if (pedidoDomicilioTieneVentaFacturacion(pedido)) return pedido;
+    try {
+      const fact = await enviarPedidoDomicilioAFacturacion(pedido);
+      if (fact.ok && fact.ventaLocalId) {
+        const next: PedidoDomicilio = {
+          ...pedido,
+          facturaVentaLocalId: fact.ventaLocalId,
+          enviadoAFacturacionEnIso: new Date().toISOString(),
+        };
+        setPedidos((prev) => prev.map((p) => (p.id === pedido.id ? { ...p, ...next } : p)));
+        setSyncInfo(fact.message);
+        return next;
+      }
+      setSyncInfo(fact.message || "No se pudo registrar el pedido en Ventas para facturar.");
+      return null;
+    } catch {
+      setSyncInfo("No se pudo enviar el pedido a facturación. Revise la sesión de cajero e intente de nuevo.");
+      return null;
+    }
+  };
+
   const moverPedido = async (id: string, to: EstadoDomicilio, motivo?: string): Promise<boolean> => {
     if (!puntoVentaActivo || actualizandoId) return false;
     const anterior = pedidos;
-    const pedidoAntes = pedidos.find((p) => p.id === id) ?? null;
+    let pedidoAntes = pedidos.find((p) => p.id === id) ?? null;
+
+    if (pedidoAntes && estadoDomicilioRequiereFacturacion(to)) {
+      setActualizandoId(id);
+      setSyncInfo(null);
+      if (!pedidoDomicilioTieneVentaFacturacion(pedidoAntes)) {
+        const facturado = await asegurarFacturacionPedido(pedidoAntes);
+        if (!facturado) {
+          setSyncInfo(mensajeBloqueoEntregaSinFacturacion(id));
+          setActualizandoId(null);
+          return false;
+        }
+        pedidoAntes = facturado;
+      }
+      if (!pedidoDomicilioTieneVentaFacturacion(pedidoAntes)) {
+        setSyncInfo(mensajeBloqueoEntregaSinFacturacion(id));
+        setActualizandoId(null);
+        return false;
+      }
+      setActualizandoId(null);
+    }
+
     setActualizandoId(id);
     setSyncInfo(null);
     setPedidos((prev) =>
@@ -709,10 +787,15 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
                 : p
             )
           );
+          syncMsg = `${fact.message} Para entregar, confirme la factura en Ventas si aún está pendiente.`;
+        } else {
+          syncMsg =
+            fact.message ||
+            "Pedido listo, pero falta registrarlo en Ventas. Use «Ir a facturación» antes de enviar a entrega.";
         }
       } catch {
         syncMsg =
-          "Pedido marcado listo, pero no se pudo enviar a facturación. Reintentá desde Ventas o volvé a marcar listo.";
+          "Pedido marcado listo, pero no se pudo enviar a facturación. Use «Ir a facturación» antes de entregar.";
       }
     }
 
@@ -1404,17 +1487,63 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
                           <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700">
                             {etiquetaPago(pedido.metodoPago)}
                           </span>
-                          {pedido.enviadoAFacturacionEnIso || pedido.facturaVentaLocalId ? (
+                          {pedidoDomicilioFacturaElectronicaEmitida(pedido) ? (
+                            <span className="rounded-full bg-emerald-100 px-2 py-1 text-[11px] font-bold text-emerald-900">
+                              Facturado
+                            </span>
+                          ) : pedidoDomicilioTieneVentaFacturacion(pedido) ? (
                             <span className="rounded-full bg-amber-100 px-2 py-1 text-[11px] font-bold text-amber-900">
-                              {pedido.facturaElectronicaCufe ? "Facturado" : "En facturación"}
+                              En Ventas / facturación
+                            </span>
+                          ) : col.estado === "LISTO_PARA_DESPACHO" ||
+                            col.estado === "EN_ENTREGA" ||
+                            col.estado === "EN_PREPARACION" ? (
+                            <span className="rounded-full bg-rose-100 px-2 py-1 text-[11px] font-bold text-rose-800">
+                              Sin facturar
                             </span>
                           ) : null}
                         </div>
 
+                        {(col.estado === "LISTO_PARA_DESPACHO" || col.estado === "EN_ENTREGA") &&
+                        !pedidoDomicilioTieneVentaFacturacion(pedido) ? (
+                          <div className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-2 text-[11px] font-semibold leading-snug text-amber-950">
+                            Antes de entregar debe facturarse en Ventas e ingresos.
+                            <button
+                              type="button"
+                              onClick={() => {
+                                void (async () => {
+                                  setActualizandoId(pedido.id);
+                                  const ok = await asegurarFacturacionPedido(pedido);
+                                  setActualizandoId(null);
+                                  if (ok) {
+                                    abrirFacturacionPedido(ok);
+                                  } else {
+                                    abrirFacturacionPedido(pedido);
+                                  }
+                                })();
+                              }}
+                              disabled={Boolean(actualizandoId)}
+                              className="mt-1.5 block w-full rounded-lg bg-gradient-to-r from-amber-600 to-orange-500 px-2.5 py-1.5 text-xs font-black text-white shadow-sm transition hover:from-amber-700 hover:to-orange-600 disabled:opacity-60"
+                            >
+                              Ir a facturación
+                            </button>
+                          </div>
+                        ) : (col.estado === "LISTO_PARA_DESPACHO" || col.estado === "EN_ENTREGA") &&
+                          pedidoDomicilioTieneVentaFacturacion(pedido) &&
+                          !pedidoDomicilioFacturaElectronicaEmitida(pedido) ? (
+                          <button
+                            type="button"
+                            onClick={() => abrirFacturacionPedido(pedido)}
+                            className="w-full rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-bold text-amber-950 transition hover:bg-amber-100"
+                          >
+                            Abrir en Ventas / facturación
+                          </button>
+                        ) : null}
+
                         <div className="flex items-end justify-between gap-2">
                           <p className="text-sm font-extrabold text-gray-900">{formatoMoneda(pedido.total)}</p>
                           {col.nextEstado && col.nextLabel ? (
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center justify-end gap-2">
                               <button
                                 type="button"
                                 onClick={() => void rechazarPedido(pedido)}
@@ -1430,14 +1559,37 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
                               >
                                 Chat
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => void moverPedido(pedido.id, col.nextEstado!)}
-                                disabled={Boolean(actualizandoId)}
-                                className="rounded-lg bg-gray-900 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
-                              >
-                                {actualizandoId === pedido.id ? "Actualizando..." : col.nextLabel}
-                              </button>
+                              {estadoDomicilioRequiereFacturacion(col.nextEstado) &&
+                              !pedidoDomicilioTieneVentaFacturacion(pedido) ? (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    void (async () => {
+                                      setActualizandoId(pedido.id);
+                                      const ok = await asegurarFacturacionPedido(pedido);
+                                      setActualizandoId(null);
+                                      if (ok) {
+                                        void moverPedido(pedido.id, col.nextEstado!);
+                                      } else {
+                                        abrirFacturacionPedido(pedido);
+                                      }
+                                    })();
+                                  }}
+                                  disabled={Boolean(actualizandoId)}
+                                  className="rounded-lg bg-amber-600 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {actualizandoId === pedido.id ? "Facturando…" : "Facturar y continuar"}
+                                </button>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => void moverPedido(pedido.id, col.nextEstado!)}
+                                  disabled={Boolean(actualizandoId)}
+                                  className="rounded-lg bg-gray-900 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {actualizandoId === pedido.id ? "Actualizando..." : col.nextLabel}
+                                </button>
+                              )}
                             </div>
                           ) : null}
                         </div>

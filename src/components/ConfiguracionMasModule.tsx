@@ -212,18 +212,33 @@ function collectAllIds(categorias: ConfigCategoria[]): string[] {
 
 const ALL_IDS = collectAllIds(CATEGORIAS);
 
+export type DestinoFacturacionMas = {
+  herramientaId?: string;
+  busqueda?: string;
+  tab?: "todos" | "factura_electronica" | "recibo_pos" | "cotizacion" | "remision";
+};
+
 export interface ConfiguracionMasModuleProps {
   puntoVenta: string | null;
   uid: string | null;
   /** Rol POS (ej. pos_contador no registra clientes desde reglas Firestore) */
   role?: string | null;
+  /** Destino inicial (p. ej. desde domicilios → Ventas y comprobantes). */
+  destinoInicial?: DestinoFacturacionMas | null;
+  onDestinoInicialConsumido?: () => void;
 }
 
 function configItemDomId(itemId: string): string {
   return `config-item-${itemId}`;
 }
 
-export default function ConfiguracionMasModule({ puntoVenta, uid, role }: ConfiguracionMasModuleProps) {
+export default function ConfiguracionMasModule({
+  puntoVenta,
+  uid,
+  role,
+  destinoInicial = null,
+  onDestinoInicialConsumido,
+}: ConfiguracionMasModuleProps) {
   const [categoriaActiva, setCategoriaActiva] = useState<ConfigCategoriaId>("general");
   /** Categorías expandidas en el acordeón del menú lateral */
   const [categoriasExpandidas, setCategoriasExpandidas] = useState<Set<ConfigCategoriaId>>(
@@ -233,6 +248,8 @@ export default function ConfiguracionMasModule({ puntoVenta, uid, role }: Config
   const [pendingScrollItemId, setPendingScrollItemId] = useState<string | null>(null);
   /** Herramienta con vista de detalle (formulario) en el panel principal */
   const [vistaDetalleItemId, setVistaDetalleItemId] = useState<string | null>(null);
+  const [busquedaVentasDocs, setBusquedaVentasDocs] = useState<string>("");
+  const [tabVentasDocs, setTabVentasDocs] = useState<DestinoFacturacionMas["tab"]>("factura_electronica");
   /** Ids completados (desmarcados del fondo rojo = pendiente resuelto) */
   const [completados, setCompletados] = useState<Set<string>>(
     () =>
@@ -293,6 +310,15 @@ export default function ConfiguracionMasModule({ puntoVenta, uid, role }: Config
       setPendingScrollItemId(catId === "pyg-punto-venta" || catId === "productos-servicios" ? null : itemId);
     }
   }, []);
+
+  useEffect(() => {
+    if (!destinoInicial) return;
+    const herramienta = destinoInicial.herramientaId?.trim() || VEN_DOC_VIS_ITEM_ID;
+    setBusquedaVentasDocs(destinoInicial.busqueda?.trim() || "");
+    setTabVentasDocs(destinoInicial.tab || "factura_electronica");
+    irAHerramienta("ventas", herramienta);
+    onDestinoInicialConsumido?.();
+  }, [destinoInicial, irAHerramienta, onDestinoInicialConsumido]);
 
   const seleccionarSoloCategoria = useCallback((catId: ConfigCategoriaId) => {
     setCategoriaActiva(catId);
@@ -471,9 +497,12 @@ export default function ConfiguracionMasModule({ puntoVenta, uid, role }: Config
           <UsuariosPosRegistradosPanel onVolver={() => setVistaDetalleItemId(null)} />
         ) : vistaDetalleItemId === VEN_DOC_VIS_ITEM_ID ? (
           <VentasDocumentosPosPanel
+            key={`ven-docs-${busquedaVentasDocs}-${tabVentasDocs ?? "todos"}`}
             puntoVenta={puntoVenta}
             uid={uid}
             onVolver={() => setVistaDetalleItemId(null)}
+            initialTab={tabVentasDocs || "factura_electronica"}
+            initialBusqueda={busquedaVentasDocs || undefined}
           />
         ) : vistaDetalleItemId === VEN_DOC_COT_ITEM_ID ? (
           <DocumentoComercialFranquiciaPanel tipo="cotizacion" onVolver={() => setVistaDetalleItemId(null)} />
