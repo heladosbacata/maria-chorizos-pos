@@ -65,12 +65,19 @@ export async function notificarCambioEstadoPedidoDomicilioWebPush(params: {
 
   const titulo = "María Chorizos — su pedido";
   const body = cuerpoNotificacionEstado(params.estado);
+  const pid = pedidoIdChatClave(params.pedidoId);
   const qs = new URLSearchParams({
     puntoVenta: params.puntoVenta.trim(),
-    pedidoId: pedidoIdChatClave(params.pedidoId),
+    pedidoId: pid,
   }).toString();
   const url = `/pedidos?${qs}`;
-  const payload = JSON.stringify({ title: titulo, body, url });
+  const payload = JSON.stringify({
+    title: titulo,
+    body,
+    url,
+    tag: `maria-chorizos-estado-${pid}`,
+    renotify: true,
+  });
 
   const registros = await listarSuscripcionesPushPorPedido(params.puntoVenta, params.pedidoId);
   if (registros.length === 0) return;
@@ -108,20 +115,23 @@ export async function notificarNuevoMensajeChatPedidoDomicilioWebPush(params: {
 
   webpush.setVapidDetails(subject, publicKey, privateKey);
 
-  const titulo = "María Chorizos — mensaje del local";
+  const titulo = "María Chorizos le escribe";
   const body =
     params.preview.trim().slice(0, 180) ||
-    "Tiene un mensaje nuevo sobre su pedido. Abra el chat para leerlo.";
+    "Tiene un mensaje nuevo del local sobre su pedido. Ábralo para leerlo.";
+  const pid = pedidoIdChatClave(params.pedidoId);
   const qs = new URLSearchParams({
     puntoVenta: params.puntoVenta.trim(),
-    pedidoId: pedidoIdChatClave(params.pedidoId),
+    pedidoId: pid,
   }).toString();
   const url = `/pedidos?${qs}`;
   const payload = JSON.stringify({
     title: titulo,
     body,
     url,
-    tag: `maria-chorizos-chat-${params.pedidoId.trim().toUpperCase()}`,
+    tag: `maria-chorizos-chat-${pid}`,
+    renotify: true,
+    requireInteraction: true,
   });
 
   const registros = await listarSuscripcionesPushPorPedido(params.puntoVenta, params.pedidoId);

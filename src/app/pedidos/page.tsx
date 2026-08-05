@@ -30,7 +30,13 @@ import PuntoCerradoPremiumView from "@/components/PuntoCerradoPremiumView";
 import { consultarTurnoCajaAbierto } from "@/lib/pos-punto-turno-presencia";
 import { PosDomiciliosChatBurbuja } from "@/components/PosDomiciliosChatBurbuja";
 import { normalizarMediosTransferencia } from "@/lib/pos-domicilios-medios-transferencia";
-import { activarNotificacionesPedidoDomicilio, pedidosPushSoportadoEnEsteNavegador } from "@/lib/pedidos-push-client";
+import {
+  activarNotificacionesPedidoDomicilio,
+  esIosSafariSinPwa,
+  pedidoYaTeniasPushLocal,
+  pedidosPushSoportadoEnEsteNavegador,
+  permisoNotificacionesPedidos,
+} from "@/lib/pedidos-push-client";
 import {
   esEstadoTerminalPedidoDomicilio,
   guardarBorradorCarritoPedidos,
@@ -1610,12 +1616,9 @@ function PedidosLandingClient() {
         window.setTimeout(() => setResaltarTarjetaEstadoPedido(false), 2400);
       }, 350);
       setChatMensajesNoLeidos(0);
-      if (
-        pedidosPushSoportadoEnEsteNavegador() &&
-        vapidPublicPedidos &&
-        typeof Notification !== "undefined" &&
-        Notification.permission === "default"
-      ) {
+      // Soft-ask profesional: solo si aún no autorizó (default). Si ya granted, el effect re-vincula.
+      const perm = permisoNotificacionesPedidos();
+      if (pedidosPushSoportadoEnEsteNavegador() && vapidPublicPedidos && perm === "default") {
         setModalPushPedidoAbierto(true);
       }
       setMensaje("Su pedido fue recibido. Muy pronto lo contactamos para confirmar.");
@@ -1914,14 +1917,13 @@ function PedidosLandingClient() {
       });
       tOverlay = window.setTimeout(() => setAnimacionCambioEstadoPedido(null), reduceMotion ? 2200 : 3600);
     }
-    // Reforzar opt-in de push en estados clave si aún no está concedido
+    // Reforzar opt-in solo si el permiso sigue en default (nunca reabrir si denied).
     if (
       (estadoPedido === "ACEPTADO" || estadoPedido === "EN_PREPARACION") &&
       !pushPedidosExito &&
       vapidPublicPedidos &&
       pushPedidosNavOk &&
-      typeof Notification !== "undefined" &&
-      Notification.permission !== "granted"
+      permisoNotificacionesPedidos() === "default"
     ) {
       const key = `${pedidoCreadoId}:${estadoPedido}`;
       if (!pushPromptEstadosRef.current.has(key)) {
@@ -2051,7 +2053,7 @@ function PedidosLandingClient() {
     await enviarAdjuntoImagenCliente(file, "imagen");
   };
 
-  const activarNotificacionesPedidoCelular = async () => {
+  const activarNotificacionesPedidoCelular = useCallback(async () => {
     if (!pedidoCreadoId || pushPedidosActivando) return;
     setPushPedidosActivando(true);
     setPushPedidosMensaje(null);
@@ -2062,9 +2064,33 @@ function PedidosLandingClient() {
     });
     setPushPedidosActivando(false);
     setPushPedidosMensaje(r.message ?? (r.ok ? "Listo." : "No se pudo activar."));
-    setPushPedidosExito(r.ok);
+    setPushPedidosExito(Boolean(r.ok));
     if (r.ok) setModalPushPedidoAbierto(false);
-  };
+  }, [pedidoCreadoId, pushPedidosActivando, vapidPublicPedidos, puntoVenta]);
+
+  /** Si el permiso ya está concedido, re-vincula la suscripción a este pedido (sin diálogo nativo). */
+  useEffect(() => {
+    if (!pedidoCreadoId || !vapidPublicPedidos || !pushPedidosNavOk) return;
+    if (permisoNotificacionesPedidos() !== "granted") return;
+    if (pedidoYaTeniasPushLocal(pedidoCreadoId) && pushPedidosExito) return;
+    let cancelado = false;
+    void (async () => {
+      const r = await activarNotificacionesPedidoDomicilio({
+        vapidPublicKey: vapidPublicPedidos,
+        puntoVenta,
+        pedidoId: pedidoCreadoId,
+        soloSiYaConcedido: true,
+      });
+      if (cancelado) return;
+      if (r.ok) {
+        setPushPedidosExito(true);
+        setPushPedidosMensaje(r.message ?? "Avisos activos para este pedido.");
+      }
+    })();
+    return () => {
+      cancelado = true;
+    };
+  }, [pedidoCreadoId, puntoVenta, vapidPublicPedidos, pushPedidosNavOk, pushPedidosExito]);
 
   const consultarHistorialPedidos = useCallback(async () => {
     const tel = telefonoDomicilioNorm(historialTelefono);
@@ -2169,29 +2195,47 @@ function PedidosLandingClient() {
   }, [chatVista]);
 
   const bloqueActivarPushPedido = pedidoCreadoId ? (
-    <div className="rounded-xl border border-indigo-200 bg-indigo-50/80 p-3">
-      <p className="text-sm font-bold text-indigo-950">Avisos en su celular</p>
-      <p className="mt-1 text-xs text-indigo-900/90">
-        Active las notificaciones pa&apos; enterarse cuando el local le escriba o cambie el estado del pedido.
+    <div className="rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 via-white to-orange-50 p-3.5 shadow-sm">
+      <p className="text-[10px] font-black uppercase tracking-[0.18em] text-red-700">Avisos María Chorizos</p>
+      <p className="mt-1 text-sm font-bold text-slate-900">
+        Entérese aunque cierre el navegador o cambie de app
+      </p>
+      <p className="mt-1 text-xs leading-relaxed text-slate-600">
+        Le avisamos cuando el local le escriba en el chat o cambie el estado de su pedido (aceptado, en
+        preparación, listo, en camino).
       </p>
       {!vapidPublicPedidos ? (
         <p className="mt-2 text-xs text-slate-600">Las notificaciones no están disponibles en este momento.</p>
-      ) : !pushPedidosNavOk ? (
-        <p className="mt-2 text-xs text-amber-900/90">
-          En iPhone agregue esta página a la pantalla de inicio y ábrala desde el ícono (iOS 16.4+). En Android use Chrome.
-        </p>
+      ) : !pushPedidosNavOk || esIosSafariSinPwa() ? (
+        <div className="mt-2 space-y-1.5 rounded-lg border border-amber-200 bg-white/80 px-3 py-2 text-xs text-amber-950">
+          <p className="font-semibold">En iPhone / iPad:</p>
+          <ol className="list-decimal space-y-0.5 pl-4 font-medium">
+            <li>Toque Compartir en Safari</li>
+            <li>Elija «Agregar a pantalla de inicio»</li>
+            <li>Abra María Chorizos desde el ícono nuevo</li>
+            <li>Vuelva a tocar «Permitir avisos»</li>
+          </ol>
+          <p className="pt-1 text-[11px] text-slate-600">En Android use Chrome para recibir los avisos.</p>
+        </div>
       ) : pushPedidosExito ? (
-        <p className="mt-2 text-xs font-semibold text-emerald-800">Avisos activados correctamente. ¡Listo!</p>
+        <p className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-900">
+          Avisos activados. Si María Chorizos le escribe o actualiza su pedido, le llegará una notificación.
+        </p>
       ) : (
         <div className="mt-3 space-y-2">
           <button
             type="button"
             disabled={pushPedidosActivando}
             onClick={() => void activarNotificacionesPedidoCelular()}
-            className="w-full rounded-xl bg-indigo-700 px-3 py-2.5 text-sm font-bold text-white shadow-md transition hover:bg-indigo-800 disabled:opacity-60"
+            className="w-full rounded-xl bg-gradient-to-r from-red-700 to-amber-500 px-3 py-3 text-sm font-black text-white shadow-md transition hover:from-red-800 hover:to-amber-600 disabled:opacity-60"
           >
-            {pushPedidosActivando ? "Activando…" : "Permitir notificaciones"}
+            {pushPedidosActivando ? "Activando avisos…" : "Permitir avisos del pedido"}
           </button>
+          {permisoNotificacionesPedidos() === "denied" ? (
+            <p className="text-xs font-medium text-rose-700">
+              Tiene las notificaciones bloqueadas. Actívelas en la configuración del sitio y vuelva a intentar.
+            </p>
+          ) : null}
           {pushPedidosMensaje ? (
             <p className={`text-xs font-medium ${pushPedidosExito ? "text-emerald-800" : "text-rose-700"}`}>
               {pushPedidosMensaje}
@@ -2578,13 +2622,13 @@ function PedidosLandingClient() {
         ) : null}
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <p className="text-[11px] text-slate-500">Se actualiza solo cada pocos segundos.</p>
-          {vapidPublicPedidos && pushPedidosNavOk && !pushPedidosExito ? (
+          {vapidPublicPedidos && (pushPedidosNavOk || esIosSafariSinPwa()) && !pushPedidosExito ? (
             <button
               type="button"
-              onClick={() => void activarNotificacionesPedidoCelular()}
+              onClick={() => setModalPushPedidoAbierto(true)}
               className="rounded-lg bg-amber-400 px-2.5 py-1 text-[11px] font-bold text-red-950"
             >
-              Activar alertas
+              Activar avisos
             </button>
           ) : null}
         </div>
@@ -3021,45 +3065,7 @@ function PedidosLandingClient() {
               ) : null}
             </section>
 
-            {pedidoCreadoId ? (
-              <>
-                <section className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-3.5 shadow-sm sm:p-4">
-                  <h3 className="text-base font-bold text-indigo-950">Avisos en su celular</h3>
-                  <p className="mt-1 text-xs text-indigo-900/90">
-                    Reciba una notificación cuando cambie el estado de su pedido, aunque cambie de app o bloquee la pantalla (según su navegador).
-                  </p>
-                  {!vapidPublicPedidos ? (
-                    <p className="mt-2 text-xs text-slate-600">
-                      Las notificaciones push requieren configuración en el servidor (claves VAPID). Consulte con el equipo del POS.
-                    </p>
-                  ) : !pushPedidosNavOk ? (
-                    <p className="mt-2 text-xs text-amber-900/90">
-                      Este navegador no permite notificaciones web aquí, o están desactivadas. En iPhone/iPad suele funcionar mejor si agrega el sitio a la pantalla de inicio y lo abre desde el ícono (iOS 16.4+).
-                    </p>
-                  ) : (
-                    <div className="mt-3 space-y-2">
-                      <button
-                        type="button"
-                        disabled={pushPedidosActivando || pushPedidosExito}
-                        onClick={() => void activarNotificacionesPedidoCelular()}
-                        className="w-full rounded-xl bg-indigo-700 px-3 py-2.5 text-sm font-bold text-white shadow-md transition hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        {pushPedidosActivando
-                          ? "Activando..."
-                          : pushPedidosExito
-                            ? "Avisos activados"
-                            : "Permitir avisos de mi pedido"}
-                      </button>
-                      {pushPedidosMensaje ? (
-                        <p className={`text-xs font-medium ${pushPedidosExito ? "text-emerald-800" : "text-rose-700"}`}>
-                          {pushPedidosMensaje}
-                        </p>
-                      ) : null}
-                    </div>
-                  )}
-                </section>
-              </>
-            ) : null}
+            {pedidoCreadoId ? <section className="shadow-sm">{bloqueActivarPushPedido}</section> : null}
           </aside>
         </div>
         ) : null}
@@ -3380,13 +3386,25 @@ function PedidosLandingClient() {
             className="absolute inset-0 bg-slate-950/60 backdrop-blur-[1px]"
             onClick={() => setModalPushPedidoAbierto(false)}
           />
-          <div className="relative z-10 w-full max-w-sm space-y-4 rounded-2xl border border-indigo-200 bg-white p-5 shadow-2xl">
-            <div>
-              <p className="text-lg font-bold text-gray-900">Active avisos en su celular</p>
-              <p className="mt-1 text-sm text-gray-600">
-                Así se entera cuando el local le escriba en el chat o cambie el estado de su pedido (aceptado,
-                preparación, en camino), aunque no tenga esta página abierta.
-              </p>
+          <div className="relative z-10 w-full max-w-sm space-y-4 overflow-hidden rounded-2xl border-2 border-amber-300 bg-white p-5 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <img
+                src={MASCOTA_DOMICILIOS_URL}
+                alt=""
+                aria-hidden
+                className="h-14 w-auto shrink-0 object-contain"
+                draggable={false}
+              />
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-red-700">María Chorizos</p>
+                <p className="mt-0.5 text-lg font-black leading-tight text-slate-900">
+                  ¿Quiere que le avisemos?
+                </p>
+                <p className="mt-1.5 text-sm font-medium leading-snug text-slate-600">
+                  Si cierra esta página o cambia de app, igual le llega cuando el local le escriba o actualice
+                  su pedido <strong className="font-bold text-slate-800">{pedidoCreadoId}</strong>.
+                </p>
+              </div>
             </div>
             {bloqueActivarPushPedido}
             <button

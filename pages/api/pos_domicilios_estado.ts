@@ -56,10 +56,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   if (!pedido) {
     return res.status(404).json({ ok: false, message: "Pedido no encontrado." });
   }
-  void notificarCambioEstadoPedidoDomicilioWebPush({
-    puntoVenta: pv,
-    pedidoId,
-    estado: pedido.estado,
-  }).catch(() => undefined);
+  try {
+    await notificarCambioEstadoPedidoDomicilioWebPush({
+      puntoVenta: pv,
+      pedidoId,
+      estado: pedido.estado,
+    });
+  } catch {
+    /* no bloquear la respuesta de estado */
+  }
   return res.status(200).json({ ok: true, pedido, message: "Estado actualizado." });
 }
