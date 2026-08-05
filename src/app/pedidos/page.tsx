@@ -56,7 +56,14 @@ import {
 } from "@/types/pos-domicilios-medios-transferencia";
 import type { ProductoPOS } from "@/types";
 import type { MensajeChatDomicilio } from "@/types/pos-domicilios-chat";
-import { productoRequiereSoloTipoArepaPeto } from "@/lib/chorizo-variante-pos";
+import {
+  OPCIONES_SALSA_FAVORITA,
+  esSalsaFavorita,
+  etiquetaSalsaFavorita,
+  productoRequiereSalsaFavorita,
+  productoRequiereSoloTipoArepaPeto,
+  type SalsaFavorita,
+} from "@/lib/chorizo-variante-pos";
 import {
   descripcionBebidaParaUi,
   variantesBebidaParaUi,
@@ -200,20 +207,46 @@ type CarritoLinea = {
   cantidad: number;
   varianteKey: string | null;
   varianteLabel: string | null;
+  salsaKey: SalsaFavorita | null;
+  salsaLabel: string | null;
   precioUnitarioLinea: number;
 };
 
 const VARIANTE_BASE_KEY = "__base";
+const SALSA_KEY_PREFIX = "salsa:";
 
-function keyLineaPedido(sku: string, varianteKey: string | null): string {
-  return `${sku}::${varianteKey ?? VARIANTE_BASE_KEY}`;
+function keyLineaPedido(
+  sku: string,
+  varianteKey: string | null,
+  salsaKey: SalsaFavorita | null = null
+): string {
+  const base = `${sku}::${varianteKey ?? VARIANTE_BASE_KEY}`;
+  if (!salsaKey) return base;
+  return `${base}::${SALSA_KEY_PREFIX}${salsaKey}`;
 }
 
-function parseKeyLineaPedido(lineKey: string): { sku: string; varianteKey: string | null } {
-  const [skuRaw, varianteRaw] = lineKey.split("::");
-  const sku = (skuRaw ?? "").trim();
-  const vk = (varianteRaw ?? VARIANTE_BASE_KEY).trim();
-  return { sku, varianteKey: vk && vk !== VARIANTE_BASE_KEY ? vk : null };
+function parseKeyLineaPedido(lineKey: string): {
+  sku: string;
+  varianteKey: string | null;
+  salsaKey: SalsaFavorita | null;
+} {
+  const parts = lineKey.split("::");
+  const sku = (parts[0] ?? "").trim();
+  const vk = (parts[1] ?? VARIANTE_BASE_KEY).trim();
+  const salsaRaw = (parts[2] ?? "").trim();
+  const salsaToken = salsaRaw.startsWith(SALSA_KEY_PREFIX)
+    ? salsaRaw.slice(SALSA_KEY_PREFIX.length)
+    : "";
+  return {
+    sku,
+    varianteKey: vk && vk !== VARIANTE_BASE_KEY ? vk : null,
+    salsaKey: esSalsaFavorita(salsaToken) ? salsaToken : null,
+  };
+}
+
+function etiquetaLineaPedido(varianteLabel: string | null, salsaLabel: string | null): string | null {
+  const parts = [varianteLabel, salsaLabel].filter(Boolean) as string[];
+  return parts.length ? parts.join(" · ") : null;
 }
 
 function textoVarianteNorm(v: string): string {
@@ -612,6 +645,7 @@ function PedidosLandingClient() {
   const [errorCatalogo, setErrorCatalogo] = useState<string | null>(null);
   const [cantidades, setCantidades] = useState<Record<string, number>>({});
   const [varianteSeleccionadaPorSku, setVarianteSeleccionadaPorSku] = useState<Record<string, string>>({});
+  const [salsaSeleccionadaPorSku, setSalsaSeleccionadaPorSku] = useState<Record<string, SalsaFavorita>>({});
   const [cliente, setCliente] = useState("");
   const [telefono, setTelefono] = useState("");
   const [direccion, setDireccion] = useState("");
@@ -1105,18 +1139,21 @@ function PedidosLandingClient() {
     const out: CarritoLinea[] = [];
     for (const [lineKey, cantidad] of Object.entries(cantidades)) {
       if (!Number.isFinite(cantidad) || cantidad <= 0) continue;
-      const { sku, varianteKey } = parseKeyLineaPedido(lineKey);
+      const { sku, varianteKey, salsaKey } = parseKeyLineaPedido(lineKey);
       const p = porSku.get(sku);
       if (!p) continue;
       const variantes = opcionesVariantesProducto(p);
       const variante = varianteKey ? variantes.find((v) => v.key === varianteKey) : null;
       const precioUnitarioLinea = variante?.precio ?? p.precioUnitario;
+      const salsaLabel = salsaKey ? etiquetaSalsaFavorita(salsaKey) : null;
       out.push({
         lineKey,
         p,
         cantidad,
         varianteKey: variante?.key ?? null,
         varianteLabel: variante?.label ?? null,
+        salsaKey,
+        salsaLabel,
         precioUnitarioLinea,
       });
     }
@@ -1183,13 +1220,27 @@ function PedidosLandingClient() {
     return out;
   }, [catalogoVisible, itemsCarrito]);
 
-  const subirCantidad = (sku: string, varianteKey: string | null = null) => {
-    const lineKey = keyLineaPedido(sku, varianteKey);
+  const subirCantidad = (
+    sku: string,
+    varianteKey: string | null = null,
+    salsaKey: SalsaFavorita | null = null
+  ) => {
+    const p = catalogo.find((x) => x.sku === sku);
+    if (p && productoRequiereSalsaFavorita(p) && !salsaKey) {
+      setMensaje("Elija su salsa favorita (ajo o chimichurri) antes de agregar el producto.");
+      return;
+    }
+    const lineKey = keyLineaPedido(sku, varianteKey, salsaKey);
+    setMensaje(null);
     setCantidades((prev) => ({ ...prev, [lineKey]: (prev[lineKey] ?? 0) + 1 }));
   };
 
-  const bajarCantidad = (sku: string, varianteKey: string | null = null) => {
-    const lineKey = keyLineaPedido(sku, varianteKey);
+  const bajarCantidad = (
+    sku: string,
+    varianteKey: string | null = null,
+    salsaKey: SalsaFavorita | null = null
+  ) => {
+    const lineKey = keyLineaPedido(sku, varianteKey, salsaKey);
     setCantidades((prev) => {
       const actual = prev[lineKey] ?? 0;
       if (actual <= 1) {
@@ -1216,7 +1267,11 @@ function PedidosLandingClient() {
         if (!p) continue;
         const vars = opcionesVariantesProducto(p);
         const varKey = varianteSeleccionadaPorSku[p.sku] ?? (vars[0]?.key ?? null);
-        const lk = keyLineaPedido(p.sku, varKey);
+        const salsaKey = productoRequiereSalsaFavorita(p)
+          ? salsaSeleccionadaPorSku[p.sku] ?? null
+          : null;
+        if (productoRequiereSalsaFavorita(p) && !salsaKey) continue;
+        const lk = keyLineaPedido(p.sku, varKey, salsaKey);
         next[lk] = (next[lk] ?? 0) + 1;
       }
       return next;
@@ -1302,6 +1357,13 @@ function PedidosLandingClient() {
       setMensaje("Indique la dirección de entrega o elija pasar a recoger en la tienda.");
       return false;
     }
+    const faltaSalsa = itemsCarrito.some(
+      (x) => productoRequiereSalsaFavorita(x.p) && !x.salsaKey
+    );
+    if (faltaSalsa) {
+      setMensaje("Hay productos sin salsa favorita. Elija salsa de ajo o chimichurri.");
+      return false;
+    }
     return true;
   };
 
@@ -1341,11 +1403,12 @@ function PedidosLandingClient() {
       total: Math.round(total),
       metodoPago,
       canal,
-      items: itemsCarrito.map((x) =>
-        x.varianteLabel
-          ? `${x.cantidad}x ${descripcionBebidaParaUi(x.p)} (${x.varianteLabel})`
-          : `${x.cantidad}x ${descripcionBebidaParaUi(x.p)}`
-      ),
+      items: itemsCarrito.map((x) => {
+        const detalle = etiquetaLineaPedido(x.varianteLabel, x.salsaLabel);
+        return detalle
+          ? `${x.cantidad}x ${descripcionBebidaParaUi(x.p)} (${detalle})`
+          : `${x.cantidad}x ${descripcionBebidaParaUi(x.p)}`;
+      }),
       tiempoObjetivoMin: 35,
       tipoEntrega,
     };
@@ -1371,11 +1434,12 @@ function PedidosLandingClient() {
         setEnviando(false);
         return;
       }
-      const lineasResumen = itemsCarrito.map((x) =>
-        x.varianteLabel
-          ? `${x.cantidad}× ${descripcionBebidaParaUi(x.p)} (${x.varianteLabel})`
-          : `${x.cantidad}× ${descripcionBebidaParaUi(x.p)}`
-      );
+      const lineasResumen = itemsCarrito.map((x) => {
+        const detalle = etiquetaLineaPedido(x.varianteLabel, x.salsaLabel);
+        return detalle
+          ? `${x.cantidad}× ${descripcionBebidaParaUi(x.p)} (${detalle})`
+          : `${x.cantidad}× ${descripcionBebidaParaUi(x.p)}`;
+      });
       setPedidoResumenChat({
         lineasItems: lineasResumen,
         total: Math.round(total),
@@ -1972,13 +2036,15 @@ function PedidosLandingClient() {
         {itemsCarrito.length === 0 ? (
           <li className="text-gray-500">Todavía no ha agregado productos.</li>
         ) : (
-          itemsCarrito.map(({ lineKey, p, cantidad, varianteLabel, precioUnitarioLinea, varianteKey }) => (
+          itemsCarrito.map(({ lineKey, p, cantidad, varianteLabel, salsaLabel, salsaKey, precioUnitarioLinea, varianteKey }) => {
+            const detalle = etiquetaLineaPedido(varianteLabel, salsaLabel);
+            return (
             <li key={lineKey} className="rounded-xl border border-gray-100 bg-gray-50/80 p-2.5">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <p className="line-clamp-2 font-semibold text-gray-900">
                     {descripcionBebidaParaUi(p)}
-                    {varianteLabel ? <span className="font-normal text-gray-600"> ({varianteLabel})</span> : null}
+                    {detalle ? <span className="font-normal text-gray-600"> ({detalle})</span> : null}
                   </p>
                   <p className="mt-0.5 text-[11px] text-gray-500">{formatoMoneda(precioUnitarioLinea)} c/u</p>
                 </div>
@@ -1988,7 +2054,7 @@ function PedidosLandingClient() {
                     <button
                       type="button"
                       aria-label="Quitar una unidad"
-                      onClick={() => bajarCantidad(p.sku, varianteKey)}
+                      onClick={() => bajarCantidad(p.sku, varianteKey, salsaKey)}
                       className="flex h-7 w-7 items-center justify-center rounded-md border border-gray-200 bg-white text-sm font-bold text-gray-700 transition hover:bg-gray-100 active:scale-95"
                     >
                       -
@@ -1997,7 +2063,7 @@ function PedidosLandingClient() {
                     <button
                       type="button"
                       aria-label="Agregar una unidad"
-                      onClick={() => subirCantidad(p.sku, varianteKey)}
+                      onClick={() => subirCantidad(p.sku, varianteKey, salsaKey)}
                       className="flex h-7 w-7 items-center justify-center rounded-md bg-cyan-700 text-sm font-bold text-white transition hover:bg-cyan-800 active:scale-95"
                     >
                       +
@@ -2013,7 +2079,8 @@ function PedidosLandingClient() {
                 </div>
               </div>
             </li>
-          ))
+            );
+          })
         )}
       </ul>
       <div className="mt-3 space-y-1 rounded-xl bg-gray-50 p-3 text-xs text-gray-700">
@@ -2045,8 +2112,10 @@ function PedidosLandingClient() {
     const varianteActivaKey = varianteSeleccionadaPorSku[prod.sku] ?? (variantes[0]?.key ?? null);
     const varianteActiva = varianteActivaKey ? variantes.find((v) => v.key === varianteActivaKey) : null;
     const precioMostrar = varianteActiva?.precio ?? prod.precioUnitario;
-    const lineKey = keyLineaPedido(prod.sku, varianteActivaKey);
-    const cant = cantidades[lineKey] ?? 0;
+    const pideSalsa = productoRequiereSalsaFavorita(prod);
+    const salsaActiva = salsaSeleccionadaPorSku[prod.sku] ?? null;
+    const lineKey = keyLineaPedido(prod.sku, varianteActivaKey, pideSalsa ? salsaActiva : null);
+    const cant = pideSalsa && !salsaActiva ? 0 : cantidades[lineKey] ?? 0;
     const img = primeraImagenProducto(prod);
     const usarImageOptimizada = img ? imagenProductoOptimizable(img) : false;
     return (
@@ -2115,21 +2184,59 @@ function PedidosLandingClient() {
               </div>
             </div>
           ) : null}
+          {pideSalsa ? (
+            <div className="space-y-1">
+              <p className="text-[11px] font-semibold text-gray-600">
+                Salsa favorita <span className="font-normal text-rose-600">(obligatoria)</span>
+              </p>
+              <div className="flex flex-wrap gap-1">
+                {OPCIONES_SALSA_FAVORITA.map((op) => {
+                  const activo = salsaActiva === op.key;
+                  return (
+                    <button
+                      key={`${prod.sku}-salsa-${op.key}`}
+                      type="button"
+                      onClick={() =>
+                        setSalsaSeleccionadaPorSku((prev) => ({
+                          ...prev,
+                          [prod.sku]: op.key,
+                        }))
+                      }
+                      className={`rounded-full border px-2 py-1 text-[11px] font-semibold transition ${
+                        activo
+                          ? "border-amber-500 bg-amber-500 text-white"
+                          : "border-amber-300 bg-amber-50 text-amber-950 hover:bg-amber-100"
+                      }`}
+                    >
+                      {op.label}
+                    </button>
+                  );
+                })}
+              </div>
+              {!salsaActiva ? (
+                <p className="text-[10px] font-medium text-amber-800">
+                  Elija una salsa para poder agregar unidades.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
           <div className="flex items-center justify-between gap-3">
             <p className="text-lg font-extrabold text-cyan-700">{formatoMoneda(precioMostrar)}</p>
             <div className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-2 py-1">
               <button
                 type="button"
-                onClick={() => bajarCantidad(prod.sku, varianteActivaKey)}
-                className="h-8 w-8 rounded-md border border-gray-200 bg-white text-base font-bold text-gray-700 transition hover:bg-gray-100 active:scale-95"
+                onClick={() => bajarCantidad(prod.sku, varianteActivaKey, pideSalsa ? salsaActiva : null)}
+                disabled={pideSalsa && !salsaActiva}
+                className="h-8 w-8 rounded-md border border-gray-200 bg-white text-base font-bold text-gray-700 transition hover:bg-gray-100 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 -
               </button>
               <span className="w-7 text-center text-base font-semibold">{cant}</span>
               <button
                 type="button"
-                onClick={() => subirCantidad(prod.sku, varianteActivaKey)}
-                className="h-8 w-8 rounded-md bg-cyan-700 text-base font-bold text-white transition hover:bg-cyan-800 active:scale-95"
+                onClick={() => subirCantidad(prod.sku, varianteActivaKey, pideSalsa ? salsaActiva : null)}
+                disabled={pideSalsa && !salsaActiva}
+                className="h-8 w-8 rounded-md bg-cyan-700 text-base font-bold text-white transition hover:bg-cyan-800 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 +
               </button>

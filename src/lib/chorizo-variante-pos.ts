@@ -111,3 +111,41 @@ export function etiquetaArepaCombo(v: VarianteArepaCombo): string {
   if (v === "queso_bocadillo") return "Arepa de queso y Bocadillo";
   return "Arepa de queso";
 }
+
+/** Salsa favorita en pedidos (chorizo con pan/arepa y hawaiano). */
+export type SalsaFavorita = "ajo" | "chimichurri";
+
+export const OPCIONES_SALSA_FAVORITA: { key: SalsaFavorita; label: string }[] = [
+  { key: "ajo", label: "Salsa de ajo" },
+  { key: "chimichurri", label: "Salsa de chimichurri" },
+];
+
+export function etiquetaSalsaFavorita(v: SalsaFavorita): string {
+  return v === "chimichurri" ? "Salsa de chimichurri" : "Salsa de ajo";
+}
+
+export function esSalsaFavorita(raw: string | null | undefined): raw is SalsaFavorita {
+  return raw === "ajo" || raw === "chimichurri";
+}
+
+/** Combo o producto hawaiano (piña): también pide salsa favorita. */
+export function productoEsHawaiano(p: ProductoPOS): boolean {
+  const d = `${p.descripcion ?? ""}`
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  const sku = `${p.sku ?? ""}`
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+  return d.includes("hawaiano") || d.includes("hawaiana") || sku.includes("HAWAI");
+}
+
+/**
+ * En /pedidos: al agregar unidades debe elegir salsa favorita.
+ * Aplica a chorizo con pan, chorizo con arepa (incl. combo) y hawaiano.
+ */
+export function productoRequiereSalsaFavorita(p: ProductoPOS): boolean {
+  if (productoEsHawaiano(p)) return true;
+  return productoRequiereChorizoYArepa(p) || productoRequiereSoloChorizoPan(p);
+}
