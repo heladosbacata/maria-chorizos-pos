@@ -711,6 +711,8 @@ function PedidosLandingClient() {
   const [historialPedidos, setHistorialPedidos] = useState<PedidoDomicilio[]>([]);
   const [guardarDatosCliente, setGuardarDatosCliente] = useState(true);
   const [clubMillasVinculo, setClubMillasVinculo] = useState<PedidosClubMillasVinculo | null>(null);
+  /** Modal obligatorio al confirmar: cédula / registro Club de Millas. */
+  const [modalClubMillasConfirmacion, setModalClubMillasConfirmacion] = useState(false);
   const sesionRestauradaRef = useRef(false);
   const pushPromptEstadosRef = useRef<Set<string>>(new Set());
   const [carritoModalAbierto, setCarritoModalAbierto] = useState(false);
@@ -804,6 +806,7 @@ function PedidosLandingClient() {
     ultimoMensajePosIdRef.current = null;
     setTipoEntregaElegido(false);
     setClubMillasVinculo(null);
+    setModalClubMillasConfirmacion(false);
     const pref = leerClientePreferidoPedidos(puntoVenta);
     if (pref?.nombre) setCliente(pref.nombre);
     if (pref?.telefono) {
@@ -1504,6 +1507,14 @@ function PedidosLandingClient() {
   const enviarPedido = async () => {
     if (enviando) return;
     if (!validarPedidoAntesDeEnviar()) return;
+    // Siempre mostrar invitación Club de Millas al confirmar (cédula o registro en el mismo paso).
+    setModalClubMillasConfirmacion(true);
+  };
+
+  const continuarTrasInvitacionMillas = async () => {
+    if (enviando) return;
+    setModalClubMillasConfirmacion(false);
+    if (!validarPedidoAntesDeEnviar()) return;
     if (soloRecogidaEnTienda) {
       setModalConfirmarSoloRecogida(true);
       return;
@@ -1515,6 +1526,7 @@ function PedidosLandingClient() {
     if (enviando) return;
     if (!validarPedidoAntesDeEnviar()) return;
     setModalConfirmarSoloRecogida(false);
+    setModalClubMillasConfirmacion(false);
     setEnviando(true);
     setMensaje(null);
     setPedidoCreadoId(null);
@@ -3071,16 +3083,19 @@ function PedidosLandingClient() {
                 ) : null}
                 <button
                   type="button"
-                  onClick={enviarPedido}
+                  onClick={() => void enviarPedido()}
                   disabled={enviando || !recepcionPedidosWebOk}
-                  className="block w-full max-w-full rounded-lg bg-cyan-700 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-cyan-800 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="block w-full max-w-full rounded-lg bg-gradient-to-r from-red-700 to-amber-500 px-3 py-3 text-sm font-black text-white shadow-md transition hover:from-red-800 hover:to-amber-600 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {enviando
                     ? "Enviando pedido..."
                     : clubMillasVinculo
                       ? "Confirmar pedido y acumular millas"
-                      : "Confirmar pedido"}
+                      : "Confirmar pedido · acumular millas"}
                 </button>
+                <p className="text-center text-[11px] font-medium text-slate-500">
+                  Al confirmar le pediremos su cédula para el Club de Millas (o puede registrarse ahí mismo).
+                </p>
               </div>
               {mensaje ? (
                 <p className={`mt-3 text-xs ${pedidoCreadoId ? "text-emerald-700" : "text-rose-700"}`}>
@@ -3206,11 +3221,16 @@ function PedidosLandingClient() {
                 type="button"
                 onClick={() => {
                   setCarritoModalAbierto(false);
-                  checkoutRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  window.setTimeout(() => {
+                    document
+                      .getElementById("pedidos-club-millas-checkout")
+                      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+                    checkoutRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }, 80);
                 }}
                 className="w-full rounded-xl bg-cyan-700 px-4 py-3 text-sm font-bold text-white shadow-md transition hover:bg-cyan-800 active:scale-[0.98]"
               >
-                Continuar con mi pedido
+                Continuar · datos y Club de Millas
               </button>
             </div>
           </div>
@@ -3356,6 +3376,66 @@ function PedidosLandingClient() {
               <p className="mt-2.5 text-center text-[10px] font-semibold text-slate-500 sm:mt-4 sm:text-[11px]">
                 Debe elegir una opción para continuar.
               </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {modalClubMillasConfirmacion ? (
+        <div className="fixed inset-0 z-[117] flex items-end justify-center p-3 sm:items-center sm:p-4">
+          <button
+            type="button"
+            aria-label="Cerrar Club de Millas"
+            className="absolute inset-0 bg-slate-950/70 backdrop-blur-[2px]"
+            onClick={() => !enviando && setModalClubMillasConfirmacion(false)}
+          />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-club-millas-titulo"
+            className="relative z-10 flex max-h-[min(92dvh,720px)] w-full max-w-md flex-col overflow-hidden rounded-2xl border-2 border-amber-400 bg-white shadow-2xl sm:rounded-3xl"
+          >
+            <div className="shrink-0 border-b border-amber-200 bg-gradient-to-r from-red-700 via-red-600 to-amber-500 px-4 py-3.5 text-white sm:px-5">
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-amber-100">
+                Paso final · Club de Millas
+              </p>
+              <h2 id="modal-club-millas-titulo" className="mt-1 text-lg font-black leading-tight sm:text-xl">
+                Digite su cédula para acumular millas en esta compra
+              </h2>
+              <p className="mt-1 text-xs font-medium text-amber-50/95">
+                Si no está registrado, puede afiliarse aquí mismo antes de confirmar el pedido.
+              </p>
+            </div>
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3.5 py-3.5 sm:px-5 sm:py-4">
+              <PedidosClubMillasCheckout
+                puntoVenta={puntoVenta}
+                nombreCliente={cliente}
+                telefono={telefono}
+                totalPedido={Math.round(total)}
+                value={clubMillasVinculo}
+                onChange={setClubMillasVinculo}
+              />
+            </div>
+            <div className="shrink-0 space-y-2 border-t border-amber-100 bg-amber-50/60 px-3.5 py-3 sm:px-5 sm:py-4">
+              <button
+                type="button"
+                onClick={() => void continuarTrasInvitacionMillas()}
+                disabled={enviando}
+                className="w-full rounded-xl bg-gradient-to-r from-red-700 to-amber-500 px-4 py-3 text-sm font-black text-white shadow-md transition hover:from-red-800 hover:to-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {enviando
+                  ? "Enviando pedido..."
+                  : clubMillasVinculo
+                    ? "Confirmar pedido y acumular millas"
+                    : "Continuar sin acumular millas"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setModalClubMillasConfirmacion(false)}
+                disabled={enviando}
+                className="w-full rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+              >
+                Volver a revisar mis datos
+              </button>
             </div>
           </div>
         </div>
