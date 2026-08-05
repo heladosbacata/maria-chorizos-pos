@@ -115,10 +115,23 @@ export function etiquetaArepaCombo(v: VarianteArepaCombo): string {
 /** Salsa favorita en pedidos (chorizo con pan/arepa y hawaiano). */
 export type SalsaFavorita = "ajo" | "chimichurri";
 
+/** Token de línea: sin salsas, una salsa, o ambas (`ajo+chimichurri`). */
+export type TokenSalsaPedido = "sin" | "ajo" | "chimichurri" | "ajo+chimichurri";
+
 export const OPCIONES_SALSA_FAVORITA: { key: SalsaFavorita; label: string }[] = [
   { key: "ajo", label: "Salsa de ajo" },
   { key: "chimichurri", label: "Salsa de chimichurri" },
 ];
+
+/** Opciones visibles en /pedidos (una, ambas o ninguna). */
+export const OPCIONES_SELECCION_SALSA_UI: { token: TokenSalsaPedido; label: string }[] = [
+  { token: "ajo", label: "Salsa de ajo" },
+  { token: "chimichurri", label: "Salsa de chimichurri" },
+  { token: "ajo+chimichurri", label: "Ambas salsas" },
+  { token: "sin", label: "Sin salsas" },
+];
+
+const ORDEN_SALSAS_FAVORITAS: SalsaFavorita[] = ["ajo", "chimichurri"];
 
 export function etiquetaSalsaFavorita(v: SalsaFavorita): string {
   return v === "chimichurri" ? "Salsa de chimichurri" : "Salsa de ajo";
@@ -126,6 +139,50 @@ export function etiquetaSalsaFavorita(v: SalsaFavorita): string {
 
 export function esSalsaFavorita(raw: string | null | undefined): raw is SalsaFavorita {
   return raw === "ajo" || raw === "chimichurri";
+}
+
+export function tokenDesdeSalsas(salsas: readonly SalsaFavorita[]): Exclude<TokenSalsaPedido, "sin"> | null {
+  const ordered = ORDEN_SALSAS_FAVORITAS.filter((k) => salsas.includes(k));
+  if (ordered.length === 0) return null;
+  return ordered.join("+") as Exclude<TokenSalsaPedido, "sin">;
+}
+
+export function parseSalsasDeToken(token: string | null | undefined): SalsaFavorita[] {
+  if (!token || token === "sin") return [];
+  return token.split("+").filter(esSalsaFavorita);
+}
+
+export function esTokenSalsaPedido(raw: string | null | undefined): raw is TokenSalsaPedido {
+  if (!raw) return false;
+  if (raw === "sin") return true;
+  const parsed = parseSalsasDeToken(raw);
+  if (parsed.length === 0) return false;
+  return tokenDesdeSalsas(parsed) === raw;
+}
+
+export function etiquetaTokenSalsaPedido(token: TokenSalsaPedido): string {
+  if (token === "sin") return "Sin salsas";
+  if (token === "ajo+chimichurri") return "Ambas salsas";
+  return etiquetaSalsaFavorita(token);
+}
+
+/** Alterna ajo/chimichurri (multi). Quita “sin salsas”. Si quedan cero, retorna null. */
+export function toggleSalsaFavoritaEnToken(
+  actual: TokenSalsaPedido | null,
+  key: SalsaFavorita
+): TokenSalsaPedido | null {
+  const set = new Set(actual && actual !== "sin" ? parseSalsasDeToken(actual) : []);
+  if (set.has(key)) set.delete(key);
+  else set.add(key);
+  return tokenDesdeSalsas(Array.from(set));
+}
+
+export function tokenSinSalsa(): "sin" {
+  return "sin";
+}
+
+export function tokenAmbasSalsas(): "ajo+chimichurri" {
+  return "ajo+chimichurri";
 }
 
 /** Combo o producto hawaiano (piña): también pide salsa favorita. */
@@ -142,7 +199,7 @@ export function productoEsHawaiano(p: ProductoPOS): boolean {
 }
 
 /**
- * En /pedidos: al agregar unidades debe elegir salsa favorita.
+ * En /pedidos: al agregar unidades debe indicar salsa (una, ambas o sin salsas).
  * Aplica a chorizo con pan, chorizo con arepa (incl. combo) y hawaiano.
  */
 export function productoRequiereSalsaFavorita(p: ProductoPOS): boolean {
