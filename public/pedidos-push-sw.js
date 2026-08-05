@@ -7,7 +7,7 @@ self.addEventListener("push", (event) => {
     /* texto plano u otro formato */
   }
   const title = typeof data.title === "string" && data.title.trim() ? data.title.trim() : "Maria Chorizos";
-  const body = typeof data.body === "string" ? data.body : "Actualización de tu pedido.";
+  const body = typeof data.body === "string" ? data.body : "Actualización de su pedido.";
   const url = typeof data.url === "string" && data.url.trim() ? data.url.trim() : "/pedidos";
   const tag =
     typeof data.tag === "string" && data.tag.trim() ? data.tag.trim() : "maria-chorizos-pedido";

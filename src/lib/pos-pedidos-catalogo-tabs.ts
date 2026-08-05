@@ -1,8 +1,13 @@
 import type { ProductoPOS } from "@/types";
 
+/**
+ * Tabs del menú cliente en /pedidos.
+ * La categoría del catálogo POS manda; el cajero habilita/deshabilita por SKU aparte.
+ */
 export type TabCatalogoPedidos =
   | "combos"
   | "paquetes"
+  | "basicos"
   | "imperdibles"
   | "bebidas"
   | "adicionales";
@@ -10,6 +15,7 @@ export type TabCatalogoPedidos =
 export const TABS_CATALOGO_PEDIDOS: { id: TabCatalogoPedidos; label: string }[] = [
   { id: "combos", label: "Combos" },
   { id: "paquetes", label: "Paquetes" },
+  { id: "basicos", label: "Básicos" },
   { id: "imperdibles", label: "Imperdibles" },
   { id: "bebidas", label: "Bebidas" },
   { id: "adicionales", label: "Adicionales" },
@@ -29,50 +35,79 @@ function categoriaCanon(p: ProductoPOS): string {
   const n = textoNorm(raw);
   if (n === "basicos") return "Básicos";
   if (n === "bebidas" || n === "bebida") return "Bebidas";
-  if (n === "complementos" || n === "complemento" || n === "adicionales" || n === "extras") {
+  if (
+    n === "complementos" ||
+    n === "complemento" ||
+    n === "adicionales" ||
+    n === "adicional" ||
+    n === "extras" ||
+    n === "extra"
+  ) {
     return "Complementos";
+  }
+  if (n === "imperdibles" || n === "imperdible" || n === "destacados" || n === "destacado") {
+    return "Imperdibles";
   }
   return raw;
 }
 
 export function productoEsBebidasTab(p: ProductoPOS): boolean {
-  if (categoriaCanon(p) === "Bebidas") return true;
+  const cat = categoriaCanon(p);
+  if (cat === "Bebidas") return true;
+  // No “robar” platos de Básicos / Complementos por palabras sueltas en el nombre.
+  if (cat === "Básicos" || cat === "Complementos" || cat === "Imperdibles") return false;
   const t = textoNorm(`${p.descripcion} ${p.categoria ?? ""}`);
-  return /gaseosa|limonada|jugo|bebida|agua|soda|malteada/.test(t);
+  return /(?:^|[\s\-_/])(gaseosa|limonada|jugo|bebida|agua|soda|malteada)(?:$|[\s\-_/])/.test(` ${t} `);
 }
 
 export function productoEsComboTab(p: ProductoPOS): boolean {
+  const cat = categoriaCanon(p);
+  if (cat === "Básicos" || cat === "Bebidas" || cat === "Complementos") return false;
   return /combo/.test(textoNorm(`${p.descripcion} ${p.categoria ?? ""}`));
 }
 
 export function productoEsPaqueteTab(p: ProductoPOS): boolean {
+  const cat = categoriaCanon(p);
+  if (cat === "Básicos" || cat === "Bebidas" || cat === "Complementos") return false;
   const t = textoNorm(`${p.descripcion} ${p.categoria ?? ""}`);
   return /paquete/.test(t) && !/combo/.test(t);
 }
 
 export function productoEsAdicionalTab(p: ProductoPOS): boolean {
-  if (categoriaCanon(p) === "Complementos") return true;
-  const t = textoNorm(`${p.descripcion} ${p.categoria ?? ""}`);
-  return /adicional|extra|salsa|complemento|agregado/.test(t);
+  const cat = categoriaCanon(p);
+  if (cat === "Complementos") return true;
+  if (cat === "Básicos" || cat === "Bebidas" || cat === "Imperdibles") return false;
+  // Solo por categoría explícita; no por “salsa/extra” en el nombre del plato.
+  return false;
 }
 
-/** Platos estrella / básicos / destacados (no combo, paquete, bebida ni adicional). */
+export function productoEsBasicosTab(p: ProductoPOS): boolean {
+  return categoriaCanon(p) === "Básicos";
+}
+
 export function productoEsImperdibleTab(p: ProductoPOS): boolean {
-  if (productoEsBebidasTab(p) || productoEsComboTab(p) || productoEsPaqueteTab(p) || productoEsAdicionalTab(p)) {
-    return false;
-  }
+  const cat = categoriaCanon(p);
+  if (cat === "Imperdibles") return true;
   const t = textoNorm(`${p.descripcion} ${p.categoria ?? ""}`);
-  if (/imperdible|destacado|especialidad|favorito/.test(t)) return true;
-  if (categoriaCanon(p) === "Básicos") return true;
-  return true;
+  return /imperdible|destacado|favorito/.test(t);
 }
 
+/**
+ * Asigna un producto a un tab.
+ * Prioridad: categoría POS (Básicos, Bebidas, Complementos) → combos/paquetes → imperdibles → resto en Básicos.
+ */
 export function tabCatalogoDeProducto(p: ProductoPOS): TabCatalogoPedidos {
+  const cat = categoriaCanon(p);
+
+  if (cat === "Bebidas" || productoEsBebidasTab(p)) return "bebidas";
+  if (cat === "Complementos") return "adicionales";
   if (productoEsComboTab(p)) return "combos";
   if (productoEsPaqueteTab(p)) return "paquetes";
-  if (productoEsBebidasTab(p)) return "bebidas";
-  if (productoEsAdicionalTab(p)) return "adicionales";
-  return "imperdibles";
+  if (cat === "Básicos" || productoEsBasicosTab(p)) return "basicos";
+  if (cat === "Imperdibles" || productoEsImperdibleTab(p)) return "imperdibles";
+
+  // Especialidades u otras categorías del catálogo: van a Básicos para que no “desaparezcan”.
+  return "basicos";
 }
 
 export function filtrarCatalogoPorTab(productos: ProductoPOS[], tab: TabCatalogoPedidos): ProductoPOS[] {

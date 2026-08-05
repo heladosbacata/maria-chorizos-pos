@@ -28,7 +28,7 @@ export async function activarNotificacionesPedidoDomicilio(params: {
 }): Promise<{ ok: boolean; message?: string }> {
   const { vapidPublicKey, puntoVenta, pedidoId } = params;
   if (!pedidosPushSoportadoEnEsteNavegador()) {
-    return { ok: false, message: "Tu navegador no permite notificaciones push en esta página." };
+    return { ok: false, message: "Su navegador no permite notificaciones push en esta página." };
   }
   const key = vapidPublicKey.trim();
   if (!key) {
@@ -37,7 +37,7 @@ export async function activarNotificacionesPedidoDomicilio(params: {
 
   const perm = await Notification.requestPermission();
   if (perm !== "granted") {
-    return { ok: false, message: "Sin permiso no podemos enviarte avisos. Podés activarlo desde la configuración del navegador." };
+    return { ok: false, message: "Sin permiso no podemos enviarle avisos. Puede activarlo desde la configuración del navegador." };
   }
 
   const reg = await navigator.serviceWorker.register(SW_PATH, { scope: "/" });
@@ -70,5 +70,5 @@ export async function activarNotificacionesPedidoDomicilio(params: {
   if (!res.ok || data.ok === false) {
     return { ok: false, message: data.message ?? "No se pudo registrar el aviso en el servidor." };
   }
-  return { ok: true, message: data.message ?? "Listo. Te avisamos cuando cambie el estado del pedido." };
+  return { ok: true, message: data.message ?? "Listo. Le avisamos cuando cambie el estado del pedido." };
 }

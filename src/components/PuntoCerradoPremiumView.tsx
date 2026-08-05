@@ -123,8 +123,8 @@ export default function PuntoCerradoPremiumView({ puntoVenta }: Props) {
             transition={{ delay: 0.55 }}
             className="mt-5 text-center text-sm sm:text-base leading-relaxed text-slate-300/95"
           >
-            <strong className="font-semibold text-white">{nombrePunto}</strong> aún no ha abierto caja
-            hoy. Cuando abramos, podrás hacer tu pedido con todo el sabor que nos caracteriza.
+            <strong className="font-semibold text-white">{nombrePunto}</strong> todavía no ha abierto caja
+            hoy. Cuando abramos, podrá pedir con todo el sabor que nos caracteriza.
           </motion.p>
 
           <motion.div
@@ -136,8 +136,8 @@ export default function PuntoCerradoPremiumView({ puntoVenta }: Props) {
             <p className="text-sm text-slate-200 leading-relaxed flex items-start justify-center gap-2">
               <Heart className="h-4 w-4 shrink-0 text-rose-400 mt-0.5 fill-rose-400/30" aria-hidden />
               <span>
-                Gracias por pensar en nosotros. Tu interés nos llena de alegría — vuelve en un ratito
-                o escanea de nuevo el código cuando veas la tienda abierta.
+                Gracias por pensar en nosotros. Su interés nos alegra mucho — vuelva en un ratito
+                o escanee de nuevo el código cuando vea la tienda abierta.
               </span>
             </p>
           </motion.div>

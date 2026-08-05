@@ -24,23 +24,23 @@ export function isWebPushDomiciliosConfigurado(): boolean {
 function cuerpoNotificacionEstado(estado: EstadoDomicilio): string {
   switch (estado) {
     case "NUEVO":
-      return "Tu pedido fue recibido.";
+      return "Su pedido fue recibido. ¡A la orden!";
     case "ACEPTADO":
-      return "¡Pedido aceptado! Ya avanzamos con tu orden.";
+      return "¡Pedido aceptado! Ya avanzamos con su orden.";
     case "EN_PREPARACION":
-      return "Estamos preparando tu pedido.";
+      return "Le estamos preparando su pedido.";
     case "LISTO_PARA_DESPACHO":
-      return "Tu pedido está listo para despacho.";
+      return "Su pedido ya está listo pa' despacho.";
     case "EN_ENTREGA":
-      return "¡Va en camino! Pronto llega.";
+      return "¡Va en camino! Pronto llega pa' donde usted.";
     case "ENTREGADO":
-      return "¡Pedido entregado! Gracias por elegirnos.";
+      return "¡Pedido entregado! Gracias por preferirnos. ¡Buen provecho!";
     case "RECHAZADO":
-      return "Tu pedido no pudo continuar. Revisá el detalle en la app.";
+      return "Su pedido no pudo continuar. Revise el detalle en la app.";
     case "CANCELADO":
-      return "Cancelaste tu pedido. Si necesitás algo más, podés hacer uno nuevo.";
+      return "Canceló su pedido. Si necesita algo más, puede hacer uno nuevo.";
     default:
-      return "Hay una novedad con tu pedido.";
+      return "Hay una novedad con su pedido.";
   }
 }
 
@@ -63,7 +63,7 @@ export async function notificarCambioEstadoPedidoDomicilioWebPush(params: {
 
   webpush.setVapidDetails(subject, publicKey, privateKey);
 
-  const titulo = "Maria Chorizos — tu pedido";
+  const titulo = "María Chorizos — su pedido";
   const body = cuerpoNotificacionEstado(params.estado);
   const qs = new URLSearchParams({
     puntoVenta: params.puntoVenta.trim(),
@@ -108,9 +108,10 @@ export async function notificarNuevoMensajeChatPedidoDomicilioWebPush(params: {
 
   webpush.setVapidDetails(subject, publicKey, privateKey);
 
-  const titulo = "Maria Chorizos — mensaje del local";
+  const titulo = "María Chorizos — mensaje del local";
   const body =
-    params.preview.trim().slice(0, 180) || "Tenés un mensaje nuevo sobre tu pedido. Abrí el chat para leerlo.";
+    params.preview.trim().slice(0, 180) ||
+    "Tiene un mensaje nuevo sobre su pedido. Abra el chat para leerlo.";
   const qs = new URLSearchParams({
     puntoVenta: params.puntoVenta.trim(),
     pedidoId: pedidoIdChatClave(params.pedidoId),

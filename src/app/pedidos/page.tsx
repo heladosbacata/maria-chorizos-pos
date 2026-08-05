@@ -49,14 +49,7 @@ import {
   TABS_CATALOGO_PEDIDOS,
   type TabCatalogoPedidos,
 } from "@/lib/pos-pedidos-catalogo-tabs";
-import {
-  guardarPuntoRecurrentePedidos,
-  leerPuntoRecurrentePedidos,
-  resolverTiendaPedido,
-  tiendasCercanasParaPedido,
-  urlEmbedMapaTienda,
-} from "@/lib/pos-pedidos-tiendas";
-import { Bike, MapPin, Store } from "lucide-react";
+import { Bike, Store } from "lucide-react";
 import {
   MEDIOS_TRANSFERENCIA_VACIOS,
   type MediosTransferenciaConfig,
@@ -371,13 +364,13 @@ function semaforoEstadoPedido(estado: EstadoPedidoDomicilio | null): {
   hint: string;
 } {
   if (!estado || estado === "NUEVO") {
-    return { color: "rojo", label: "En espera", hint: "El punto aún no acepta tu pedido" };
+    return { color: "rojo", label: "En espera", hint: "El punto todavía no acepta su pedido" };
   }
   if (estado === "ACEPTADO" || estado === "EN_PREPARACION" || estado === "LISTO_PARA_DESPACHO") {
-    return { color: "ambar", label: "En cocina", hint: "Tu pedido se está preparando" };
+    return { color: "ambar", label: "En cocina", hint: "Ya le estamos preparando su pedido" };
   }
   if (estado === "EN_ENTREGA") {
-    return { color: "verde", label: "En camino", hint: "Ya salió hacia vos" };
+    return { color: "verde", label: "En camino", hint: "Ya salió pa' donde usted" };
   }
   if (estado === "ENTREGADO") {
     return { color: "verde", label: "Entregado", hint: "¡Buen provecho!" };
@@ -423,36 +416,36 @@ function textoMotivacionCambioEstado(
       return null;
     case "ACEPTADO":
       return {
-        titulo: "¡Tu pedido fue aceptado!",
-        subtitulo: "El equipo ya está trabajando en tu orden.",
+        titulo: "¡Su pedido fue aceptado!",
+        subtitulo: "El equipo ya está trabajando en su orden, a la orden.",
         variante: "exito",
         confeti: true,
       };
     case "EN_PREPARACION":
       return {
         titulo: "¡En la cocina!",
-        subtitulo: "Estamos preparando tu pedido con esmero.",
+        subtitulo: "Le estamos preparando su pedido con todo el sabor.",
         variante: "exito",
         confeti: true,
       };
     case "LISTO_PARA_DESPACHO":
       return {
-        titulo: "¡Listo para salir!",
-        subtitulo: "Tu pedido está listo para despacho.",
+        titulo: "¡Listo pa' salir!",
+        subtitulo: "Su pedido ya está listo para despacho.",
         variante: "exito",
         confeti: true,
       };
     case "EN_ENTREGA":
       return {
         titulo: "¡Va en camino!",
-        subtitulo: "Preparate para disfrutar algo rico.",
+        subtitulo: "Prepárese pa' disfrutar algo bien rico.",
         variante: "entrega",
         confeti: true,
       };
     case "ENTREGADO":
       return {
         titulo: "¡Pedido entregado!",
-        subtitulo: "Gracias por elegir Maria Chorizos.",
+        subtitulo: "Gracias por preferir María Chorizos. ¡Buen provecho!",
         variante: "entrega",
         confeti: true,
       };
@@ -461,7 +454,7 @@ function textoMotivacionCambioEstado(
         titulo: "Pedido no disponible",
         subtitulo: rechazoMotivo?.trim()
           ? `Motivo: ${rechazoMotivo.trim()}`
-          : "Si tenés dudas, escribinos por el chat.",
+          : "Si tiene dudas, escríbanos por el chat. Con mucho gusto le ayudamos.",
         variante: "rechazo",
         confeti: false,
       };
@@ -470,7 +463,7 @@ function textoMotivacionCambioEstado(
         titulo: "Pedido cancelado",
         subtitulo: rechazoMotivo?.trim()
           ? rechazoMotivo.trim()
-          : "Cancelaste tu pedido. Podés armar uno nuevo cuando quieras.",
+          : "Canceló su pedido. Puede armar uno nuevo cuando quiera.",
         variante: "rechazo",
         confeti: false,
       };
@@ -634,10 +627,8 @@ function PedidosLandingClient() {
   const [estadoPedidoLoading, setEstadoPedidoLoading] = useState(false);
   const [ahoraMs, setAhoraMs] = useState(Date.now());
   const [busqueda, setBusqueda] = useState("");
-  const [tabCatalogo, setTabCatalogo] = useState<TabCatalogoPedidos>("imperdibles");
+  const [tabCatalogo, setTabCatalogo] = useState<TabCatalogoPedidos>("basicos");
   const [carruselIdx, setCarruselIdx] = useState(0);
-  const [puntoRecurrente, setPuntoRecurrente] = useState<string | null>(null);
-  const [geoCliente, setGeoCliente] = useState<{ lat: number; lng: number } | null>(null);
   const [alertaClienteToast, setAlertaClienteToast] = useState<string | null>(null);
   const [chatVista, setChatVista] = useState<"cerrado" | "minimizado" | "expandido">("cerrado");
   const [chatMensajes, setChatMensajes] = useState<MensajeChatDomicilio[]>([]);
@@ -743,7 +734,6 @@ function PedidosLandingClient() {
   /** Prefill nombre/teléfono, carrito borrador y restaurar pedido activo sin pedidoId en URL. */
   useEffect(() => {
     if (typeof window === "undefined") return;
-    setPuntoRecurrente(leerPuntoRecurrentePedidos());
     const pref = leerClientePreferidoPedidos(puntoVenta);
     if (pref) {
       if (pref.nombre) setCliente((c) => c || pref.nombre);
@@ -850,15 +840,6 @@ function PedidosLandingClient() {
     }, 400);
     return () => window.clearTimeout(t);
   }, [cantidades, tipoEntrega, metodoPago, direccion, referencia, puntoVenta, pedidoCreadoId]);
-
-  useEffect(() => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      (pos) => setGeoCliente({ lat: pos.coords.latitude, lng: pos.coords.longitude }),
-      () => setGeoCliente(null),
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 120_000 }
-    );
-  }, []);
 
   /** Si hay pedidoId en URL, hidratar resumen desde sesión o API. */
   useEffect(() => {
@@ -975,10 +956,10 @@ function PedidosLandingClient() {
   const soloDomicilio = !mostrarOpcionRecogida && mostrarOpcionDomicilio;
 
   const subtituloLandingPedidos = soloRecogidaEnTienda
-    ? "Elige productos y recógelos en nuestro punto. Por ahora solo tenemos habilitada la recogida en tienda."
+    ? "Escoja sus productos y páselos a recoger en nuestro punto. Por ahora solo tenemos recogida en tienda."
     : soloDomicilio
-      ? "Elige productos y te los llevamos a tu dirección."
-      : "Elige productos, confirma cómo quieres recibir tu pedido y listo.";
+      ? "Escoja sus productos y se los llevamos hasta su dirección."
+      : "Escoja sus productos, díganos cómo quiere recibirlos y listo.";
 
   useEffect(() => {
     if (tipoEntrega === "domicilio" && metodoPago === "datafono") {
@@ -1042,7 +1023,7 @@ function PedidosLandingClient() {
     void tickHorarioRecepcion;
     if (recepcionPedidosWebOk) return null;
     if (!tarifaDomicilio.domiciliosHabilitados) {
-      return "En este momento no estamos recibiendo pedidos por web ni QR. Podés intentar más tarde o contactar directamente al local.";
+      return "En este momento no estamos recibiendo pedidos por web ni QR. Puede intentar más tarde o comunicarse directo al local.";
     }
     return `Estamos fuera del horario de atención para pedidos en línea. ${textoHorarioDomiciliosCliente(tarifaDomicilio)}`;
   }, [
@@ -1128,12 +1109,6 @@ function PedidosLandingClient() {
     const first = TABS_CATALOGO_PEDIDOS.find((t) => (productosPorTab.counts[t.id] ?? 0) > 0);
     if (first) setTabCatalogo(first.id);
   }, [productosPorTab.counts, tabCatalogo]);
-
-  const tiendaActualMapa = useMemo(() => resolverTiendaPedido(puntoVenta), [puntoVenta]);
-  const tiendasCercanas = useMemo(
-    () => tiendasCercanasParaPedido(puntoVenta, geoCliente),
-    [puntoVenta, geoCliente]
-  );
 
   const itemsCarrito = useMemo<CarritoLinea[]>(() => {
     const porSku = new Map(catalogo.map((p) => [p.sku, p]));
@@ -1263,17 +1238,17 @@ function PedidosLandingClient() {
     if (tipoEntrega === "domicilio") {
       slides.push({
         id: "domi-gratis",
-        titulo: faltanteDomicilioGratis > 0 ? "Domicilio gratis cerca" : "¡Domicilio gratis!",
+        titulo: faltanteDomicilioGratis > 0 ? "Domicilio gratis cerquita" : "¡Domicilio gratis!",
         texto:
           faltanteDomicilioGratis > 0
-            ? `Te faltan ${formatoMoneda(faltanteDomicilioGratis)} para envío sin costo.`
-            : "Ya alcanzaste el umbral de domicilio gratis en este pedido.",
+            ? `Le faltan ${formatoMoneda(faltanteDomicilioGratis)} pa' que el envío le salga sin costo.`
+            : "Ya alcanzó el monto pa' domicilio gratis en este pedido.",
       });
     } else {
       slides.push({
         id: "recogida",
         titulo: "Recogida en tienda",
-        texto: "Sin costo de envío. Retirás en el punto cuando esté listo.",
+        texto: "Sin costo de envío. Pase por el punto cuando esté listo.",
       });
     }
     if (combosSugeridos[0]) {
@@ -1288,8 +1263,8 @@ function PedidosLandingClient() {
     slides.push({
       id: "club",
       titulo: "Club de millas",
-      texto: "Acumulá millas con cada factura y canjeá beneficios.",
-      cta: "Ver plan",
+      texto: "Acumule millas con cada factura y canjee beneficios.",
+      cta: "Ver mi plan",
       accion: "club",
     });
     return slides;
@@ -1305,15 +1280,15 @@ function PedidosLandingClient() {
 
   const validarPedidoAntesDeEnviar = (): boolean => {
     if (!recepcionPedidosWebOk) {
-      setMensaje(avisoBloqueoRecepcion ?? "En este momento no podemos recibir tu pedido.");
+      setMensaje(avisoBloqueoRecepcion ?? "En este momento no podemos recibir su pedido.");
       return false;
     }
     if (!itemsCarrito.length) {
-      setMensaje("Agrega al menos un producto al carrito.");
+      setMensaje("Agregue al menos un producto al carrito.");
       return false;
     }
     if (!cliente.trim() || !telefono.trim()) {
-      setMensaje("Completa nombre y teléfono para continuar.");
+      setMensaje("Complete nombre y teléfono para continuar.");
       return false;
     }
     const telefonoDigitos = telefono.replace(/\D/g, "");
@@ -1326,11 +1301,11 @@ function PedidosLandingClient() {
       return false;
     }
     if (tipoEntrega === "domicilio" && !tarifaDomicilio.domicilioConDomiciliarioHabilitado) {
-      setMensaje("En este momento solo aceptamos recoger en tienda en este punto.");
+      setMensaje("En este momento solo aceptamos recogida en tienda en este punto.");
       return false;
     }
     if (tipoEntrega === "domicilio" && !direccion.trim()) {
-      setMensaje("Indica la dirección de entrega o elige recoger en la tienda.");
+      setMensaje("Indique la dirección de entrega o elija pasar a recoger en la tienda.");
       return false;
     }
     return true;
@@ -1442,8 +1417,6 @@ function PedidosLandingClient() {
             telefono: telefonoDigitos,
           });
         }
-        guardarPuntoRecurrentePedidos(puntoVenta);
-        setPuntoRecurrente(puntoVenta);
         limpiarBorradorCarritoPedidos(puntoVenta);
       }
       setPedidoCreadoEnIso(new Date().toISOString());
@@ -1464,7 +1437,7 @@ function PedidosLandingClient() {
       ) {
         setModalPushPedidoAbierto(true);
       }
-      setMensaje("Tu pedido fue recibido. Muy pronto te contactamos para confirmar.");
+      setMensaje("Su pedido fue recibido. Muy pronto lo contactamos para confirmar.");
       setCantidades({});
       setCliente("");
       setTelefono("");
@@ -1794,7 +1767,7 @@ function PedidosLandingClient() {
     setChatError(null);
     const comp = await comprimirComprobanteTransferenciaParaChat(file);
     if (!comp) {
-      setChatError("No se pudo usar esa imagen. Probá con JPG o PNG, o una foto más chica.");
+      setChatError("No se pudo usar esa imagen. Pruebe con JPG o PNG, o una foto más liviana.");
       setChatEnviando(false);
       return;
     }
@@ -1830,7 +1803,7 @@ function PedidosLandingClient() {
     e.target.value = "";
     if (!file) return;
     if (pedidoResumenChat?.metodoPago !== "transferencia") {
-      setChatError("El comprobante de transferencia solo está disponible si elegiste pago por transferencia.");
+      setChatError("El comprobante de transferencia solo está disponible si eligió pago por transferencia.");
       return;
     }
     await enviarAdjuntoImagenCliente(file, "comprobante");
@@ -1861,7 +1834,7 @@ function PedidosLandingClient() {
   const consultarHistorialPedidos = useCallback(async () => {
     const tel = telefonoDomicilioNorm(historialTelefono);
     if (tel.length < 7) {
-      setHistorialError("Ingresá un teléfono válido (mín. 7 dígitos).");
+      setHistorialError("Ingrese un teléfono válido (mín. 7 dígitos).");
       return;
     }
     setHistorialLoading(true);
@@ -1962,18 +1935,18 @@ function PedidosLandingClient() {
 
   const bloqueActivarPushPedido = pedidoCreadoId ? (
     <div className="rounded-xl border border-indigo-200 bg-indigo-50/80 p-3">
-      <p className="text-sm font-bold text-indigo-950">Avisos en tu celular</p>
+      <p className="text-sm font-bold text-indigo-950">Avisos en su celular</p>
       <p className="mt-1 text-xs text-indigo-900/90">
-        Activá las notificaciones para enterarte cuando el local te escriba o cambie el estado del pedido.
+        Active las notificaciones pa&apos; enterarse cuando el local le escriba o cambie el estado del pedido.
       </p>
       {!vapidPublicPedidos ? (
         <p className="mt-2 text-xs text-slate-600">Las notificaciones no están disponibles en este momento.</p>
       ) : !pushPedidosNavOk ? (
         <p className="mt-2 text-xs text-amber-900/90">
-          En iPhone agregá esta página a la pantalla de inicio y abrila desde el ícono (iOS 16.4+). En Android usá Chrome.
+          En iPhone agregue esta página a la pantalla de inicio y ábrala desde el ícono (iOS 16.4+). En Android use Chrome.
         </p>
       ) : pushPedidosExito ? (
-        <p className="mt-2 text-xs font-semibold text-emerald-800">Avisos activados correctamente.</p>
+        <p className="mt-2 text-xs font-semibold text-emerald-800">Avisos activados correctamente. ¡Listo!</p>
       ) : (
         <div className="mt-3 space-y-2">
           <button
@@ -2002,7 +1975,7 @@ function PedidosLandingClient() {
       </div>
       <ul className={`mt-3 space-y-3 overflow-auto pr-0.5 text-sm text-gray-700 ${listaMaxH}`}>
         {itemsCarrito.length === 0 ? (
-          <li className="text-gray-500">No has agregado productos.</li>
+          <li className="text-gray-500">Todavía no ha agregado productos.</li>
         ) : (
           itemsCarrito.map(({ lineKey, p, cantidad, varianteLabel, precioUnitarioLinea, varianteKey }) => (
             <li key={lineKey} className="rounded-xl border border-gray-100 bg-gray-50/80 p-2.5">
@@ -2120,7 +2093,7 @@ function PedidosLandingClient() {
           </div>
           {variantes.length > 0 ? (
             <div className="space-y-1">
-              <p className="text-[11px] font-semibold text-gray-600">Elige variante</p>
+              <p className="text-[11px] font-semibold text-gray-600">Escoja la variante</p>
               <div className="flex flex-wrap gap-1">
                 {variantes.map((v) => {
                   const activo = v.key === varianteActivaKey;
@@ -2182,8 +2155,8 @@ function PedidosLandingClient() {
           </p>
           <p className="mt-0.5 text-[11px] text-cyan-900/85">
             {tipoEntrega === "recogida"
-              ? `Pasas por: ${puntoVenta}`
-              : "Te llevamos el pedido a la dirección que indiques abajo."}
+              ? `Pasa por: ${puntoVenta}`
+              : "Le llevamos el pedido a la dirección que indique abajo."}
           </p>
         </div>
         {elegirTipoEntrega ? (
@@ -2282,7 +2255,7 @@ function PedidosLandingClient() {
         ) : null}
         {estadoPedido === "CANCELADO" ? (
           <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold leading-snug text-amber-950">
-            {rechazoMotivoPedido?.trim() || "Cancelaste este pedido."}
+            {rechazoMotivoPedido?.trim() || "Canceló este pedido."}
           </p>
         ) : null}
         {puedeCancelarPedido ? (
@@ -2321,20 +2294,40 @@ function PedidosLandingClient() {
     const cardOn = "border-red-600 bg-gradient-to-br from-red-50 to-amber-50 text-red-950 shadow-md ring-2 ring-amber-300/70";
     const cardOff = "border-slate-200 bg-white text-slate-800 hover:border-red-200 hover:bg-red-50/40";
 
+    if (!mostrarOpcionRecogida && !mostrarOpcionDomicilio) {
+      return (
+        <section
+          ref={tipoEntregaSectionRef}
+          className="scroll-mt-4 rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 shadow-sm sm:p-5"
+        >
+          <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-amber-800">Paso 1 · Entrega</p>
+          <p className="mt-2 text-sm font-semibold text-amber-950">
+            Este punto todavía no tiene habilitada recogida ni domicilio. Intente más tarde o comuníquese con el local.
+          </p>
+        </section>
+      );
+    }
+
     return (
       <section
         ref={tipoEntregaSectionRef}
         className="scroll-mt-4 overflow-hidden rounded-2xl border-2 border-red-200 bg-white p-4 shadow-md sm:p-5"
       >
         <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-red-700">Paso 1</p>
-        <h2 className="mt-1 text-xl font-black text-gray-900 sm:text-2xl">¿Cómo preferís recibir tu pedido?</h2>
-        <p className="mt-1 text-sm text-gray-600">Elegí con un toque. Podés cambiarlo antes de confirmar.</p>
+        <h2 className="mt-1 text-xl font-black text-gray-900 sm:text-2xl">¿Cómo le gusta recibir su pedido?</h2>
+        <p className="mt-1 text-sm text-gray-600">
+          Pedido para <strong>{puntoVenta}</strong>
+          {elegirTipoEntrega
+            ? ". Elija recogida o domicilio (según lo habilitado en este punto)."
+            : soloRecogidaEnTienda
+              ? ". En este punto solo está habilitada la recogida en tienda."
+              : ". En este punto solo está habilitado el domicilio."}
+        </p>
 
         <div className={`mt-4 grid gap-3 ${elegirTipoEntrega ? "sm:grid-cols-2" : "sm:grid-cols-1"}`}>
           {mostrarOpcionDomicilio ? (
             <button
               type="button"
-              disabled={soloRecogidaEnTienda}
               onClick={() => {
                 setTipoEntrega("domicilio");
                 setMetodoPago((m) => (m === "datafono" ? "efectivo" : m));
@@ -2346,15 +2339,14 @@ function PedidosLandingClient() {
               </span>
               <div>
                 <p className="text-[11px] font-black uppercase tracking-[0.18em] text-red-700">A domicilio</p>
-                <p className="mt-1 text-base font-extrabold">Te lo llevamos</p>
-                <p className="mt-1 text-xs font-medium text-gray-600">Repartidor hasta tu dirección.</p>
+                <p className="mt-1 text-base font-extrabold">Se lo llevamos</p>
+                <p className="mt-1 text-xs font-medium text-gray-600">Domiciliario hasta su dirección.</p>
               </div>
             </button>
           ) : null}
           {mostrarOpcionRecogida ? (
             <button
               type="button"
-              disabled={soloDomicilio}
               onClick={() => setTipoEntrega("recogida")}
               className={`${cardBase} ${tipoEntrega === "recogida" ? cardOn : cardOff}`}
             >
@@ -2363,64 +2355,11 @@ function PedidosLandingClient() {
               </span>
               <div>
                 <p className="text-[11px] font-black uppercase tracking-[0.18em] text-amber-800">Para recoger</p>
-                <p className="mt-1 text-base font-extrabold">Pasás por el punto</p>
-                <p className="mt-1 text-xs font-medium text-gray-600">
-                  Sin costo de envío · {puntoVenta}
-                </p>
+                <p className="mt-1 text-base font-extrabold">Pase por {puntoVenta}</p>
+                <p className="mt-1 text-xs font-medium text-gray-600">Sin costo de envío.</p>
               </div>
             </button>
           ) : null}
-        </div>
-
-        <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-          <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
-            <p className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-slate-700">
-              <MapPin className="h-3.5 w-3.5 text-red-600" aria-hidden />
-              Tiendas cercanas
-            </p>
-            {puntoRecurrente ? (
-              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-900">
-                Habitual: {puntoRecurrente}
-              </span>
-            ) : null}
-          </div>
-          <div className="relative h-40 w-full bg-slate-200 sm:h-48">
-            <iframe
-              title={`Mapa ${tiendaActualMapa.nombre}`}
-              src={urlEmbedMapaTienda(tiendaActualMapa)}
-              className="absolute inset-0 h-full w-full border-0"
-              loading="lazy"
-              referrerPolicy="no-referrer-when-downgrade"
-            />
-          </div>
-          <ul className="max-h-40 divide-y divide-slate-100 overflow-y-auto">
-            {tiendasCercanas.slice(0, 5).map((t) => (
-              <li key={t.nombre}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    guardarPuntoRecurrentePedidos(t.nombre);
-                    setPuntoRecurrente(t.nombre);
-                    const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
-                    params.set("puntoVenta", t.nombre);
-                    if (pedidoCreadoId) params.set("pedidoId", pedidoCreadoId);
-                    router.push(`/pedidos?${params.toString()}`);
-                  }}
-                  className={`flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left text-sm transition hover:bg-amber-50 ${
-                    t.esActual ? "bg-red-50/80" : "bg-white"
-                  }`}
-                >
-                  <span className="min-w-0">
-                    <span className="block truncate font-bold text-slate-900">{t.nombre}</span>
-                    <span className="block truncate text-[11px] text-slate-500">{t.direccionCorta}</span>
-                  </span>
-                  <span className="shrink-0 text-[11px] font-semibold text-slate-500">
-                    {t.esActual ? "Actual" : t.distanciaKm != null ? `${t.distanciaKm} km` : ""}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
         </div>
       </section>
     );
@@ -2471,7 +2410,7 @@ function PedidosLandingClient() {
               <div className="min-w-0 pt-0.5">
                 <p className="text-[11px] font-black uppercase tracking-[0.22em] text-amber-200">María Chorizos</p>
                 <h1 className="mt-1 text-2xl font-black leading-tight drop-shadow-sm sm:text-3xl md:text-4xl">
-                  Pedí fácil, como en delivery
+                  Pida fácil, como en domicilio
                 </h1>
                 <p className="mt-1.5 max-w-xl text-sm text-amber-50/95">{subtituloLandingPedidos}</p>
                 <div className="mt-3 flex flex-wrap items-center gap-2">
@@ -2522,10 +2461,10 @@ function PedidosLandingClient() {
             </span>
             <span className="min-w-0 flex-1">
               <span className="block text-[10px] font-bold uppercase tracking-[0.2em] text-amber-200">Club de millas</span>
-              <span className="block truncate text-sm font-extrabold text-white sm:text-base">Acumulá millas en cada pedido</span>
+              <span className="block truncate text-sm font-extrabold text-white sm:text-base">Acumule millas en cada pedido</span>
             </span>
             <span className="shrink-0 rounded-xl bg-gradient-to-r from-amber-300 to-yellow-300 px-3 py-2 text-xs font-black text-red-950 shadow-sm sm:px-4 sm:text-sm">
-              Ver plan
+              Ver mi plan
             </span>
           </button>
         </header>
@@ -2568,7 +2507,9 @@ function PedidosLandingClient() {
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-wide text-red-700">Paso 2</p>
                   <h2 className="text-lg font-bold text-gray-900">Catálogo de productos</h2>
-                  <p className="text-sm text-gray-500">Elegí por categoría y agregá al carrito.</p>
+                  <p className="text-sm text-gray-500">
+                    Escoja por categoría. Solo se muestran productos que el punto habilitó para domicilios.
+                  </p>
                 </div>
                 <div className="w-full md:w-80">
                   <input
@@ -2636,6 +2577,9 @@ function PedidosLandingClient() {
                   <article className="rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500">
                     No hay productos en esta categoría
                     {busqueda.trim() ? " con esa búsqueda" : ""}.
+                    {tabCatalogo === "basicos" && !busqueda.trim()
+                      ? " Si espera ver básicos, revise en caja que estén marcados como disponibles para domicilio."
+                      : ""}
                   </article>
                 )}
               </div>
@@ -2702,11 +2646,11 @@ function PedidosLandingClient() {
 
             <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white p-3.5 shadow-sm sm:p-4">
               <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Paso 3</p>
-              <h3 className="text-base font-bold text-gray-900">Tus datos y confirmación</h3>
+              <h3 className="text-base font-bold text-gray-900">Sus datos y confirmación</h3>
               <p className="mt-1 text-xs text-gray-500">
                 {tipoEntrega === "domicilio"
-                  ? "Completa tus datos y la dirección de entrega."
-                  : "Completa tus datos. No necesitamos dirección: recoges en el punto."}
+                  ? "Complete sus datos y la dirección de entrega."
+                  : "Complete sus datos. No necesitamos dirección: pasa a recoger en el punto."}
               </p>
               {avisoBloqueoRecepcion ? (
                 <div
@@ -2719,7 +2663,7 @@ function PedidosLandingClient() {
               {renderResumenModoEntregaCheckout()}
               {soloRecogidaEnTienda ? (
                 <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50/90 px-3 py-2.5 text-xs font-semibold leading-relaxed text-amber-950">
-                  Recuerda: este pedido es <strong>solo para recoger en tienda</strong>. No enviamos domicilio a tu
+                  Recuerde: este pedido es <strong>solo para recoger en tienda</strong>. No enviamos domicilio a su
                   dirección en este momento.
                 </div>
               ) : null}
@@ -2739,7 +2683,7 @@ function PedidosLandingClient() {
                   maxLength={10}
                   className="block w-full max-w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
                 />
-                <p className="text-[11px] text-gray-500">Ingresá exactamente 10 dígitos del número de contacto.</p>
+                <p className="text-[11px] text-gray-500">Ingrese exactamente 10 dígitos del número de contacto.</p>
                 <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">
                   <input
                     type="checkbox"
@@ -2802,17 +2746,17 @@ function PedidosLandingClient() {
             {pedidoCreadoId ? (
               <>
                 <section className="rounded-2xl border border-indigo-200 bg-indigo-50/50 p-3.5 shadow-sm sm:p-4">
-                  <h3 className="text-base font-bold text-indigo-950">Avisos en tu celular</h3>
+                  <h3 className="text-base font-bold text-indigo-950">Avisos en su celular</h3>
                   <p className="mt-1 text-xs text-indigo-900/90">
-                    Recibí una notificación cuando cambie el estado de tu pedido, aunque cambies de app o bloquees la pantalla (según tu navegador).
+                    Reciba una notificación cuando cambie el estado de su pedido, aunque cambie de app o bloquee la pantalla (según su navegador).
                   </p>
                   {!vapidPublicPedidos ? (
                     <p className="mt-2 text-xs text-slate-600">
-                      Las notificaciones push requieren configuración en el servidor (claves VAPID). Consultá con el equipo del POS.
+                      Las notificaciones push requieren configuración en el servidor (claves VAPID). Consulte con el equipo del POS.
                     </p>
                   ) : !pushPedidosNavOk ? (
                     <p className="mt-2 text-xs text-amber-900/90">
-                      Este navegador no permite notificaciones web aquí, o están desactivadas. En iPhone/iPad suele funcionar mejor si agregás el sitio a la pantalla de inicio y lo abrís desde el ícono (iOS 16.4+).
+                      Este navegador no permite notificaciones web aquí, o están desactivadas. En iPhone/iPad suele funcionar mejor si agrega el sitio a la pantalla de inicio y lo abre desde el ícono (iOS 16.4+).
                     </p>
                   ) : (
                     <div className="mt-3 space-y-2">
@@ -2968,7 +2912,7 @@ function PedidosLandingClient() {
             onClick={() => !cancelandoPedido && setModalCancelarPedidoAbierto(false)}
           />
           <div className="relative z-10 w-full max-w-md overflow-hidden rounded-3xl border-2 border-rose-200 bg-white p-5 shadow-2xl sm:p-6">
-            <h2 className="text-center text-xl font-black text-rose-950">¿Cancelar tu pedido?</h2>
+            <h2 className="text-center text-xl font-black text-rose-950">¿Cancelar su pedido?</h2>
             <p className="mt-2 text-center text-sm leading-relaxed text-slate-600">
               El punto de venta verá la cancelación al instante. Esta acción no se puede deshacer desde aquí.
             </p>
@@ -3022,11 +2966,11 @@ function PedidosLandingClient() {
             <h2 className="mt-2 text-center text-xl font-black text-amber-950 sm:text-2xl">¡Casi listo!</h2>
             <p className="mt-3 text-center text-sm font-semibold leading-relaxed text-amber-900/95">
               Por ahora en <strong>{puntoVenta}</strong> solo tenemos habilitada la{" "}
-              <strong>recogida en tienda</strong>. Tu pedido quedará listo para que pases por el punto —{" "}
-              <strong>no enviaremos domicilio a tu dirección</strong> con este pedido.
+              <strong>recogida en tienda</strong>. Su pedido quedará listo pa&apos; que pase por el punto —{" "}
+              <strong>no enviaremos domicilio a su dirección</strong> con este pedido.
             </p>
             <p className="mt-2 text-center text-xs font-medium text-amber-800/90">
-              Si esto es lo que buscabas, confirmá y te avisamos cuando esté en marcha.
+              Si esto es lo que buscaba, confirme y le avisamos cuando quede en marcha.
             </p>
             <div className="mt-5 space-y-2">
               <button
@@ -3059,10 +3003,10 @@ function PedidosLandingClient() {
           />
           <div className="relative z-10 w-full max-w-sm space-y-4 rounded-2xl border border-indigo-200 bg-white p-5 shadow-2xl">
             <div>
-              <p className="text-lg font-bold text-gray-900">Activá avisos en tu celular</p>
+              <p className="text-lg font-bold text-gray-900">Active avisos en su celular</p>
               <p className="mt-1 text-sm text-gray-600">
-                Así te enterás cuando el local te escriba en el chat o cambie el estado de tu pedido (aceptado,
-                preparación, en camino), aunque no tengas esta página abierta.
+                Así se entera cuando el local le escriba en el chat o cambie el estado de su pedido (aceptado,
+                preparación, en camino), aunque no tenga esta página abierta.
               </p>
             </div>
             {bloqueActivarPushPedido}
@@ -3088,7 +3032,7 @@ function PedidosLandingClient() {
             <div className="border-b border-gray-100 px-4 py-3">
               <p className="text-lg font-bold text-gray-900">Mis pedidos</p>
               <p className="mt-1 text-xs text-gray-600">
-                Consultá el historial de este punto con tu número de celular.
+                Consulte el historial de este punto con su número de celular.
               </p>
             </div>
             <div className="space-y-3 overflow-y-auto px-4 py-3">
@@ -3111,7 +3055,7 @@ function PedidosLandingClient() {
               </div>
               {historialError ? <p className="text-xs font-medium text-rose-700">{historialError}</p> : null}
               {!historialLoading && historialPedidos.length === 0 && !historialError ? (
-                <p className="text-xs text-gray-500">Ingresá tu teléfono y tocá Buscar.</p>
+                <p className="text-xs text-gray-500">Ingrese su teléfono y toque Buscar.</p>
               ) : null}
               <ul className="space-y-2">
                 {historialPedidos.map((p) => (
@@ -3163,7 +3107,7 @@ function PedidosLandingClient() {
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-bold">Chat de pedido</p>
                 <p className="text-[11px] text-cyan-100">
-                  {pedidoCreadoId ? `Pedido ${pedidoCreadoId}` : "Primero confirma tu pedido para chatear"}
+                  {pedidoCreadoId ? `Pedido ${pedidoCreadoId}` : "Primero confirme su pedido para chatear"}
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-1">
@@ -3389,12 +3333,12 @@ function PedidosLandingClient() {
                   </div>
                   <p className="mt-1 px-1 text-center text-[10px] text-slate-500">
                     {pedidoResumenChat?.metodoPago === "transferencia"
-                      ? "Foto o galería para cualquier imagen · recibo solo si pagás por transferencia."
-                      : "Podés enviar fotos con la cámara o la galería."}
+                      ? "Foto o galería para cualquier imagen · el recibo solo si paga por transferencia."
+                      : "Puede enviar fotos con la cámara o la galería."}
                   </p>
                 </>
               ) : (
-                <p className="px-2 pb-2 text-center text-[11px] text-slate-500">Confirmá el pedido para escribir.</p>
+                <p className="px-2 pb-2 text-center text-[11px] text-slate-500">Confirme el pedido para escribir.</p>
               )}
               {chatError ? <p className="mt-1 px-2 text-center text-xs text-rose-600">{chatError}</p> : null}
             </div>
@@ -3426,7 +3370,7 @@ function PedidosLandingClient() {
               <p className="mt-0.5 truncate text-sm font-bold text-slate-900">
                 {pedidoCreadoId ? `Pedido ${pedidoCreadoId}` : "Pedidos"}
               </p>
-              <p className="mt-0.5 text-[11px] text-slate-600">Tocá para volver al chat con el punto</p>
+              <p className="mt-0.5 text-[11px] text-slate-600">Toque para volver al chat con el punto</p>
             </button>
             <button
               type="button"
