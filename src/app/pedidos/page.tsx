@@ -2938,14 +2938,21 @@ function PedidosLandingClient() {
               <p className="mt-2 text-center text-[11px] font-black uppercase tracking-[0.22em] text-red-700">
                 María Chorizos
               </p>
+              <div className="mt-2 flex justify-center">
+                <div className="inline-flex max-w-full items-center gap-2 rounded-full border-2 border-red-200 bg-white px-3.5 py-1.5 shadow-sm">
+                  <Store className="h-4 w-4 shrink-0 text-red-700" strokeWidth={2.4} aria-hidden />
+                  <span className="truncate text-sm font-black text-red-950">{puntoVenta}</span>
+                </div>
+              </div>
               <h2
                 id="modal-tipo-entrega-titulo"
-                className="mt-1 text-center text-2xl font-black leading-tight text-red-950 sm:text-3xl"
+                className="mt-3 text-center text-2xl font-black leading-tight text-red-950 sm:text-3xl"
               >
                 ¿Cómo quiere recibir su pedido?
               </h2>
               <p className="mt-2 text-center text-sm font-medium text-slate-600">
-                Elija una opción para continuar. Así preparamos su pedido como usted lo necesita.
+                Pedido en <strong className="font-bold text-red-900">{puntoVenta}</strong>. Elija una opción
+                para continuar.
               </p>
 
               <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -2965,7 +2972,7 @@ function PedidosLandingClient() {
                   </span>
                   <span className="text-base font-black text-red-950">Recoger en tienda</span>
                   <span className="text-xs font-medium text-slate-600">
-                    Sin costo de envío. Pase por {puntoVenta}.
+                    Sin costo de envío. Pase por este punto.
                   </span>
                 </button>
 
@@ -2986,7 +2993,7 @@ function PedidosLandingClient() {
                   </span>
                   <span className="text-base font-black text-red-950">Domicilio</span>
                   <span className="text-xs font-medium text-slate-600">
-                    Se lo llevamos. Gratis en compras superiores a $100.000.
+                    Lo enviamos desde este punto. Gratis en compras superiores a $100.000.
                   </span>
                 </button>
               </div>
