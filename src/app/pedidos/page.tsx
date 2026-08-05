@@ -135,8 +135,19 @@ function productoEsBasicos(p: ProductoPOS): boolean {
   return categoriaProducto(p) === "Básicos";
 }
 
+/** Productos del catálogo POS que no deben ofrecerse en domicilios. */
+function productoExcluidoDeCatalogoDomicilios(p: ProductoPOS): boolean {
+  const t = textoNormalizado(`${p.descripcion} ${p.categoria ?? ""} ${p.sku}`);
+  if (/\bmascot/.test(t) || (/helado/.test(t) && /\b(perro|gato|pet)\b/.test(t))) return true;
+  if (/\bchorizo\s+solo\b/.test(t)) return true;
+  if (/\btinto\b/.test(t)) return true;
+  if (/\barepa\s+(de\s+)?peto\b/.test(t) || /\bpeto\b/.test(t)) return true;
+  return false;
+}
+
 /** Combos, paquetes, básicos y bebidas en el menú de domicilios para el cliente. */
 function productoVisibleEnCatalogoDomicilios(p: ProductoPOS): boolean {
+  if (productoExcluidoDeCatalogoDomicilios(p)) return false;
   return (
     productoEsComboCatalogo(p) ||
     productoEsPaqueteCatalogo(p) ||
