@@ -131,9 +131,18 @@ function productoEsPaqueteCatalogo(p: ProductoPOS): boolean {
   return /paquete/.test(textoNormalizado(`${p.descripcion} ${p.categoria ?? ""}`));
 }
 
-/** Solo combos, paquetes y bebidas en el menú de domicilios para el cliente. */
+function productoEsBasicos(p: ProductoPOS): boolean {
+  return categoriaProducto(p) === "Básicos";
+}
+
+/** Combos, paquetes, básicos y bebidas en el menú de domicilios para el cliente. */
 function productoVisibleEnCatalogoDomicilios(p: ProductoPOS): boolean {
-  return productoEsComboCatalogo(p) || productoEsPaqueteCatalogo(p) || productoEsBebidas(p);
+  return (
+    productoEsComboCatalogo(p) ||
+    productoEsPaqueteCatalogo(p) ||
+    productoEsBasicos(p) ||
+    productoEsBebidas(p)
+  );
 }
 
 function primeraImagenProducto(p: ProductoPOS): string | null {
@@ -787,14 +796,23 @@ function PedidosLandingClient() {
     });
   }, [catalogoVisible, busqueda]);
 
-  const { productosCombosPaquetes, productosBebidas } = useMemo(() => {
+  const { productosBasicos, productosCombosPaquetes, productosBebidas } = useMemo(() => {
+    const basicos: ProductoPOS[] = [];
     const combosPaquetes: ProductoPOS[] = [];
     const bebidas: ProductoPOS[] = [];
     for (const p of productosFiltrados) {
       if (productoEsBebidas(p)) bebidas.push(p);
-      else combosPaquetes.push(p);
+      else if (productoEsBasicos(p) && !productoEsComboCatalogo(p) && !productoEsPaqueteCatalogo(p)) {
+        basicos.push(p);
+      } else {
+        combosPaquetes.push(p);
+      }
     }
-    return { productosCombosPaquetes: combosPaquetes, productosBebidas: bebidas };
+    return {
+      productosBasicos: basicos,
+      productosCombosPaquetes: combosPaquetes,
+      productosBebidas: bebidas,
+    };
   }, [productosFiltrados]);
 
   const itemsCarrito = useMemo<CarritoLinea[]>(() => {
@@ -1930,13 +1948,13 @@ function PedidosLandingClient() {
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Paso 2</p>
                   <h2 className="text-lg font-bold text-gray-900">Catalogo de productos</h2>
-                  <p className="text-sm text-gray-500">Combos, paquetes y bebidas. Buscá y agregá al instante.</p>
+                  <p className="text-sm text-gray-500">Básicos, combos, paquetes y bebidas. Buscá y agregá al instante.</p>
                 </div>
                 <div className="w-full md:w-80">
                   <input
                     value={busqueda}
                     onChange={(e) => setBusqueda(e.target.value)}
-                    placeholder="Buscar combo, paquete o bebida..."
+                    placeholder="Buscar básico, combo, paquete o bebida..."
                     className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 transition focus:border-cyan-500 focus:ring-2"
                   />
                 </div>
@@ -1966,11 +1984,21 @@ function PedidosLandingClient() {
               </div>
             ) : (
               <div className="space-y-6">
+                {productosBasicos.length > 0 ? (
+                  <div className="space-y-3">
+                    <h3 className="px-1 text-sm font-bold text-gray-900">Básicos</h3>
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      {productosBasicos.map((prod, idx) => renderTarjetaProductoCatalogo(prod, idx))}
+                    </div>
+                  </div>
+                ) : null}
                 {productosCombosPaquetes.length > 0 ? (
                   <div className="space-y-3">
                     <h3 className="px-1 text-sm font-bold text-gray-900">Combos y paquetes</h3>
                     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                      {productosCombosPaquetes.map((prod, idx) => renderTarjetaProductoCatalogo(prod, idx))}
+                      {productosCombosPaquetes.map((prod, idx) =>
+                        renderTarjetaProductoCatalogo(prod, productosBasicos.length + idx)
+                      )}
                     </div>
                   </div>
                 ) : null}
@@ -1979,14 +2007,19 @@ function PedidosLandingClient() {
                     <h3 className="px-1 text-sm font-bold text-gray-900">Bebidas</h3>
                     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                       {productosBebidas.map((prod, idx) =>
-                        renderTarjetaProductoCatalogo(prod, productosCombosPaquetes.length + idx)
+                        renderTarjetaProductoCatalogo(
+                          prod,
+                          productosBasicos.length + productosCombosPaquetes.length + idx
+                        )
                       )}
                     </div>
                   </div>
                 ) : null}
-                {productosCombosPaquetes.length === 0 && productosBebidas.length === 0 ? (
+                {productosBasicos.length === 0 &&
+                productosCombosPaquetes.length === 0 &&
+                productosBebidas.length === 0 ? (
                   <article className="rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500">
-                    No encontramos combos, paquetes ni bebidas con esa búsqueda.
+                    No encontramos básicos, combos, paquetes ni bebidas con esa búsqueda.
                   </article>
                 ) : null}
               </div>
