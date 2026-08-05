@@ -27,6 +27,8 @@ type Props = {
 
 /** Polling rápido: prioridad al pedido que acaba de llegar. */
 const INTERVALO_POLL_MS = 5_000;
+/** Si sigue sin aceptar/rechazar, reavisa con sonido fuerte. */
+const INTERVALO_REAVISO_MS = 10_000;
 
 function formatoMoneda(valor: number): string {
   return new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", maximumFractionDigits: 0 }).format(
@@ -59,9 +61,41 @@ export default function PosDomiciliosNuevoPedidoAlerta({ puntoVenta, habilitado 
   const inicializadoRef = useRef(false);
   const resumenEnviadoRef = useRef<Set<string>>(new Set());
   const resumenEnProcesoRef = useRef<Set<string>>(new Set());
+  /** Marca desde la cual contar los 10s para reavisar (encolar / minimizar / último reaviso). */
+  const marcaPendienteAtRef = useRef<number>(0);
+  const modalAbiertoRef = useRef(false);
+  const colaRef = useRef<PedidoDomicilio[]>([]);
 
   const pedidoVisible = cola[0] ?? null;
   const mostrarModal = Boolean(pedidoVisible && modalAbierto);
+
+  useEffect(() => {
+    modalAbiertoRef.current = modalAbierto;
+  }, [modalAbierto]);
+
+  useEffect(() => {
+    colaRef.current = cola;
+  }, [cola]);
+
+  const emitirAvisoDock = useCallback((pedido: PedidoDomicilio, cantidadEnCola: number) => {
+    emitirDomiciliosAvisoPedidoNuevo({ pedido, cantidadEnCola });
+  }, []);
+
+  const reavisarPendiente = useCallback(() => {
+    const colaActual = colaRef.current;
+    const cabeza = colaActual[0];
+    if (!cabeza || modalAbiertoRef.current) return;
+    reproducirAlertaNuevoPedidoDomicilio(pv);
+    if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+      try {
+        navigator.vibrate([160, 80, 160, 80, 240, 100, 200]);
+      } catch {
+        /* ignore */
+      }
+    }
+    emitirAvisoDock(cabeza, colaActual.length);
+    marcaPendienteAtRef.current = Date.now();
+  }, [pv, emitirAvisoDock]);
 
   const enviarResumenSiFalta = useCallback(async (pedido: PedidoDomicilio) => {
     const pid = pedido.id;
@@ -102,6 +136,7 @@ export default function PosDomiciliosNuevoPedidoAlerta({ puntoVenta, habilitado 
       });
       // No abrir el modal automáticamente: el dock muestra el aviso vibrante.
       setModalAbierto(false);
+      marcaPendienteAtRef.current = Date.now();
       for (const p of recien) void enviarResumenSiFalta(p);
     },
     [pv, enviarResumenSiFalta]
@@ -182,15 +217,13 @@ export default function PosDomiciliosNuevoPedidoAlerta({ puntoVenta, habilitado 
   // Aviso en el dock mientras haya cola y el modal no esté abierto.
   useEffect(() => {
     if (!pedidoVisible || modalAbierto) return;
-    emitirDomiciliosAvisoPedidoNuevo({
-      pedido: pedidoVisible,
-      cantidadEnCola: cola.length,
-    });
-  }, [pedidoVisible, cola.length, modalAbierto]);
+    emitirAvisoDock(pedidoVisible, cola.length);
+  }, [pedidoVisible, cola.length, modalAbierto, emitirAvisoDock]);
 
   useEffect(() => {
     if (cola.length === 0) {
       setModalAbierto(false);
+      marcaPendienteAtRef.current = 0;
       emitirDomiciliosAlertaAtendida();
     }
   }, [cola.length]);
@@ -200,11 +233,27 @@ export default function PosDomiciliosNuevoPedidoAlerta({ puntoVenta, habilitado 
     if (!pv || !habilitado) return;
     const handler = () => {
       setModalAbierto(true);
+      marcaPendienteAtRef.current = Date.now();
       emitirDomiciliosAlertaAtendida();
     };
     window.addEventListener(EVENT_DOMICILIOS_ABRIR_ALERTA_PEDIDO, handler);
     return () => window.removeEventListener(EVENT_DOMICILIOS_ABRIR_ALERTA_PEDIDO, handler);
   }, [pv, habilitado]);
+
+  // Reaviso cada 10s si sigue pendiente (minimizado o sin abrir).
+  useEffect(() => {
+    if (!pv || !habilitado) return;
+    const timer = window.setInterval(() => {
+      if (colaRef.current.length === 0 || modalAbiertoRef.current) return;
+      if (!marcaPendienteAtRef.current) {
+        marcaPendienteAtRef.current = Date.now();
+        return;
+      }
+      if (Date.now() - marcaPendienteAtRef.current < INTERVALO_REAVISO_MS) return;
+      reavisarPendiente();
+    }, 1_000);
+    return () => window.clearInterval(timer);
+  }, [pv, habilitado, reavisarPendiente]);
 
   useEffect(() => {
     if (!pedidoVisible) {
@@ -214,7 +263,17 @@ export default function PosDomiciliosNuevoPedidoAlerta({ puntoVenta, habilitado 
     }
   }, [pedidoVisible?.id]);
 
-  // Bloquear scroll y Escape solo con el modal abierto.
+  const minimizarPedido = useCallback(() => {
+    setModoRechazo(false);
+    setMotivoRechazo("");
+    setError(null);
+    setModalAbierto(false);
+    marcaPendienteAtRef.current = Date.now();
+    const cabeza = colaRef.current[0];
+    if (cabeza) emitirAvisoDock(cabeza, colaRef.current.length);
+  }, [emitirAvisoDock]);
+
+  // Escape = minimizar (terminar venta actual y volver después).
   useEffect(() => {
     if (!mostrarModal) return;
     const prevOverflow = document.body.style.overflow;
@@ -223,6 +282,7 @@ export default function PosDomiciliosNuevoPedidoAlerta({ puntoVenta, habilitado 
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
+        minimizarPedido();
       }
     };
     window.addEventListener("keydown", onKeyDown, true);
@@ -230,14 +290,22 @@ export default function PosDomiciliosNuevoPedidoAlerta({ puntoVenta, habilitado 
       document.body.style.overflow = prevOverflow;
       window.removeEventListener("keydown", onKeyDown, true);
     };
-  }, [mostrarModal]);
+  }, [mostrarModal, minimizarPedido]);
 
   const cerrarActual = () => {
     setModoRechazo(false);
     setMotivoRechazo("");
     setError(null);
     setModalAbierto(false);
-    setCola((cur) => cur.slice(1));
+    setCola((cur) => {
+      const next = cur.slice(1);
+      if (next[0]) {
+        marcaPendienteAtRef.current = Date.now();
+      } else {
+        marcaPendienteAtRef.current = 0;
+      }
+      return next;
+    });
   };
 
   const aceptarPedido = async () => {
@@ -326,7 +394,15 @@ export default function PosDomiciliosNuevoPedidoAlerta({ puntoVenta, habilitado 
             transition={{ type: "spring", stiffness: 260, damping: 28 }}
             className="relative z-10 flex h-full min-h-0 w-full flex-col"
           >
-            <header className="shrink-0 border-b border-amber-300/40 bg-gradient-to-r from-amber-500 via-orange-500 to-rose-600 px-4 py-5 text-white sm:px-8 sm:py-7">
+            <header className="relative shrink-0 border-b border-amber-300/40 bg-gradient-to-r from-amber-500 via-orange-500 to-rose-600 px-4 py-5 text-white sm:px-8 sm:py-7">
+              <button
+                type="button"
+                onClick={minimizarPedido}
+                disabled={procesando}
+                className="absolute right-3 top-3 rounded-xl border border-white/30 bg-white/15 px-3 py-1.5 text-xs font-bold text-white backdrop-blur-sm transition hover:bg-white/25 disabled:opacity-50 sm:right-5 sm:top-5 sm:text-sm"
+              >
+                Minimizar
+              </button>
               <motion.div
                 animate={{ scale: [1, 1.06, 1] }}
                 transition={{ duration: 1.4, repeat: Infinity, ease: "easeInOut" }}
@@ -345,7 +421,8 @@ export default function PosDomiciliosNuevoPedidoAlerta({ puntoVenta, habilitado 
                 ¡Llegó un pedido nuevo!
               </h2>
               <p className="mx-auto mt-2 max-w-2xl text-center text-sm font-semibold text-amber-50/95 sm:text-base">
-                Revisá el detalle y aceptá o rechazá el pedido. No se puede cerrar hasta decidir.
+                Podés minimizar para terminar la venta actual y volver a abrir desde Domicilios. Si no
+                aceptás o rechazás, te avisamos de nuevo a los 10 segundos.
               </p>
               {cola.length > 1 ? (
                 <p className="mt-2 text-center text-xs font-bold text-amber-100">
@@ -437,25 +514,35 @@ export default function PosDomiciliosNuevoPedidoAlerta({ puntoVenta, habilitado 
                     </div>
                   </motion.div>
                 ) : (
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-3">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <button
+                        type="button"
+                        onClick={() => void aceptarPedido()}
+                        disabled={procesando}
+                        className="min-h-[56px] rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 px-5 py-4 text-lg font-black text-white shadow-lg transition hover:from-emerald-700 hover:to-teal-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {procesando ? "Procesando…" : "✓ Aceptar pedido"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setModoRechazo(true);
+                          setError(null);
+                        }}
+                        disabled={procesando}
+                        className="min-h-[56px] rounded-2xl border-2 border-rose-300 bg-white px-5 py-4 text-lg font-black text-rose-700 shadow-sm transition hover:border-rose-400 hover:bg-rose-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Rechazar pedido
+                      </button>
+                    </div>
                     <button
                       type="button"
-                      onClick={() => void aceptarPedido()}
+                      onClick={minimizarPedido}
                       disabled={procesando}
-                      className="min-h-[56px] rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 px-5 py-4 text-lg font-black text-white shadow-lg transition hover:from-emerald-700 hover:to-teal-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+                      className="w-full rounded-2xl border border-slate-300 bg-slate-50 px-5 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-100 disabled:opacity-60"
                     >
-                      {procesando ? "Procesando…" : "✓ Aceptar pedido"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setModoRechazo(true);
-                        setError(null);
-                      }}
-                      disabled={procesando}
-                      className="min-h-[56px] rounded-2xl border-2 border-rose-300 bg-white px-5 py-4 text-lg font-black text-rose-700 shadow-sm transition hover:border-rose-400 hover:bg-rose-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      Rechazar pedido
+                      Minimizar · terminar venta actual y volver después
                     </button>
                   </div>
                 )}
