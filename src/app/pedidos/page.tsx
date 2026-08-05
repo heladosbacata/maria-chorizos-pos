@@ -2983,8 +2983,8 @@ function PedidosLandingClient() {
               <h3 className="text-base font-bold text-gray-900">Sus datos y confirmación</h3>
               <p className="mt-1 text-xs text-gray-500">
                 {tipoEntrega === "domicilio"
-                  ? "Complete sus datos y la dirección de entrega."
-                  : "Complete sus datos. No necesitamos dirección: pasa a recoger en el punto."}
+                  ? "Complete sus datos, acumule millas con su cédula (opcional) y la dirección de entrega."
+                  : "Complete sus datos y, si desea, digite su cédula para acumular millas. Pasa a recoger en el punto."}
               </p>
               {avisoBloqueoRecepcion ? (
                 <div
@@ -3029,6 +3029,14 @@ function PedidosLandingClient() {
                     Guardar mi nombre y teléfono en este dispositivo para próximos pedidos e historial.
                   </span>
                 </label>
+                <PedidosClubMillasCheckout
+                  puntoVenta={puntoVenta}
+                  nombreCliente={cliente}
+                  telefono={telefono}
+                  totalPedido={Math.round(total)}
+                  value={clubMillasVinculo}
+                  onChange={setClubMillasVinculo}
+                />
                 {tipoEntrega === "domicilio" ? (
                   <input
                     value={direccion}
@@ -3061,14 +3069,6 @@ function PedidosLandingClient() {
                     Ver datos para transferir (Nequi, Bancolombia, Daviplata, Llave)
                   </button>
                 ) : null}
-                <PedidosClubMillasCheckout
-                  puntoVenta={puntoVenta}
-                  nombreCliente={cliente}
-                  telefono={telefono}
-                  totalPedido={Math.round(total)}
-                  value={clubMillasVinculo}
-                  onChange={setClubMillasVinculo}
-                />
                 <button
                   type="button"
                   onClick={enviarPedido}
