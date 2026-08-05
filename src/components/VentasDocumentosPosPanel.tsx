@@ -68,6 +68,9 @@ type Props = {
   puntoVenta: string | null;
   uid: string | null;
   onVolver: () => void;
+  /** Prefill al abrir desde domicilios u otro módulo. */
+  initialTab?: TabDocumentoPosVenta;
+  initialBusqueda?: string;
 };
 
 function textoBadgeAlegraTabla(corto: string): string {
@@ -344,14 +347,20 @@ function ModalEnviarCorreo({
   );
 }
 
-export default function VentasDocumentosPosPanel({ puntoVenta, uid, onVolver }: Props) {
+export default function VentasDocumentosPosPanel({
+  puntoVenta,
+  uid,
+  onVolver,
+  initialTab,
+  initialBusqueda,
+}: Props) {
   const pv = (puntoVenta ?? "").trim();
   const u = (uid ?? "").trim();
   const hoy = useMemo(() => ymdColombia(), []);
   const [desdeYmd, setDesdeYmd] = useState(() => ymdColombiaMenosDias(hoy, 29));
   const [hastaYmd, setHastaYmd] = useState(hoy);
-  const [tab, setTab] = useState<TabDocumentoPosVenta>("todos");
-  const [busqueda, setBusqueda] = useState("");
+  const [tab, setTab] = useState<TabDocumentoPosVenta>(initialTab ?? "todos");
+  const [busqueda, setBusqueda] = useState(() => initialBusqueda?.trim() ?? "");
   const [soloVigentes, setSoloVigentes] = useState(true);
   const [expandidoId, setExpandidoId] = useState<string | null>(null);
   const [tick, setTick] = useState(0);

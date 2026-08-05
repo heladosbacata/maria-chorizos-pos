@@ -504,6 +504,12 @@ export default function CajaPageClient() {
   const ultimaIdentificacionCajeroEnRef = useRef<number | null>(null);
   const [showModalClaveMas, setShowModalClaveMas] = useState(false);
   const [inputClaveMas, setInputClaveMas] = useState("");
+  /** Destino al abrir Espacio franquiciados desde domicilios (Ventas / facturación). */
+  const [destinoMasFacturacion, setDestinoMasFacturacion] = useState<{
+    herramientaId: string;
+    busqueda: string;
+    tab: "factura_electronica";
+  } | null>(null);
   const [mostrarClaveMasEnClaro, setMostrarClaveMasEnClaro] = useState(false);
   /** Cajero que opera el turno actual (ventas / reportes al WMS). */
   const [cajeroTurnoActivo, setCajeroTurnoActivo] = useState<{
@@ -2855,6 +2861,18 @@ export default function CajaPageClient() {
   };
 
   const abrirModuloMasConClave = useCallback(() => {
+    setDestinoMasFacturacion(null);
+    setInputClaveMas("");
+    setMostrarClaveMasEnClaro(false);
+    setShowModalClaveMas(true);
+  }, []);
+
+  const abrirFacturacionDesdeDomicilios = useCallback((opts: { pedidoId: string; ventaLocalId?: string; busqueda: string }) => {
+    setDestinoMasFacturacion({
+      herramientaId: "ven-doc-vis",
+      busqueda: opts.busqueda || opts.ventaLocalId || opts.pedidoId,
+      tab: "factura_electronica",
+    });
     setInputClaveMas("");
     setMostrarClaveMasEnClaro(false);
     setShowModalClaveMas(true);
@@ -2875,6 +2893,7 @@ export default function CajaPageClient() {
     setShowModalClaveMas(false);
     setInputClaveMas("");
     setMostrarClaveMasEnClaro(false);
+    setDestinoMasFacturacion(null);
   }, []);
 
   /** Debe declararse antes de cualquier return condicional (loading / sin usuario) para no violar reglas de hooks. */
@@ -4733,9 +4752,18 @@ export default function CajaPageClient() {
               }}
             />
           ) : moduloActivo === "domicilios" ? (
-            <PosDomiciliosModule puntoVenta={user.puntoVenta} />
+            <PosDomiciliosModule
+              puntoVenta={user.puntoVenta}
+              onAbrirFacturacion={abrirFacturacionDesdeDomicilios}
+            />
           ) : moduloActivo === "mas" ? (
-            <ConfiguracionMasModule puntoVenta={user.puntoVenta} uid={user.uid} role={user.role} />
+            <ConfiguracionMasModule
+              puntoVenta={user.puntoVenta}
+              uid={user.uid}
+              role={user.role}
+              destinoInicial={destinoMasFacturacion}
+              onDestinoInicialConsumido={() => setDestinoMasFacturacion(null)}
+            />
           ) : (
             <div className="rounded-xl border border-gray-200 bg-white p-8 shadow-sm">
               <p className="text-center text-gray-500">

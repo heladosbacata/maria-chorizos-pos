@@ -1,5 +1,13 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { actualizarEstadoPedidoPersistente } from "@/lib/pos-domicilios-firestore-store";
+import {
+  actualizarEstadoPedidoPersistente,
+  obtenerPedidoDomicilioPersistente,
+} from "@/lib/pos-domicilios-firestore-store";
+import {
+  estadoDomicilioRequiereFacturacion,
+  mensajeBloqueoEntregaSinFacturacion,
+  pedidoDomicilioTieneVentaFacturacion,
+} from "@/lib/pos-domicilios-facturacion-guard";
 import { notificarCambioEstadoPedidoDomicilioWebPush } from "@/lib/pos-domicilios-push-notify";
 import type {
   DomicilioCambioEstadoPayload,
@@ -46,6 +54,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   }
   if (payload.estado === "RECHAZADO" && !(payload.motivo ?? "").trim()) {
     return res.status(400).json({ ok: false, message: "Debes indicar un motivo de rechazo." });
+  }
+  if (estadoDomicilioRequiereFacturacion(payload.estado)) {
+    const actual = await obtenerPedidoDomicilioPersistente(pv, pedidoId);
+    if (!actual) {
+      return res.status(404).json({ ok: false, message: "Pedido no encontrado." });
+    }
+    if (!pedidoDomicilioTieneVentaFacturacion(actual)) {
+      return res.status(409).json({
+        ok: false,
+        message: mensajeBloqueoEntregaSinFacturacion(pedidoId),
+        pedido: actual,
+      });
+    }
   }
   const pedido = await actualizarEstadoPedidoPersistente({
     puntoVenta: pv,
