@@ -103,10 +103,34 @@ describe("tabCatalogoDeProducto", () => {
     ).toBe("combos");
   });
 
-  it("subtítulo listo para llevar en paquetes y bebidas", () => {
+  it("subtítulo chorizo santarrosano en productos con chorizo", () => {
+    const textoChorizo =
+      "Producto fresco, Chorizo 100% santarrosano, preparado al momento.";
+    expect(
+      subtituloTarjetaCatalogoPedidos(prod({ sku: "1", descripcion: "Chorizo con pan", categoria: "Básicos" }))
+    ).toBe(textoChorizo);
     expect(
       subtituloTarjetaCatalogoPedidos(
-        prod({ sku: "PQ-1", descripcion: "Paquete chorizos", categoria: "Especialidades" })
+        prod({ sku: "HAW-01", descripcion: "Choripan Hawaiano", categoria: "Básicos" })
+      )
+    ).toBe(textoChorizo);
+    expect(
+      subtituloTarjetaCatalogoPedidos(
+        prod({ sku: "COMBO-1", descripcion: "Combo chorizo arepa", categoria: "Especialidades" })
+      )
+    ).toBe(textoChorizo);
+    // Paquete de chorizos también
+    expect(
+      subtituloTarjetaCatalogoPedidos(
+        prod({ sku: "PQ-CHO", descripcion: "Paquete chorizos x10", categoria: "Especialidades" })
+      )
+    ).toBe(textoChorizo);
+  });
+
+  it("subtítulo listo para llevar en paquetes sin chorizo y bebidas", () => {
+    expect(
+      subtituloTarjetaCatalogoPedidos(
+        prod({ sku: "PQ-ARE", descripcion: "Paquete Arepa de Peto con Queso x6", categoria: "Especialidades" })
       )
     ).toBe("Producto fresco listo para llevar.");
     expect(
@@ -118,7 +142,9 @@ describe("tabCatalogoDeProducto", () => {
       subtituloTarjetaCatalogoPedidos(prod({ sku: "4", descripcion: "Agua Brisa", categoria: "Bebidas" }))
     ).toBe("Producto listo para llevar.");
     expect(
-      subtituloTarjetaCatalogoPedidos(prod({ sku: "1", descripcion: "Chorizo con pan", categoria: "Básicos" }))
+      subtituloTarjetaCatalogoPedidos(
+        prod({ sku: "PET-1", descripcion: "Arepa de peto con queso", categoria: "Básicos" })
+      )
     ).toBe("Producto fresco, preparado al momento.");
   });
 });

@@ -140,8 +140,21 @@ export function filtrarCatalogoPorTab(productos: ProductoPOS[], tab: TabCatalogo
   return productos.filter((p) => tabCatalogoDeProducto(p) === tab);
 }
 
+/** Productos con chorizo (nombre, choripán o hawaiano). */
+export function productoLlevaChorizo(p: ProductoPOS): boolean {
+  if (productoEsHawaiano(p)) return true;
+  const t = textoNorm(`${p.descripcion ?? ""} ${p.sku ?? ""}`);
+  return t.includes("chorizo") || t.includes("choripan");
+}
+
+const SUBTITULO_CHORIZO_SANTARROSANO =
+  "Producto fresco, Chorizo 100% santarrosano, preparado al momento.";
+
 /** Subtítulo bajo el nombre en la tarjeta del menú /pedidos. */
 export function subtituloTarjetaCatalogoPedidos(p: ProductoPOS): string {
+  if (productoLlevaChorizo(p)) {
+    return SUBTITULO_CHORIZO_SANTARROSANO;
+  }
   const tab = tabCatalogoDeProducto(p);
   if (tab === "paquetes") {
     return "Producto fresco listo para llevar.";
