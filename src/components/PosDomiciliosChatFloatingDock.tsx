@@ -324,7 +324,7 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
                 ¡Llegó un pedido de {avisoPedidoNuevo.pedido.cliente.trim() || "un cliente"}!
               </p>
               <p className="mt-1 text-[11px] font-semibold text-rose-700">
-                Tocá aquí para aceptar o rechazar
+                Tocá para abrir · aceptar o rechazar
                 {avisoPedidoNuevo.cantidadEnCola > 1
                   ? ` · +${avisoPedidoNuevo.cantidadEnCola - 1} en cola`
                   : ""}
