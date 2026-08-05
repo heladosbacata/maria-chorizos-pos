@@ -1629,21 +1629,51 @@ function PedidosLandingClient() {
           ultimoMensajePosIdRef.current = ultimoPos.id;
           if (chatVista !== "expandido") {
             setChatMensajesNoLeidos((n) => n + 1);
-          }
-          if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-            const cuerpo =
-              ultimoPos.tipoMensaje === "imagen" || ultimoPos.tipoMensaje === "comprobante"
-                ? "Te enviaron una imagen en el chat."
-                : ultimoPos.texto.slice(0, 120);
-            try {
-              new Notification("Maria Chorizos — mensaje del local", {
-                body: cuerpo,
-                tag: `chat-pedido-${pedidoCreadoId}`,
-              });
-            } catch {
-              /* navegador sin permiso activo */
+            // Mostrar la pastilla del chat para que el cliente note el mensaje nuevo.
+            if (chatVista === "cerrado") {
+              setChatVista("minimizado");
             }
           }
+          const preview =
+            ultimoPos.tipoMensaje === "imagen" || ultimoPos.tipoMensaje === "comprobante"
+              ? "Te enviaron una imagen en el chat."
+              : ultimoPos.texto.trim().slice(0, 120) || "Tiene un mensaje nuevo del local.";
+          setAlertaClienteToast(`Nuevo mensaje del local: ${preview}`);
+          window.setTimeout(() => setAlertaClienteToast(null), 5000);
+          try {
+            if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+              navigator.vibrate([120, 60, 120, 60, 180, 80, 220]);
+            }
+          } catch {
+            /* iOS / sin soporte */
+          }
+          void (async () => {
+            try {
+              if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+              const titulo = "María Chorizos — mensaje del local";
+              const opts: NotificationOptions = {
+                body: preview,
+                tag: `chat-pedido-${pedidoCreadoId}`,
+                renotify: true,
+                icon: "/favicon.ico",
+                // Android / SW: patrón de vibración al mostrar la notificación
+                vibrate: [120, 60, 120, 60, 180],
+              } as NotificationOptions;
+              const reg =
+                (typeof navigator !== "undefined" &&
+                  navigator.serviceWorker &&
+                  ((await navigator.serviceWorker.getRegistration("/pedidos-push-sw.js")) ||
+                    (await navigator.serviceWorker.getRegistration()))) ||
+                null;
+              if (reg && typeof reg.showNotification === "function") {
+                await reg.showNotification(titulo, opts);
+              } else {
+                new Notification(titulo, opts);
+              }
+            } catch {
+              /* sin permiso activo o API no disponible */
+            }
+          })();
         }
       }
       setChatMensajes(data);
