@@ -22,3 +22,19 @@ export function productoHabilitadoEnDomiciliosPunto(
   if (!porSku) return true;
   return porSku[key] !== false;
 }
+
+/** Compara dos mapas sku→habilitado (orden de claves irrelevante). */
+export function catalogoDomiciliosPorSkuIgual(
+  a: Record<string, boolean> | null | undefined,
+  b: Record<string, boolean> | null | undefined
+): boolean {
+  const aa = a ?? {};
+  const bb = b ?? {};
+  const keysA = Object.keys(aa);
+  const keysB = Object.keys(bb);
+  if (keysA.length !== keysB.length) return false;
+  for (const k of keysA) {
+    if (aa[k] !== bb[k]) return false;
+  }
+  return true;
+}

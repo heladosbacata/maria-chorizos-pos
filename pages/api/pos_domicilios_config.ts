@@ -40,6 +40,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     if (req.method === "GET") {
       const pv = typeof req.query.puntoVenta === "string" ? req.query.puntoVenta : Array.isArray(req.query.puntoVenta) ? req.query.puntoVenta[0] : "";
       const cfg = await getDomicilioTarifaConfig(pv ?? "");
+      res.setHeader("Cache-Control", "private, no-store, no-cache, must-revalidate");
+      res.setHeader("Pragma", "no-cache");
       return res.status(200).json({ ok: true, ...cfg });
     }
     return res.status(503).json({
@@ -51,7 +53,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   if (req.method === "GET") {
     const pv = typeof req.query.puntoVenta === "string" ? req.query.puntoVenta : Array.isArray(req.query.puntoVenta) ? req.query.puntoVenta[0] : "";
     const cfg = await getDomicilioTarifaConfig(pv ?? "");
-    res.setHeader("Cache-Control", "public, max-age=15, stale-while-revalidate=30");
+    // Sin caché CDN/navegador: el menú de /pedidos debe reflejar al instante
+    // productos que el cajero habilita/deshabilita para domicilios.
+    res.setHeader("Cache-Control", "private, no-store, no-cache, must-revalidate");
+    res.setHeader("Pragma", "no-cache");
     return res.status(200).json({ ok: true, ...cfg });
   }
 

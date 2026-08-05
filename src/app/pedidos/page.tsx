@@ -7,6 +7,7 @@ import { pedidoIdChatClave } from "@/lib/pos-domicilios-pv-clave";
 import { getCatalogoPOS } from "@/lib/catalogo-pos";
 import { DEFAULT_COSTO_DOMICILIO_COP, DEFAULT_UMBRAL_GRATIS_COP } from "@/lib/pos-domicilios-tarifa-defaults";
 import {
+  catalogoDomiciliosPorSkuIgual,
   normalizarCatalogoDomiciliosPorSku,
   productoHabilitadoEnDomiciliosPunto,
 } from "@/lib/pos-domicilios-catalogo-sku";
@@ -76,6 +77,8 @@ type CanalPedido = "web" | "qr";
 type TipoEntregaPedido = "domicilio" | "recogida";
 
 const CLUB_MILLAS_URL = "https://maria-chorizos-wms.vercel.app/club-de-millas/mi-plan";
+/** Sync menú domicilios ↔ caja (productos habilitados/deshabilitados). */
+const INTERVALO_SYNC_CONFIG_DOMICILIOS_MS = 8_000;
 
 function abrirClubMillasEnVentanaEmergente(): void {
   if (typeof window === "undefined") return;
@@ -904,8 +907,16 @@ function PedidosLandingClient() {
 
   const refrescarTarifaDomicilio = useCallback(async () => {
     try {
-      const url = `/api/pos_domicilios_config?${new URLSearchParams({ puntoVenta }).toString()}`;
-      const res = await fetch(url, { method: "GET", cache: "no-store" });
+      const qs = new URLSearchParams({
+        puntoVenta,
+        _ts: String(Date.now()),
+      });
+      const url = `/api/pos_domicilios_config?${qs.toString()}`;
+      const res = await fetch(url, {
+        method: "GET",
+        cache: "no-store",
+        headers: { "Cache-Control": "no-cache", Pragma: "no-cache" },
+      });
       const json = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         costoDomicilioCop?: number;
@@ -943,17 +954,35 @@ function PedidosLandingClient() {
         json.domiciliosHorarioSemanal,
         horarioSemanalVacioDefault()
       );
-      setTarifaDomicilio({
-        costoDomicilioCop: costo,
-        umbralGratisCop: umbral,
-        domiciliosHabilitados,
-        recogerEnTiendaHabilitado,
-        domicilioConDomiciliarioHabilitado,
-        domiciliosHoraInicio,
-        domiciliosHoraFin,
-        domiciliosHorarioSemanal,
-        mediosTransferencia: normalizarMediosTransferencia(json.mediosTransferencia),
-        catalogoDomiciliosPorSku: normalizarCatalogoDomiciliosPorSku(json.catalogoDomiciliosPorSku),
+      const catalogoDomiciliosPorSku = normalizarCatalogoDomiciliosPorSku(json.catalogoDomiciliosPorSku);
+      const mediosTransferencia = normalizarMediosTransferencia(json.mediosTransferencia);
+      setTarifaDomicilio((prev) => {
+        if (
+          prev.costoDomicilioCop === costo &&
+          prev.umbralGratisCop === umbral &&
+          prev.domiciliosHabilitados === domiciliosHabilitados &&
+          prev.recogerEnTiendaHabilitado === recogerEnTiendaHabilitado &&
+          prev.domicilioConDomiciliarioHabilitado === domicilioConDomiciliarioHabilitado &&
+          prev.domiciliosHoraInicio === domiciliosHoraInicio &&
+          prev.domiciliosHoraFin === domiciliosHoraFin &&
+          catalogoDomiciliosPorSkuIgual(prev.catalogoDomiciliosPorSku, catalogoDomiciliosPorSku) &&
+          JSON.stringify(prev.domiciliosHorarioSemanal) === JSON.stringify(domiciliosHorarioSemanal) &&
+          JSON.stringify(prev.mediosTransferencia) === JSON.stringify(mediosTransferencia)
+        ) {
+          return prev;
+        }
+        return {
+          costoDomicilioCop: costo,
+          umbralGratisCop: umbral,
+          domiciliosHabilitados,
+          recogerEnTiendaHabilitado,
+          domicilioConDomiciliarioHabilitado,
+          domiciliosHoraInicio,
+          domiciliosHoraFin,
+          domiciliosHorarioSemanal,
+          mediosTransferencia,
+          catalogoDomiciliosPorSku,
+        };
       });
     } catch {
       /* se mantienen defaults */
@@ -964,9 +993,46 @@ function PedidosLandingClient() {
     void refrescarTarifaDomicilio();
     const t = window.setInterval(() => {
       void refrescarTarifaDomicilio();
-    }, 45000);
-    return () => window.clearInterval(t);
+    }, INTERVALO_SYNC_CONFIG_DOMICILIOS_MS);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void refrescarTarifaDomicilio();
+    };
+    const onFocus = () => {
+      void refrescarTarifaDomicilio();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onFocus);
+    };
   }, [refrescarTarifaDomicilio]);
+
+  /** Si el cajero deshabilita un SKU, quitarlo del carrito del cliente sin esperar refresh. */
+  useEffect(() => {
+    if (pedidoCreadoId) return;
+    const mapa = tarifaDomicilio.catalogoDomiciliosPorSku;
+    setCantidades((prev) => {
+      let changed = false;
+      const next: Record<string, number> = {};
+      for (const [lineKey, cantidad] of Object.entries(prev)) {
+        const { sku } = parseKeyLineaPedido(lineKey);
+        if (!productoHabilitadoEnDomiciliosPunto(sku, mapa)) {
+          changed = true;
+          continue;
+        }
+        next[lineKey] = cantidad;
+      }
+      if (!changed) return prev;
+      Promise.resolve().then(() => {
+        setMensaje(
+          "Algunos productos ya no están disponibles para domicilio y se quitaron del carrito."
+        );
+      });
+      return next;
+    });
+  }, [tarifaDomicilio.catalogoDomiciliosPorSku, pedidoCreadoId]);
 
   const tipoEntregaPreferidoPorConfig = useCallback((): TipoEntregaPedido => {
     if (tarifaDomicilio.recogerEnTiendaHabilitado) return "recogida";
@@ -1359,6 +1425,17 @@ function PedidosLandingClient() {
     }
     if (tipoEntrega === "domicilio" && !direccion.trim()) {
       setMensaje("Indique la dirección de entrega o elija pasar a recoger en la tienda.");
+      return false;
+    }
+    const mapa = tarifaDomicilio.catalogoDomiciliosPorSku;
+    const hayDeshabilitado = itemsCarrito.some(
+      (x) => !productoHabilitadoEnDomiciliosPunto(x.p.sku, mapa)
+    );
+    if (hayDeshabilitado) {
+      setMensaje(
+        "Algunos productos de su carrito ya no están disponibles para domicilio. Revise el menú e intente de nuevo."
+      );
+      void refrescarTarifaDomicilio();
       return false;
     }
     const faltaSalsa = itemsCarrito.some(
