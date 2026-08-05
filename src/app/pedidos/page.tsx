@@ -672,7 +672,6 @@ function PedidosLandingClient() {
   const [rechazoMotivoPedido, setRechazoMotivoPedido] = useState<string | null>(null);
   const [estadoPedidoLoading, setEstadoPedidoLoading] = useState(false);
   const [ahoraMs, setAhoraMs] = useState(Date.now());
-  const [busqueda, setBusqueda] = useState("");
   const [tabCatalogo, setTabCatalogo] = useState<TabCatalogoPedidos>("basicos");
   const [carruselIdx, setCarruselIdx] = useState(0);
   const [alertaClienteToast, setAlertaClienteToast] = useState<string | null>(null);
@@ -1182,28 +1181,19 @@ function PedidosLandingClient() {
     [catalogo, tarifaDomicilio.catalogoDomiciliosPorSku]
   );
 
-  const productosFiltrados = useMemo(() => {
-    const q = textoNormalizado(busqueda);
-    return catalogoVisible.filter((p) => {
-      if (!q) return true;
-      const texto = textoNormalizado(`${p.descripcion} ${p.categoria ?? ""} ${p.sku}`);
-      return texto.includes(q);
-    });
-  }, [catalogoVisible, busqueda]);
-
   const productosPorTab = useMemo(() => {
     const counts = Object.fromEntries(TABS_CATALOGO_PEDIDOS.map((t) => [t.id, 0])) as Record<
       TabCatalogoPedidos,
       number
     >;
-    for (const p of productosFiltrados) {
+    for (const p of catalogoVisible) {
       counts[tabCatalogoDeProducto(p)] += 1;
     }
     return {
       counts,
-      lista: filtrarCatalogoPorTab(productosFiltrados, tabCatalogo),
+      lista: filtrarCatalogoPorTab(catalogoVisible, tabCatalogo),
     };
-  }, [productosFiltrados, tabCatalogo]);
+  }, [catalogoVisible, tabCatalogo]);
 
   useEffect(() => {
     if ((productosPorTab.counts[tabCatalogo] ?? 0) > 0) return;
@@ -2747,22 +2737,12 @@ function PedidosLandingClient() {
         <div className="grid gap-4 lg:grid-cols-[1fr_360px] lg:gap-5">
           <section className="min-w-0 space-y-4">
             <div className="rounded-2xl border border-red-100 bg-white p-3 shadow-sm sm:p-4">
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-wide text-red-700">Paso 2</p>
-                  <h2 className="text-lg font-bold text-gray-900">Catálogo de productos</h2>
-                  <p className="text-sm text-gray-500">
-                    Escoja por categoría. Solo se muestran productos que el punto habilitó para domicilios.
-                  </p>
-                </div>
-                <div className="w-full md:w-80">
-                  <input
-                    value={busqueda}
-                    onChange={(e) => setBusqueda(e.target.value)}
-                    placeholder="Buscar producto..."
-                    className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm outline-none ring-amber-200 transition focus:border-red-500 focus:ring-2"
-                  />
-                </div>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wide text-red-700">Paso 2</p>
+                <h2 className="text-lg font-bold text-gray-900">Catálogo de productos</h2>
+                <p className="text-sm text-gray-500">
+                  Escoja por categoría. Solo se muestran productos que el punto habilitó para domicilios.
+                </p>
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 {TABS_CATALOGO_PEDIDOS.map((tab) => {
@@ -2819,9 +2799,8 @@ function PedidosLandingClient() {
                   </div>
                 ) : (
                   <article className="rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500">
-                    No hay productos en esta categoría
-                    {busqueda.trim() ? " con esa búsqueda" : ""}.
-                    {tabCatalogo === "basicos" && !busqueda.trim()
+                    No hay productos en esta categoría.
+                    {tabCatalogo === "basicos"
                       ? " Si espera ver básicos, revise en caja que estén marcados como disponibles para domicilio."
                       : ""}
                   </article>
