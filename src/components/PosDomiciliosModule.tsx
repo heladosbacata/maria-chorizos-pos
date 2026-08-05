@@ -47,10 +47,17 @@ export type AbrirFacturacionDomicilioOpts = {
   busqueda: string;
 };
 
+export type VentaFacturadaDomicilioOpts = {
+  pedidoId: string;
+  ventaLocalId: string;
+};
+
 type Props = {
   puntoVenta?: string | null;
   /** Abre Ventas / facturación (Espacio franquiciados → Ventas y comprobantes). */
   onAbrirFacturacion?: (opts: AbrirFacturacionDomicilioOpts) => void;
+  /** Tras registrar la venta como cobro POS, abrir Ventas / Últimos recibos. */
+  onVentaFacturadaComoPos?: (opts: VentaFacturadaDomicilioOpts) => void;
 };
 
 type FiltroEstado = "todos" | EstadoDomicilio;
@@ -112,7 +119,7 @@ const COLUMNAS_DOMICILIO: ColumnaDomicilio[] = [
   {
     estado: "LISTO_PARA_DESPACHO",
     titulo: "Listo",
-    subtitulo: "Pendiente de asignar salida",
+    subtitulo: "Enviar a facturar (venta POS) y luego a entrega",
     accentClasses: "border-violet-200 bg-violet-50/65",
     badgeClasses: "bg-violet-100 text-violet-800",
     nextEstado: "EN_ENTREGA",
@@ -187,7 +194,11 @@ function keyVolumenDomicilios(puntoVenta: string): string {
   return `pos_mc_domicilios_volumen_v1:${puntoVenta.trim().toLowerCase() || "global"}`;
 }
 
-export default function PosDomiciliosModule({ puntoVenta, onAbrirFacturacion }: Props) {
+export default function PosDomiciliosModule({
+  puntoVenta,
+  onAbrirFacturacion,
+  onVentaFacturadaComoPos,
+}: Props) {
   const [pedidos, setPedidos] = useState<PedidoDomicilio[]>([]);
   const [filtro, setFiltro] = useState("");
   const [filtroEstado, setFiltroEstado] = useState<FiltroEstado>("todos");
@@ -690,18 +701,34 @@ export default function PosDomiciliosModule({ puntoVenta, onAbrirFacturacion }: 
     );
   };
 
-  const asegurarFacturacionPedido = async (pedido: PedidoDomicilio): Promise<PedidoDomicilio | null> => {
-    if (pedidoDomicilioTieneVentaFacturacion(pedido)) return pedido;
+  const asegurarFacturacionPedido = async (
+    pedido: PedidoDomicilio,
+    opts?: { abrirVentasPos?: boolean }
+  ): Promise<PedidoDomicilio | null> => {
+    const yaTeníaVenta = pedidoDomicilioTieneVentaFacturacion(pedido);
     try {
       const fact = await enviarPedidoDomicilioAFacturacion(pedido);
       if (fact.ok && fact.ventaLocalId) {
         const next: PedidoDomicilio = {
           ...pedido,
           facturaVentaLocalId: fact.ventaLocalId,
-          enviadoAFacturacionEnIso: new Date().toISOString(),
+          enviadoAFacturacionEnIso: pedido.enviadoAFacturacionEnIso || new Date().toISOString(),
+          ...(fact.emitida && !pedido.facturaElectronicaCufe
+            ? { facturaElectronicaCufe: pedido.facturaElectronicaCufe }
+            : {}),
         };
         setPedidos((prev) => prev.map((p) => (p.id === pedido.id ? { ...p, ...next } : p)));
-        setSyncInfo(fact.message);
+        setSyncInfo(
+          yaTeníaVenta
+            ? fact.message
+            : `${fact.message} Venta registrada en Ventas e ingresos como un cobro POS.`
+        );
+        if (opts?.abrirVentasPos === true) {
+          onVentaFacturadaComoPos?.({
+            pedidoId: pedido.id,
+            ventaLocalId: fact.ventaLocalId,
+          });
+        }
         return next;
       }
       setSyncInfo(fact.message || "No se pudo registrar el pedido en Ventas para facturar.");
@@ -709,6 +736,19 @@ export default function PosDomiciliosModule({ puntoVenta, onAbrirFacturacion }: 
     } catch {
       setSyncInfo("No se pudo enviar el pedido a facturación. Revise la sesión de cajero e intente de nuevo.");
       return null;
+    }
+  };
+
+  /** Botón principal en columna Listo: crea la venta POS y lleva a Ventas. */
+  const enviarListoAFacturarComoVentaPos = async (pedido: PedidoDomicilio) => {
+    if (actualizandoId) return;
+    setActualizandoId(pedido.id);
+    setSyncInfo(null);
+    const ok = await asegurarFacturacionPedido(pedido, { abrirVentasPos: true });
+    setActualizandoId(null);
+    if (!ok) {
+      // Si falló el registro, ofrecer el panel de facturación FE como respaldo.
+      abrirFacturacionPedido(pedido);
     }
   };
 
@@ -1504,40 +1544,60 @@ export default function PosDomiciliosModule({ puntoVenta, onAbrirFacturacion }: 
                           ) : null}
                         </div>
 
-                        {(col.estado === "LISTO_PARA_DESPACHO" || col.estado === "EN_ENTREGA") &&
-                        !pedidoDomicilioTieneVentaFacturacion(pedido) ? (
+                        {col.estado === "LISTO_PARA_DESPACHO" ? (
+                          <div className="space-y-2 rounded-xl border-2 border-amber-400 bg-gradient-to-br from-amber-50 to-orange-50 px-2.5 py-2.5">
+                            <p className="text-[11px] font-bold leading-snug text-amber-950">
+                              {pedidoDomicilioTieneVentaFacturacion(pedido)
+                                ? "Venta registrada en Ventas e ingresos. Puede enviar a entrega o revisar la factura."
+                                : "Registre este pedido como una venta POS normal en Ventas e ingresos antes de entregarlo."}
+                            </p>
+                            {!pedidoDomicilioTieneVentaFacturacion(pedido) ? (
+                              <button
+                                type="button"
+                                onClick={() => void enviarListoAFacturarComoVentaPos(pedido)}
+                                disabled={Boolean(actualizandoId)}
+                                className="block w-full rounded-xl bg-gradient-to-r from-red-700 to-amber-500 px-3 py-3 text-sm font-black text-white shadow-md transition hover:from-red-800 hover:to-amber-600 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {actualizandoId === pedido.id
+                                  ? "Enviando a facturar…"
+                                  : "Enviar a facturar"}
+                              </button>
+                            ) : (
+                              <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    onVentaFacturadaComoPos?.({
+                                      pedidoId: pedido.id,
+                                      ventaLocalId: pedido.facturaVentaLocalId?.trim() || pedido.id,
+                                    })
+                                  }
+                                  className="rounded-lg border border-amber-400 bg-white px-2.5 py-2 text-xs font-bold text-amber-950 transition hover:bg-amber-100"
+                                >
+                                  Ver en Ventas
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => abrirFacturacionPedido(pedido)}
+                                  className="rounded-lg border border-amber-400 bg-white px-2.5 py-2 text-xs font-bold text-amber-950 transition hover:bg-amber-100"
+                                >
+                                  Factura electrónica
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ) : col.estado === "EN_ENTREGA" && !pedidoDomicilioTieneVentaFacturacion(pedido) ? (
                           <div className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-2 text-[11px] font-semibold leading-snug text-amber-950">
-                            Antes de entregar debe facturarse en Ventas e ingresos.
+                            Falta facturar esta venta.
                             <button
                               type="button"
-                              onClick={() => {
-                                void (async () => {
-                                  setActualizandoId(pedido.id);
-                                  const ok = await asegurarFacturacionPedido(pedido);
-                                  setActualizandoId(null);
-                                  if (ok) {
-                                    abrirFacturacionPedido(ok);
-                                  } else {
-                                    abrirFacturacionPedido(pedido);
-                                  }
-                                })();
-                              }}
+                              onClick={() => void enviarListoAFacturarComoVentaPos(pedido)}
                               disabled={Boolean(actualizandoId)}
-                              className="mt-1.5 block w-full rounded-lg bg-gradient-to-r from-amber-600 to-orange-500 px-2.5 py-1.5 text-xs font-black text-white shadow-sm transition hover:from-amber-700 hover:to-orange-600 disabled:opacity-60"
+                              className="mt-1.5 block w-full rounded-lg bg-gradient-to-r from-amber-600 to-orange-500 px-2.5 py-2 text-xs font-black text-white shadow-sm disabled:opacity-60"
                             >
-                              Ir a facturación
+                              {actualizandoId === pedido.id ? "Enviando…" : "Enviar a facturar"}
                             </button>
                           </div>
-                        ) : (col.estado === "LISTO_PARA_DESPACHO" || col.estado === "EN_ENTREGA") &&
-                          pedidoDomicilioTieneVentaFacturacion(pedido) &&
-                          !pedidoDomicilioFacturaElectronicaEmitida(pedido) ? (
-                          <button
-                            type="button"
-                            onClick={() => abrirFacturacionPedido(pedido)}
-                            className="w-full rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-bold text-amber-950 transition hover:bg-amber-100"
-                          >
-                            Abrir en Ventas / facturación
-                          </button>
                         ) : null}
 
                         <div className="flex items-end justify-between gap-2">
@@ -1559,32 +1619,35 @@ export default function PosDomiciliosModule({ puntoVenta, onAbrirFacturacion }: 
                               >
                                 Chat
                               </button>
-                              {estadoDomicilioRequiereFacturacion(col.nextEstado) &&
+                              {col.estado === "LISTO_PARA_DESPACHO" &&
                               !pedidoDomicilioTieneVentaFacturacion(pedido) ? (
                                 <button
                                   type="button"
-                                  onClick={() => {
-                                    void (async () => {
-                                      setActualizandoId(pedido.id);
-                                      const ok = await asegurarFacturacionPedido(pedido);
-                                      setActualizandoId(null);
-                                      if (ok) {
-                                        void moverPedido(pedido.id, col.nextEstado!);
-                                      } else {
-                                        abrirFacturacionPedido(pedido);
-                                      }
-                                    })();
-                                  }}
+                                  onClick={() => void enviarListoAFacturarComoVentaPos(pedido)}
+                                  disabled={Boolean(actualizandoId)}
+                                  className="rounded-lg bg-amber-600 px-2.5 py-1.5 text-xs font-black text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                >
+                                  {actualizandoId === pedido.id ? "Facturando…" : "Enviar a facturar"}
+                                </button>
+                              ) : estadoDomicilioRequiereFacturacion(col.nextEstado) &&
+                                !pedidoDomicilioTieneVentaFacturacion(pedido) ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void enviarListoAFacturarComoVentaPos(pedido)}
                                   disabled={Boolean(actualizandoId)}
                                   className="rounded-lg bg-amber-600 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
                                 >
-                                  {actualizandoId === pedido.id ? "Facturando…" : "Facturar y continuar"}
+                                  {actualizandoId === pedido.id ? "Facturando…" : "Enviar a facturar"}
                                 </button>
                               ) : (
                                 <button
                                   type="button"
                                   onClick={() => void moverPedido(pedido.id, col.nextEstado!)}
-                                  disabled={Boolean(actualizandoId)}
+                                  disabled={
+                                    Boolean(actualizandoId) ||
+                                    (estadoDomicilioRequiereFacturacion(col.nextEstado) &&
+                                      !pedidoDomicilioTieneVentaFacturacion(pedido))
+                                  }
                                   className="rounded-lg bg-gray-900 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
                                 >
                                   {actualizandoId === pedido.id ? "Actualizando..." : col.nextLabel}

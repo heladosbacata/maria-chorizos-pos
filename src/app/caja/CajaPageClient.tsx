@@ -4757,6 +4757,10 @@ export default function CajaPageClient() {
             <PosDomiciliosModule
               puntoVenta={user.puntoVenta}
               onAbrirFacturacion={abrirFacturacionDesdeDomicilios}
+              onVentaFacturadaComoPos={() => {
+                // Misma experiencia que una venta cobrada en POS: verla en Últimos recibos / Ventas.
+                setModuloActivo("ultimosRecibos");
+              }}
             />
           ) : moduloActivo === "mas" ? (
             <ConfiguracionMasModule
