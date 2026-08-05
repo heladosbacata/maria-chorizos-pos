@@ -36,6 +36,7 @@ import {
 } from "@/types/pos-domicilios-medios-transferencia";
 import type { ProductoPOS } from "@/types";
 import type { MensajeChatDomicilio } from "@/types/pos-domicilios-chat";
+import { productoRequiereSoloTipoArepaPeto } from "@/lib/chorizo-variante-pos";
 
 export const dynamic = "force-dynamic";
 
@@ -191,16 +192,95 @@ function parseKeyLineaPedido(lineKey: string): { sku: string; varianteKey: strin
   return { sku, varianteKey: vk && vk !== VARIANTE_BASE_KEY ? vk : null };
 }
 
+function textoVarianteNorm(v: string): string {
+  return v
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+/** Precio de una opción de arepa peto, resolviendo claves/etiquetas del WMS. */
+function precioOpcionArepaPeto(p: ProductoPOS, tipo: "queso_bocadillo" | "arepa_queso"): number {
+  const preciosMap = p.preciosPorVariante ?? {};
+  const variantes = Array.isArray(p.variantes) ? p.variantes : [];
+  const match = (pred: (t: string) => boolean): number | null => {
+    for (const v of variantes) {
+      const t = textoVarianteNorm(`${v.clave ?? ""} ${v.etiqueta ?? ""}`);
+      if (!pred(t)) continue;
+      const pr = v.precioVenta ?? preciosMap[(v.clave ?? "").trim()];
+      if (typeof pr === "number" && Number.isFinite(pr)) return pr;
+    }
+    for (const [key, pr] of Object.entries(preciosMap)) {
+      if (!pred(textoVarianteNorm(key))) continue;
+      if (typeof pr === "number" && Number.isFinite(pr)) return pr;
+    }
+    return null;
+  };
+
+  if (tipo === "queso_bocadillo") {
+    return (
+      match((t) => t.includes("bocadillo")) ??
+      match((t) => t.includes("queso_bocadillo")) ??
+      p.precioUnitario
+    );
+  }
+  return (
+    match((t) => t.includes("peto") && !t.includes("bocadillo")) ??
+    match((t) => (t.includes("arepa_queso") || t.includes("arepa de queso")) && !t.includes("bocadillo")) ??
+    match((t) => t.includes("peto_queso")) ??
+    p.precioUnitario
+  );
+}
+
+/**
+ * Variantes del producto en el menú de domicilios.
+ * Arepa de peto: solo 2 opciones (como en caja), aunque el WMS mande 3.
+ */
 function opcionesVariantesProducto(p: ProductoPOS): VarianteUi[] {
+  if (productoRequiereSoloTipoArepaPeto(p)) {
+    return [
+      {
+        key: "queso_bocadillo",
+        label: "Arepa de queso y Bocadillo",
+        precio: precioOpcionArepaPeto(p, "queso_bocadillo"),
+      },
+      {
+        key: "arepa_queso",
+        label: "Arepa de queso (Peto)",
+        precio: precioOpcionArepaPeto(p, "arepa_queso"),
+      },
+    ];
+  }
+
   const out: VarianteUi[] = [];
   const preciosMap = p.preciosPorVariante ?? {};
+  const seenKeys = new Set<string>();
+  /** arepa_queso y peto_queso son la misma arepa (legado WMS). */
+  const canonKey = (key: string): string => {
+    const n = textoVarianteNorm(key);
+    if (n === "peto_queso" || n === "arepa_queso") return "arepa_queso";
+    return key.trim();
+  };
+  const pushVar = (keyRaw: string, labelRaw: string, precio: number) => {
+    const key = canonKey(keyRaw);
+    if (!key || seenKeys.has(key)) return;
+    seenKeys.add(key);
+    let label = (labelRaw || keyRaw).trim();
+    const ln = textoVarianteNorm(label);
+    if (key === "arepa_queso" || ln === "arepa de queso" || (ln.includes("peto") && !ln.includes("bocadillo"))) {
+      label = "Arepa de queso (Peto)";
+    }
+    out.push({ key, label, precio: Number.isFinite(precio) ? precio : p.precioUnitario });
+  };
+
   if (Array.isArray(p.variantes) && p.variantes.length > 0) {
     for (const v of p.variantes) {
       const key = (v.clave ?? "").trim();
       if (!key) continue;
       const label = (v.etiqueta ?? key).trim();
       const precio = v.precioVenta ?? preciosMap[key] ?? p.precioUnitario;
-      out.push({ key, label, precio: Number.isFinite(precio) ? precio : p.precioUnitario });
+      pushVar(key, label, typeof precio === "number" ? precio : p.precioUnitario);
     }
     return out;
   }
@@ -208,7 +288,7 @@ function opcionesVariantesProducto(p: ProductoPOS): VarianteUi[] {
   for (const key of keys) {
     const precio = preciosMap[key];
     if (!key.trim() || !Number.isFinite(precio)) continue;
-    out.push({ key: key.trim(), label: key.trim(), precio });
+    pushVar(key.trim(), key.trim(), precio as number);
   }
   return out;
 }
