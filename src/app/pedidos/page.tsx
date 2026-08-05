@@ -1427,7 +1427,6 @@ function PedidosLandingClient() {
       setMensaje("Indique la dirección de entrega o elija pasar a recoger en la tienda.");
       return false;
     }
-<<<<<<< HEAD
     const mapa = tarifaDomicilio.catalogoDomiciliosPorSku;
     const hayDeshabilitado = itemsCarrito.some(
       (x) => !productoHabilitadoEnDomiciliosPunto(x.p.sku, mapa)
@@ -1437,13 +1436,13 @@ function PedidosLandingClient() {
         "Algunos productos de su carrito ya no están disponibles para domicilio. Revise el menú e intente de nuevo."
       );
       void refrescarTarifaDomicilio();
-=======
+      return false;
+    }
     const faltaSalsa = itemsCarrito.some(
       (x) => productoRequiereSalsaFavorita(x.p) && !x.salsaKey
     );
     if (faltaSalsa) {
       setMensaje("Hay productos sin salsa favorita. Elija salsa de ajo o chimichurri.");
->>>>>>> origin/main
       return false;
     }
     return true;
