@@ -64,10 +64,22 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
     pedidoId: string;
   } | null>(null);
   const [avisoPedidoNuevo, setAvisoPedidoNuevo] = useState<DomiciliosAvisoPedidoNuevoDetail | null>(null);
+  /** Posición libre del aviso emergente (arrastrable para no tapar la venta). */
+  const [posicionAviso, setPosicionAviso] = useState<{ x: number; y: number } | null>(null);
+  const [arrastrandoAviso, setArrastrandoAviso] = useState(false);
   const unreadPrevRef = useRef<UnreadPorPedido>({});
   const totalUnreadPrevRef = useRef(0);
   const lastAlertAtRef = useRef(0);
   const chatPedidoIdAbiertoRef = useRef<string | null>(null);
+  const avisoRef = useRef<HTMLDivElement>(null);
+  const avisoDragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+    moved: boolean;
+  } | null>(null);
   const dragRef = useRef<{
     pointerId: number;
     startX: number;
@@ -85,6 +97,27 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
     chatPedidoIdAbiertoRef.current = chatPedido?.id ?? null;
   }, [chatPedido?.id]);
 
+  const clampPosicionAviso = useCallback((x: number, y: number) => {
+    const el = avisoRef.current;
+    const w = el?.offsetWidth ?? 360;
+    const h = el?.offsetHeight ?? 110;
+    const margin = 8;
+    const maxX = Math.max(margin, window.innerWidth - w - margin);
+    const maxY = Math.max(margin, window.innerHeight - h - margin);
+    return {
+      x: Math.min(maxX, Math.max(margin, x)),
+      y: Math.min(maxY, Math.max(margin, y)),
+    };
+  }, []);
+
+  const posicionInicialAviso = useCallback(() => {
+    const el = avisoRef.current;
+    const w = el?.offsetWidth ?? 360;
+    // Arriba al centro: no tapa el modal de variantes / cobro en el medio de la pantalla.
+    const x = Math.round((window.innerWidth - w) / 2);
+    return clampPosicionAviso(x, 12);
+  }, [clampPosicionAviso]);
+
   useEffect(() => {
     const onAviso = (e: Event) => {
       const detail = (e as CustomEvent<DomiciliosAvisoPedidoNuevoDetail>).detail;
@@ -98,13 +131,95 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
         /* ignore */
       }
     };
-    const onAtendida = () => setAvisoPedidoNuevo(null);
+    const onAtendida = () => {
+      setAvisoPedidoNuevo(null);
+      setArrastrandoAviso(false);
+      avisoDragRef.current = null;
+    };
     window.addEventListener(EVENT_DOMICILIOS_AVISO_PEDIDO_NUEVO, onAviso);
     window.addEventListener(EVENT_DOMICILIOS_ALERTA_ATENDIDA, onAtendida);
     return () => {
       window.removeEventListener(EVENT_DOMICILIOS_AVISO_PEDIDO_NUEVO, onAviso);
       window.removeEventListener(EVENT_DOMICILIOS_ALERTA_ATENDIDA, onAtendida);
     };
+  }, []);
+
+  // Al aparecer el aviso, ubicar arriba (o reclamar si ya había posición guardada en sesión).
+  useLayoutEffect(() => {
+    if (!avisoPedidoNuevo) return;
+    setPosicionAviso((prev) => {
+      if (prev) return clampPosicionAviso(prev.x, prev.y);
+      return posicionInicialAviso();
+    });
+  }, [avisoPedidoNuevo, clampPosicionAviso, posicionInicialAviso]);
+
+  useEffect(() => {
+    if (!avisoPedidoNuevo) return;
+    const onResize = () => {
+      setPosicionAviso((prev) => (prev ? clampPosicionAviso(prev.x, prev.y) : prev));
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, [avisoPedidoNuevo, clampPosicionAviso]);
+
+  const onAvisoPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
+      const base =
+        posicionAviso ??
+        (() => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          return clampPosicionAviso(rect.left, rect.top);
+        })();
+      if (!posicionAviso) setPosicionAviso(base);
+      avisoDragRef.current = {
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        originX: base.x,
+        originY: base.y,
+        moved: false,
+      };
+      setArrastrandoAviso(true);
+      event.currentTarget.setPointerCapture(event.pointerId);
+    },
+    [posicionAviso, clampPosicionAviso]
+  );
+
+  const onAvisoPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const drag = avisoDragRef.current;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      const dx = event.clientX - drag.startX;
+      const dy = event.clientY - drag.startY;
+      if (!drag.moved && dx * dx + dy * dy < 36) return;
+      drag.moved = true;
+      setPosicionAviso(clampPosicionAviso(drag.originX + dx, drag.originY + dy));
+    },
+    [clampPosicionAviso]
+  );
+
+  const onAvisoPointerUp = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = avisoDragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    avisoDragRef.current = null;
+    setArrastrandoAviso(false);
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      /* ignore */
+    }
+    if (!drag.moved) {
+      setAvisoPedidoNuevo(null);
+      emitirDomiciliosAbrirAlertaPedido();
+    }
+  }, []);
+
+  const onAvisoPointerCancel = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (avisoDragRef.current?.pointerId === event.pointerId) {
+      avisoDragRef.current = null;
+      setArrastrandoAviso(false);
+    }
   }, []);
 
   const abrirAlertaPedidoNuevo = useCallback(() => {
@@ -311,32 +426,57 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
     <>
       {avisoPedidoNuevo ? (
         <PosBodyPortal open>
-          <div className="fixed inset-x-0 bottom-[5.5rem] z-[231] flex justify-center px-3 sm:bottom-28 pointer-events-none">
-            <button
-              type="button"
-              onClick={abrirAlertaPedidoNuevo}
-              className="pointer-events-auto max-w-md animate-[pos-domicilios-shake_0.55s_ease-in-out_infinite] rounded-2xl border-2 border-amber-400 bg-gradient-to-r from-amber-50 via-orange-50 to-rose-50 px-4 py-3.5 text-left shadow-[0_20px_50px_-12px_rgba(245,158,11,0.55)] ring-4 ring-amber-400/50"
-            >
-              <p className="text-[10px] font-black uppercase tracking-wide text-amber-800">
+          <div
+            ref={avisoRef}
+            role="dialog"
+            aria-label="Aviso de pedido domicilio nuevo. Arrastrá para mover; tocá para abrir."
+            onPointerDown={onAvisoPointerDown}
+            onPointerMove={onAvisoPointerMove}
+            onPointerUp={onAvisoPointerUp}
+            onPointerCancel={onAvisoPointerCancel}
+            className={`fixed z-[231] w-[min(100vw-1.5rem,28rem)] touch-none select-none rounded-2xl border-2 border-amber-400 bg-gradient-to-r from-amber-50 via-orange-50 to-rose-50 px-4 py-3.5 text-left shadow-[0_20px_50px_-12px_rgba(245,158,11,0.55)] ring-4 ring-amber-400/50 ${
+              arrastrandoAviso
+                ? "cursor-grabbing"
+                : "cursor-grab animate-[pos-domicilios-shake_0.55s_ease-in-out_infinite]"
+            }`}
+            style={
+              posicionAviso
+                ? { left: `${posicionAviso.x}px`, top: `${posicionAviso.y}px`, right: "auto", bottom: "auto" }
+                : { left: "50%", top: "12px", transform: "translateX(-50%)" }
+            }
+          >
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <span className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-wide text-amber-800">
+                <span className="grid h-4 w-3 shrink-0 grid-cols-2 gap-0.5 text-amber-600/80" aria-hidden>
+                  {[0, 1, 2, 3, 4, 5].map((i) => (
+                    <span key={i} className="h-0.5 w-0.5 rounded-full bg-current" />
+                  ))}
+                </span>
                 Chat domicilios ·{" "}
                 {avisoPedidoNuevo.cantidadEnCola > 1
                   ? `${avisoPedidoNuevo.cantidadEnCola} pedidos pendientes`
                   : "pedido nuevo"}
-              </p>
-              <p className="mt-0.5 text-sm font-black text-slate-900">
-                {avisoPedidoNuevo.cantidadEnCola > 1
-                  ? `Pedido 1 de ${avisoPedidoNuevo.cantidadEnCola}: ${
-                      avisoPedidoNuevo.pedido.cliente.trim() || "cliente"
-                    }`
-                  : `¡Llegó un pedido de ${avisoPedidoNuevo.pedido.cliente.trim() || "un cliente"}!`}
-              </p>
-              <p className="mt-1 text-[11px] font-semibold text-rose-700">
-                Tocá para abrir · aceptar o rechazar
-                {avisoPedidoNuevo.cantidadEnCola > 1
-                  ? ` · quedan ${avisoPedidoNuevo.cantidadEnCola} en cola`
-                  : ""}
-              </p>
-            </button>
+              </span>
+              <span className="shrink-0 rounded-md bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-900">
+                Arrastrá
+              </span>
+            </div>
+            <p className="text-sm font-black text-slate-900">
+              {avisoPedidoNuevo.cantidadEnCola > 1
+                ? `Pedido 1 de ${avisoPedidoNuevo.cantidadEnCola}: ${
+                    avisoPedidoNuevo.pedido.cliente.trim() || "cliente"
+                  }`
+                : `¡Llegó un pedido de ${avisoPedidoNuevo.pedido.cliente.trim() || "un cliente"}!`}
+            </p>
+            <p className="mt-1 text-[11px] font-semibold text-rose-700">
+              Tocá para abrir · aceptar o rechazar
+              {avisoPedidoNuevo.cantidadEnCola > 1
+                ? ` · quedan ${avisoPedidoNuevo.cantidadEnCola} en cola`
+                : ""}
+            </p>
+            <p className="mt-1 text-[10px] font-medium text-slate-500">
+              Arrastrá el aviso para seguir vendiendo sin tapar la pantalla
+            </p>
           </div>
         </PosBodyPortal>
       ) : null}
