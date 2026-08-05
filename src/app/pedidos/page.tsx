@@ -2835,7 +2835,7 @@ function PedidosLandingClient() {
             <p className="text-base font-black text-amber-950">¿Cómo desea recibir su pedido?</p>
             <p className="mt-1 text-sm text-amber-900/80">
               {pedidoFinalizado
-                ? "Toque «Hacer un nuevo pedido» arriba, o elija cómo recibirlo para continuar."
+                ? "Toque «Hacer un nuevo pedido» en el rastreador para volver a pedir."
                 : "Elija en la ventana emergente para continuar armando su pedido."}
             </p>
           </div>
@@ -3234,7 +3234,7 @@ function PedidosLandingClient() {
           </div>
         </div>
       ) : null}
-      {!pedidoEnCurso && !tipoEntregaElegido && turnoCajaAbierto ? (
+      {!pedidoEnCurso && !pedidoFinalizado && !tipoEntregaElegido && turnoCajaAbierto ? (
         <div className="fixed inset-0 z-[118] flex items-end justify-center p-3 sm:items-center sm:p-4">
           <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-[3px]" aria-hidden />
           <div
