@@ -117,6 +117,8 @@ export function crearPedidoDomicilioLocal(payload: DomicilioCrearPayload): Pedid
   let id = generarIdPedidoDomicilio();
   const usados = new Set(pedidos.map((p) => p.id));
   while (usados.has(id)) id = generarIdPedidoDomicilio();
+  const docMillas = payload.clienteDocumento?.replace(/\s/g, "").replace(/[.\-]/g, "").trim();
+  const socioId = payload.clienteFrecuenteSocioId?.trim();
   const pedido: PedidoDomicilio = {
     id,
     puntoVenta: pv,
@@ -134,6 +136,8 @@ export function crearPedidoDomicilioLocal(payload: DomicilioCrearPayload): Pedid
       payload.tiempoObjetivoMin && Number.isFinite(payload.tiempoObjetivoMin)
         ? Math.max(10, Math.round(payload.tiempoObjetivoMin))
         : 35,
+    ...(docMillas && docMillas.length >= 5 ? { clienteDocumento: docMillas } : {}),
+    ...(socioId ? { clienteFrecuenteSocioId: socioId.slice(0, 120) } : {}),
   };
   const next = [pedido, ...pedidos];
   escribir(pv, next);
