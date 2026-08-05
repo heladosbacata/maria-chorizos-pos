@@ -212,5 +212,45 @@ export async function enviarPedidoDomicilioAFacturacion(
     ...(cufe ? { facturaElectronicaCufe: cufe } : {}),
   });
 
+  // Si el cliente vinculó cédula en /pedidos, acumular millas al marcar listo (mismo cobro que caja).
+  const docMillas = pedido.clienteDocumento?.replace(/\s/g, "").replace(/[.\-]/g, "").trim() || "";
+  if (docMillas.length >= 5 && token) {
+    try {
+      const resClub = await fetch("/api/club_millas_cobro_cliente_frecuente", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          ventaId: `domicilio:${pedido.puntoVenta}:${pedido.id}`,
+          puntoVenta: pedido.puntoVenta,
+          totalCop: total,
+          montoTotalCop: total,
+          isoTimestamp: enviadoAFacturacionEnIso,
+          idFacturaPos: ventaLocalId,
+          clienteDocumento: docMillas,
+          ...(pedido.clienteFrecuenteSocioId?.trim()
+            ? { socioId: pedido.clienteFrecuenteSocioId.trim() }
+            : {}),
+          lineas: lineas.map((l) => ({ sku: l.sku, cantidad: l.cantidad })),
+        }),
+      });
+      const clubJson = (await resClub.json().catch(() => ({}))) as {
+        ok?: boolean;
+        omitido?: boolean;
+        puntosSumados?: number;
+        message?: string;
+      };
+      if (clubJson.ok === true && !clubJson.omitido && typeof clubJson.puntosSumados === "number") {
+        message = `${message} Club de Millas: +${clubJson.puntosSumados} millas.`;
+      } else if (clubJson.ok !== true) {
+        console.warn("[domicilios] club millas cobro:", clubJson);
+      }
+    } catch (e) {
+      console.warn("[domicilios] club millas cobro:", e);
+    }
+  }
+
   return { ok: true, ventaLocalId, emitida, message };
 }

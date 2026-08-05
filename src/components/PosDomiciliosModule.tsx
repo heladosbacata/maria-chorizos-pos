@@ -1360,6 +1360,11 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
                           <p className="line-clamp-1">{pedido.direccion}</p>
                           {pedido.referencia ? <p className="line-clamp-1">{pedido.referencia}</p> : null}
                           <p>{pedido.telefono}</p>
+                          {pedido.clienteDocumento ? (
+                            <p className="font-semibold text-amber-800">
+                              Club de Millas · CC {pedido.clienteDocumento}
+                            </p>
+                          ) : null}
                         </div>
 
                         <ul className="space-y-1 rounded-lg bg-gray-50 p-2 text-xs text-gray-700">

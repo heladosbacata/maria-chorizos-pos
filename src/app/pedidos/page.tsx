@@ -26,6 +26,9 @@ import { enviarMensajeChatDomicilio, listarMensajesChatDomicilio } from "@/lib/p
 import { pedidoPuedeCancelarsePorCliente, type PedidoDomicilio } from "@/types/pos-domicilios";
 import { LOGO_ORG_URL, MASCOTA_DOMICILIOS_URL } from "@/lib/brand";
 import MediosTransferenciaClienteModal from "@/components/MediosTransferenciaClienteModal";
+import PedidosClubMillasCheckout, {
+  type PedidosClubMillasVinculo,
+} from "@/components/PedidosClubMillasCheckout";
 import PuntoCerradoPremiumView from "@/components/PuntoCerradoPremiumView";
 import { consultarTurnoCajaAbierto } from "@/lib/pos-punto-turno-presencia";
 import { PosDomiciliosChatBurbuja } from "@/components/PosDomiciliosChatBurbuja";
@@ -707,6 +710,7 @@ function PedidosLandingClient() {
   const [historialError, setHistorialError] = useState<string | null>(null);
   const [historialPedidos, setHistorialPedidos] = useState<PedidoDomicilio[]>([]);
   const [guardarDatosCliente, setGuardarDatosCliente] = useState(true);
+  const [clubMillasVinculo, setClubMillasVinculo] = useState<PedidosClubMillasVinculo | null>(null);
   const sesionRestauradaRef = useRef(false);
   const pushPromptEstadosRef = useRef<Set<string>>(new Set());
   const [carritoModalAbierto, setCarritoModalAbierto] = useState(false);
@@ -1540,6 +1544,12 @@ function PedidosLandingClient() {
       }),
       tiempoObjetivoMin: 35,
       tipoEntrega,
+      ...(clubMillasVinculo?.documento
+        ? {
+            clienteDocumento: clubMillasVinculo.documento,
+            ...(clubMillasVinculo.socioId ? { clienteFrecuenteSocioId: clubMillasVinculo.socioId } : {}),
+          }
+        : {}),
     };
     try {
       const res = await fetch("/api/pos_domicilios", {
@@ -1630,6 +1640,7 @@ function PedidosLandingClient() {
       setMetodoPago("efectivo");
       setTipoEntrega(tipoEntregaPreferidoPorConfig());
       setTipoEntregaElegido(false);
+      setClubMillasVinculo(null);
       setEnviando(false);
     } catch {
       setMensaje("No se pudo enviar el pedido. Intenta nuevamente.");
@@ -3049,13 +3060,25 @@ function PedidosLandingClient() {
                     Ver datos para transferir (Nequi, Bancolombia, Daviplata, Llave)
                   </button>
                 ) : null}
+                <PedidosClubMillasCheckout
+                  puntoVenta={puntoVenta}
+                  nombreCliente={cliente}
+                  telefono={telefono}
+                  totalPedido={Math.round(total)}
+                  value={clubMillasVinculo}
+                  onChange={setClubMillasVinculo}
+                />
                 <button
                   type="button"
                   onClick={enviarPedido}
                   disabled={enviando || !recepcionPedidosWebOk}
                   className="block w-full max-w-full rounded-lg bg-cyan-700 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-cyan-800 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {enviando ? "Enviando pedido..." : "Confirmar pedido"}
+                  {enviando
+                    ? "Enviando pedido..."
+                    : clubMillasVinculo
+                      ? "Confirmar pedido y acumular millas"
+                      : "Confirmar pedido"}
                 </button>
               </div>
               {mensaje ? (
