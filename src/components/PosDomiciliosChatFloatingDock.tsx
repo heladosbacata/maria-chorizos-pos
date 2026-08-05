@@ -22,6 +22,7 @@ import {
 } from "@/lib/pos-domicilios-chat-dock-layout";
 import {
   EVENT_DOMICILIOS_ABRIR_CHAT,
+  emitirDomiciliosMensajeCliente,
   type DomiciliosAbrirChatDetail,
 } from "@/lib/pos-domicilios-chat-event";
 import {
@@ -31,6 +32,7 @@ import {
   marcarChatDomicilioLeido,
 } from "@/lib/pos-domicilios-chat-utils";
 import { EVENT_DOMICILIOS_FORZAR_REFRESH } from "@/lib/pos-domicilios-nuevos-event";
+import { reproducirAlertaNuevoPedidoDomicilio } from "@/lib/pos-domicilios-sonidos";
 import type { PedidoDomicilio } from "@/types/pos-domicilios";
 
 type Props = {
@@ -50,6 +52,14 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
   const [chatPedido, setChatPedido] = useState<PedidoDomicilio | null>(null);
   const [chatMarcoNuevo, setChatMarcoNuevo] = useState(false);
   const [chatEnviarResumen, setChatEnviarResumen] = useState(false);
+  const [toastMensajeCliente, setToastMensajeCliente] = useState<{
+    texto: string;
+    pedidoId: string;
+  } | null>(null);
+  const unreadPrevRef = useRef<UnreadPorPedido>({});
+  const totalUnreadPrevRef = useRef(0);
+  const lastAlertAtRef = useRef(0);
+  const chatPedidoIdAbiertoRef = useRef<string | null>(null);
   const dragRef = useRef<{
     pointerId: number;
     startX: number;
@@ -62,6 +72,54 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
     () => Object.values(unreadPorPedido).reduce((acc, n) => acc + n, 0),
     [unreadPorPedido]
   );
+
+  useEffect(() => {
+    chatPedidoIdAbiertoRef.current = chatPedido?.id ?? null;
+  }, [chatPedido?.id]);
+
+  useEffect(() => {
+    const prevTotal = totalUnreadPrevRef.current;
+    const prevMap = unreadPrevRef.current;
+    unreadPrevRef.current = unreadPorPedido;
+    totalUnreadPrevRef.current = totalNoLeidos;
+
+    if (totalNoLeidos <= prevTotal || totalNoLeidos <= 0) return;
+    // No alertar si el cajero ya tiene ese chat abierto
+    const subio = Object.keys(unreadPorPedido).find((id) => {
+      if (chatPedidoIdAbiertoRef.current === id) return false;
+      return (unreadPorPedido[id] ?? 0) > (prevMap[id] ?? 0);
+    });
+    if (!subio) return;
+
+    const now = Date.now();
+    if (now - lastAlertAtRef.current < 4500) return;
+    lastAlertAtRef.current = now;
+
+    const pedido = pedidosActivos.find((p) => p.id === subio);
+    const nombre = pedido?.cliente?.trim() || "Cliente";
+    const noLeidosPedido = unreadPorPedido[subio] ?? 1;
+    reproducirAlertaNuevoPedidoDomicilio(pv);
+    try {
+      if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+        navigator.vibrate([80, 40, 80]);
+      }
+    } catch {
+      /* ignore */
+    }
+    emitirDomiciliosMensajeCliente({
+      puntoVenta: pv,
+      pedidoId: subio,
+      clienteNombre: nombre,
+      noLeidosPedido,
+      noLeidosTotal: totalNoLeidos,
+    });
+    setToastMensajeCliente({
+      texto: `Nuevo mensaje de ${nombre} · pedido ${subio}`,
+      pedidoId: subio,
+    });
+    const t = window.setTimeout(() => setToastMensajeCliente(null), 8000);
+    return () => window.clearTimeout(t);
+  }, [unreadPorPedido, totalNoLeidos, pedidosActivos, pv]);
 
   const abrirChat = useCallback((detail: DomiciliosAbrirChatDetail) => {
     setChatPedido(detail.pedido);
@@ -120,7 +178,7 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
     void cargarPedidosYUnread();
     const t = window.setInterval(() => {
       void cargarPedidosYUnread().catch(() => undefined);
-    }, 10_000);
+    }, 5_000);
     const onRefresh = () => {
       void cargarPedidosYUnread().catch(() => undefined);
     };
@@ -214,6 +272,25 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
 
   return (
     <>
+      {toastMensajeCliente ? (
+        <PosBodyPortal open>
+          <div className="fixed inset-x-0 top-3 z-[230] flex justify-center px-3 pointer-events-none">
+            <button
+              type="button"
+              className="pointer-events-auto max-w-md rounded-2xl border-2 border-amber-400 bg-amber-50 px-4 py-3 text-left shadow-2xl ring-2 ring-amber-300/60"
+              onClick={() => {
+                const p = pedidosActivos.find((x) => x.id === toastMensajeCliente.pedidoId);
+                if (p) abrirChat({ pedido: p });
+                setToastMensajeCliente(null);
+              }}
+            >
+              <p className="text-[10px] font-black uppercase tracking-wide text-amber-800">Chat domicilios</p>
+              <p className="mt-0.5 text-sm font-bold text-slate-900">{toastMensajeCliente.texto}</p>
+              <p className="mt-1 text-[11px] font-semibold text-cyan-800">Tocá para abrir el chat</p>
+            </button>
+          </div>
+        </PosBodyPortal>
+      ) : null}
       <PosBodyPortal open>
         <div
           ref={dockRef}

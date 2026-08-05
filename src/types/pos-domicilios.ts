@@ -29,6 +29,8 @@ export interface PedidoDomicilio {
   puntoVenta: string;
   cliente: string;
   telefono: string;
+  /** Solo dígitos (últimos 10) para historial / búsqueda. */
+  telefonoNorm?: string;
   direccion: string;
   referencia?: string;
   total: number;

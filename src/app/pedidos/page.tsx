@@ -22,7 +22,7 @@ import {
 import { comprimirComprobanteTransferenciaParaChat } from "@/lib/pos-domicilios-chat-imagen";
 import { domicilioCancelarCliente } from "@/lib/pos-domicilios-api";
 import { enviarMensajeChatDomicilio, listarMensajesChatDomicilio } from "@/lib/pos-domicilios-chat-api";
-import { pedidoPuedeCancelarsePorCliente } from "@/types/pos-domicilios";
+import { pedidoPuedeCancelarsePorCliente, type PedidoDomicilio } from "@/types/pos-domicilios";
 import { LOGO_ORG_URL } from "@/lib/brand";
 import MediosTransferenciaClienteModal from "@/components/MediosTransferenciaClienteModal";
 import PuntoCerradoPremiumView from "@/components/PuntoCerradoPremiumView";
@@ -30,6 +30,16 @@ import { consultarTurnoCajaAbiertoWms } from "@/lib/wms-punto-turno-abierto";
 import { PosDomiciliosChatBurbuja } from "@/components/PosDomiciliosChatBurbuja";
 import { normalizarMediosTransferencia } from "@/lib/pos-domicilios-medios-transferencia";
 import { activarNotificacionesPedidoDomicilio, pedidosPushSoportadoEnEsteNavegador } from "@/lib/pedidos-push-client";
+import {
+  esEstadoTerminalPedidoDomicilio,
+  guardarClientePreferidoPedidos,
+  guardarSesionPedidoDomicilio,
+  leerClientePreferidoPedidos,
+  leerSesionPedidoDomicilio,
+  limpiarSesionPedidoDomicilio,
+  resumenDesdePedidoApi,
+  telefonoDomicilioNorm,
+} from "@/lib/pos-domicilios-pedido-sesion";
 import {
   MEDIOS_TRANSFERENCIA_VACIOS,
   type MediosTransferenciaConfig,
@@ -606,6 +616,14 @@ function PedidosLandingClient() {
   const [pushPedidosExito, setPushPedidosExito] = useState(false);
   const [pushPedidosNavOk, setPushPedidosNavOk] = useState(false);
   const [modalPushPedidoAbierto, setModalPushPedidoAbierto] = useState(false);
+  const [modalHistorialAbierto, setModalHistorialAbierto] = useState(false);
+  const [historialTelefono, setHistorialTelefono] = useState("");
+  const [historialLoading, setHistorialLoading] = useState(false);
+  const [historialError, setHistorialError] = useState<string | null>(null);
+  const [historialPedidos, setHistorialPedidos] = useState<PedidoDomicilio[]>([]);
+  const [guardarDatosCliente, setGuardarDatosCliente] = useState(true);
+  const sesionRestauradaRef = useRef(false);
+  const pushPromptEstadosRef = useRef<Set<string>>(new Set());
   const [carritoModalAbierto, setCarritoModalAbierto] = useState(false);
   const [modalConfirmarSoloRecogida, setModalConfirmarSoloRecogida] = useState(false);
   const [modalCancelarPedidoAbierto, setModalCancelarPedidoAbierto] = useState(false);
@@ -670,10 +688,101 @@ function PedidosLandingClient() {
   );
 
   useEffect(() => {
+    sesionRestauradaRef.current = false;
+  }, [puntoVenta]);
+
+  useEffect(() => {
     if (!pedidoIdEnUrl) return;
     setPedidoCreadoId((prev) => (prev === pedidoIdEnUrl ? prev : pedidoIdEnUrl));
     setChatVista((v) => (v === "cerrado" ? "minimizado" : v));
   }, [pedidoIdEnUrl]);
+
+  /** Prefill nombre/teléfono guardados y restaurar pedido activo sin pedidoId en URL. */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const pref = leerClientePreferidoPedidos(puntoVenta);
+    if (pref) {
+      if (pref.nombre) setCliente((c) => c || pref.nombre);
+      if (pref.telefono) {
+        setTelefono((t) => t || pref.telefono);
+        setHistorialTelefono((t) => t || pref.telefono);
+      }
+    }
+    if (pedidoIdEnUrl || sesionRestauradaRef.current) return;
+    sesionRestauradaRef.current = true;
+    const sesion = leerSesionPedidoDomicilio(puntoVenta);
+    if (!sesion?.pedidoId) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const url = `/api/pos_domicilios?${new URLSearchParams({ puntoVenta }).toString()}`;
+        const res = await fetch(url, { method: "GET", cache: "no-store" });
+        const json = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          data?: PedidoDomicilio[];
+        };
+        if (cancelled || !res.ok) return;
+        const row = (json.data ?? []).find((x) => pedidoIdChatClave(x.id) === sesion.pedidoId);
+        if (!row || esEstadoTerminalPedidoDomicilio(row.estado)) {
+          limpiarSesionPedidoDomicilio(puntoVenta);
+          return;
+        }
+        sincronizarPedidoEnUrl(sesion.pedidoId);
+        setPedidoCreadoId(sesion.pedidoId);
+        setEstadoPedido(row.estado);
+        if (row.creadoEnIso) setPedidoCreadoEnIso(row.creadoEnIso);
+        setRechazoMotivoPedido(row.rechazoMotivo ?? null);
+        setEtiquetaClienteChat(row.cliente || sesion.cliente || "Cliente");
+        const resumen =
+          sesion.resumen ??
+          resumenDesdePedidoApi({
+            items: row.items,
+            total: row.total,
+            metodoPago: row.metodoPago,
+            direccion: row.direccion,
+            referencia: row.referencia,
+            puntoVenta: row.puntoVenta,
+          });
+        setPedidoResumenChat({
+          lineasItems: resumen.lineasItems,
+          total: resumen.total,
+          metodoPago: resumen.metodoPago,
+          direccion: resumen.direccion,
+          referencia: resumen.referencia,
+          tipoEntrega: resumen.tipoEntrega,
+          puntoVenta: resumen.puntoVenta,
+        });
+        setChatVista("minimizado");
+        if (row.cliente) setCliente(row.cliente);
+        if (row.telefono) setTelefono(telefonoDomicilioNorm(row.telefono) || row.telefono);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Solo al montar / cambiar punto
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [puntoVenta]);
+
+  /** Si hay pedidoId en URL, hidratar resumen desde sesión o API. */
+  useEffect(() => {
+    if (!pedidoIdEnUrl) return;
+    const sesion = leerSesionPedidoDomicilio(puntoVenta);
+    if (sesion?.pedidoId === pedidoIdEnUrl && sesion.resumen && !pedidoResumenChat) {
+      setPedidoResumenChat({
+        lineasItems: sesion.resumen.lineasItems,
+        total: sesion.resumen.total,
+        metodoPago: sesion.resumen.metodoPago,
+        direccion: sesion.resumen.direccion,
+        referencia: sesion.resumen.referencia,
+        tipoEntrega: sesion.resumen.tipoEntrega,
+        puntoVenta: sesion.resumen.puntoVenta,
+      });
+      if (sesion.cliente) setEtiquetaClienteChat(sesion.cliente);
+    }
+  }, [pedidoIdEnUrl, puntoVenta, pedidoResumenChat]);
 
   useEffect(() => {
     setPushPedidosNavOk(pedidosPushSoportadoEnEsteNavegador());
@@ -1179,7 +1288,31 @@ function PedidosLandingClient() {
       });
       const nuevoId = json.pedido?.id ? pedidoIdChatClave(json.pedido.id) : null;
       setPedidoCreadoId(nuevoId);
-      if (nuevoId) sincronizarPedidoEnUrl(nuevoId);
+      if (nuevoId) {
+        sincronizarPedidoEnUrl(nuevoId);
+        guardarSesionPedidoDomicilio({
+          pedidoId: nuevoId,
+          puntoVenta,
+          cliente: cliente.trim(),
+          telefono: telefonoDigitos,
+          creadoEnIso: new Date().toISOString(),
+          resumen: {
+            lineasItems: lineasResumen,
+            total: Math.round(total),
+            metodoPago,
+            direccion: direccionFinal,
+            referencia: referenciaFinal,
+            tipoEntrega,
+            puntoVenta,
+          },
+        });
+        if (guardarDatosCliente) {
+          guardarClientePreferidoPedidos(puntoVenta, {
+            nombre: cliente.trim(),
+            telefono: telefonoDigitos,
+          });
+        }
+      }
       setPedidoCreadoEnIso(new Date().toISOString());
       setEtiquetaClienteChat(cliente.trim() || "Cliente");
       setChatVista("minimizado");
@@ -1357,14 +1490,37 @@ function PedidosLandingClient() {
         const res = await fetch(url, { method: "GET" });
         const json = (await res.json().catch(() => ({}))) as {
           ok?: boolean;
-          data?: Array<{ id?: string; estado?: EstadoPedidoDomicilio; creadoEnIso?: string; rechazoMotivo?: string }>;
+          data?: PedidoDomicilio[];
         };
         if (!activo) return;
-        const row = (json.data ?? []).find((x) => x.id === pedidoCreadoId);
+        const row = (json.data ?? []).find((x) => pedidoIdChatClave(x.id) === pedidoIdChatClave(pedidoCreadoId));
         const estado = row?.estado ?? null;
         if (estado) setEstadoPedido(estado);
         if (row?.creadoEnIso) setPedidoCreadoEnIso(row.creadoEnIso);
         setRechazoMotivoPedido(typeof row?.rechazoMotivo === "string" && row.rechazoMotivo.trim() ? row.rechazoMotivo.trim() : null);
+        if (row && !esEstadoTerminalPedidoDomicilio(row.estado)) {
+          const resumen = resumenDesdePedidoApi(row);
+          setPedidoResumenChat((prev) => prev ?? {
+            lineasItems: resumen.lineasItems,
+            total: resumen.total,
+            metodoPago: resumen.metodoPago,
+            direccion: resumen.direccion,
+            referencia: resumen.referencia,
+            tipoEntrega: resumen.tipoEntrega,
+            puntoVenta: resumen.puntoVenta,
+          });
+          if (row.cliente) setEtiquetaClienteChat((prev) => prev || row.cliente);
+          guardarSesionPedidoDomicilio({
+            pedidoId: pedidoCreadoId,
+            puntoVenta,
+            cliente: row.cliente,
+            telefono: telefonoDomicilioNorm(row.telefono) || row.telefono,
+            creadoEnIso: row.creadoEnIso,
+            resumen,
+          });
+        } else if (row && esEstadoTerminalPedidoDomicilio(row.estado)) {
+          limpiarSesionPedidoDomicilio(puntoVenta);
+        }
       } finally {
         if (activo && !silencioso) setEstadoPedidoLoading(false);
       }
@@ -1404,11 +1560,37 @@ function PedidosLandingClient() {
       });
       tOverlay = window.setTimeout(() => setAnimacionCambioEstadoPedido(null), reduceMotion ? 2200 : 3600);
     }
+    // Reforzar opt-in de push en estados clave si aún no está concedido
+    if (
+      (estadoPedido === "ACEPTADO" || estadoPedido === "EN_PREPARACION") &&
+      !pushPedidosExito &&
+      vapidPublicPedidos &&
+      pushPedidosNavOk &&
+      typeof Notification !== "undefined" &&
+      Notification.permission !== "granted"
+    ) {
+      const key = `${pedidoCreadoId}:${estadoPedido}`;
+      if (!pushPromptEstadosRef.current.has(key)) {
+        pushPromptEstadosRef.current.add(key);
+        setModalPushPedidoAbierto(true);
+      }
+    }
+    if (esEstadoTerminalPedidoDomicilio(estadoPedido)) {
+      limpiarSesionPedidoDomicilio(puntoVenta);
+    }
     return () => {
       window.clearTimeout(tPulse);
       if (tOverlay) window.clearTimeout(tOverlay);
     };
-  }, [estadoPedido, pedidoCreadoId, rechazoMotivoPedido]);
+  }, [
+    estadoPedido,
+    pedidoCreadoId,
+    rechazoMotivoPedido,
+    pushPedidosExito,
+    vapidPublicPedidos,
+    pushPedidosNavOk,
+    puntoVenta,
+  ]);
 
   const scrollChatAlFinal = useCallback((suave = true) => {
     const el = chatScrollRef.current;
@@ -1528,6 +1710,90 @@ function PedidosLandingClient() {
     setPushPedidosExito(r.ok);
     if (r.ok) setModalPushPedidoAbierto(false);
   };
+
+  const consultarHistorialPedidos = useCallback(async () => {
+    const tel = telefonoDomicilioNorm(historialTelefono);
+    if (tel.length < 7) {
+      setHistorialError("Ingresá un teléfono válido (mín. 7 dígitos).");
+      return;
+    }
+    setHistorialLoading(true);
+    setHistorialError(null);
+    try {
+      const url = `/api/pos_domicilios_historial?${new URLSearchParams({
+        puntoVenta,
+        telefono: tel,
+      }).toString()}`;
+      const res = await fetch(url, { method: "GET", cache: "no-store" });
+      const json = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        message?: string;
+        data?: PedidoDomicilio[];
+      };
+      if (!res.ok || json.ok === false) {
+        setHistorialPedidos([]);
+        setHistorialError(json.message ?? "No se pudo cargar el historial.");
+        return;
+      }
+      setHistorialPedidos(Array.isArray(json.data) ? json.data : []);
+      if (guardarDatosCliente) {
+        guardarClientePreferidoPedidos(puntoVenta, {
+          nombre: cliente.trim() || leerClientePreferidoPedidos(puntoVenta)?.nombre || "",
+          telefono: tel,
+        });
+      }
+    } catch {
+      setHistorialError("Error de red al consultar el historial.");
+      setHistorialPedidos([]);
+    } finally {
+      setHistorialLoading(false);
+    }
+  }, [historialTelefono, puntoVenta, guardarDatosCliente, cliente]);
+
+  const reabrirPedidoDesdeHistorial = useCallback(
+    (p: PedidoDomicilio) => {
+      const id = pedidoIdChatClave(p.id);
+      if (esEstadoTerminalPedidoDomicilio(p.estado)) {
+        // Solo consulta: no reabrir como activo
+        setPedidoCreadoId(id);
+        sincronizarPedidoEnUrl(id);
+        setEstadoPedido(p.estado);
+        setPedidoCreadoEnIso(p.creadoEnIso);
+        setRechazoMotivoPedido(p.rechazoMotivo ?? null);
+        setEtiquetaClienteChat(p.cliente);
+        setPedidoResumenChat(resumenDesdePedidoApi(p));
+        setChatVista("minimizado");
+        setModalHistorialAbierto(false);
+        window.setTimeout(() => {
+          rastreadorPedidoRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 200);
+        return;
+      }
+      guardarSesionPedidoDomicilio({
+        pedidoId: id,
+        puntoVenta: p.puntoVenta || puntoVenta,
+        cliente: p.cliente,
+        telefono: telefonoDomicilioNorm(p.telefono) || p.telefono,
+        creadoEnIso: p.creadoEnIso,
+        resumen: resumenDesdePedidoApi(p),
+      });
+      setPedidoCreadoId(id);
+      sincronizarPedidoEnUrl(id);
+      setEstadoPedido(p.estado);
+      setPedidoCreadoEnIso(p.creadoEnIso);
+      setRechazoMotivoPedido(p.rechazoMotivo ?? null);
+      setEtiquetaClienteChat(p.cliente);
+      setPedidoResumenChat(resumenDesdePedidoApi(p));
+      setCliente(p.cliente);
+      setTelefono(telefonoDomicilioNorm(p.telefono) || p.telefono);
+      setChatVista("minimizado");
+      setModalHistorialAbierto(false);
+      window.setTimeout(() => {
+        rastreadorPedidoRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 200);
+    },
+    [puntoVenta, sincronizarPedidoEnUrl]
+  );
 
   const toggleChatCliente = () => {
     setChatVista((v) => {
@@ -1978,10 +2244,22 @@ function PedidosLandingClient() {
                 <span className="truncate">Punto de venta: {puntoVenta}</span>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col items-stretch gap-2 sm:items-end">
               <div className="rounded-2xl border border-white/35 bg-white p-2 shadow-sm">
                 <Image src={LOGO_ORG_URL} alt="Maria Chorizos" width={168} height={60} className="h-9 w-auto rounded-lg object-contain sm:h-11" />
               </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setHistorialError(null);
+                  setHistorialPedidos([]);
+                  if (!historialTelefono && telefono) setHistorialTelefono(telefono);
+                  setModalHistorialAbierto(true);
+                }}
+                className="rounded-xl border border-white/40 bg-white/15 px-3 py-2 text-xs font-bold text-white backdrop-blur transition hover:bg-white/25"
+              >
+                Mis pedidos
+              </button>
             </div>
           </div>
 
@@ -2259,6 +2537,17 @@ function PedidosLandingClient() {
                   className="block w-full max-w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 focus:border-cyan-500 focus:ring-2"
                 />
                 <p className="text-[11px] text-gray-500">Ingresá exactamente 10 dígitos del número de contacto.</p>
+                <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-3.5 w-3.5 rounded border-gray-300 text-cyan-600 focus:ring-cyan-500"
+                    checked={guardarDatosCliente}
+                    onChange={(e) => setGuardarDatosCliente(e.target.checked)}
+                  />
+                  <span>
+                    Guardar mi nombre y teléfono en este dispositivo para próximos pedidos e historial.
+                  </span>
+                </label>
                 {tipoEntrega === "domicilio" ? (
                   <input
                     value={direccion}
@@ -2614,7 +2903,8 @@ function PedidosLandingClient() {
             <div>
               <p className="text-lg font-bold text-gray-900">Activá avisos en tu celular</p>
               <p className="mt-1 text-sm text-gray-600">
-                Así te enterás cuando el local te escriba en el chat o cambie el estado de tu pedido, aunque no tengas esta página abierta.
+                Así te enterás cuando el local te escriba en el chat o cambie el estado de tu pedido (aceptado,
+                preparación, en camino), aunque no tengas esta página abierta.
               </p>
             </div>
             {bloqueActivarPushPedido}
@@ -2625,6 +2915,80 @@ function PedidosLandingClient() {
             >
               Ahora no
             </button>
+          </div>
+        </div>
+      ) : null}
+      {modalHistorialAbierto ? (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          <button
+            type="button"
+            aria-label="Cerrar historial"
+            className="absolute inset-0 bg-slate-950/60 backdrop-blur-[1px]"
+            onClick={() => setModalHistorialAbierto(false)}
+          />
+          <div className="relative z-10 flex max-h-[90dvh] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-cyan-200 bg-white shadow-2xl">
+            <div className="border-b border-gray-100 px-4 py-3">
+              <p className="text-lg font-bold text-gray-900">Mis pedidos</p>
+              <p className="mt-1 text-xs text-gray-600">
+                Consultá el historial de este punto con tu número de celular.
+              </p>
+            </div>
+            <div className="space-y-3 overflow-y-auto px-4 py-3">
+              <div className="flex gap-2">
+                <input
+                  value={historialTelefono}
+                  onChange={(e) => setHistorialTelefono(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                  placeholder="Teléfono (10 dígitos)"
+                  inputMode="numeric"
+                  className="min-w-0 flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-200"
+                />
+                <button
+                  type="button"
+                  disabled={historialLoading}
+                  onClick={() => void consultarHistorialPedidos()}
+                  className="shrink-0 rounded-lg bg-cyan-700 px-3 py-2 text-sm font-bold text-white hover:bg-cyan-800 disabled:opacity-60"
+                >
+                  {historialLoading ? "…" : "Buscar"}
+                </button>
+              </div>
+              {historialError ? <p className="text-xs font-medium text-rose-700">{historialError}</p> : null}
+              {!historialLoading && historialPedidos.length === 0 && !historialError ? (
+                <p className="text-xs text-gray-500">Ingresá tu teléfono y tocá Buscar.</p>
+              ) : null}
+              <ul className="space-y-2">
+                {historialPedidos.map((p) => (
+                  <li key={p.id}>
+                    <button
+                      type="button"
+                      onClick={() => reabrirPedidoDesdeHistorial(p)}
+                      className="w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 text-left transition hover:border-cyan-300 hover:bg-cyan-50"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-bold text-gray-900">{p.id}</p>
+                          <p className="mt-0.5 text-[11px] text-gray-600">
+                            {new Date(p.creadoEnIso).toLocaleString("es-CO")} · {estadoEtiqueta(p.estado)}
+                          </p>
+                          <p className="mt-1 line-clamp-2 text-[11px] text-gray-500">
+                            {(p.items ?? []).slice(0, 3).join(" · ")}
+                          </p>
+                        </div>
+                        <strong className="shrink-0 text-sm text-cyan-800">{formatoMoneda(p.total)}</strong>
+                      </div>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="border-t border-gray-100 px-4 py-3">
+              <button
+                type="button"
+                onClick={() => setModalHistorialAbierto(false)}
+                className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+              >
+                Cerrar
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

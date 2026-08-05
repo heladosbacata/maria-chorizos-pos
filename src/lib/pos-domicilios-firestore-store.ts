@@ -1,6 +1,7 @@
 import { getFirestore, type Firestore } from "firebase-admin/firestore";
 import { getFirebaseAdminApp } from "@/lib/firebase-admin-server";
 import { pedidoIdChatClave, puntoVentaFirestoreClave as normPv } from "@/lib/pos-domicilios-pv-clave";
+import { telefonoDomicilioNorm } from "@/lib/pos-domicilios-pedido-sesion";
 import {
   purgarBandejaDomiciliosFirestore,
   purgarBandejaDomiciliosMemoria,
@@ -90,6 +91,10 @@ function toPedido(raw: Record<string, unknown>): PedidoDomicilio | null {
     puntoVenta,
     cliente,
     telefono,
+    telefonoNorm:
+      (typeof raw.telefonoNorm === "string" && raw.telefonoNorm.trim()
+        ? telefonoDomicilioNorm(raw.telefonoNorm)
+        : telefonoDomicilioNorm(telefono)) || undefined,
     direccion,
     referencia: typeof raw.referencia === "string" && raw.referencia.trim() ? raw.referencia.trim() : undefined,
     total,
@@ -109,6 +114,7 @@ function pedidoFromPayload(payload: DomicilioCrearPayload, id: string): PedidoDo
   const pv = payload.puntoVenta.trim();
   const cliente = payload.cliente.trim();
   const telefono = payload.telefono.trim();
+  const telefonoNorm = telefonoDomicilioNorm(telefono);
   const direccion = payload.direccion.trim();
   const items = payload.items.map((x) => x.trim()).filter(Boolean);
   if (!pv || !cliente || !telefono || !direccion || items.length === 0 || !Number.isFinite(payload.total) || payload.total <= 0) {
@@ -120,6 +126,7 @@ function pedidoFromPayload(payload: DomicilioCrearPayload, id: string): PedidoDo
     puntoVenta: pv,
     cliente,
     telefono,
+    ...(telefonoNorm ? { telefonoNorm } : {}),
     direccion,
     ...(ref ? { referencia: ref } : {}),
     total: Math.round(payload.total),
@@ -223,6 +230,24 @@ export async function listarPedidosDomiciliosPersistente(puntoVenta: string): Pr
   }
   out.sort((a, b) => new Date(b.creadoEnIso).getTime() - new Date(a.creadoEnIso).getTime());
   return filtrarPedidosDemoDomicilios(out);
+}
+
+/** Pedidos del punto filtrados por teléfono normalizado (historial cliente). */
+export async function listarPedidosDomiciliosPorTelefono(
+  puntoVenta: string,
+  telefono: string,
+  limite = 20
+): Promise<PedidoDomicilio[]> {
+  const pv = puntoVenta.trim();
+  const tel = telefonoDomicilioNorm(telefono);
+  if (!pv || !tel || tel.length < 7) return [];
+  const todos = await listarPedidosDomiciliosPersistente(pv);
+  return todos
+    .filter((p) => {
+      const n = p.telefonoNorm || telefonoDomicilioNorm(p.telefono);
+      return n === tel || n.endsWith(tel) || tel.endsWith(n);
+    })
+    .slice(0, Math.max(1, Math.min(50, limite)));
 }
 
 export async function obtenerPedidoDomicilioPersistente(
