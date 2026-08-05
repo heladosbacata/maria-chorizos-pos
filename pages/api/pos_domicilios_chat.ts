@@ -105,15 +105,18 @@ export default async function handler(
         mensaje.tipoMensaje === "imagen" || mensaje.tipoMensaje === "comprobante"
           ? "Te enviaron una imagen en el chat del pedido."
           : mensaje.texto;
-      void import("@/lib/pos-domicilios-push-notify")
-        .then(({ notificarNuevoMensajeChatPedidoDomicilioWebPush }) =>
-          notificarNuevoMensajeChatPedidoDomicilioWebPush({
-            puntoVenta: payload.puntoVenta,
-            pedidoId: payload.pedidoId,
-            preview,
-          })
-        )
-        .catch((err) => console.warn("[pos_domicilios_chat] push:", err));
+      try {
+        const { notificarNuevoMensajeChatPedidoDomicilioWebPush } = await import(
+          "@/lib/pos-domicilios-push-notify"
+        );
+        await notificarNuevoMensajeChatPedidoDomicilioWebPush({
+          puntoVenta: payload.puntoVenta,
+          pedidoId: payload.pedidoId,
+          preview,
+        });
+      } catch (err) {
+        console.warn("[pos_domicilios_chat] push:", err);
+      }
     }
     return res.status(200).json({ ok: true, mensaje, message: "Mensaje enviado." });
   }

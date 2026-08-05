@@ -1,4 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from "next";
+import { pedidoIdChatClave } from "@/lib/pos-domicilios-pv-clave";
 import { guardarSuscripcionPushCliente, type PushSubscriptionJsonCliente } from "@/lib/pos-domicilios-push-subscriptions";
 
 function isWebPushDomiciliosConfigurado(): boolean {
@@ -21,7 +22,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
   const body = (req.body && typeof req.body === "object" ? req.body : {}) as Body;
   const puntoVenta = typeof body.puntoVenta === "string" ? body.puntoVenta.trim() : "";
-  const pedidoId = typeof body.pedidoId === "string" ? body.pedidoId.trim() : "";
+  const pedidoId = pedidoIdChatClave(typeof body.pedidoId === "string" ? body.pedidoId : "");
   const subscription = body.subscription;
 
   if (!puntoVenta || !pedidoId || !subscription || typeof subscription !== "object") {
@@ -32,5 +33,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   if (!r.ok) {
     return res.status(400).json({ ok: false, message: r.message ?? "No se pudo guardar la suscripción." });
   }
-  return res.status(200).json({ ok: true, message: "Avisos activados para este pedido." });
+  return res.status(200).json({
+    ok: true,
+    message: "Avisos activados. Le notificamos si el local le escribe o actualiza su pedido.",
+  });
 }

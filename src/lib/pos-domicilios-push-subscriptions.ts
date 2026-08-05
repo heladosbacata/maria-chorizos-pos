@@ -1,12 +1,12 @@
 import { createHash } from "crypto";
 import { getFirestore } from "firebase-admin/firestore";
 import { getFirebaseAdminApp } from "@/lib/firebase-admin-server";
-import { puntoVentaFirestoreClave as normPv } from "@/lib/pos-domicilios-pv-clave";
+import { pedidoIdChatClave, puntoVentaFirestoreClave as normPv } from "@/lib/pos-domicilios-pv-clave";
 
 const COLL_PUSH = "posDomiciliosPushSubs";
 
 export function domicilioPushChatKey(puntoVenta: string, pedidoId: string): string {
-  return `${normPv(puntoVenta)}::${pedidoId.trim().toUpperCase()}`;
+  return `${normPv(puntoVenta)}::${pedidoIdChatClave(pedidoId)}`;
 }
 
 export type PushSubscriptionJsonCliente = {
@@ -52,7 +52,7 @@ export async function guardarSuscripcionPushCliente(params: {
   subscription: PushSubscriptionJsonCliente;
 }): Promise<{ ok: boolean; message?: string; id?: string }> {
   const pv = params.puntoVenta.trim();
-  const pid = params.pedidoId.trim();
+  const pid = pedidoIdChatClave(params.pedidoId);
   const sub = toSubscription(params.subscription);
   if (!pv || !pid || !sub) {
     return { ok: false, message: "Suscripción inválida o datos incompletos." };
@@ -75,11 +75,12 @@ export async function guardarSuscripcionPushCliente(params: {
     {
       chatKey,
       puntoVentaNorm: normPv(pv),
-      pedidoId: pid.toUpperCase(),
+      pedidoId: pid,
       endpoint: sub.endpoint,
       keysP256dh: sub.keys.p256dh,
       keysAuth: sub.keys.auth,
       creadoEnIso: new Date().toISOString(),
+      actualizadoEnIso: new Date().toISOString(),
     },
     { merge: true }
   );
@@ -91,7 +92,7 @@ export async function listarSuscripcionesPushPorPedido(
   pedidoId: string
 ): Promise<SuscripcionPushGuardada[]> {
   const pv = puntoVenta.trim();
-  const pid = pedidoId.trim();
+  const pid = pedidoIdChatClave(pedidoId);
   if (!pv || !pid) return [];
   const chatKey = domicilioPushChatKey(pv, pid);
   const app = getFirebaseAdminApp();

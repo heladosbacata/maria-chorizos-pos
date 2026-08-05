@@ -11,6 +11,7 @@ self.addEventListener("push", (event) => {
   const url = typeof data.url === "string" && data.url.trim() ? data.url.trim() : "/pedidos";
   const tag =
     typeof data.tag === "string" && data.tag.trim() ? data.tag.trim() : "maria-chorizos-pedido";
+  const requireInteraction = data.requireInteraction === true;
   event.waitUntil(
     self.registration.showNotification(title, {
       body,
@@ -18,6 +19,7 @@ self.addEventListener("push", (event) => {
       badge: "/favicon.ico",
       tag,
       renotify: true,
+      requireInteraction,
       vibrate: [120, 60, 120, 60, 180, 80, 220],
       data: { url },
     })

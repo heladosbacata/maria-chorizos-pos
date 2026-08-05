@@ -80,11 +80,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     tipoMensaje: "texto",
   });
 
-  void notificarCambioEstadoPedidoDomicilioWebPush({
-    puntoVenta: pv,
-    pedidoId,
-    estado: pedido.estado,
-  }).catch(() => undefined);
+  try {
+    await notificarCambioEstadoPedidoDomicilioWebPush({
+      puntoVenta: pv,
+      pedidoId,
+      estado: pedido.estado,
+    });
+  } catch {
+    /* ignore */
+  }
 
   return res.status(200).json({ ok: true, pedido, message: "Pedido cancelado." });
 }
