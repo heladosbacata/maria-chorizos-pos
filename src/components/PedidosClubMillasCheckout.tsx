@@ -193,11 +193,11 @@ export default function PedidosClubMillasCheckout({
             Cliente frecuente · Club de Millas
           </p>
           <p className="text-base font-black leading-snug text-slate-900">
-            Digite su cédula para acumular millas en esta compra
+            Escriba su número de documento para acumular millas
           </p>
           <p className="mt-1 text-xs font-medium leading-snug text-slate-700">
-            Si ya es cliente frecuente, escriba su documento. Si aún no está registrado, lo invitamos a
-            afiliarse aquí mismo (sin salir de esta página). Es opcional.
+            Consulte su cédula. Si no aparece en el plan, regístrese aquí mismo (nombre + correo) y acumule en
+            esta compra. Puede continuar sin millas si prefiere.
             {millasEstimadas > 0 ? (
               <>
                 {" "}
