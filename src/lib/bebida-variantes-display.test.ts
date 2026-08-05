@@ -5,6 +5,7 @@ import {
   descripcionBebidaParaUi,
   descripcionProductoSinTamanoEnNombre,
   esProductoAguaBrisa,
+  esProductoFuzeTea,
   unificarAguaBrisaEnCatalogo,
   variantesAguaBrisaUnificada,
   variantesBebidaParaUi,
@@ -96,5 +97,37 @@ describe("bebida-variantes-display", () => {
     const labels = vars.map((v) => v.etiqueta);
     expect(labels).toContain("600 ml");
     expect(labels.filter((l) => canonEtiquetaVarianteBebida(l) === "pet 250 ml")).toHaveLength(1);
+  });
+
+  it("Fuze Tea no muestra la variante suelta 400 ml", () => {
+    const p: ProductoPOS = {
+      sku: "FUZE-TEA",
+      descripcion: "Fuze Tea 400ml",
+      categoria: "Bebidas",
+      precioUnitario: 4500,
+      urlImagen: null,
+      variantes: [
+        { clave: "400_ML", etiqueta: "400 ml", precioVenta: 4500 },
+        { clave: "DURAZNO", etiqueta: "Durazno", precioVenta: 4500 },
+        { clave: "LIMON", etiqueta: "Limón", precioVenta: 4500 },
+      ],
+    };
+    expect(esProductoFuzeTea(p)).toBe(true);
+    expect(descripcionBebidaParaUi(p)).toBe("Fuze Tea");
+    const labels = variantesBebidaParaUi(p).map((v) => v.etiqueta);
+    expect(labels).not.toContain("400 ml");
+    expect(labels).toContain("Durazno");
+    expect(labels).toContain("Limón");
+  });
+
+  it("Fuze Tea sin otras variantes no inventa chip 400 ml desde el nombre", () => {
+    const vars = variantesBebidaParaUi({
+      sku: "FUZE-1",
+      descripcion: "Fuze Tea Durazno 400 ml",
+      categoria: "Bebidas",
+      precioUnitario: 4500,
+      urlImagen: null,
+    });
+    expect(vars).toEqual([]);
   });
 });

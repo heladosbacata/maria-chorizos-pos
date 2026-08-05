@@ -75,6 +75,21 @@ export function esProductoAguaBrisa(p: ProductoPOS): boolean {
   return t.includes("brisa") && (t.includes("agua") || /^brisa\b/.test(t) || t.includes("agua-brisa") || t.includes("aguabrisa"));
 }
 
+export function esProductoFuzeTea(p: ProductoPOS): boolean {
+  const t = textoNorm(`${p.descripcion ?? ""} ${p.sku ?? ""}`);
+  return t.includes("fuze") || t.includes("fuzetea") || t.includes("fuze-tea");
+}
+
+/** Etiqueta que es solo el tamaño (p. ej. «400 ml»), sin sabor u otra info. */
+function esEtiquetaSoloTamanoMl(etiqueta: string, ml?: number | null): boolean {
+  const canon = canonEtiquetaVarianteBebida(etiqueta);
+  if (/^\d+\s*ml$/.test(canon)) {
+    if (ml == null) return true;
+    return canon === `${ml} ml`;
+  }
+  return false;
+}
+
 function textoIndicaConGas(texto: string): boolean {
   const t = textoNorm(texto);
   return /\bcon\s*gas\b|\bcongas\b|\bgasificada\b|\bsparkling\b/.test(t);
@@ -183,6 +198,7 @@ export function unificarAguaBrisaEnCatalogo(productos: ProductoPOS[]): ProductoP
 /**
  * Variantes de bebida para UI (caja y domicilios):
  * - Agua Brisa: solo 600 ml sin gas / 600 ml con gas
+ * - Fuze Tea: no muestra la variante suelta «400 ml» (el tamaño ya va en el producto)
  * - resto: dedupe por etiqueta; si el nombre trae tamaño (600ml), lo agrega como variante
  */
 export function variantesBebidaParaUi(p: ProductoPOS): VarianteBebidaUi[] {
@@ -194,6 +210,8 @@ export function variantesBebidaParaUi(p: ProductoPOS): VarianteBebidaUi[] {
   const out: VarianteBebidaUi[] = [];
   const seenKeys = new Set<string>();
   const seenLabels = new Set<string>();
+  const esFuze = esProductoFuzeTea(p);
+  const mlNombre = tamanoMlDesdeTexto(p.descripcion ?? "");
 
   const push = (claveRaw: string, etiquetaRaw: string, precio?: number) => {
     const clave = String(claveRaw ?? "").trim();
@@ -201,6 +219,8 @@ export function variantesBebidaParaUi(p: ProductoPOS): VarianteBebidaUi[] {
     let etiqueta = String(etiquetaRaw || clave).trim();
     const soloMl = etiqueta.match(/^(\d+)\s*m\.?l\.?$/i);
     if (soloMl) etiqueta = etiquetaTamanoMl(Number(soloMl[1]));
+    // Fuze Tea: ocultar chip suelto «400 ml» (u otro tamaño solo del nombre).
+    if (esFuze && esEtiquetaSoloTamanoMl(etiqueta, mlNombre ?? 400)) return;
     const labelCanon = canonEtiquetaVarianteBebida(etiqueta);
     if (labelCanon && seenLabels.has(labelCanon)) return;
     seenKeys.add(clave.toUpperCase());
@@ -216,8 +236,8 @@ export function variantesBebidaParaUi(p: ProductoPOS): VarianteBebidaUi[] {
     });
   };
 
-  const mlNombre = tamanoMlDesdeTexto(p.descripcion ?? "");
-  if (mlNombre != null) {
+  // Fuze Tea: no inventar variante «400 ml» desde el nombre del producto.
+  if (mlNombre != null && !esFuze) {
     const etiqueta = etiquetaTamanoMl(mlNombre);
     const canon = canonEtiquetaVarianteBebida(etiqueta);
     const yaExiste =
@@ -253,7 +273,7 @@ export function descripcionBebidaParaUi(p: ProductoPOS): string {
   if (esProductoAguaBrisa(p)) return descripcionAguaBrisaLimpia(p.descripcion ?? "Agua Brisa");
   const cat = `${p.categoria ?? ""}`.toLowerCase();
   const d = p.descripcion ?? "";
-  if (cat.includes("bebida") || /\bagua\b/i.test(d)) {
+  if (esProductoFuzeTea(p) || cat.includes("bebida") || /\bagua\b/i.test(d)) {
     return descripcionProductoSinTamanoEnNombre(d);
   }
   return d;
