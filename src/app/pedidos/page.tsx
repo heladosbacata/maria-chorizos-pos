@@ -37,6 +37,10 @@ import {
 import type { ProductoPOS } from "@/types";
 import type { MensajeChatDomicilio } from "@/types/pos-domicilios-chat";
 import { productoRequiereSoloTipoArepaPeto } from "@/lib/chorizo-variante-pos";
+import {
+  descripcionBebidaParaUi,
+  variantesBebidaParaUi,
+} from "@/lib/bebida-variantes-display";
 
 export const dynamic = "force-dynamic";
 
@@ -236,6 +240,7 @@ function precioOpcionArepaPeto(p: ProductoPOS, tipo: "queso_bocadillo" | "arepa_
 /**
  * Variantes del producto en el menú de domicilios.
  * Arepa de peto: solo 2 opciones (como en caja), aunque el WMS mande 3.
+ * Bebidas: dedupe + tamaño del nombre (ej. 600 ml) como variante.
  */
 function opcionesVariantesProducto(p: ProductoPOS): VarianteUi[] {
   if (productoRequiereSoloTipoArepaPeto(p)) {
@@ -253,24 +258,41 @@ function opcionesVariantesProducto(p: ProductoPOS): VarianteUi[] {
     ];
   }
 
+  if (productoEsBebidas(p)) {
+    return variantesBebidaParaUi(p).map((v) => ({
+      key: v.clave,
+      label: v.etiqueta,
+      precio: v.precioVenta ?? p.precioUnitario,
+    }));
+  }
+
   const out: VarianteUi[] = [];
   const preciosMap = p.preciosPorVariante ?? {};
   const seenKeys = new Set<string>();
+  const seenLabels = new Set<string>();
   /** arepa_queso y peto_queso son la misma arepa (legado WMS). */
   const canonKey = (key: string): string => {
     const n = textoVarianteNorm(key);
     if (n === "peto_queso" || n === "arepa_queso") return "arepa_queso";
     return key.trim();
   };
+  /** Misma etiqueta visible = misma opción (p. ej. dos claves WMS con "250 ml"). */
+  const canonLabel = (label: string): string =>
+    textoVarianteNorm(label)
+      .replace(/\s+/g, " ")
+      .replace(/(\d)\s*ml\b/g, "$1 ml");
   const pushVar = (keyRaw: string, labelRaw: string, precio: number) => {
     const key = canonKey(keyRaw);
     if (!key || seenKeys.has(key)) return;
-    seenKeys.add(key);
     let label = (labelRaw || keyRaw).trim();
     const ln = textoVarianteNorm(label);
     if (key === "arepa_queso" || ln === "arepa de queso" || (ln.includes("peto") && !ln.includes("bocadillo"))) {
       label = "Arepa de queso (Peto)";
     }
+    const labelKey = canonLabel(label);
+    if (labelKey && seenLabels.has(labelKey)) return;
+    seenKeys.add(key);
+    if (labelKey) seenLabels.add(labelKey);
     out.push({ key, label, precio: Number.isFinite(precio) ? precio : p.precioUnitario });
   };
 
@@ -1113,8 +1135,8 @@ function PedidosLandingClient() {
       canal,
       items: itemsCarrito.map((x) =>
         x.varianteLabel
-          ? `${x.cantidad}x ${x.p.descripcion} (${x.varianteLabel})`
-          : `${x.cantidad}x ${x.p.descripcion}`
+          ? `${x.cantidad}x ${descripcionBebidaParaUi(x.p)} (${x.varianteLabel})`
+          : `${x.cantidad}x ${descripcionBebidaParaUi(x.p)}`
       ),
       tiempoObjetivoMin: 35,
       tipoEntrega,
@@ -1143,8 +1165,8 @@ function PedidosLandingClient() {
       }
       const lineasResumen = itemsCarrito.map((x) =>
         x.varianteLabel
-          ? `${x.cantidad}× ${x.p.descripcion} (${x.varianteLabel})`
-          : `${x.cantidad}× ${x.p.descripcion}`
+          ? `${x.cantidad}× ${descripcionBebidaParaUi(x.p)} (${x.varianteLabel})`
+          : `${x.cantidad}× ${descripcionBebidaParaUi(x.p)}`
       );
       setPedidoResumenChat({
         lineasItems: lineasResumen,
@@ -1574,7 +1596,7 @@ function PedidosLandingClient() {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <p className="line-clamp-2 font-semibold text-gray-900">
-                    {p.descripcion}
+                    {descripcionBebidaParaUi(p)}
                     {varianteLabel ? <span className="font-normal text-gray-600"> ({varianteLabel})</span> : null}
                   </p>
                   <p className="mt-0.5 text-[11px] text-gray-500">{formatoMoneda(precioUnitarioLinea)} c/u</p>
@@ -1680,7 +1702,7 @@ function PedidosLandingClient() {
         </div>
         <div className="space-y-3 p-3 sm:p-3.5">
           <div>
-            <p className="line-clamp-2 text-sm font-bold text-gray-900">{prod.descripcion}</p>
+            <p className="line-clamp-2 text-sm font-bold text-gray-900">{descripcionBebidaParaUi(prod)}</p>
             <p className="text-[11px] text-gray-500">Producto fresco, preparado al momento.</p>
           </div>
           {variantes.length > 0 ? (
@@ -2370,7 +2392,7 @@ function PedidosLandingClient() {
                       )}
                     </div>
                     <div className="space-y-2 p-3">
-                      <p className="line-clamp-2 text-sm font-semibold text-gray-900">{prod.descripcion}</p>
+                      <p className="line-clamp-2 text-sm font-semibold text-gray-900">{descripcionBebidaParaUi(prod)}</p>
                       <div className="flex items-center justify-between gap-2">
                         <strong className="text-sm text-cyan-700">{formatoMoneda(precioRec)}</strong>
                         <button

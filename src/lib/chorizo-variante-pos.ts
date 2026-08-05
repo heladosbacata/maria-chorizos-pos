@@ -86,7 +86,10 @@ export function productoRequiereVarianteChorizo(p: ProductoPOS): boolean {
 
 export function productoRequiereTamanoBebida(p: ProductoPOS): boolean {
   const categoria = `${p.categoria ?? ""}`.toLowerCase();
-  return categoria.includes("bebida") && Array.isArray(p.variantes) && p.variantes.length > 0;
+  if (!categoria.includes("bebida")) return false;
+  if (Array.isArray(p.variantes) && p.variantes.length > 0) return true;
+  // Nombre con tamaño al final (ej. Agua Brisa 600ml) → elegir como variante
+  return /\d+\s*m\.?l\.?\s*$/i.test(String(p.descripcion ?? "").trim());
 }
 
 export function buildLineIdPos(sku: string, opts?: OpcionesVariantesLineaPos): string {

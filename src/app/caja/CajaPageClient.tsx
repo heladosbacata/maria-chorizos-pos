@@ -54,6 +54,10 @@ import {
   normalizarCatalogoDomiciliosPorSku,
   productoHabilitadoEnDomiciliosPunto,
 } from "@/lib/pos-domicilios-catalogo-sku";
+import {
+  descripcionBebidaParaUi,
+  variantesBebidaParaUi,
+} from "@/lib/bebida-variantes-display";
 import type { PedidoDomicilio } from "@/types/pos-domicilios";
 import {
   buildLineIdPos,
@@ -292,9 +296,12 @@ function detalleVarianteTicketLinea(it: ItemCuenta): string | undefined {
   if (it.varianteChorizo) parts.push(etiquetaVarianteChorizo(it.varianteChorizo));
   if (it.varianteArepaCombo) parts.push(etiquetaArepaCombo(it.varianteArepaCombo));
   if (Array.isArray(it.variantes) && it.variantes.length > 0) {
+    const uiBebida = variantesBebidaParaUi(it.producto);
     const variantesEtiquetas = it.variantes
       .map((v) => {
         const norm = String(v ?? "").trim().toUpperCase();
+        const matchUi = uiBebida.find((opt) => String(opt.clave ?? "").trim().toUpperCase() === norm);
+        if (matchUi?.etiqueta) return matchUi.etiqueta;
         const match = it.producto.variantes?.find((opt) => String(opt.clave ?? "").trim().toUpperCase() === norm);
         return match?.etiqueta ?? v;
       })
@@ -1601,7 +1608,8 @@ export default function CajaPageClient() {
   const onClicProductoCatalogo = (producto: ProductoPOS) => {
     if (!turnoAbierto) return;
     if (productoRequiereTamanoBebida(producto)) {
-      const primera = producto.variantes?.[0]?.clave ?? "";
+      const varsUi = variantesBebidaParaUi(producto);
+      const primera = varsUi[0]?.clave ?? producto.variantes?.[0]?.clave ?? "";
       setVarianteModalBebida(primera);
       setModalProductoBebida(producto);
       return;
@@ -1629,8 +1637,9 @@ export default function CajaPageClient() {
   const agregarProductoACuenta = (producto: ProductoPOS, opts?: OpcionesVariantesLineaPos) => {
     const lineId = buildLineIdPos(producto.sku, opts);
     const precioVariante =
-      opts?.variantes?.length && producto.preciosPorVariante
-        ? producto.preciosPorVariante[opts.variantes[0] ?? ""]
+      opts?.variantes?.length
+        ? producto.preciosPorVariante?.[opts.variantes[0] ?? ""] ??
+          variantesBebidaParaUi(producto).find((v) => v.clave === opts.variantes?.[0])?.precioVenta
         : undefined;
     setItemsPorPrecuenta((prev) => {
       const items = prev[activePrecuentaId] ?? [];
@@ -2465,7 +2474,7 @@ export default function CajaPageClient() {
             }
             const lineasFe = itemsSnap.map((it) => {
               const varTxt = detalleVarianteTicketLinea(it);
-              const desc = [it.producto.descripcion.trim(), varTxt].filter(Boolean).join(" · ");
+              const desc = [descripcionBebidaParaUi(it.producto).trim(), varTxt].filter(Boolean).join(" · ");
               const montoLinea = totalLineaItem(it);
               return {
                 descripcion: (desc.slice(0, 500) || "Ítem").trim(),
@@ -3881,10 +3890,10 @@ export default function CajaPageClient() {
             <h2 id="modal-bebida-title" className="text-lg font-semibold text-gray-900">
               Selecciona el tamaño
             </h2>
-            <p className="mt-1 text-sm text-gray-600 line-clamp-2">{modalProductoBebida.descripcion}</p>
+            <p className="mt-1 text-sm text-gray-600 line-clamp-2">{descripcionBebidaParaUi(modalProductoBebida)}</p>
             <fieldset className="mt-5 space-y-3">
-              <legend className="mb-2 block text-sm font-semibold text-gray-800">Tamaño de la bebida</legend>
-              {(modalProductoBebida.variantes ?? []).map((opt) => {
+              <legend className="mb-2 block text-sm font-semibold text-gray-800">Tamaño / variante de la bebida</legend>
+              {variantesBebidaParaUi(modalProductoBebida).map((opt) => {
                 const precio =
                   typeof opt.precioVenta === "number"
                     ? opt.precioVenta
@@ -4414,11 +4423,13 @@ export default function CajaPageClient() {
                       const soloChorizoPan = productoRequiereSoloChorizoPan(p);
                       const soloArepaPetoTipo = productoRequiereSoloTipoArepaPeto(p);
                       const bebidaConTamano = productoRequiereTamanoBebida(p);
+                      const varsBebidaUi = bebidaConTamano ? variantesBebidaParaUi(p) : [];
                       const qty = itemsCuentaActiva
                         .filter((i) => i.producto.sku === p.sku)
                         .reduce((s, i) => s + i.cantidad, 0);
                       const enDomicilios = productoHabilitadoEnDomiciliosPunto(p.sku, catalogoDomiciliosPorSku);
                       const guardandoEste = guardandoDomiciliosSku === p.sku;
+                      const nombreCatalogo = descripcionBebidaParaUi(p);
                       return (
                         <div
                           key={p.sku}
@@ -4439,7 +4450,7 @@ export default function CajaPageClient() {
                               {p.urlImagen ? (
                                 <img
                                   src={p.urlImagen}
-                                  alt={p.descripcion}
+                                  alt={nombreCatalogo}
                                   className="h-full w-full object-cover"
                                 />
                               ) : (
@@ -4458,7 +4469,7 @@ export default function CajaPageClient() {
                                 </span>
                               ) : null}
                               <p className="mt-0.5 line-clamp-2 text-[11px] font-medium leading-snug text-gray-900 sm:text-xs">
-                                {p.descripcion}
+                                {nombreCatalogo}
                               </p>
                               {p.categoria && (
                                 <p className="mt-0.5 text-[10px] text-gray-500 sm:text-[11px]">{p.categoria}</p>
@@ -4469,9 +4480,9 @@ export default function CajaPageClient() {
                               </p>
                               {bebidaConTamano && (
                                 <p className="mt-1 text-[10px] font-medium leading-tight text-sky-800 sm:text-[11px]">
-                                  {p.variantes?.length === 1
-                                    ? "1 tamano disponible"
-                                    : `${p.variantes?.length ?? 0} tamanos disponibles`}
+                                  {varsBebidaUi.length === 1
+                                    ? "1 variante disponible"
+                                    : `${varsBebidaUi.length} variantes disponibles`}
                                 </p>
                               )}
                               {chorizoConArepa && (
@@ -4536,7 +4547,7 @@ export default function CajaPageClient() {
                         {catalogosFiltrados.map((p) => (
                           <tr key={`sol-${p.sku}`} className="hover:bg-gray-50/80">
                             <td className="px-3 py-2 font-mono text-xs text-gray-700">{p.sku}</td>
-                            <td className="px-3 py-2 text-gray-900">{p.descripcion}</td>
+                            <td className="px-3 py-2 text-gray-900">{descripcionBebidaParaUi(p)}</td>
                             <td className="px-3 py-2 text-right font-semibold tabular-nums text-gray-900">
                               ${Number(p.precioUnitario).toLocaleString("es-CO")}
                             </td>
@@ -4850,7 +4861,7 @@ export default function CajaPageClient() {
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-gray-900">{it.producto.descripcion}</p>
+                        <p className="text-sm font-medium text-gray-900">{descripcionBebidaParaUi(it.producto)}</p>
                         {it.varianteChorizo && (
                           <p className="mt-0.5 text-xs font-semibold text-primary-700">
                             Chorizo: {etiquetaVarianteChorizo(it.varianteChorizo)}
@@ -4972,7 +4983,7 @@ export default function CajaPageClient() {
                       return (
                         <tr key={it.lineId} className="border-b border-gray-50 last:border-0">
                           <td className="py-2 pl-2 font-medium text-gray-800">
-                            {it.producto.descripcion}
+                            {descripcionBebidaParaUi(it.producto)}
                             {detalleVariante ? (
                               <span className="block text-[11px] font-normal text-gray-500">({detalleVariante})</span>
                             ) : null}
