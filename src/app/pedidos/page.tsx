@@ -503,7 +503,7 @@ function textoMotivacionCambioEstado(
         titulo: "Pedido no disponible",
         subtitulo: rechazoMotivo?.trim()
           ? `Motivo: ${rechazoMotivo.trim()}`
-          : "Si tiene dudas, escríbanos por el chat. Con mucho gusto le ayudamos.",
+          : "El punto no pudo continuar con este pedido. Puede armar uno nuevo cuando quiera.",
         variante: "rechazo",
         confeti: false,
       };
@@ -512,7 +512,7 @@ function textoMotivacionCambioEstado(
         titulo: "Pedido cancelado",
         subtitulo: rechazoMotivo?.trim()
           ? rechazoMotivo.trim()
-          : "Canceló su pedido. Puede armar uno nuevo cuando quiera.",
+          : "Su pedido fue cancelado. Puede armar uno nuevo cuando quiera.",
         variante: "rechazo",
         confeti: false,
       };
@@ -562,12 +562,16 @@ function PedidosOverlayMotivacionEstado({
   variante,
   mostrarConfeti,
   burstKey,
+  onAccion,
+  etiquetaAccion,
 }: {
   titulo: string;
   subtitulo: string;
   variante: VarianteMotivacionEstado;
   mostrarConfeti: boolean;
   burstKey: number;
+  onAccion?: () => void;
+  etiquetaAccion?: string;
 }) {
   const cardClass =
     variante === "rechazo"
@@ -583,14 +587,23 @@ function PedidosOverlayMotivacionEstado({
         ? "bg-emerald-100 text-emerald-700"
         : "bg-amber-100 text-amber-700";
 
+  const bloqueante = Boolean(onAccion && etiquetaAccion);
+
   return (
     <div
-      className="pointer-events-none fixed inset-0 z-[100] flex items-center justify-center p-5 sm:p-8"
-      role="status"
+      className={`fixed inset-0 z-[100] flex items-center justify-center p-5 sm:p-8 ${
+        bloqueante ? "pointer-events-auto" : "pointer-events-none"
+      }`}
+      role={bloqueante ? "alertdialog" : "status"}
+      aria-modal={bloqueante || undefined}
       aria-live="polite"
       aria-atomic="true"
     >
-      <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-[2px]" aria-hidden />
+      <div
+        className="absolute inset-0 bg-slate-900/50 backdrop-blur-[2px]"
+        aria-hidden
+        onClick={bloqueante ? onAccion : undefined}
+      />
       {mostrarConfeti ? <PedidosConfetiCambioEstado burstKey={burstKey} /> : null}
       <div
         className={`relative z-10 w-full max-w-sm rounded-3xl border-2 px-5 py-7 shadow-2xl sm:px-7 sm:py-8 ${cardClass} animate-pedidos-estado-motiv-pop`}
@@ -620,6 +633,15 @@ function PedidosOverlayMotivacionEstado({
         </div>
         <h2 className="text-center text-xl font-black leading-tight sm:text-2xl">{titulo}</h2>
         <p className="mt-2 text-center text-sm font-semibold leading-snug opacity-90">{subtitulo}</p>
+        {bloqueante ? (
+          <button
+            type="button"
+            onClick={onAccion}
+            className="mt-5 w-full rounded-xl bg-gradient-to-r from-red-700 to-amber-500 px-4 py-3 text-sm font-black text-white shadow-md transition hover:from-red-800 hover:to-amber-600 active:scale-[0.99]"
+          >
+            {etiquetaAccion}
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -728,6 +750,8 @@ function PedidosLandingClient() {
   const checkoutRef = useRef<HTMLDivElement | null>(null);
   const rastreadorPedidoRef = useRef<HTMLElement | null>(null);
   const estadoPedidoAnteriorRef = useRef<EstadoPedidoDomicilio | null>(null);
+  const rechazoMotivoPedidoRef = useRef<string | null>(null);
+  const overlayEstadoTimerRef = useRef<number | null>(null);
   const [tarifaDomicilio, setTarifaDomicilio] = useState({
     costoDomicilioCop: DEFAULT_COSTO_DOMICILIO_COP,
     umbralGratisCop: DEFAULT_UMBRAL_GRATIS_COP,
@@ -781,6 +805,10 @@ function PedidosLandingClient() {
 
   /** Libera el pedido terminado para que el cliente pueda armar uno nuevo. */
   const liberarPedidoParaNuevo = useCallback(() => {
+    if (overlayEstadoTimerRef.current) {
+      window.clearTimeout(overlayEstadoTimerRef.current);
+      overlayEstadoTimerRef.current = null;
+    }
     limpiarSesionPedidoDomicilio(puntoVenta);
     setPedidoCreadoId(null);
     sincronizarPedidoEnUrl(null);
@@ -1880,6 +1908,19 @@ function PedidosLandingClient() {
   }, [pedidoCreadoId, puntoVenta]);
 
   useEffect(() => {
+    rechazoMotivoPedidoRef.current = rechazoMotivoPedido;
+  }, [rechazoMotivoPedido]);
+
+  // Si llega el motivo después del rechazo, actualizar el texto del overlay sin rearmarlo.
+  useEffect(() => {
+    if (!rechazoMotivoPedido?.trim()) return;
+    setAnimacionCambioEstadoPedido((prev) => {
+      if (!prev || prev.variante !== "rechazo") return prev;
+      return { ...prev, subtitulo: `Motivo: ${rechazoMotivoPedido.trim()}` };
+    });
+  }, [rechazoMotivoPedido]);
+
+  useEffect(() => {
     if (!pedidoCreadoId || !estadoPedido) return;
     const prev = estadoPedidoAnteriorRef.current;
     if (prev === estadoPedido) return;
@@ -1890,7 +1931,7 @@ function PedidosLandingClient() {
     estadoPedidoAnteriorRef.current = estadoPedido;
     setResaltarTarjetaEstadoPedido(true);
     const tPulse = window.setTimeout(() => setResaltarTarjetaEstadoPedido(false), 1400);
-    const copy = textoMotivacionCambioEstado(estadoPedido, rechazoMotivoPedido);
+    const copy = textoMotivacionCambioEstado(estadoPedido, rechazoMotivoPedidoRef.current);
     const sem = semaforoEstadoPedido(estadoPedido);
     setAlertaClienteToast(`${sem.label}: ${estadoEtiqueta(estadoPedido)}`);
     const tToast = window.setTimeout(() => setAlertaClienteToast(null), 4500);
@@ -1904,7 +1945,10 @@ function PedidosLandingClient() {
     } catch {
       /* ignore */
     }
-    let tOverlay: number | undefined;
+    if (overlayEstadoTimerRef.current) {
+      window.clearTimeout(overlayEstadoTimerRef.current);
+      overlayEstadoTimerRef.current = null;
+    }
     if (copy) {
       const reduceMotion =
         typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -1915,7 +1959,13 @@ function PedidosLandingClient() {
         variante: copy.variante,
         confeti: copy.confeti && !reduceMotion,
       });
-      tOverlay = window.setTimeout(() => setAnimacionCambioEstadoPedido(null), reduceMotion ? 2200 : 3600);
+      // Rechazo/cancelación: el cliente cierra con el botón (no auto-ocultar para no dejar overlay huérfano).
+      if (copy.variante !== "rechazo") {
+        overlayEstadoTimerRef.current = window.setTimeout(
+          () => setAnimacionCambioEstadoPedido(null),
+          reduceMotion ? 2200 : 3600
+        );
+      }
     }
     // Reforzar opt-in solo si el permiso sigue en default (nunca reabrir si denied).
     if (
@@ -1933,16 +1983,16 @@ function PedidosLandingClient() {
     }
     if (esEstadoTerminalPedidoDomicilio(estadoPedido)) {
       limpiarSesionPedidoDomicilio(puntoVenta);
+      setModalPushPedidoAbierto(false);
+      setChatVista((v) => (v === "expandido" ? "minimizado" : v));
     }
     return () => {
       window.clearTimeout(tPulse);
       window.clearTimeout(tToast);
-      if (tOverlay) window.clearTimeout(tOverlay);
     };
   }, [
     estadoPedido,
     pedidoCreadoId,
-    rechazoMotivoPedido,
     pushPedidosExito,
     vapidPublicPedidos,
     pushPedidosNavOk,
@@ -3789,6 +3839,14 @@ function PedidosLandingClient() {
           variante={animacionCambioEstadoPedido.variante}
           mostrarConfeti={animacionCambioEstadoPedido.confeti}
           burstKey={animacionCambioEstadoPedido.key}
+          onAccion={
+            animacionCambioEstadoPedido.variante === "rechazo"
+              ? () => liberarPedidoParaNuevo()
+              : undefined
+          }
+          etiquetaAccion={
+            animacionCambioEstadoPedido.variante === "rechazo" ? "Hacer un nuevo pedido" : undefined
+          }
         />
       ) : null}
       <MediosTransferenciaClienteModal
