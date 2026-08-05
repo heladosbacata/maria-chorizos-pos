@@ -53,7 +53,7 @@ describe("tabCatalogoDeProducto", () => {
     ).toBe("basicos");
   });
 
-  it("pone chimichurri por litro en paquetes (aunque sea Complemento)", () => {
+  it("pone chimichurri por litro en paquetes (aunque sea Complemento o Básicos)", () => {
     expect(
       tabCatalogoDeProducto(
         prod({ sku: "CHI-1L", descripcion: "Salsa chimichurri por litro", categoria: "Complementos" })
@@ -63,14 +63,44 @@ describe("tabCatalogoDeProducto", () => {
       tabCatalogoDeProducto(prod({ sku: "CHI-LT", descripcion: "Chimichurri 1L", categoria: "Especialidades" }))
     ).toBe("paquetes");
     expect(
+      tabCatalogoDeProducto(
+        prod({ sku: "SAL-CHI-LITRO", descripcion: "Chimichurri Litro", categoria: "Básicos" })
+      )
+    ).toBe("paquetes");
+    expect(
       productoEsChimichurriPorLitroTab(prod({ sku: "X", descripcion: "Salsa de chimichurri (porción)" }))
     ).toBe(false);
+    expect(
+      tabCatalogoDeProducto(prod({ sku: "3", descripcion: "Salsa extra", categoria: "Complementos" }))
+    ).toBe("adicionales");
   });
 
   it("clasifica paquetes por nombre", () => {
     expect(
       tabCatalogoDeProducto(prod({ sku: "PQ-1", descripcion: "Paquete chorizos x10", categoria: "Especialidades" }))
     ).toBe("paquetes");
+  });
+
+  it("pone choripan/chorizo hawaiano en imperdibles (no en básicos)", () => {
+    expect(
+      tabCatalogoDeProducto(
+        prod({ sku: "HAW-01", descripcion: "Choripan Hawaiano", categoria: "Básicos" })
+      )
+    ).toBe("imperdibles");
+    expect(
+      tabCatalogoDeProducto(
+        prod({ sku: "CHO-HAW", descripcion: "Chorizo Hawaiano", categoria: "Basicos" })
+      )
+    ).toBe("imperdibles");
+    expect(
+      tabCatalogoDeProducto(prod({ sku: "HAWAI-1", descripcion: "Hawaiano con pan", categoria: "Básicos" }))
+    ).toBe("imperdibles");
+    // Combo hawaiano sigue en Combos
+    expect(
+      tabCatalogoDeProducto(
+        prod({ sku: "COMBO-HAW", descripcion: "Combo hawaiana especial", categoria: "Especialidades" })
+      )
+    ).toBe("combos");
   });
 
   it("subtítulo listo para llevar solo en paquetes", () => {

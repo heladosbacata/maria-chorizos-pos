@@ -1,4 +1,5 @@
 import type { ProductoPOS } from "@/types";
+import { productoEsHawaiano } from "@/lib/chorizo-variante-pos";
 
 /**
  * Tabs del menú cliente en /pedidos.
@@ -100,10 +101,13 @@ export function productoEsAdicionalTab(p: ProductoPOS): boolean {
 }
 
 export function productoEsBasicosTab(p: ProductoPOS): boolean {
+  if (productoEsHawaiano(p)) return false;
   return categoriaCanon(p) === "Básicos";
 }
 
 export function productoEsImperdibleTab(p: ProductoPOS): boolean {
+  // Choripan / chorizo hawaiano: siempre Imperdibles (aunque el catálogo diga Básicos).
+  if (productoEsHawaiano(p) && !productoEsComboTab(p)) return true;
   const cat = categoriaCanon(p);
   if (cat === "Imperdibles") return true;
   const t = textoNorm(`${p.descripcion} ${p.categoria ?? ""}`);
@@ -112,19 +116,21 @@ export function productoEsImperdibleTab(p: ProductoPOS): boolean {
 
 /**
  * Asigna un producto a un tab.
- * Prioridad: categoría POS (Básicos, Bebidas, Complementos) → combos/paquetes → imperdibles → resto en Básicos.
+ * Prioridad: bebidas → chimichurri litro (paquetes) → adicionales → combos/paquetes →
+ * imperdibles (incl. hawaiano) → básicos.
  */
 export function tabCatalogoDeProducto(p: ProductoPOS): TabCatalogoPedidos {
   const cat = categoriaCanon(p);
 
   if (cat === "Bebidas" || productoEsBebidasTab(p)) return "bebidas";
-  // Chimichurri por litro: Paquetes (aunque venga como Complemento).
+  // Chimichurri por litro: Paquetes (aunque venga como Complemento o Básicos).
   if (productoEsChimichurriPorLitroTab(p)) return "paquetes";
   if (cat === "Complementos") return "adicionales";
   if (productoEsComboTab(p)) return "combos";
   if (productoEsPaqueteTab(p)) return "paquetes";
+  // Hawaiano / imperdibles antes que Básicos (el catálogo suele marcarlos como Básicos).
+  if (productoEsImperdibleTab(p) || cat === "Imperdibles") return "imperdibles";
   if (cat === "Básicos" || productoEsBasicosTab(p)) return "basicos";
-  if (cat === "Imperdibles" || productoEsImperdibleTab(p)) return "imperdibles";
 
   // Especialidades u otras categorías del catálogo: van a Básicos para que no “desaparezcan”.
   return "basicos";
