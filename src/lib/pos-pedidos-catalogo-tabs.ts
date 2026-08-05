@@ -150,8 +150,14 @@ export function productoLlevaChorizo(p: ProductoPOS): boolean {
 const SUBTITULO_CHORIZO_SANTARROSANO =
   "Producto fresco, Chorizo 100% santarrosano, preparado al momento.";
 
+const SUBTITULO_HAWAIANO =
+  "Chorizo santarrosano 100% artesanal, acompañado de pan, papa cabello de ángel y piña en trozos y salsas al gusto.";
+
 /** Subtítulo bajo el nombre en la tarjeta del menú /pedidos. */
 export function subtituloTarjetaCatalogoPedidos(p: ProductoPOS): string {
+  if (productoEsHawaiano(p)) {
+    return SUBTITULO_HAWAIANO;
+  }
   if (productoLlevaChorizo(p)) {
     return SUBTITULO_CHORIZO_SANTARROSANO;
   }
