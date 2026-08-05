@@ -660,6 +660,8 @@ function PedidosLandingClient() {
   const pushPromptEstadosRef = useRef<Set<string>>(new Set());
   const [carritoModalAbierto, setCarritoModalAbierto] = useState(false);
   const [modalConfirmarSoloRecogida, setModalConfirmarSoloRecogida] = useState(false);
+  /** El cliente debe elegir recogida o domicilio en el modal antes de armar el pedido. */
+  const [tipoEntregaElegido, setTipoEntregaElegido] = useState(false);
   const [modalCancelarPedidoAbierto, setModalCancelarPedidoAbierto] = useState(false);
   const [motivoCancelacionPedido, setMotivoCancelacionPedido] = useState("");
   const [cancelandoPedido, setCancelandoPedido] = useState(false);
@@ -673,7 +675,6 @@ function PedidosLandingClient() {
   const chatFotoCamaraInputRef = useRef<HTMLInputElement | null>(null);
   const chatFotoGaleriaInputRef = useRef<HTMLInputElement | null>(null);
   const checkoutRef = useRef<HTMLDivElement | null>(null);
-  const tipoEntregaSectionRef = useRef<HTMLElement | null>(null);
   const rastreadorPedidoRef = useRef<HTMLElement | null>(null);
   const estadoPedidoAnteriorRef = useRef<EstadoPedidoDomicilio | null>(null);
   const [tarifaDomicilio, setTarifaDomicilio] = useState({
@@ -746,6 +747,7 @@ function PedidosLandingClient() {
     if (borrador && !pedidoIdEnUrl) {
       setCantidades((prev) => (Object.keys(prev).length ? prev : borrador.cantidades));
       setTipoEntrega(borrador.tipoEntrega);
+      setTipoEntregaElegido(true);
       setMetodoPago(borrador.metodoPago);
       if (borrador.direccion) setDireccion((d) => d || borrador.direccion);
       if (borrador.referencia) setReferencia((r) => r || borrador.referencia);
@@ -1264,6 +1266,10 @@ function PedidosLandingClient() {
   }, [slidesCarrusel.length]);
 
   const validarPedidoAntesDeEnviar = (): boolean => {
+    if (!tipoEntregaElegido) {
+      setMensaje("Elija si desea recoger en tienda o domicilio para continuar.");
+      return false;
+    }
     if (!recepcionPedidosWebOk) {
       setMensaje(avisoBloqueoRecepcion ?? "En este momento no podemos recibir su pedido.");
       return false;
@@ -1430,6 +1436,7 @@ function PedidosLandingClient() {
       setReferencia("");
       setMetodoPago("efectivo");
       setTipoEntrega(tipoEntregaPreferidoPorConfig());
+      setTipoEntregaElegido(false);
       setEnviando(false);
     } catch {
       setMensaje("No se pudo enviar el pedido. Intenta nuevamente.");
@@ -2144,17 +2151,13 @@ function PedidosLandingClient() {
               : "Le llevamos el pedido a la dirección que indique abajo."}
           </p>
         </div>
-        {elegirTipoEntrega ? (
-          <button
-            type="button"
-            onClick={() =>
-              tipoEntregaSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
-            }
-            className="shrink-0 rounded-lg border border-cyan-300 bg-white px-2 py-1 text-[10px] font-bold text-cyan-800 hover:bg-cyan-100"
-          >
-            Cambiar
-          </button>
-        ) : null}
+        <button
+          type="button"
+          onClick={() => setTipoEntregaElegido(false)}
+          className="shrink-0 rounded-lg border border-cyan-300 bg-white px-2 py-1 text-[10px] font-bold text-cyan-800 hover:bg-cyan-100"
+        >
+          Cambiar
+        </button>
       </div>
     </div>
   );
@@ -2273,79 +2276,6 @@ function PedidosLandingClient() {
     );
   };
 
-  const renderPasoTipoEntrega = () => {
-    const cardBase =
-      "group relative flex flex-col items-start gap-3 rounded-2xl border-2 p-4 text-left transition active:scale-[0.99] sm:p-5";
-    const cardOn = "border-red-600 bg-gradient-to-br from-red-50 to-amber-50 text-red-950 shadow-md ring-2 ring-amber-300/70";
-    const cardOff = "border-slate-200 bg-white text-slate-800 hover:border-red-200 hover:bg-red-50/40";
-
-    if (!mostrarOpcionRecogida && !mostrarOpcionDomicilio) {
-      return (
-        <section
-          ref={tipoEntregaSectionRef}
-          className="scroll-mt-4 rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 shadow-sm sm:p-5"
-        >
-          <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-amber-800">Paso 1 · Entrega</p>
-          <p className="mt-2 text-sm font-semibold text-amber-950">
-            Este punto todavía no tiene habilitada recogida ni domicilio. Intente más tarde o comuníquese con el local.
-          </p>
-        </section>
-      );
-    }
-
-    return (
-      <section
-        ref={tipoEntregaSectionRef}
-        className="scroll-mt-4 overflow-hidden rounded-2xl border-2 border-red-200 bg-white p-4 shadow-md sm:p-5"
-      >
-        <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-red-700">Paso 1</p>
-        <h2 className="mt-1 text-xl font-black text-gray-900 sm:text-2xl">¿Cómo le gusta recibir su pedido?</h2>
-        <p className="mt-1 text-sm text-gray-600">
-          Pedido para <strong>{puntoVenta}</strong>
-          {elegirTipoEntrega
-            ? ". Elija recogida o domicilio (según lo habilitado en este punto)."
-            : soloRecogidaEnTienda
-              ? ". En este punto solo está habilitada la recogida en tienda."
-              : ". En este punto solo está habilitado el domicilio."}
-        </p>
-
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <button
-              type="button"
-              onClick={() => {
-                setTipoEntrega("domicilio");
-                setMetodoPago((m) => (m === "datafono" ? "efectivo" : m));
-              }}
-              className={`${cardBase} ${tipoEntrega === "domicilio" ? cardOn : cardOff}`}
-            >
-              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-red-600 to-amber-500 text-white shadow-lg">
-                <Bike className="h-7 w-7" strokeWidth={2.2} aria-hidden />
-              </span>
-              <div>
-                <p className="text-[11px] font-black uppercase tracking-[0.18em] text-red-700">A domicilio</p>
-                <p className="mt-1 text-base font-extrabold">Se lo llevamos</p>
-                <p className="mt-1 text-xs font-medium text-gray-600">Domiciliario hasta su dirección.</p>
-              </div>
-            </button>
-          <button
-              type="button"
-              onClick={() => setTipoEntrega("recogida")}
-              className={`${cardBase} ${tipoEntrega === "recogida" ? cardOn : cardOff}`}
-            >
-              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 to-yellow-300 text-red-900 shadow-lg">
-                <Store className="h-7 w-7" strokeWidth={2.2} aria-hidden />
-              </span>
-              <div>
-                <p className="text-[11px] font-black uppercase tracking-[0.18em] text-amber-800">Para recoger</p>
-                <p className="mt-1 text-base font-extrabold">Pase por {puntoVenta}</p>
-                <p className="mt-1 text-xs font-medium text-gray-600">Sin costo de envío.</p>
-              </div>
-            </button>
-        </div>
-      </section>
-    );
-  };
-
   if (!tienePedidoActivo) {
     if (turnoCajaAbierto === null) {
       return (
@@ -2411,59 +2341,26 @@ function PedidosLandingClient() {
                   >
                     Mis pedidos
                   </button>
-                  <button
-                    type="button"
-                    aria-pressed={tipoEntrega === "recogida"}
-                    title="Recoger en tienda"
-                    onClick={() => setTipoEntrega("recogida")}
-                    className={`pedidos-entrega-chip group relative inline-flex items-center gap-2 overflow-hidden rounded-full px-3 py-1.5 text-xs font-black transition duration-300 active:scale-95 ${
-                      tipoEntrega === "recogida"
-                        ? "pedidos-entrega-chip--on bg-gradient-to-r from-amber-300 via-yellow-300 to-amber-200 text-red-950 shadow-[0_0_20px_rgba(251,191,36,0.55)] ring-2 ring-white/80"
-                        : "border border-white/45 bg-white/10 text-white backdrop-blur hover:bg-white/20"
-                    }`}
-                  >
-                    <span
-                      className={`pedidos-entrega-chip-icon flex h-6 w-6 items-center justify-center rounded-full transition ${
-                        tipoEntrega === "recogida"
-                          ? "bg-red-700 text-amber-200 shadow-inner"
-                          : "bg-white/20 text-amber-200"
-                      }`}
+                  {tipoEntregaElegido ? (
+                    <button
+                      type="button"
+                      onClick={() => setTipoEntregaElegido(false)}
+                      className="pedidos-entrega-chip pedidos-entrega-chip--on inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-amber-300 via-yellow-300 to-amber-200 px-3 py-1.5 text-xs font-black text-red-950 shadow-[0_0_18px_rgba(251,191,36,0.45)] ring-2 ring-white/80 transition active:scale-95"
+                      title="Cambiar tipo de entrega"
                     >
-                      <Store className="h-3.5 w-3.5" strokeWidth={2.4} aria-hidden />
-                    </span>
-                    <span>Recoger en tienda</span>
-                    {tipoEntrega === "recogida" ? (
-                      <span className="pointer-events-none absolute inset-0 pedidos-entrega-chip-shine" aria-hidden />
-                    ) : null}
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={tipoEntrega === "domicilio"}
-                    title="Domicilio a su dirección"
-                    onClick={() => {
-                      setTipoEntrega("domicilio");
-                      setMetodoPago((m) => (m === "datafono" ? "efectivo" : m));
-                    }}
-                    className={`pedidos-entrega-chip group relative inline-flex items-center gap-2 overflow-hidden rounded-full px-3 py-1.5 text-xs font-black transition duration-300 active:scale-95 ${
-                      tipoEntrega === "domicilio"
-                        ? "pedidos-entrega-chip--on bg-gradient-to-r from-white via-amber-50 to-yellow-200 text-red-900 shadow-[0_0_22px_rgba(255,255,255,0.45)] ring-2 ring-amber-300/90"
-                        : "border border-white/45 bg-white/10 text-white backdrop-blur hover:bg-white/20"
-                    }`}
-                  >
-                    <span
-                      className={`pedidos-entrega-chip-icon flex h-6 w-6 items-center justify-center rounded-full transition ${
-                        tipoEntrega === "domicilio"
-                          ? "bg-gradient-to-br from-red-600 to-amber-500 text-white shadow-inner"
-                          : "bg-white/20 text-amber-100"
-                      }`}
-                    >
-                      <Bike className="h-3.5 w-3.5" strokeWidth={2.4} aria-hidden />
-                    </span>
-                    <span>Domicilio</span>
-                    {tipoEntrega === "domicilio" ? (
-                      <span className="pointer-events-none absolute inset-0 pedidos-entrega-chip-shine" aria-hidden />
-                    ) : null}
-                  </button>
+                      <span className="pedidos-entrega-chip-icon flex h-6 w-6 items-center justify-center rounded-full bg-red-700 text-amber-200">
+                        {tipoEntrega === "domicilio" ? (
+                          <Bike className="h-3.5 w-3.5" strokeWidth={2.4} aria-hidden />
+                        ) : (
+                          <Store className="h-3.5 w-3.5" strokeWidth={2.4} aria-hidden />
+                        )}
+                      </span>
+                      <span>{tipoEntrega === "domicilio" ? "Domicilio" : "Recoger en tienda"}</span>
+                      <span className="rounded-full bg-red-800/15 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wide text-red-900">
+                        Cambiar
+                      </span>
+                    </button>
+                  ) : null}
                 </div>
               </div>
             </div>
@@ -2532,8 +2429,34 @@ function PedidosLandingClient() {
           </article>
         </section>
 
-        {renderPasoTipoEntrega()}
+        {tipoEntregaElegido || tienePedidoActivo ? (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-red-100 bg-white px-4 py-3 shadow-sm">
+            <p className="text-sm font-semibold text-gray-800">
+              Entrega:{" "}
+              <span className="font-black text-red-700">
+                {tipoEntrega === "domicilio" ? "Domicilio a su dirección" : `Recoger en ${puntoVenta}`}
+              </span>
+            </p>
+            {!tienePedidoActivo ? (
+              <button
+                type="button"
+                onClick={() => setTipoEntregaElegido(false)}
+                className="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-bold text-red-800 hover:bg-red-100"
+              >
+                Cambiar opción
+              </button>
+            ) : null}
+          </div>
+        ) : (
+          <div className="rounded-2xl border-2 border-dashed border-amber-400 bg-gradient-to-br from-amber-50 to-orange-50 px-4 py-8 text-center shadow-sm">
+            <p className="text-base font-black text-amber-950">¿Cómo desea recibir su pedido?</p>
+            <p className="mt-1 text-sm text-amber-900/80">
+              Elija en la ventana emergente para continuar armando su pedido.
+            </p>
+          </div>
+        )}
 
+        {tipoEntregaElegido || tienePedidoActivo ? (
         <div className="grid gap-4 lg:grid-cols-[1fr_360px] lg:gap-5">
           <section className="min-w-0 space-y-4">
             <div className="rounded-2xl border border-red-100 bg-white p-3 shadow-sm sm:p-4">
@@ -2818,6 +2741,7 @@ function PedidosLandingClient() {
             ) : null}
           </aside>
         </div>
+        ) : null}
 
       </section>
       {pedidoEnCurso ? (
@@ -2835,7 +2759,11 @@ function PedidosLandingClient() {
           </span>
         </button>
       ) : null}
-      <div className="fixed inset-x-3 bottom-3 z-40 flex gap-2 lg:hidden">
+      <div
+        className={`fixed inset-x-3 bottom-3 z-40 flex gap-2 lg:hidden ${
+          !tienePedidoActivo && !tipoEntregaElegido ? "pointer-events-none opacity-40" : ""
+        }`}
+      >
         <button
           type="button"
           onClick={() => setCarritoModalAbierto(true)}
@@ -2981,6 +2909,88 @@ function PedidosLandingClient() {
               >
                 Seguir con mi pedido
               </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {!tienePedidoActivo && !tipoEntregaElegido && turnoCajaAbierto ? (
+        <div className="fixed inset-0 z-[118] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-[3px]" aria-hidden />
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="modal-tipo-entrega-titulo"
+            className="relative z-10 w-full max-w-lg overflow-hidden rounded-3xl border-2 border-amber-300 bg-gradient-to-br from-red-700 via-red-600 to-amber-500 p-1 shadow-2xl"
+          >
+            <div className="rounded-[1.35rem] bg-gradient-to-br from-amber-50 via-white to-orange-50 p-5 sm:p-6">
+              <div className="flex justify-center">
+                <img
+                  src={MASCOTA_DOMICILIOS_URL}
+                  alt=""
+                  aria-hidden
+                  className="h-24 w-auto object-contain drop-shadow-md sm:h-28"
+                  draggable={false}
+                />
+              </div>
+              <p className="mt-2 text-center text-[11px] font-black uppercase tracking-[0.22em] text-red-700">
+                María Chorizos
+              </p>
+              <h2
+                id="modal-tipo-entrega-titulo"
+                className="mt-1 text-center text-2xl font-black leading-tight text-red-950 sm:text-3xl"
+              >
+                ¿Cómo quiere recibir su pedido?
+              </h2>
+              <p className="mt-2 text-center text-sm font-medium text-slate-600">
+                Elija una opción para continuar. Así preparamos su pedido como usted lo necesita.
+              </p>
+
+              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTipoEntrega("recogida");
+                    setTipoEntregaElegido(true);
+                  }}
+                  className="group relative flex flex-col items-center gap-3 overflow-hidden rounded-2xl border-2 border-amber-300 bg-gradient-to-br from-amber-100 to-yellow-50 p-4 text-center shadow-md transition hover:border-amber-500 hover:shadow-lg active:scale-[0.98]"
+                >
+                  <span className="pedidos-entrega-chip-icon flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 to-yellow-300 text-red-900 shadow-lg">
+                    <Store className="h-7 w-7" strokeWidth={2.2} aria-hidden />
+                  </span>
+                  <span className="text-[11px] font-black uppercase tracking-[0.16em] text-amber-800">
+                    Opción 1
+                  </span>
+                  <span className="text-base font-black text-red-950">Recoger en tienda</span>
+                  <span className="text-xs font-medium text-slate-600">
+                    Sin costo de envío. Pase por {puntoVenta}.
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTipoEntrega("domicilio");
+                    setMetodoPago((m) => (m === "datafono" ? "efectivo" : m));
+                    setTipoEntregaElegido(true);
+                  }}
+                  className="group relative flex flex-col items-center gap-3 overflow-hidden rounded-2xl border-2 border-red-300 bg-gradient-to-br from-red-50 to-amber-50 p-4 text-center shadow-md transition hover:border-red-500 hover:shadow-lg active:scale-[0.98]"
+                >
+                  <span className="pedidos-entrega-chip-icon flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-red-600 to-amber-500 text-white shadow-lg">
+                    <Bike className="h-7 w-7" strokeWidth={2.2} aria-hidden />
+                  </span>
+                  <span className="text-[11px] font-black uppercase tracking-[0.16em] text-red-700">
+                    Opción 2
+                  </span>
+                  <span className="text-base font-black text-red-950">Domicilio</span>
+                  <span className="text-xs font-medium text-slate-600">
+                    Se lo llevamos. Gratis en compras superiores a $100.000.
+                  </span>
+                </button>
+              </div>
+
+              <p className="mt-4 text-center text-[11px] font-semibold text-slate-500">
+                Debe elegir una opción para continuar con su pedido.
+              </p>
             </div>
           </div>
         </div>
