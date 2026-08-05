@@ -68,6 +68,7 @@ import {
 } from "@/lib/chorizo-variante-pos";
 import {
   descripcionBebidaParaUi,
+  unificarAguaBrisaEnCatalogo,
   variantesBebidaParaUi,
 } from "@/lib/bebida-variantes-display";
 
@@ -1168,8 +1169,10 @@ function PedidosLandingClient() {
 
   const catalogoVisible = useMemo(
     () =>
-      catalogo.filter((p) =>
-        productoVisibleEnCatalogoDomicilios(p, tarifaDomicilio.catalogoDomiciliosPorSku)
+      unificarAguaBrisaEnCatalogo(
+        catalogo.filter((p) =>
+          productoVisibleEnCatalogoDomicilios(p, tarifaDomicilio.catalogoDomiciliosPorSku)
+        )
       ),
     [catalogo, tarifaDomicilio.catalogoDomiciliosPorSku]
   );

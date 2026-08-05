@@ -103,7 +103,7 @@ describe("tabCatalogoDeProducto", () => {
     ).toBe("combos");
   });
 
-  it("subtítulo listo para llevar solo en paquetes", () => {
+  it("subtítulo listo para llevar en paquetes y bebidas", () => {
     expect(
       subtituloTarjetaCatalogoPedidos(
         prod({ sku: "PQ-1", descripcion: "Paquete chorizos", categoria: "Especialidades" })
@@ -114,6 +114,9 @@ describe("tabCatalogoDeProducto", () => {
         prod({ sku: "CHI-1L", descripcion: "Chimichurri por litro", categoria: "Complementos" })
       )
     ).toBe("Producto fresco listo para llevar.");
+    expect(
+      subtituloTarjetaCatalogoPedidos(prod({ sku: "4", descripcion: "Agua Brisa", categoria: "Bebidas" }))
+    ).toBe("Producto listo para llevar.");
     expect(
       subtituloTarjetaCatalogoPedidos(prod({ sku: "1", descripcion: "Chorizo con pan", categoria: "Básicos" }))
     ).toBe("Producto fresco, preparado al momento.");
