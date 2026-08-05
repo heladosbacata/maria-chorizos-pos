@@ -724,6 +724,8 @@ function PedidosLandingClient() {
 
   useEffect(() => {
     sesionRestauradaRef.current = false;
+    // Al entrar o cambiar de punto, el cliente debe volver a elegir recogida/domicilio.
+    setTipoEntregaElegido(false);
   }, [puntoVenta]);
 
   useEffect(() => {
@@ -746,8 +748,9 @@ function PedidosLandingClient() {
     const borrador = leerBorradorCarritoPedidos(puntoVenta);
     if (borrador && !pedidoIdEnUrl) {
       setCantidades((prev) => (Object.keys(prev).length ? prev : borrador.cantidades));
+      // Restauramos preferencias del borrador, pero NO marcamos entrega como elegida:
+      // al refrescar / abrir de nuevo el modal de recogida vs domicilio debe aparecer.
       setTipoEntrega(borrador.tipoEntrega);
-      setTipoEntregaElegido(true);
       setMetodoPago(borrador.metodoPago);
       if (borrador.direccion) setDireccion((d) => d || borrador.direccion);
       if (borrador.referencia) setReferencia((r) => r || borrador.referencia);
