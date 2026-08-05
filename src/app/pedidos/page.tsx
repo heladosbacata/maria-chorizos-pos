@@ -59,11 +59,14 @@ import type { ProductoPOS } from "@/types";
 import type { MensajeChatDomicilio } from "@/types/pos-domicilios-chat";
 import {
   OPCIONES_SALSA_FAVORITA,
-  esSalsaFavorita,
-  etiquetaSalsaFavorita,
+  esTokenSalsaPedido,
+  etiquetaTokenSalsaPedido,
+  parseSalsasDeToken,
   productoRequiereSalsaFavorita,
   productoRequiereSoloTipoArepaPeto,
-  type SalsaFavorita,
+  toggleSalsaFavoritaEnToken,
+  tokenSinSalsa,
+  type TokenSalsaPedido,
 } from "@/lib/chorizo-variante-pos";
 import {
   descripcionBebidaParaUi,
@@ -210,7 +213,7 @@ type CarritoLinea = {
   cantidad: number;
   varianteKey: string | null;
   varianteLabel: string | null;
-  salsaKey: SalsaFavorita | null;
+  salsaKey: TokenSalsaPedido | null;
   salsaLabel: string | null;
   precioUnitarioLinea: number;
 };
@@ -221,7 +224,7 @@ const SALSA_KEY_PREFIX = "salsa:";
 function keyLineaPedido(
   sku: string,
   varianteKey: string | null,
-  salsaKey: SalsaFavorita | null = null
+  salsaKey: TokenSalsaPedido | null = null
 ): string {
   const base = `${sku}::${varianteKey ?? VARIANTE_BASE_KEY}`;
   if (!salsaKey) return base;
@@ -231,7 +234,7 @@ function keyLineaPedido(
 function parseKeyLineaPedido(lineKey: string): {
   sku: string;
   varianteKey: string | null;
-  salsaKey: SalsaFavorita | null;
+  salsaKey: TokenSalsaPedido | null;
 } {
   const parts = lineKey.split("::");
   const sku = (parts[0] ?? "").trim();
@@ -243,7 +246,7 @@ function parseKeyLineaPedido(lineKey: string): {
   return {
     sku,
     varianteKey: vk && vk !== VARIANTE_BASE_KEY ? vk : null,
-    salsaKey: esSalsaFavorita(salsaToken) ? salsaToken : null,
+    salsaKey: esTokenSalsaPedido(salsaToken) ? salsaToken : null,
   };
 }
 
@@ -648,7 +651,9 @@ function PedidosLandingClient() {
   const [errorCatalogo, setErrorCatalogo] = useState<string | null>(null);
   const [cantidades, setCantidades] = useState<Record<string, number>>({});
   const [varianteSeleccionadaPorSku, setVarianteSeleccionadaPorSku] = useState<Record<string, string>>({});
-  const [salsaSeleccionadaPorSku, setSalsaSeleccionadaPorSku] = useState<Record<string, SalsaFavorita>>({});
+  const [salsaSeleccionadaPorSku, setSalsaSeleccionadaPorSku] = useState<
+    Record<string, TokenSalsaPedido>
+  >({});
   const [cliente, setCliente] = useState("");
   const [telefono, setTelefono] = useState("");
   const [direccion, setDireccion] = useState("");
@@ -1211,7 +1216,7 @@ function PedidosLandingClient() {
       const variantes = opcionesVariantesProducto(p);
       const variante = varianteKey ? variantes.find((v) => v.key === varianteKey) : null;
       const precioUnitarioLinea = variante?.precio ?? p.precioUnitario;
-      const salsaLabel = salsaKey ? etiquetaSalsaFavorita(salsaKey) : null;
+      const salsaLabel = salsaKey ? etiquetaTokenSalsaPedido(salsaKey) : null;
       out.push({
         lineKey,
         p,
@@ -1289,11 +1294,13 @@ function PedidosLandingClient() {
   const subirCantidad = (
     sku: string,
     varianteKey: string | null = null,
-    salsaKey: SalsaFavorita | null = null
+    salsaKey: TokenSalsaPedido | null = null
   ) => {
     const p = catalogo.find((x) => x.sku === sku);
     if (p && productoRequiereSalsaFavorita(p) && !salsaKey) {
-      setMensaje("Elija su salsa favorita (ajo o chimichurri) antes de agregar el producto.");
+      setMensaje(
+        "Indique si desea salsa (ajo, chimichurri o ambas) o sin salsas antes de agregar el producto."
+      );
       return;
     }
     const lineKey = keyLineaPedido(sku, varianteKey, salsaKey);
@@ -1304,7 +1311,7 @@ function PedidosLandingClient() {
   const bajarCantidad = (
     sku: string,
     varianteKey: string | null = null,
-    salsaKey: SalsaFavorita | null = null
+    salsaKey: TokenSalsaPedido | null = null
   ) => {
     const lineKey = keyLineaPedido(sku, varianteKey, salsaKey);
     setCantidades((prev) => {
@@ -1442,7 +1449,9 @@ function PedidosLandingClient() {
       (x) => productoRequiereSalsaFavorita(x.p) && !x.salsaKey
     );
     if (faltaSalsa) {
-      setMensaje("Hay productos sin salsa favorita. Elija salsa de ajo o chimichurri.");
+      setMensaje(
+        "Hay productos sin opción de salsa. Elija ajo, chimichurri, ambas o sin salsas."
+      );
       return false;
     }
     return true;
@@ -2267,21 +2276,23 @@ function PedidosLandingClient() {
           ) : null}
           {pideSalsa ? (
             <div className="space-y-1">
-              <p className="text-[11px] font-semibold text-gray-600">
-                Salsa favorita <span className="font-normal text-rose-600">(obligatoria)</span>
-              </p>
+              <p className="text-[11px] font-semibold text-gray-600">Salsa favorita</p>
               <div className="flex flex-wrap gap-1">
                 {OPCIONES_SALSA_FAVORITA.map((op) => {
-                  const activo = salsaActiva === op.key;
+                  const activo = salsaActiva != null && salsaActiva !== "sin" && parseSalsasDeToken(salsaActiva).includes(op.key);
                   return (
                     <button
                       key={`${prod.sku}-salsa-${op.key}`}
                       type="button"
                       onClick={() =>
-                        setSalsaSeleccionadaPorSku((prev) => ({
-                          ...prev,
-                          [prod.sku]: op.key,
-                        }))
+                        setSalsaSeleccionadaPorSku((prev) => {
+                          const next = toggleSalsaFavoritaEnToken(prev[prod.sku] ?? null, op.key);
+                          if (!next) {
+                            const { [prod.sku]: _, ...rest } = prev;
+                            return rest;
+                          }
+                          return { ...prev, [prod.sku]: next };
+                        })
                       }
                       className={`rounded-full border px-2 py-1 text-[11px] font-semibold transition ${
                         activo
@@ -2293,10 +2304,30 @@ function PedidosLandingClient() {
                     </button>
                   );
                 })}
+                <button
+                  key={`${prod.sku}-salsa-sin`}
+                  type="button"
+                  onClick={() =>
+                    setSalsaSeleccionadaPorSku((prev) => {
+                      if (prev[prod.sku] === "sin") {
+                        const { [prod.sku]: _, ...rest } = prev;
+                        return rest;
+                      }
+                      return { ...prev, [prod.sku]: tokenSinSalsa() };
+                    })
+                  }
+                  className={`rounded-full border px-2 py-1 text-[11px] font-semibold transition ${
+                    salsaActiva === "sin"
+                      ? "border-slate-600 bg-slate-600 text-white"
+                      : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50"
+                  }`}
+                >
+                  Sin salsas
+                </button>
               </div>
               {!salsaActiva ? (
                 <p className="text-[10px] font-medium text-amber-800">
-                  Elija una salsa para poder agregar unidades.
+                  Elija una, ambas o sin salsas para poder agregar unidades.
                 </p>
               ) : null}
             </div>
