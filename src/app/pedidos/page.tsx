@@ -2917,55 +2917,67 @@ function PedidosLandingClient() {
         </div>
       ) : null}
       {!tienePedidoActivo && !tipoEntregaElegido && turnoCajaAbierto ? (
-        <div className="fixed inset-0 z-[118] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[118] flex items-end justify-center p-3 sm:items-center sm:p-4">
           <div className="absolute inset-0 bg-slate-950/70 backdrop-blur-[3px]" aria-hidden />
           <div
             role="dialog"
             aria-modal="true"
             aria-labelledby="modal-tipo-entrega-titulo"
-            className="relative z-10 w-full max-w-lg overflow-hidden rounded-3xl border-2 border-amber-300 bg-gradient-to-br from-red-700 via-red-600 to-amber-500 p-1 shadow-2xl"
+            className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl border-2 border-amber-300 bg-gradient-to-br from-red-700 via-red-600 to-amber-500 p-0.5 shadow-2xl sm:max-w-lg sm:rounded-3xl sm:p-1"
           >
-            <div className="rounded-[1.35rem] bg-gradient-to-br from-amber-50 via-white to-orange-50 p-5 sm:p-6">
-              <div className="flex justify-center">
+            <div className="max-h-[min(88dvh,560px)] overflow-y-auto rounded-[0.9rem] bg-gradient-to-br from-amber-50 via-white to-orange-50 px-3.5 py-3.5 sm:max-h-none sm:rounded-[1.35rem] sm:px-6 sm:py-5">
+              <div className="flex items-center justify-center gap-3 sm:flex-col sm:gap-0">
                 <img
                   src={MASCOTA_DOMICILIOS_URL}
                   alt=""
                   aria-hidden
-                  className="h-24 w-auto object-contain drop-shadow-md sm:h-28"
+                  className="h-12 w-auto shrink-0 object-contain drop-shadow-md sm:h-24 sm:h-auto md:h-28"
                   draggable={false}
                 />
+                <div className="min-w-0 text-left sm:mt-2 sm:text-center">
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-red-700 sm:tracking-[0.22em] sm:text-[11px]">
+                    María Chorizos
+                  </p>
+                  <div className="mt-1 inline-flex max-w-full items-center gap-1.5 rounded-full border border-red-200 bg-white px-2.5 py-1 shadow-sm sm:mt-2 sm:gap-2 sm:border-2 sm:px-3.5 sm:py-1.5">
+                    <Store className="h-3.5 w-3.5 shrink-0 text-red-700 sm:h-4 sm:w-4" strokeWidth={2.4} aria-hidden />
+                    <span className="truncate text-xs font-black text-red-950 sm:text-sm">{puntoVenta}</span>
+                  </div>
+                </div>
               </div>
-              <p className="mt-2 text-center text-[11px] font-black uppercase tracking-[0.22em] text-red-700">
-                María Chorizos
-              </p>
+
               <h2
                 id="modal-tipo-entrega-titulo"
-                className="mt-1 text-center text-2xl font-black leading-tight text-red-950 sm:text-3xl"
+                className="mt-3 text-center text-lg font-black leading-snug text-red-950 sm:mt-3 sm:text-2xl md:text-3xl"
               >
                 ¿Cómo quiere recibir su pedido?
               </h2>
-              <p className="mt-2 text-center text-sm font-medium text-slate-600">
-                Elija una opción para continuar. Así preparamos su pedido como usted lo necesita.
+              <p className="mt-1 hidden text-center text-sm font-medium text-slate-600 sm:mt-2 sm:block">
+                Pedido en <strong className="font-bold text-red-900">{puntoVenta}</strong>. Elija una opción
+                para continuar.
               </p>
 
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <div className="mt-3 grid gap-2 sm:mt-5 sm:grid-cols-2 sm:gap-3">
                 <button
                   type="button"
                   onClick={() => {
                     setTipoEntrega("recogida");
                     setTipoEntregaElegido(true);
                   }}
-                  className="group relative flex flex-col items-center gap-3 overflow-hidden rounded-2xl border-2 border-amber-300 bg-gradient-to-br from-amber-100 to-yellow-50 p-4 text-center shadow-md transition hover:border-amber-500 hover:shadow-lg active:scale-[0.98]"
+                  className="group relative flex items-center gap-3 overflow-hidden rounded-xl border-2 border-amber-300 bg-gradient-to-br from-amber-100 to-yellow-50 px-3 py-2.5 text-left shadow-md transition hover:border-amber-500 hover:shadow-lg active:scale-[0.98] sm:flex-col sm:items-center sm:gap-3 sm:rounded-2xl sm:p-4 sm:text-center"
                 >
-                  <span className="pedidos-entrega-chip-icon flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-400 to-yellow-300 text-red-900 shadow-lg">
-                    <Store className="h-7 w-7" strokeWidth={2.2} aria-hidden />
+                  <span className="pedidos-entrega-chip-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-yellow-300 text-red-900 shadow-md sm:h-14 sm:w-14 sm:rounded-2xl sm:shadow-lg">
+                    <Store className="h-5 w-5 sm:h-7 sm:w-7" strokeWidth={2.2} aria-hidden />
                   </span>
-                  <span className="text-[11px] font-black uppercase tracking-[0.16em] text-amber-800">
-                    Opción 1
-                  </span>
-                  <span className="text-base font-black text-red-950">Recoger en tienda</span>
-                  <span className="text-xs font-medium text-slate-600">
-                    Sin costo de envío. Pase por {puntoVenta}.
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[10px] font-black uppercase tracking-[0.14em] text-amber-800 sm:text-[11px] sm:tracking-[0.16em]">
+                      Opción 1
+                    </span>
+                    <span className="mt-0.5 block text-sm font-black text-red-950 sm:text-base">
+                      Recoger en tienda
+                    </span>
+                    <span className="mt-0.5 block text-[11px] font-medium leading-snug text-slate-600 sm:text-xs">
+                      Sin costo de envío. Pase por este punto.
+                    </span>
                   </span>
                 </button>
 
@@ -2976,23 +2988,25 @@ function PedidosLandingClient() {
                     setMetodoPago((m) => (m === "datafono" ? "efectivo" : m));
                     setTipoEntregaElegido(true);
                   }}
-                  className="group relative flex flex-col items-center gap-3 overflow-hidden rounded-2xl border-2 border-red-300 bg-gradient-to-br from-red-50 to-amber-50 p-4 text-center shadow-md transition hover:border-red-500 hover:shadow-lg active:scale-[0.98]"
+                  className="group relative flex items-center gap-3 overflow-hidden rounded-xl border-2 border-red-300 bg-gradient-to-br from-red-50 to-amber-50 px-3 py-2.5 text-left shadow-md transition hover:border-red-500 hover:shadow-lg active:scale-[0.98] sm:flex-col sm:items-center sm:gap-3 sm:rounded-2xl sm:p-4 sm:text-center"
                 >
-                  <span className="pedidos-entrega-chip-icon flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-red-600 to-amber-500 text-white shadow-lg">
-                    <Bike className="h-7 w-7" strokeWidth={2.2} aria-hidden />
+                  <span className="pedidos-entrega-chip-icon flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-red-600 to-amber-500 text-white shadow-md sm:h-14 sm:w-14 sm:rounded-2xl sm:shadow-lg">
+                    <Bike className="h-5 w-5 sm:h-7 sm:w-7" strokeWidth={2.2} aria-hidden />
                   </span>
-                  <span className="text-[11px] font-black uppercase tracking-[0.16em] text-red-700">
-                    Opción 2
-                  </span>
-                  <span className="text-base font-black text-red-950">Domicilio</span>
-                  <span className="text-xs font-medium text-slate-600">
-                    Se lo llevamos. Gratis en compras superiores a $100.000.
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[10px] font-black uppercase tracking-[0.14em] text-red-700 sm:text-[11px] sm:tracking-[0.16em]">
+                      Opción 2
+                    </span>
+                    <span className="mt-0.5 block text-sm font-black text-red-950 sm:text-base">Domicilio</span>
+                    <span className="mt-0.5 block text-[11px] font-medium leading-snug text-slate-600 sm:text-xs">
+                      Desde este punto. Gratis sobre $100.000.
+                    </span>
                   </span>
                 </button>
               </div>
 
-              <p className="mt-4 text-center text-[11px] font-semibold text-slate-500">
-                Debe elegir una opción para continuar con su pedido.
+              <p className="mt-2.5 text-center text-[10px] font-semibold text-slate-500 sm:mt-4 sm:text-[11px]">
+                Debe elegir una opción para continuar.
               </p>
             </div>
           </div>
