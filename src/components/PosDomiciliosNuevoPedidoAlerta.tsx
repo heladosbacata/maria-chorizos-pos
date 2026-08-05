@@ -134,9 +134,11 @@ export default function PosDomiciliosNuevoPedidoAlerta({ puntoVenta, habilitado 
         const extra = recien.filter((p) => !ids.has(p.id));
         return extra.length ? [...cur, ...extra] : cur;
       });
-      // No abrir el modal automáticamente: el dock muestra el aviso vibrante.
-      setModalAbierto(false);
-      marcaPendienteAtRef.current = Date.now();
+      // No cerrar el modal si el cajero ya está revisando otro pedido en cola.
+      // El dock avisa cuando el modal está minimizado / sin abrir.
+      if (!modalAbiertoRef.current) {
+        marcaPendienteAtRef.current = Date.now();
+      }
       for (const p of recien) void enviarResumenSiFalta(p);
     },
     [pv, enviarResumenSiFalta]
@@ -144,19 +146,39 @@ export default function PosDomiciliosNuevoPedidoAlerta({ puntoVenta, habilitado 
 
   const encolarPedidosNuevosDesdeLista = useCallback(
     (pedidos: PedidoDomicilio[]) => {
-      const nuevosActuales = pedidos.filter((p) => p.estado === "NUEVO").map((p) => p.id);
-      const prev = pedidosNuevosPrevRef.current;
-      const llegados = nuevosActuales.filter((id) => !prev.includes(id));
-      pedidosNuevosPrevRef.current = nuevosActuales;
+      const nuevos = pedidos.filter((p) => p.estado === "NUEVO");
+      const nuevosActuales = nuevos.map((p) => p.id);
+      const nuevosSet = new Set(nuevosActuales);
 
-      // Primera pasada: solo sincroniza IDs (no alertar pedidos ya en bandeja al abrir caja).
+      // Quitar de la cola local pedidos que ya no están NUEVO (aceptados/rechazados en otro lado).
+      setCola((cur) => {
+        if (cur.length === 0) return cur;
+        const next = cur
+          .filter((p) => nuevosSet.has(p.id))
+          .map((p) => nuevos.find((n) => n.id === p.id) ?? p);
+        if (next.length === cur.length && next.every((p, i) => p.id === cur[i]?.id)) {
+          return next.every((p, i) => p === cur[i]) ? cur : next;
+        }
+        return next;
+      });
+
+      const prev = pedidosNuevosPrevRef.current;
+
+      // Primera pasada: encolar NUEVOs pendientes (aviso hasta aceptar/rechazar cada uno).
       if (!inicializadoRef.current) {
         inicializadoRef.current = true;
+        pedidosNuevosPrevRef.current = nuevosActuales;
+        if (nuevos.length > 0) {
+          encolarPedidos(nuevos, { sonar: true });
+        }
         return;
       }
+
+      const llegados = nuevosActuales.filter((id) => !prev.includes(id));
+      pedidosNuevosPrevRef.current = nuevosActuales;
       if (llegados.length === 0) return;
 
-      const recien = pedidos.filter((p) => llegados.includes(p.id));
+      const recien = nuevos.filter((p) => llegados.includes(p.id));
       encolarPedidos(recien, { sonar: true });
     },
     [encolarPedidos]
@@ -297,15 +319,24 @@ export default function PosDomiciliosNuevoPedidoAlerta({ puntoVenta, habilitado 
     setMotivoRechazo("");
     setError(null);
     setModalAbierto(false);
-    setCola((cur) => {
-      const next = cur.slice(1);
-      if (next[0]) {
-        marcaPendienteAtRef.current = Date.now();
-      } else {
-        marcaPendienteAtRef.current = 0;
+    const next = colaRef.current.slice(1);
+    setCola(next);
+    colaRef.current = next;
+    if (next[0]) {
+      // Siguiente en cola: aviso + sonido hasta que también se acepte o rechace.
+      marcaPendienteAtRef.current = Date.now();
+      reproducirAlertaNuevoPedidoDomicilio(pv);
+      if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+        try {
+          navigator.vibrate([160, 80, 160, 80, 240, 100, 200]);
+        } catch {
+          /* ignore */
+        }
       }
-      return next;
-    });
+      emitirAvisoDock(next[0], next.length);
+    } else {
+      marcaPendienteAtRef.current = 0;
+    }
   };
 
   const aceptarPedido = async () => {
@@ -418,15 +449,18 @@ export default function PosDomiciliosNuevoPedidoAlerta({ puntoVenta, habilitado 
                 id="domicilios-alerta-titulo"
                 className="mt-1 text-center text-2xl font-black leading-tight sm:text-4xl"
               >
-                ¡Llegó un pedido nuevo!
+                {cola.length > 1
+                  ? `Pedido 1 de ${cola.length} · ¡Nuevo domicilio!`
+                  : "¡Llegó un pedido nuevo!"}
               </h2>
               <p className="mx-auto mt-2 max-w-2xl text-center text-sm font-semibold text-amber-50/95 sm:text-base">
-                Podés minimizar para terminar la venta actual y volver a abrir desde Domicilios. Si no
-                aceptás o rechazás, te avisamos de nuevo a los 10 segundos.
+                Podés minimizar para terminar la venta actual y volver a abrir desde Domicilios. Cada
+                pedido sigue alertando hasta que lo aceptés o rechacés
+                {cola.length > 1 ? " (uno por uno, en orden)" : ""}.
               </p>
               {cola.length > 1 ? (
                 <p className="mt-2 text-center text-xs font-bold text-amber-100">
-                  +{cola.length - 1} pedido(s) más en cola
+                  +{cola.length - 1} pedido(s) más esperando en cola
                 </p>
               ) : null}
             </header>

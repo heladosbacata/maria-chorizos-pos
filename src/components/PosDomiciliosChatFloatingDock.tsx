@@ -318,15 +318,22 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
               className="pointer-events-auto max-w-md animate-[pos-domicilios-shake_0.55s_ease-in-out_infinite] rounded-2xl border-2 border-amber-400 bg-gradient-to-r from-amber-50 via-orange-50 to-rose-50 px-4 py-3.5 text-left shadow-[0_20px_50px_-12px_rgba(245,158,11,0.55)] ring-4 ring-amber-400/50"
             >
               <p className="text-[10px] font-black uppercase tracking-wide text-amber-800">
-                Chat domicilios · pedido nuevo
+                Chat domicilios ·{" "}
+                {avisoPedidoNuevo.cantidadEnCola > 1
+                  ? `${avisoPedidoNuevo.cantidadEnCola} pedidos pendientes`
+                  : "pedido nuevo"}
               </p>
               <p className="mt-0.5 text-sm font-black text-slate-900">
-                ¡Llegó un pedido de {avisoPedidoNuevo.pedido.cliente.trim() || "un cliente"}!
+                {avisoPedidoNuevo.cantidadEnCola > 1
+                  ? `Pedido 1 de ${avisoPedidoNuevo.cantidadEnCola}: ${
+                      avisoPedidoNuevo.pedido.cliente.trim() || "cliente"
+                    }`
+                  : `¡Llegó un pedido de ${avisoPedidoNuevo.pedido.cliente.trim() || "un cliente"}!`}
               </p>
               <p className="mt-1 text-[11px] font-semibold text-rose-700">
                 Tocá para abrir · aceptar o rechazar
                 {avisoPedidoNuevo.cantidadEnCola > 1
-                  ? ` · +${avisoPedidoNuevo.cantidadEnCola - 1} en cola`
+                  ? ` · quedan ${avisoPedidoNuevo.cantidadEnCola} en cola`
                   : ""}
               </p>
             </button>
@@ -374,7 +381,9 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
           >
             {hayAvisoPedido ? (
               <span className="pointer-events-none absolute -right-1.5 -top-1.5 z-20 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-gradient-to-br from-rose-500 to-red-600 px-1.5 text-[10px] font-bold text-white shadow-lg ring-2 ring-white">
-                !
+                {(avisoPedidoNuevo?.cantidadEnCola ?? 1) > 9
+                  ? "9+"
+                  : (avisoPedidoNuevo?.cantidadEnCola ?? 1)}
               </span>
             ) : totalNoLeidos > 0 ? (
               <span className="pointer-events-none absolute -right-1.5 -top-1.5 z-20 flex h-5 min-w-[20px] items-center justify-center rounded-full bg-gradient-to-br from-rose-500 to-red-600 px-1.5 text-[10px] font-bold text-white shadow-lg ring-2 ring-white">
@@ -405,7 +414,9 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
                 </p>
                 <p className="text-[11px] font-semibold text-slate-800">
                   {hayAvisoPedido
-                    ? "¡Pedido nuevo!"
+                    ? (avisoPedidoNuevo?.cantidadEnCola ?? 1) > 1
+                      ? `¡${avisoPedidoNuevo?.cantidadEnCola} pedidos nuevos!`
+                      : "¡Pedido nuevo!"
                     : `${pedidosActivos.length} chat${pedidosActivos.length === 1 ? "" : "s"} activo${
                         pedidosActivos.length === 1 ? "" : "s"
                       }`}
