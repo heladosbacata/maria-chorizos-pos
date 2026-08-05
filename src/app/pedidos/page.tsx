@@ -2443,10 +2443,10 @@ function PedidosLandingClient() {
             <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">Beneficio</p>
             <p className="mt-1 text-base font-extrabold leading-snug text-amber-950 sm:text-lg">
               {tipoEntrega === "recogida"
-                ? "Sin costo de envío"
+                ? "Sin costo de envío · por recoger en tienda"
                 : subtotal >= tarifaDomicilio.umbralGratisCop
                   ? "Domicilio gratis aplicado · compras superiores a $100.000"
-                  : "Sin costo de envío por compras superiores a $100.000"}
+                  : "Envío gratis por compras superiores a $100.000"}
             </p>
           </article>
         </section>
