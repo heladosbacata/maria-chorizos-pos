@@ -803,6 +803,7 @@ function PedidosLandingClient() {
     estadoPedidoAnteriorRef.current = null;
     ultimoMensajePosIdRef.current = null;
     setTipoEntregaElegido(false);
+    setClubMillasVinculo(null);
     const pref = leerClientePreferidoPedidos(puntoVenta);
     if (pref?.nombre) setCliente(pref.nombre);
     if (pref?.telefono) {
