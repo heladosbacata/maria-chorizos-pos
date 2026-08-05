@@ -76,7 +76,8 @@ function payloadFeDesdePedido(
       montoConIva: Math.round(l.precioUnitario * l.cantidad * 100) / 100,
     })),
     clienteNombre: pedido.cliente.trim() || "Consumidor final",
-    clienteNit: "222222222",
+    clienteNit:
+      pedido.clienteDocumento?.replace(/\s/g, "").replace(/[.\-]/g, "").trim() || "222222222",
     observaciones: `Domicilio ${pedido.id} · ${etiquetaMetodoPago(pedido.metodoPago)} · ${pedido.direccion}`.slice(
       0,
       400
@@ -137,6 +138,8 @@ export async function enviarPedidoDomicilioAFacturacion(
     .filter(Boolean)
     .join(" · ");
 
+  const nitCliente =
+    pedido.clienteDocumento?.replace(/\s/g, "").replace(/[.\-]/g, "").trim() || "222222222";
   const ventaLocalId = appendVentaLocal(uid, {
     fechaYmd: ymdColombia(),
     isoTimestamp: new Date().toISOString(),
@@ -146,7 +149,7 @@ export async function enviarPedidoDomicilioAFacturacion(
     pagoResumen,
     tipoComprobanteAlCobro: "factura_electronica",
     clienteNombreVenta: pedido.cliente.trim() || "Consumidor final",
-    clienteNitVenta: "222222222",
+    clienteNitVenta: nitCliente,
   });
 
   if (!ventaLocalId) {
@@ -192,7 +195,7 @@ export async function enviarPedidoDomicilioAFacturacion(
         });
         actualizarVentaLocalClienteComprobante(uid, ventaLocalId, {
           nombre: pedido.cliente.trim() || "Consumidor final",
-          nit: "222222222",
+          nit: nitCliente,
         });
         message = rFe.numeroFactura
           ? `Pedido listo facturado: ${rFe.numeroFactura}.`
