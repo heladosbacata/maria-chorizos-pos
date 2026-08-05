@@ -2999,7 +2999,7 @@ function PedidosLandingClient() {
                     </span>
                     <span className="mt-0.5 block text-sm font-black text-red-950 sm:text-base">Domicilio</span>
                     <span className="mt-0.5 block text-[11px] font-medium leading-snug text-slate-600 sm:text-xs">
-                      Desde este punto. Gratis sobre $100.000.
+                      Envío gratis por compras superiores a $100.000.
                     </span>
                   </span>
                 </button>
