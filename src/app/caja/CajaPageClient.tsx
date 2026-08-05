@@ -50,6 +50,10 @@ import {
   type DomiciliosContadorNuevosDetail,
 } from "@/lib/pos-domicilios-nuevos-event";
 import { emitirDomiciliosAbrirChat } from "@/lib/pos-domicilios-chat-event";
+import {
+  normalizarCatalogoDomiciliosPorSku,
+  productoHabilitadoEnDomiciliosPunto,
+} from "@/lib/pos-domicilios-catalogo-sku";
 import type { PedidoDomicilio } from "@/types/pos-domicilios";
 import {
   buildLineIdPos,
@@ -662,6 +666,9 @@ export default function CajaPageClient() {
   const [catalogoLoading, setCatalogoLoading] = useState(false);
   const [catalogoError, setCatalogoError] = useState<string | null>(null);
   const [busquedaCatalogo, setBusquedaCatalogo] = useState("");
+  /** sku → false deshabilita en menú de domicilios del punto; ausencia = habilitado. */
+  const [catalogoDomiciliosPorSku, setCatalogoDomiciliosPorSku] = useState<Record<string, boolean>>({});
+  const [guardandoDomiciliosSku, setGuardandoDomiciliosSku] = useState<string | null>(null);
   const [productoSolicitudPrecio, setProductoSolicitudPrecio] = useState<ProductoPOS | null>(null);
   const [precioSolicitadoInput, setPrecioSolicitadoInput] = useState("");
   const [motivoSolicitudPrecio, setMotivoSolicitudPrecio] = useState("");
@@ -970,6 +977,78 @@ export default function CajaPageClient() {
       cancelled = true;
     };
   }, [moduloActivo, user?.role, user, user?.puntoVenta, user?.uid]);
+
+  /** Catálogo de domicilios por SKU del punto (check bajo el precio). */
+  useEffect(() => {
+    if (user && esContadorInvitado(user.role)) return;
+    const pv = user?.puntoVenta?.trim() ?? "";
+    if (!pv) {
+      setCatalogoDomiciliosPorSku({});
+      return;
+    }
+    let cancelled = false;
+    const url = `/api/pos_domicilios_config?${new URLSearchParams({ puntoVenta: pv }).toString()}`;
+    void fetch(url, { method: "GET", cache: "no-store" })
+      .then(async (res) => {
+        const json = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          catalogoDomiciliosPorSku?: unknown;
+        };
+        if (cancelled || !res.ok || json.ok === false) return;
+        setCatalogoDomiciliosPorSku(normalizarCatalogoDomiciliosPorSku(json.catalogoDomiciliosPorSku));
+      })
+      .catch(() => {
+        /* silencioso: default = todos habilitados */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.puntoVenta, user?.role, user]);
+
+  const toggleProductoDomicilios = useCallback(
+    async (sku: string, habilitado: boolean) => {
+      const pv = user?.puntoVenta?.trim() ?? "";
+      if (!pv || !sku.trim()) return;
+      const token = await auth?.currentUser?.getIdToken().catch(() => null);
+      if (!token) {
+        window.alert("Iniciá sesión para guardar qué productos van a domicilios.");
+        return;
+      }
+      const prev = catalogoDomiciliosPorSku;
+      setCatalogoDomiciliosPorSku((m) => ({ ...m, [sku]: habilitado }));
+      setGuardandoDomiciliosSku(sku);
+      try {
+        const res = await fetch("/api/pos_domicilios_config", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            puntoVenta: pv,
+            catalogoDomiciliosSku: sku,
+            catalogoDomiciliosHabilitado: habilitado,
+          }),
+        });
+        const j = (await res.json().catch(() => ({}))) as {
+          ok?: boolean;
+          message?: string;
+          catalogoDomiciliosPorSku?: unknown;
+        };
+        if (!res.ok || j.ok === false) {
+          setCatalogoDomiciliosPorSku(prev);
+          window.alert(j.message ?? "No se pudo guardar el producto para domicilios.");
+          return;
+        }
+        if (j.catalogoDomiciliosPorSku !== undefined) {
+          setCatalogoDomiciliosPorSku(normalizarCatalogoDomiciliosPorSku(j.catalogoDomiciliosPorSku));
+        }
+      } catch {
+        setCatalogoDomiciliosPorSku(prev);
+        window.alert("Error de red al guardar el producto para domicilios.");
+      } finally {
+        setGuardandoDomiciliosSku(null);
+      }
+    },
+    [user?.puntoVenta, catalogoDomiciliosPorSku]
+  );
 
   /** Chat y liga WMS: diferidos para no competir con catálogo al abrir caja. */
   useEffect(() => {
@@ -4280,7 +4359,8 @@ export default function CajaPageClient() {
               >
                 <h2 className="mb-3 text-lg font-semibold text-gray-800">Catálogo de productos</h2>
                 <p className="mb-4 text-sm text-gray-500">
-                  Productos disponibles para venta (origen: WMS — Productos POS)
+                  Productos disponibles para venta (origen: WMS — Productos POS). Marcá el check bajo el precio
+                  para ofrecer cada producto en domicilios de este punto (por defecto todos habilitados).
                 </p>
                 {mensajeSolicitudPrecio && (
                   <div className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
@@ -4337,75 +4417,100 @@ export default function CajaPageClient() {
                       const qty = itemsCuentaActiva
                         .filter((i) => i.producto.sku === p.sku)
                         .reduce((s, i) => s + i.cantidad, 0);
+                      const enDomicilios = productoHabilitadoEnDomiciliosPunto(p.sku, catalogoDomiciliosPorSku);
+                      const guardandoEste = guardandoDomiciliosSku === p.sku;
                       return (
-                        <button
+                        <div
                           key={p.sku}
-                          type="button"
-                          onClick={() => onClicProductoCatalogo(p)}
-                          disabled={!turnoAbierto}
-                          className="flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-gray-50/50 text-left transition-shadow hover:border-primary-300 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-primary-400 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:shadow-none"
+                          className="flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-gray-50/50 transition-shadow hover:border-primary-300 hover:shadow-sm"
                         >
-                          <div className="relative aspect-[5/4] w-full bg-gray-200">
-                            {qty > 0 && (
-                              <span className="absolute left-1 top-1 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-emerald-500 px-0.5 text-[10px] font-bold text-white shadow">
-                                {qty}
+                          <button
+                            type="button"
+                            onClick={() => onClicProductoCatalogo(p)}
+                            disabled={!turnoAbierto}
+                            className="flex flex-1 flex-col text-left focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary-400 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            <div className="relative aspect-[5/4] w-full bg-gray-200">
+                              {qty > 0 && (
+                                <span className="absolute left-1 top-1 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-emerald-500 px-0.5 text-[10px] font-bold text-white shadow">
+                                  {qty}
+                                </span>
+                              )}
+                              {p.urlImagen ? (
+                                <img
+                                  src={p.urlImagen}
+                                  alt={p.descripcion}
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <div className="flex h-full w-full items-center justify-center text-4xl text-gray-400">
+                                  —
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex flex-1 flex-col p-2 pb-1">
+                              <span className="text-[10px] font-medium uppercase tracking-wide text-gray-500 sm:text-xs">
+                                {p.sku}
                               </span>
-                            )}
-                            {p.urlImagen ? (
-                              <img
-                                src={p.urlImagen}
-                                alt={p.descripcion}
-                                className="h-full w-full object-cover"
-                              />
-                            ) : (
-                              <div className="flex h-full w-full items-center justify-center text-4xl text-gray-400">
-                                —
-                              </div>
-                            )}
-                          </div>
-                          <div className="flex flex-1 flex-col p-2">
-                            <span className="text-[10px] font-medium uppercase tracking-wide text-gray-500 sm:text-xs">
-                              {p.sku}
+                              {p.precioPersonalizado ? (
+                                <span className="mt-1 inline-flex w-fit rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+                                  Precio autorizado
+                                </span>
+                              ) : null}
+                              <p className="mt-0.5 line-clamp-2 text-[11px] font-medium leading-snug text-gray-900 sm:text-xs">
+                                {p.descripcion}
+                              </p>
+                              {p.categoria && (
+                                <p className="mt-0.5 text-[10px] text-gray-500 sm:text-[11px]">{p.categoria}</p>
+                              )}
+                              <p className="mt-1.5 text-xs font-semibold text-primary-600 sm:text-sm">
+                                ${Number(p.precioUnitario).toLocaleString("es-CO")}
+                                {p.unidad ? ` / ${p.unidad}` : ""}
+                              </p>
+                              {bebidaConTamano && (
+                                <p className="mt-1 text-[10px] font-medium leading-tight text-sky-800 sm:text-[11px]">
+                                  {p.variantes?.length === 1
+                                    ? "1 tamano disponible"
+                                    : `${p.variantes?.length ?? 0} tamanos disponibles`}
+                                </p>
+                              )}
+                              {chorizoConArepa && (
+                                <p className="mt-1 text-[10px] font-medium leading-tight text-amber-800 sm:text-[11px]">
+                                  Chorizo + tipo de arepa
+                                </p>
+                              )}
+                              {soloChorizoPan && (
+                                <p className="mt-1 text-[10px] font-medium leading-tight text-amber-800 sm:text-[11px]">
+                                  Picante o Tradicional
+                                </p>
+                              )}
+                              {soloArepaPetoTipo && (
+                                <p className="mt-1 text-[10px] font-medium leading-tight text-amber-800 sm:text-[11px]">
+                                  Queso o queso y bocadillo
+                                </p>
+                              )}
+                            </div>
+                          </button>
+                          <label
+                            className={`flex cursor-pointer items-center gap-1.5 border-t border-gray-100 px-2 py-1.5 ${
+                              enDomicilios ? "bg-emerald-50/80" : "bg-white"
+                            } ${guardandoEste ? "opacity-60" : ""}`}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <input
+                              type="checkbox"
+                              className="h-3.5 w-3.5 shrink-0 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500"
+                              checked={enDomicilios}
+                              disabled={guardandoEste || !user?.puntoVenta?.trim()}
+                              onChange={(e) => {
+                                void toggleProductoDomicilios(p.sku, e.target.checked);
+                              }}
+                            />
+                            <span className="text-[10px] font-medium leading-tight text-gray-700 sm:text-[11px]">
+                              Producto disponible para Domicilio
                             </span>
-                            {p.precioPersonalizado ? (
-                              <span className="mt-1 inline-flex w-fit rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
-                                Precio autorizado
-                              </span>
-                            ) : null}
-                            <p className="mt-0.5 line-clamp-2 text-[11px] font-medium leading-snug text-gray-900 sm:text-xs">
-                              {p.descripcion}
-                            </p>
-                            {p.categoria && (
-                              <p className="mt-0.5 text-[10px] text-gray-500 sm:text-[11px]">{p.categoria}</p>
-                            )}
-                            <p className="mt-1.5 text-xs font-semibold text-primary-600 sm:text-sm">
-                              ${Number(p.precioUnitario).toLocaleString("es-CO")}
-                              {p.unidad ? ` / ${p.unidad}` : ""}
-                            </p>
-                            {bebidaConTamano && (
-                              <p className="mt-1 text-[10px] font-medium leading-tight text-sky-800 sm:text-[11px]">
-                                {p.variantes?.length === 1
-                                  ? "1 tamano disponible"
-                                  : `${p.variantes?.length ?? 0} tamanos disponibles`}
-                              </p>
-                            )}
-                            {chorizoConArepa && (
-                              <p className="mt-1 text-[10px] font-medium leading-tight text-amber-800 sm:text-[11px]">
-                                Chorizo + tipo de arepa
-                              </p>
-                            )}
-                            {soloChorizoPan && (
-                              <p className="mt-1 text-[10px] font-medium leading-tight text-amber-800 sm:text-[11px]">
-                                Picante o Tradicional
-                              </p>
-                            )}
-                            {soloArepaPetoTipo && (
-                              <p className="mt-1 text-[10px] font-medium leading-tight text-amber-800 sm:text-[11px]">
-                                Queso o queso y bocadillo
-                              </p>
-                            )}
-                          </div>
-                        </button>
+                          </label>
+                        </div>
                       );
                     })}
                   </div>

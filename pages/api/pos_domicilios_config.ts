@@ -3,6 +3,7 @@ import { getAuth } from "firebase-admin/auth";
 import { getFirestore } from "firebase-admin/firestore";
 import { getFirebaseAdminApp } from "@/lib/firebase-admin-server";
 import { getDomicilioTarifaConfig, setDomicilioTarifaConfig } from "@/lib/pos-domicilios-config-store";
+import { normalizarCatalogoDomiciliosPorSku } from "@/lib/pos-domicilios-catalogo-sku";
 import type { HorarioSemanalDomicilios } from "@/lib/pos-domicilios-horario-semanal";
 import {
   CLAVE_ESPACIO_FRANQUICIADOS,
@@ -21,6 +22,7 @@ type GetOk = {
   domiciliosHoraFin: string;
   domiciliosHorarioSemanal: HorarioSemanalDomicilios;
   mediosTransferencia: ReturnType<typeof normalizarMediosTransferencia>;
+  catalogoDomiciliosPorSku: Record<string, boolean>;
 };
 
 type Err = { ok: false; message: string };
@@ -146,8 +148,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     domiciliosHorarioSemanal !== undefined ||
     umbralParsed !== undefined;
 
-  if (!tieneTarifa && !tieneOperacion && !tieneMediosBody) {
-    return res.status(400).json({ ok: false, message: "Indicá costo, umbral u operación de domicilios para guardar." });
+  const patchCatalogoRaw = body.catalogoDomiciliosPorSku;
+  let catalogoDomiciliosPorSku: Record<string, boolean> | undefined;
+  if (patchCatalogoRaw !== undefined && patchCatalogoRaw !== null && typeof patchCatalogoRaw === "object") {
+    catalogoDomiciliosPorSku = normalizarCatalogoDomiciliosPorSku(patchCatalogoRaw);
+  } else {
+    const skuUno = typeof body.catalogoDomiciliosSku === "string" ? body.catalogoDomiciliosSku.trim() : "";
+    if (skuUno && typeof body.catalogoDomiciliosHabilitado === "boolean") {
+      catalogoDomiciliosPorSku = { [skuUno]: body.catalogoDomiciliosHabilitado };
+    }
+  }
+  const tieneCatalogo = catalogoDomiciliosPorSku !== undefined && Object.keys(catalogoDomiciliosPorSku).length > 0;
+
+  if (!tieneTarifa && !tieneOperacion && !tieneMediosBody && !tieneCatalogo) {
+    return res.status(400).json({
+      ok: false,
+      message: "Indicá costo, umbral, operación o catálogo de domicilios para guardar.",
+    });
   }
 
   const result = await setDomicilioTarifaConfig({
@@ -161,6 +178,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     ...(hf !== undefined ? { domiciliosHoraFin: hf } : {}),
     ...(domiciliosHorarioSemanal !== undefined ? { domiciliosHorarioSemanal } : {}),
     ...(tieneMediosBody ? { mediosTransferencia: normalizarMediosTransferencia(mediosBody) } : {}),
+    ...(tieneCatalogo ? { catalogoDomiciliosPorSku } : {}),
   });
   if (!result.ok) {
     return res.status(400).json({ ok: false, message: result.message ?? "No se pudo guardar." });

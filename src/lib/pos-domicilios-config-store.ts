@@ -17,8 +17,13 @@ import {
 import { normalizarMediosTransferencia } from "@/lib/pos-domicilios-medios-transferencia";
 import type { MediosTransferenciaConfig } from "@/types/pos-domicilios-medios-transferencia";
 import { MEDIOS_TRANSFERENCIA_VACIOS } from "@/types/pos-domicilios-medios-transferencia";
+import { normalizarCatalogoDomiciliosPorSku } from "@/lib/pos-domicilios-catalogo-sku";
 
 export { DEFAULT_COSTO_DOMICILIO_COP, DEFAULT_UMBRAL_GRATIS_COP } from "@/lib/pos-domicilios-tarifa-defaults";
+export {
+  normalizarCatalogoDomiciliosPorSku,
+  productoHabilitadoEnDomiciliosPunto,
+} from "@/lib/pos-domicilios-catalogo-sku";
 
 const COLL = "posDomiciliosConfig";
 
@@ -35,6 +40,8 @@ type MemVal = {
   domiciliosHoraFin: string;
   domiciliosHorarioSemanal: HorarioSemanalDomicilios;
   mediosTransferencia: MediosTransferenciaConfig;
+  /** sku → false deshabilita; ausencia o true = habilitado en menú de domicilios. */
+  catalogoDomiciliosPorSku: Record<string, boolean>;
 };
 
 const globalForMem = globalThis as typeof globalThis & {
@@ -60,6 +67,7 @@ function defaultsMem(): MemVal {
     domiciliosHoraFin: DEFAULT_HORA_FIN,
     domiciliosHorarioSemanal,
     mediosTransferencia: { ...MEDIOS_TRANSFERENCIA_VACIOS },
+    catalogoDomiciliosPorSku: {},
   };
 }
 
@@ -76,6 +84,8 @@ export type DomicilioTarifaPublica = {
   domiciliosHoraFin: string;
   domiciliosHorarioSemanal: HorarioSemanalDomicilios;
   mediosTransferencia: MediosTransferenciaConfig;
+  /** Ausencia de sku = habilitado. Solo `false` oculta el producto en /pedidos. */
+  catalogoDomiciliosPorSku: Record<string, boolean>;
 };
 
 function leerHorarioDeDoc(d: Record<string, unknown>): {
@@ -118,6 +128,7 @@ function configDesdeDoc(d: Record<string, unknown>): DomicilioTarifaPublica {
     domiciliosHoraFin: fin,
     domiciliosHorarioSemanal: semanal,
     mediosTransferencia: normalizarMediosTransferencia(d.mediosTransferencia),
+    catalogoDomiciliosPorSku: normalizarCatalogoDomiciliosPorSku(d.catalogoDomiciliosPorSku),
   };
 }
 
@@ -130,7 +141,11 @@ export async function getDomicilioTarifaConfig(puntoVenta: string): Promise<Domi
   const app = getFirebaseAdminApp();
   if (!app) {
     const m = memMap().get(nk);
-    return m ?? defaultsMem();
+    if (!m) return defaultsMem();
+    return {
+      ...m,
+      catalogoDomiciliosPorSku: normalizarCatalogoDomiciliosPorSku(m.catalogoDomiciliosPorSku),
+    };
   }
   const db = getFirestore(app);
   const snap = await db.collection(COLL).doc(nk).get();
@@ -151,6 +166,8 @@ export async function setDomicilioTarifaConfig(params: {
   domiciliosHoraFin?: string;
   domiciliosHorarioSemanal?: HorarioSemanalDomicilios;
   mediosTransferencia?: MediosTransferenciaConfig;
+  /** Merge parcial sku → habilitado (false oculta; true o ausencia = visible). */
+  catalogoDomiciliosPorSku?: Record<string, boolean>;
 }): Promise<{ ok: boolean; message?: string }> {
   const pv = params.puntoVenta.trim();
   if (!pv) return { ok: false, message: "puntoVenta es obligatorio." };
@@ -165,8 +182,11 @@ export async function setDomicilioTarifaConfig(params: {
     params.domiciliosHorarioSemanal !== undefined ||
     params.umbralGratisCop !== undefined;
   const tieneMedios = params.mediosTransferencia !== undefined;
+  const tieneCatalogo =
+    params.catalogoDomiciliosPorSku !== undefined &&
+    Object.keys(params.catalogoDomiciliosPorSku).length > 0;
 
-  if (!tieneTarifa && !tieneOperacion && !tieneMedios) {
+  if (!tieneTarifa && !tieneOperacion && !tieneMedios && !tieneCatalogo) {
     return { ok: false, message: "Indicá al menos un campo para actualizar." };
   }
 
@@ -228,6 +248,14 @@ export async function setDomicilioTarifaConfig(params: {
       ? normalizarMediosTransferencia(params.mediosTransferencia)
       : actual.mediosTransferencia;
 
+  const patchCatalogo = tieneCatalogo
+    ? normalizarCatalogoDomiciliosPorSku(params.catalogoDomiciliosPorSku)
+    : {};
+  const catalogoDomiciliosPorSku = {
+    ...actual.catalogoDomiciliosPorSku,
+    ...patchCatalogo,
+  };
+
   const nk = normPv(pv);
   const now = new Date().toISOString();
   const app = getFirebaseAdminApp();
@@ -242,6 +270,7 @@ export async function setDomicilioTarifaConfig(params: {
       domiciliosHoraFin,
       domiciliosHorarioSemanal,
       mediosTransferencia,
+      catalogoDomiciliosPorSku,
     });
     return { ok: true };
   }
@@ -259,6 +288,7 @@ export async function setDomicilioTarifaConfig(params: {
       domiciliosHoraFin,
       domiciliosHorarioSemanal,
       mediosTransferencia,
+      catalogoDomiciliosPorSku,
       actualizadoEnIso: now,
     },
     { merge: true }

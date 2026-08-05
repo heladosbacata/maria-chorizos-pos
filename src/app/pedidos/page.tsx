@@ -7,6 +7,10 @@ import { pedidoIdChatClave } from "@/lib/pos-domicilios-pv-clave";
 import { getCatalogoPOS } from "@/lib/catalogo-pos";
 import { DEFAULT_COSTO_DOMICILIO_COP, DEFAULT_UMBRAL_GRATIS_COP } from "@/lib/pos-domicilios-tarifa-defaults";
 import {
+  normalizarCatalogoDomiciliosPorSku,
+  productoHabilitadoEnDomiciliosPunto,
+} from "@/lib/pos-domicilios-catalogo-sku";
+import {
   estaEnHorarioDomiciliosConfig,
   textoHorarioDomiciliosCliente,
 } from "@/lib/pos-domicilios-horario";
@@ -135,25 +139,12 @@ function productoEsBasicos(p: ProductoPOS): boolean {
   return categoriaProducto(p) === "Básicos";
 }
 
-/** Productos del catálogo POS que no deben ofrecerse en domicilios. */
-function productoExcluidoDeCatalogoDomicilios(p: ProductoPOS): boolean {
-  const t = textoNormalizado(`${p.descripcion} ${p.categoria ?? ""} ${p.sku}`);
-  if (/\bmascot/.test(t) || (/helado/.test(t) && /\b(perro|gato|pet)\b/.test(t))) return true;
-  if (/\bchorizo\s+solo\b/.test(t)) return true;
-  if (/\btinto\b/.test(t)) return true;
-  if (/\barepa\s+(de\s+)?peto\b/.test(t) || /\bpeto\b/.test(t)) return true;
-  return false;
-}
-
-/** Combos, paquetes, básicos y bebidas en el menú de domicilios para el cliente. */
-function productoVisibleEnCatalogoDomicilios(p: ProductoPOS): boolean {
-  if (productoExcluidoDeCatalogoDomicilios(p)) return false;
-  return (
-    productoEsComboCatalogo(p) ||
-    productoEsPaqueteCatalogo(p) ||
-    productoEsBasicos(p) ||
-    productoEsBebidas(p)
-  );
+/** Visible en menú de domicilios si el punto lo tiene habilitado (default ON). */
+function productoVisibleEnCatalogoDomicilios(
+  p: ProductoPOS,
+  catalogoDomiciliosPorSku: Record<string, boolean>
+): boolean {
+  return productoHabilitadoEnDomiciliosPunto(p.sku, catalogoDomiciliosPorSku);
 }
 
 function primeraImagenProducto(p: ProductoPOS): string | null {
@@ -541,6 +532,7 @@ function PedidosLandingClient() {
     domiciliosHoraFin: "22:00",
     domiciliosHorarioSemanal: horarioSemanalVacioDefault(),
     mediosTransferencia: { ...MEDIOS_TRANSFERENCIA_VACIOS } as MediosTransferenciaConfig,
+    catalogoDomiciliosPorSku: {} as Record<string, boolean>,
   });
   const [modalMediosTransferenciaCliente, setModalMediosTransferenciaCliente] = useState(false);
   /** Fuerza reevaluación del horario local (Colombia) sin depender solo del fetch periódico. */
@@ -600,6 +592,7 @@ function PedidosLandingClient() {
         domiciliosHoraFin?: string;
         domiciliosHorarioSemanal?: HorarioSemanalDomicilios;
         mediosTransferencia?: MediosTransferenciaConfig;
+        catalogoDomiciliosPorSku?: unknown;
       };
       if (!res.ok || json.ok === false) return;
       const costo =
@@ -635,6 +628,7 @@ function PedidosLandingClient() {
         domiciliosHoraFin,
         domiciliosHorarioSemanal,
         mediosTransferencia: normalizarMediosTransferencia(json.mediosTransferencia),
+        catalogoDomiciliosPorSku: normalizarCatalogoDomiciliosPorSku(json.catalogoDomiciliosPorSku),
       });
     } catch {
       /* se mantienen defaults */
@@ -794,8 +788,11 @@ function PedidosLandingClient() {
   }, [catalogo]);
 
   const catalogoVisible = useMemo(
-    () => catalogo.filter((p) => productoVisibleEnCatalogoDomicilios(p)),
-    [catalogo]
+    () =>
+      catalogo.filter((p) =>
+        productoVisibleEnCatalogoDomicilios(p, tarifaDomicilio.catalogoDomiciliosPorSku)
+      ),
+    [catalogo, tarifaDomicilio.catalogoDomiciliosPorSku]
   );
 
   const productosFiltrados = useMemo(() => {
@@ -807,22 +804,26 @@ function PedidosLandingClient() {
     });
   }, [catalogoVisible, busqueda]);
 
-  const { productosBasicos, productosCombosPaquetes, productosBebidas } = useMemo(() => {
+  const { productosBasicos, productosCombosPaquetes, productosBebidas, productosOtros } = useMemo(() => {
     const basicos: ProductoPOS[] = [];
     const combosPaquetes: ProductoPOS[] = [];
     const bebidas: ProductoPOS[] = [];
+    const otros: ProductoPOS[] = [];
     for (const p of productosFiltrados) {
       if (productoEsBebidas(p)) bebidas.push(p);
       else if (productoEsBasicos(p) && !productoEsComboCatalogo(p) && !productoEsPaqueteCatalogo(p)) {
         basicos.push(p);
-      } else {
+      } else if (productoEsComboCatalogo(p) || productoEsPaqueteCatalogo(p)) {
         combosPaquetes.push(p);
+      } else {
+        otros.push(p);
       }
     }
     return {
       productosBasicos: basicos,
       productosCombosPaquetes: combosPaquetes,
       productosBebidas: bebidas,
+      productosOtros: otros,
     };
   }, [productosFiltrados]);
 
@@ -1959,13 +1960,13 @@ function PedidosLandingClient() {
                 <div>
                   <p className="text-[10px] font-bold uppercase tracking-wide text-gray-500">Paso 2</p>
                   <h2 className="text-lg font-bold text-gray-900">Catalogo de productos</h2>
-                  <p className="text-sm text-gray-500">Básicos, combos, paquetes y bebidas. Buscá y agregá al instante.</p>
+                  <p className="text-sm text-gray-500">Productos habilitados para este punto. Buscá y agregá al instante.</p>
                 </div>
                 <div className="w-full md:w-80">
                   <input
                     value={busqueda}
                     onChange={(e) => setBusqueda(e.target.value)}
-                    placeholder="Buscar básico, combo, paquete o bebida..."
+                    placeholder="Buscar producto..."
                     className="w-full rounded-xl border border-gray-300 px-3 py-2.5 text-sm outline-none ring-cyan-200 transition focus:border-cyan-500 focus:ring-2"
                   />
                 </div>
@@ -2026,11 +2027,28 @@ function PedidosLandingClient() {
                     </div>
                   </div>
                 ) : null}
+                {productosOtros.length > 0 ? (
+                  <div className="space-y-3">
+                    <h3 className="px-1 text-sm font-bold text-gray-900">Otros</h3>
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                      {productosOtros.map((prod, idx) =>
+                        renderTarjetaProductoCatalogo(
+                          prod,
+                          productosBasicos.length +
+                            productosCombosPaquetes.length +
+                            productosBebidas.length +
+                            idx
+                        )
+                      )}
+                    </div>
+                  </div>
+                ) : null}
                 {productosBasicos.length === 0 &&
                 productosCombosPaquetes.length === 0 &&
-                productosBebidas.length === 0 ? (
+                productosBebidas.length === 0 &&
+                productosOtros.length === 0 ? (
                   <article className="rounded-2xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-gray-500">
-                    No encontramos básicos, combos, paquetes ni bebidas con esa búsqueda.
+                    No encontramos productos habilitados para domicilios con esa búsqueda.
                   </article>
                 ) : null}
               </div>
