@@ -26,6 +26,9 @@ import { enviarMensajeChatDomicilio, listarMensajesChatDomicilio } from "@/lib/p
 import { pedidoPuedeCancelarsePorCliente, type PedidoDomicilio } from "@/types/pos-domicilios";
 import { LOGO_ORG_URL, MASCOTA_DOMICILIOS_URL } from "@/lib/brand";
 import MediosTransferenciaClienteModal from "@/components/MediosTransferenciaClienteModal";
+import PedidosClubMillasCheckout, {
+  type PedidosClubMillasVinculo,
+} from "@/components/PedidosClubMillasCheckout";
 import PuntoCerradoPremiumView from "@/components/PuntoCerradoPremiumView";
 import { consultarTurnoCajaAbierto } from "@/lib/pos-punto-turno-presencia";
 import { PosDomiciliosChatBurbuja } from "@/components/PosDomiciliosChatBurbuja";
@@ -707,6 +710,7 @@ function PedidosLandingClient() {
   const [historialError, setHistorialError] = useState<string | null>(null);
   const [historialPedidos, setHistorialPedidos] = useState<PedidoDomicilio[]>([]);
   const [guardarDatosCliente, setGuardarDatosCliente] = useState(true);
+  const [clubMillasVinculo, setClubMillasVinculo] = useState<PedidosClubMillasVinculo | null>(null);
   const sesionRestauradaRef = useRef(false);
   const pushPromptEstadosRef = useRef<Set<string>>(new Set());
   const [carritoModalAbierto, setCarritoModalAbierto] = useState(false);
@@ -799,6 +803,7 @@ function PedidosLandingClient() {
     estadoPedidoAnteriorRef.current = null;
     ultimoMensajePosIdRef.current = null;
     setTipoEntregaElegido(false);
+    setClubMillasVinculo(null);
     const pref = leerClientePreferidoPedidos(puntoVenta);
     if (pref?.nombre) setCliente(pref.nombre);
     if (pref?.telefono) {
@@ -1540,6 +1545,12 @@ function PedidosLandingClient() {
       }),
       tiempoObjetivoMin: 35,
       tipoEntrega,
+      ...(clubMillasVinculo?.documento
+        ? {
+            clienteDocumento: clubMillasVinculo.documento,
+            ...(clubMillasVinculo.socioId ? { clienteFrecuenteSocioId: clubMillasVinculo.socioId } : {}),
+          }
+        : {}),
     };
     try {
       const res = await fetch("/api/pos_domicilios", {
@@ -1630,6 +1641,7 @@ function PedidosLandingClient() {
       setMetodoPago("efectivo");
       setTipoEntrega(tipoEntregaPreferidoPorConfig());
       setTipoEntregaElegido(false);
+      setClubMillasVinculo(null);
       setEnviando(false);
     } catch {
       setMensaje("No se pudo enviar el pedido. Intenta nuevamente.");
@@ -2971,8 +2983,8 @@ function PedidosLandingClient() {
               <h3 className="text-base font-bold text-gray-900">Sus datos y confirmación</h3>
               <p className="mt-1 text-xs text-gray-500">
                 {tipoEntrega === "domicilio"
-                  ? "Complete sus datos y la dirección de entrega."
-                  : "Complete sus datos. No necesitamos dirección: pasa a recoger en el punto."}
+                  ? "Complete sus datos, acumule millas con su cédula (opcional) y la dirección de entrega."
+                  : "Complete sus datos y, si desea, digite su cédula para acumular millas. Pasa a recoger en el punto."}
               </p>
               {avisoBloqueoRecepcion ? (
                 <div
@@ -3017,6 +3029,14 @@ function PedidosLandingClient() {
                     Guardar mi nombre y teléfono en este dispositivo para próximos pedidos e historial.
                   </span>
                 </label>
+                <PedidosClubMillasCheckout
+                  puntoVenta={puntoVenta}
+                  nombreCliente={cliente}
+                  telefono={telefono}
+                  totalPedido={Math.round(total)}
+                  value={clubMillasVinculo}
+                  onChange={setClubMillasVinculo}
+                />
                 {tipoEntrega === "domicilio" ? (
                   <input
                     value={direccion}
@@ -3055,7 +3075,11 @@ function PedidosLandingClient() {
                   disabled={enviando || !recepcionPedidosWebOk}
                   className="block w-full max-w-full rounded-lg bg-cyan-700 px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-cyan-800 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {enviando ? "Enviando pedido..." : "Confirmar pedido"}
+                  {enviando
+                    ? "Enviando pedido..."
+                    : clubMillasVinculo
+                      ? "Confirmar pedido y acumular millas"
+                      : "Confirmar pedido"}
                 </button>
               </div>
               {mensaje ? (

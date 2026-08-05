@@ -42,6 +42,14 @@ function asBody(body: unknown): DomicilioCrearPayload {
       tipoEntrega: o.tipoEntrega === "recogida" || o.tipoEntrega === "domicilio" ? o.tipoEntrega : undefined,
       items: Array.isArray(o.items) ? o.items.filter((x): x is string => typeof x === "string") : [],
       tiempoObjetivoMin: typeof o.tiempoObjetivoMin === "number" ? o.tiempoObjetivoMin : undefined,
+      clienteDocumento:
+        typeof o.clienteDocumento === "string" && o.clienteDocumento.trim()
+          ? o.clienteDocumento.replace(/\s/g, "").replace(/[.\-]/g, "").trim()
+          : undefined,
+      clienteFrecuenteSocioId:
+        typeof o.clienteFrecuenteSocioId === "string" && o.clienteFrecuenteSocioId.trim()
+          ? o.clienteFrecuenteSocioId.trim().slice(0, 120)
+          : undefined,
     };
   }
   return {

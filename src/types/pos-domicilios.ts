@@ -48,6 +48,10 @@ export interface PedidoDomicilio {
   enviadoAFacturacionEnIso?: string;
   /** CUFE si ya se emitió FE desde domicilios. */
   facturaElectronicaCufe?: string;
+  /** Cédula / documento validado para Club de Millas (opcional). */
+  clienteDocumento?: string;
+  /** socioId del plan de millas si el cliente lo vinculó al pedir. */
+  clienteFrecuenteSocioId?: string;
 }
 
 export interface DomiciliosListadoResponse {
@@ -81,6 +85,9 @@ export interface DomicilioCrearPayload {
   items: string[];
   tiempoObjetivoMin?: number;
   tipoEntrega?: TipoEntregaDomicilio;
+  /** Cédula validada en Club de Millas al confirmar el pedido web. */
+  clienteDocumento?: string;
+  clienteFrecuenteSocioId?: string;
 }
 
 export interface DomicilioCrearResponse {

@@ -116,6 +116,14 @@ function toPedido(raw: Record<string, unknown>): PedidoDomicilio | null {
       typeof raw.facturaElectronicaCufe === "string" && raw.facturaElectronicaCufe.trim()
         ? raw.facturaElectronicaCufe.trim()
         : undefined,
+    clienteDocumento:
+      typeof raw.clienteDocumento === "string" && raw.clienteDocumento.trim()
+        ? raw.clienteDocumento.replace(/\s/g, "").replace(/[.\-]/g, "").trim()
+        : undefined,
+    clienteFrecuenteSocioId:
+      typeof raw.clienteFrecuenteSocioId === "string" && raw.clienteFrecuenteSocioId.trim()
+        ? raw.clienteFrecuenteSocioId.trim()
+        : undefined,
   };
 }
 
@@ -130,6 +138,8 @@ function pedidoFromPayload(payload: DomicilioCrearPayload, id: string): PedidoDo
     return null;
   }
   const ref = payload.referencia?.trim();
+  const clienteDocumento = payload.clienteDocumento?.replace(/\s/g, "").replace(/[.\-]/g, "").trim();
+  const socioId = payload.clienteFrecuenteSocioId?.trim();
   return {
     id,
     puntoVenta: pv,
@@ -148,6 +158,8 @@ function pedidoFromPayload(payload: DomicilioCrearPayload, id: string): PedidoDo
       payload.tiempoObjetivoMin && Number.isFinite(payload.tiempoObjetivoMin)
         ? Math.max(10, Math.round(payload.tiempoObjetivoMin))
         : 35,
+    ...(clienteDocumento && clienteDocumento.length >= 5 ? { clienteDocumento } : {}),
+    ...(socioId ? { clienteFrecuenteSocioId: socioId.slice(0, 120) } : {}),
   };
 }
 

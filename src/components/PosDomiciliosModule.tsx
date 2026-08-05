@@ -53,6 +53,8 @@ type FormNuevoPedido = {
   itemsTexto: string;
   metodoPago: PedidoDomicilio["metodoPago"];
   canal: PedidoDomicilio["canal"];
+  /** Cédula opcional para acumular Club de Millas al marcar listo. */
+  clienteDocumento: string;
 };
 
 type ColumnaDomicilio = {
@@ -218,6 +220,7 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
     itemsTexto: "",
     metodoPago: "efectivo",
     canal: "web",
+    clienteDocumento: "",
   });
   const columnaNuevoRef = useRef<HTMLElement | null>(null);
   const pedidosNuevosPrevRef = useRef<string[]>([]);
@@ -732,6 +735,7 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
     }
     setCreandoPedido(true);
     setSyncInfo(null);
+    const docMillas = nuevoPedido.clienteDocumento.replace(/\s/g, "").replace(/[.\-]/g, "").trim();
     const resp = await domicilioCrear({
       puntoVenta: puntoVentaActivo,
       cliente: nuevoPedido.cliente,
@@ -742,6 +746,7 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
       items,
       metodoPago: nuevoPedido.metodoPago,
       canal: nuevoPedido.canal,
+      ...(docMillas.length >= 5 ? { clienteDocumento: docMillas } : {}),
     });
     if (!resp.ok || !resp.pedido) {
       setSyncInfo(resp.message ?? "No fue posible crear el pedido.");
@@ -758,6 +763,7 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
       itemsTexto: "",
       metodoPago: "efectivo",
       canal: "web",
+      clienteDocumento: "",
     });
     setSyncInfo(resp.message ?? `Pedido ${resp.pedido.id} creado.`);
     if (sonidosActivos) reproducirTonoDomiciliosPos("crear", volumenSonido);
@@ -1158,6 +1164,10 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
           <h3 className="text-base font-bold text-cyan-900">Crear pedido de domicilio</h3>
           <span className="rounded-full bg-cyan-100 px-2 py-1 text-[11px] font-semibold text-cyan-800">Ingreso rápido POS</span>
         </div>
+        <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-950">
+          En el landing del cliente (`/pedidos`) ya se invita a digitar la cédula o registrarse como cliente frecuente.
+          Si crea el pedido aquí, puede cargar la cédula abajo para acumular millas al marcar Listo.
+        </p>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
           <input
             value={nuevoPedido.cliente}
@@ -1170,6 +1180,18 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
             onChange={(e) => setNuevoPedido((p) => ({ ...p, telefono: e.target.value }))}
             placeholder="Teléfono"
             className="rounded-lg border border-cyan-200 bg-white px-3 py-2 text-sm outline-none ring-cyan-300 focus:ring-2"
+          />
+          <input
+            value={nuevoPedido.clienteDocumento}
+            onChange={(e) =>
+              setNuevoPedido((p) => ({
+                ...p,
+                clienteDocumento: e.target.value.replace(/[^\d.\-]/g, "").slice(0, 20),
+              }))
+            }
+            placeholder="Cédula Club de Millas (opcional)"
+            inputMode="numeric"
+            className="rounded-lg border border-amber-300 bg-amber-50/50 px-3 py-2 text-sm outline-none ring-amber-300 focus:ring-2"
           />
           <input
             value={nuevoPedido.direccion}
@@ -1360,6 +1382,11 @@ export default function PosDomiciliosModule({ puntoVenta }: Props) {
                           <p className="line-clamp-1">{pedido.direccion}</p>
                           {pedido.referencia ? <p className="line-clamp-1">{pedido.referencia}</p> : null}
                           <p>{pedido.telefono}</p>
+                          {pedido.clienteDocumento ? (
+                            <p className="font-semibold text-amber-800">
+                              Club de Millas · CC {pedido.clienteDocumento}
+                            </p>
+                          ) : null}
                         </div>
 
                         <ul className="space-y-1 rounded-lg bg-gray-50 p-2 text-xs text-gray-700">
