@@ -2393,6 +2393,11 @@ export default function CajaPageClient() {
             : {}),
           ...(notaPieTicket ? { pagoResumen: notaPieTicket } : {}),
           ...(mediosPago ? { mediosPago } : {}),
+          tipoComprobanteAlCobro: tipoComprobanteVenta,
+          clienteNombreVenta: cr.id === CONSUMIDOR_FINAL_ID ? "Consumidor final" : cr.nombreDisplay,
+          ...(cr.id !== CONSUMIDOR_FINAL_ID && cr.numeroIdentificacion?.trim()
+            ? { clienteNitVenta: cr.numeroIdentificacion.trim() }
+            : {}),
         });
         emitirVentaLocalRegistrada();
 
@@ -2471,6 +2476,11 @@ export default function CajaPageClient() {
                 ...(mediosPago ? { mediosPago } : {}),
                 wmsSincronizado: !ventaSoloEnPos,
                 ...(esCanjeClubMillas ? { esCanjeClubMillas: true } : {}),
+                tipoComprobanteAlCobro: tipoComprobanteVenta,
+                clienteNombreVenta: cr.id === CONSUMIDOR_FINAL_ID ? "Consumidor final" : cr.nombreDisplay,
+                ...(cr.id !== CONSUMIDOR_FINAL_ID && cr.numeroIdentificacion?.trim()
+                  ? { clienteNitVenta: cr.numeroIdentificacion.trim() }
+                  : {}),
               });
               if (!sync.ok) {
                 console.warn("Venta guardada en el equipo; nube POS:", sync.message ?? sync);

@@ -19,7 +19,45 @@ export type PosVentaCloudBody = {
   /** Venta operativa de $0 por premio Club de Millas, no venta monetaria. */
   esCanjeClubMillas?: boolean;
   tipoComprobanteAlCobro?: "factura_electronica" | "documento_interno";
+  facturaElectronicaNumero?: string;
+  facturaElectronicaCufe?: string;
+  facturaElectronicaEnviadoAt?: string;
+  clienteNombreVenta?: string;
+  clienteNitVenta?: string;
+  clienteEmailVenta?: string;
+  comprobanteEmailEnviadoAt?: string;
+  comprobanteEmailDestino?: string;
 };
+
+function ventaTieneWmsPendiente(v: VentaGuardadaLocal): boolean {
+  return /pendiente\s+de\s+env[ií]o\s+por\s+internet/i.test(v.pagoResumen ?? "");
+}
+
+function bodyDesdeVentaLocal(v: VentaGuardadaLocal): PosVentaCloudBody {
+  return {
+    ventaLocalId: v.id,
+    fechaYmd: v.fechaYmd,
+    isoTimestamp: v.isoTimestamp,
+    puntoVenta: v.puntoVenta,
+    total: v.total,
+    lineas: v.lineas,
+    ...(v.turnoSesionId ? { turnoSesionId: v.turnoSesionId } : {}),
+    ...(v.cajeroTurnoId ? { cajeroTurnoId: v.cajeroTurnoId } : {}),
+    ...(v.cajeroNombre ? { cajeroNombre: v.cajeroNombre } : {}),
+    ...(v.pagoResumen ? { pagoResumen: v.pagoResumen } : {}),
+    ...(v.mediosPago ? { mediosPago: v.mediosPago } : {}),
+    wmsSincronizado: !ventaTieneWmsPendiente(v),
+    ...(v.tipoComprobanteAlCobro ? { tipoComprobanteAlCobro: v.tipoComprobanteAlCobro } : {}),
+    ...(v.facturaElectronicaNumero ? { facturaElectronicaNumero: v.facturaElectronicaNumero } : {}),
+    ...(v.facturaElectronicaCufe ? { facturaElectronicaCufe: v.facturaElectronicaCufe } : {}),
+    ...(v.facturaElectronicaEnviadoAt ? { facturaElectronicaEnviadoAt: v.facturaElectronicaEnviadoAt } : {}),
+    ...(v.clienteNombreVenta ? { clienteNombreVenta: v.clienteNombreVenta } : {}),
+    ...(v.clienteNitVenta ? { clienteNitVenta: v.clienteNitVenta } : {}),
+    ...(v.clienteEmailVenta ? { clienteEmailVenta: v.clienteEmailVenta } : {}),
+    ...(v.comprobanteEmailEnviadoAt ? { comprobanteEmailEnviadoAt: v.comprobanteEmailEnviadoAt } : {}),
+    ...(v.comprobanteEmailDestino ? { comprobanteEmailDestino: v.comprobanteEmailDestino } : {}),
+  };
+}
 
 export async function registrarVentaPosCloud(
   idToken: string,
@@ -104,4 +142,23 @@ export async function listarVentasPosCloud(
     throw new Error(data.message ?? `Error ${r.status}`);
   }
   return data.ventas as VentaGuardadaLocal[];
+}
+
+export async function registrarVentaLocalPosCloud(
+  idToken: string,
+  venta: VentaGuardadaLocal
+): Promise<{ ok: boolean; message?: string }> {
+  const registrada = await registrarVentaPosCloud(idToken, bodyDesdeVentaLocal(venta));
+  if (!registrada.ok) return registrada;
+
+  if (venta.anulada) {
+    const anulada = await anularVentaPosCloud(idToken, {
+      ventaLocalId: venta.id,
+      motivo: venta.anuladaMotivo?.trim() || "Venta anulada localmente",
+      anuladaEnIso: venta.anuladaEnIso?.trim() || new Date().toISOString(),
+    });
+    if (!anulada.ok) return anulada;
+  }
+
+  return { ok: true };
 }

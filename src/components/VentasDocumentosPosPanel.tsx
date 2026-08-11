@@ -1,13 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { auth } from "@/lib/firebase";
 import {
   listarDocumentosComerciales,
   type DocumentoComercialFirestoreDoc,
 } from "@/lib/documentos-comerciales-firestore";
 import { fechaHoraColombia, ymdColombia, ymdColombiaMenosDias } from "@/lib/fecha-colombia";
-import { listarVentasPosCloud, actualizarFeVentaPosCloud } from "@/lib/pos-ventas-cloud-client";
+import {
+  listarVentasPosCloud,
+  actualizarFeVentaPosCloud,
+  registrarVentaLocalPosCloud,
+} from "@/lib/pos-ventas-cloud-client";
 import {
   listarVentasPuntoVenta,
   listarVentasPuntoVentaEnEsteEquipo,
@@ -385,6 +389,10 @@ export default function VentasDocumentosPosPanel({
   const [reporteBusy, setReporteBusy] = useState<"idle" | "pdf" | "excel" | "correo">("idle");
   const [reporteError, setReporteError] = useState<string | null>(null);
   const [reporteExito, setReporteExito] = useState<string | null>(null);
+  const [syncLocalBusy, setSyncLocalBusy] = useState(false);
+  const [syncLocalMensaje, setSyncLocalMensaje] = useState<string | null>(null);
+  const [syncLocalError, setSyncLocalError] = useState<string | null>(null);
+  const autoSyncLocalKeyRef = useRef("");
 
   const refrescar = useCallback(() => setTick((t) => t + 1), []);
 
@@ -573,6 +581,19 @@ export default function VentasDocumentosPosPanel({
     return mergeVentasReporteNubeLocal(local, ventasNube);
   }, [pv, u, tick, ventasNube]);
 
+  const ventasLocalesEquipo = useMemo(() => {
+    void tick;
+    return listarVentasPuntoVentaEnEsteEquipo(pv);
+  }, [pv, tick]);
+
+  const ventasLocalesPendientesNube = useMemo(() => {
+    if (!ventasNube) return ventasLocalesEquipo;
+    const idsNube = new Set(ventasNube.map((v) => v.id));
+    return ventasLocalesEquipo.filter((v) => !idsNube.has(v.id));
+  }, [ventasLocalesEquipo, ventasNube]);
+
+  const totalVentasLocalesParaSubir = ventasLocalesPendientesNube.length;
+
   const todasFilas = useMemo(
     () => construirFilasDocumentosPos({ ventas, cotizaciones, remisiones }),
     [ventas, cotizaciones, remisiones]
@@ -679,6 +700,80 @@ export default function VentasDocumentosPosPanel({
       setReporteBusy("idle");
     }
   }, [filas.length, reporteEmailPara, reporteEmailCc, datosReporteActual]);
+
+  const subirVentasLocalesANube = useCallback(
+    async (candidatas: VentaGuardadaLocal[], opts: { silencioso?: boolean } = {}) => {
+      if (candidatas.length === 0) return;
+      setSyncLocalBusy(true);
+      if (!opts.silencioso) setSyncLocalMensaje(null);
+      setSyncLocalError(null);
+      try {
+        const token = await auth?.currentUser?.getIdToken();
+        if (!token) throw new Error("Sesión expirada. Volvé a iniciar sesión.");
+        let subidas = 0;
+        let fallidas = 0;
+        let primerError = "";
+        for (const venta of candidatas) {
+          const r = await registrarVentaLocalPosCloud(token, venta);
+          if (r.ok) {
+            subidas += 1;
+          } else {
+            fallidas += 1;
+            if (!primerError) primerError = r.message ?? "Error desconocido.";
+          }
+        }
+        if (fallidas > 0) {
+          setSyncLocalError(
+            `Se subieron ${subidas} venta(s), pero fallaron ${fallidas}. Primer error: ${primerError}`
+          );
+        } else if (opts.silencioso) {
+          setSyncLocalMensaje(`Se sincronizaron automáticamente ${subidas} venta(s) locales con la nube del POS.`);
+        } else {
+          setSyncLocalMensaje(`Listo: ${subidas} venta(s) locales subidas a la nube del POS.`);
+        }
+        refrescar();
+      } catch (e) {
+        setSyncLocalError(e instanceof Error ? e.message : "No se pudieron subir las ventas locales.");
+      } finally {
+        setSyncLocalBusy(false);
+      }
+    },
+    [refrescar]
+  );
+
+  const resincronizarVentasLocales = useCallback(async () => {
+    const locales = listarVentasPuntoVentaEnEsteEquipo(pv);
+    if (locales.length === 0) {
+      setSyncLocalMensaje("Este navegador no tiene ventas locales para subir.");
+      setSyncLocalError(null);
+      return;
+    }
+    const idsNube = ventasNube ? new Set(ventasNube.map((v) => v.id)) : null;
+    const candidatas = idsNube ? locales.filter((v) => !idsNube.has(v.id)) : locales;
+    if (candidatas.length === 0) {
+      setSyncLocalMensaje("Todas las ventas locales de este navegador ya aparecen en la nube.");
+      setSyncLocalError(null);
+      return;
+    }
+    const ok = window.confirm(
+      `Se subirán ${candidatas.length} venta(s) locales de este equipo a la nube del POS para ${pv}. ` +
+        "Usalo desde el computador de caja donde sí aparecen las ventas faltantes."
+    );
+    if (!ok) return;
+
+    await subirVentasLocalesANube(candidatas);
+  }, [pv, ventasNube, subirVentasLocalesANube]);
+
+  useEffect(() => {
+    if (!u || !pv || nubeOk !== true || syncLocalBusy || ventasLocalesPendientesNube.length === 0) return;
+    const key = ventasLocalesPendientesNube
+      .map((v) => v.id)
+      .sort()
+      .join("|");
+    if (!key || autoSyncLocalKeyRef.current === key) return;
+    autoSyncLocalKeyRef.current = key;
+    void subirVentasLocalesANube(ventasLocalesPendientesNube, { silencioso: true });
+  }, [u, pv, nubeOk, syncLocalBusy, ventasLocalesPendientesNube, subirVentasLocalesANube]);
 
   const totalFiltrado = useMemo(
     () => filas.filter((f) => !f.anulada).reduce((s, f) => s + f.total, 0),
@@ -814,12 +909,39 @@ export default function VentasDocumentosPosPanel({
           >
             {cargando ? "Actualizando…" : "Actualizar"}
           </button>
+          <button
+            type="button"
+            onClick={() => void resincronizarVentasLocales()}
+            disabled={cargando || syncLocalBusy || ventasLocalesEquipo.length === 0 || (nubeOk === true && totalVentasLocalesParaSubir === 0)}
+            className="rounded-xl border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-900 hover:bg-sky-100 disabled:opacity-50"
+            title={
+              ventasLocalesEquipo.length === 0
+                ? "Este navegador no tiene ventas locales para subir"
+                : nubeOk === true && totalVentasLocalesParaSubir === 0
+                  ? "Las ventas locales de este navegador ya están en la nube"
+                  : "Sube a Firestore del POS las ventas guardadas en este computador"
+            }
+          >
+            {syncLocalBusy ? "Subiendo…" : `Subir ventas locales${totalVentasLocalesParaSubir > 0 ? ` (${totalVentasLocalesParaSubir})` : ""}`}
+          </button>
         </div>
       </div>
 
       {error ? (
         <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950" role="alert">
           {error}
+        </p>
+      ) : null}
+
+      {syncLocalMensaje ? (
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900" role="status">
+          {syncLocalMensaje}
+        </p>
+      ) : null}
+
+      {syncLocalError ? (
+        <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900" role="alert">
+          {syncLocalError}
         </p>
       ) : null}
 

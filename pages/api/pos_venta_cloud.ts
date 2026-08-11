@@ -12,6 +12,10 @@ import { repararInformeWmsTrasAnulacion } from "@/lib/reparar-informe-wms-tras-a
 const COLLECTION = "posVentasCloud";
 const MAX_LINEAS = 200;
 
+function textoBody(b: Record<string, unknown>, key: string, max: number): string {
+  return typeof b[key] === "string" ? b[key].trim().slice(0, max) : "";
+}
+
 function isLinea(x: unknown): boolean {
   if (!x || typeof x !== "object") return false;
   const o = x as Record<string, unknown>;
@@ -231,6 +235,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   if (tc === "factura_electronica" || tc === "documento_interno") {
     doc.tipoComprobanteAlCobro = tc;
   }
+
+  const feNum = textoBody(b, "facturaElectronicaNumero", 120);
+  const feCufe = textoBody(b, "facturaElectronicaCufe", 520);
+  const feAt = textoBody(b, "facturaElectronicaEnviadoAt", 80);
+  if (feNum) doc.facturaElectronicaNumero = feNum;
+  if (feCufe) doc.facturaElectronicaCufe = feCufe;
+  if (feAt) doc.facturaElectronicaEnviadoAt = feAt;
+
+  const clienteNombre = textoBody(b, "clienteNombreVenta", 220);
+  const clienteNit = textoBody(b, "clienteNitVenta", 80);
+  const clienteEmail = textoBody(b, "clienteEmailVenta", 220);
+  if (clienteNombre) doc.clienteNombreVenta = clienteNombre;
+  if (clienteNit) doc.clienteNitVenta = clienteNit;
+  if (clienteEmail) doc.clienteEmailVenta = clienteEmail;
+
+  const emailEnviadoAt = textoBody(b, "comprobanteEmailEnviadoAt", 80);
+  const emailDestino = textoBody(b, "comprobanteEmailDestino", 220);
+  if (emailEnviadoAt) doc.comprobanteEmailEnviadoAt = emailEnviadoAt;
+  if (emailDestino) doc.comprobanteEmailDestino = emailDestino;
 
   try {
     await db.collection(COLLECTION).doc(ventaLocalId).set(doc, { merge: true });
