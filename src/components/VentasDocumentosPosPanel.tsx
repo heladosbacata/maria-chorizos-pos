@@ -77,6 +77,10 @@ type Props = {
   initialBusqueda?: string;
 };
 
+function ventaEstaEnRangoYmd(v: VentaGuardadaLocal, desdeYmd: string, hastaYmd: string): boolean {
+  return v.fechaYmd >= desdeYmd && v.fechaYmd <= hastaYmd;
+}
+
 function textoBadgeAlegraTabla(corto: string): string {
   if (corto === "OK") return "Enviada";
   if (corto === "Pend.") return "Pendiente";
@@ -527,7 +531,7 @@ export default function VentasDocumentosPosPanel({
         let nube: VentaGuardadaLocal[] = [];
         if (token) {
           try {
-            nube = await listarVentasPosCloud(token);
+            nube = await listarVentasPosCloud(token, { desde: desdeYmd, hasta: hastaYmd });
             if (!cancelled) {
               setNubeOk(true);
               setNubeMensaje(null);
@@ -570,7 +574,7 @@ export default function VentasDocumentosPosPanel({
     return () => {
       cancelled = true;
     };
-  }, [u, pv, tick]);
+  }, [u, pv, desdeYmd, hastaYmd, tick]);
 
   const ventas = useMemo(() => {
     void tick;
@@ -586,11 +590,16 @@ export default function VentasDocumentosPosPanel({
     return listarVentasPuntoVentaEnEsteEquipo(pv);
   }, [pv, tick]);
 
+  const ventasLocalesEquipoEnRango = useMemo(
+    () => ventasLocalesEquipo.filter((v) => ventaEstaEnRangoYmd(v, desdeYmd, hastaYmd)),
+    [ventasLocalesEquipo, desdeYmd, hastaYmd]
+  );
+
   const ventasLocalesPendientesNube = useMemo(() => {
-    if (!ventasNube) return ventasLocalesEquipo;
+    if (!ventasNube) return ventasLocalesEquipoEnRango;
     const idsNube = new Set(ventasNube.map((v) => v.id));
-    return ventasLocalesEquipo.filter((v) => !idsNube.has(v.id));
-  }, [ventasLocalesEquipo, ventasNube]);
+    return ventasLocalesEquipoEnRango.filter((v) => !idsNube.has(v.id));
+  }, [ventasLocalesEquipoEnRango, ventasNube]);
 
   const totalVentasLocalesParaSubir = ventasLocalesPendientesNube.length;
 
@@ -742,7 +751,7 @@ export default function VentasDocumentosPosPanel({
   );
 
   const resincronizarVentasLocales = useCallback(async () => {
-    const locales = listarVentasPuntoVentaEnEsteEquipo(pv);
+    const locales = listarVentasPuntoVentaEnEsteEquipo(pv).filter((v) => ventaEstaEnRangoYmd(v, desdeYmd, hastaYmd));
     if (locales.length === 0) {
       setSyncLocalMensaje("Este navegador no tiene ventas locales para subir.");
       setSyncLocalError(null);
@@ -762,7 +771,7 @@ export default function VentasDocumentosPosPanel({
     if (!ok) return;
 
     await subirVentasLocalesANube(candidatas);
-  }, [pv, ventasNube, subirVentasLocalesANube]);
+  }, [pv, desdeYmd, hastaYmd, ventasNube, subirVentasLocalesANube]);
 
   useEffect(() => {
     if (!u || !pv || nubeOk !== true || syncLocalBusy || ventasLocalesPendientesNube.length === 0) return;

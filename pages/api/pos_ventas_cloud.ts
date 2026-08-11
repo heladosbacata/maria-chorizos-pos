@@ -14,8 +14,8 @@ const PAGE_RANGO = 1000;
 // Tope de costo: máximo 8 páginas (8.000 docs) por consulta de rango. Antes eran 50
 // (50.000 docs) y, combinado con el polling del POS, disparaba el costo de Firestore.
 const MAX_PAGES_RANGO = 8;
-// Ventana máxima permitida para el rango; evita escanear meses completos por accidente.
-const MAX_DIAS_RANGO = 45;
+// Ventana máxima permitida para el rango; permite revisar hasta dos meses de reporte sin escanear semestres completos.
+const MAX_DIAS_RANGO = 75;
 // Caché en memoria por punto+rango para colapsar llamadas repetidas seguidas.
 const RANGO_CACHE_TTL_MS = 60_000;
 
@@ -285,12 +285,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     };
 
     if (usarRangoFecha) {
-      // 1) Rango filtrado por punto (barato). 2) por punto normalizado. 3) fallback global acotado.
+      // 1) Rango filtrado por punto exacto. 2) punto normalizado. 3) fallback global
+      // acotado por fecha para cubrir cambios de tildes/nombres del PV.
       let docsRango = await listarPorRangoFechaCampo("puntoVenta", pvCanon);
-      if (docsRango === null && pvNorm) {
-        docsRango = await listarPorRangoFechaCampo("puntoVentaNorm", pvNorm);
+      if ((docsRango === null || docsRango.length === 0) && pvNorm) {
+        const docsNorm = await listarPorRangoFechaCampo("puntoVentaNorm", pvNorm);
+        if (docsRango === null) {
+          docsRango = docsNorm;
+        } else if (docsNorm) {
+          docsRango = [...docsRango, ...docsNorm];
+        }
       }
-      if (docsRango === null) {
+      if (docsRango === null || docsRango.length === 0) {
         docsRango = await listarPorRangoFecha();
       }
       absorber(docsRango);

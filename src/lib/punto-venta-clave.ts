@@ -1,6 +1,11 @@
 /** Clave estable para comparar puntos de venta (mayúsculas / espacios). */
 export function normalizarPuntoVentaClave(pv: string): string {
-  return pv.trim().toLowerCase().replace(/\s+/g, " ");
+  return pv
+    .trim()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ");
 }
 
 export function puntoVentaCoincide(a: string | undefined | null, b: string | undefined | null): boolean {
