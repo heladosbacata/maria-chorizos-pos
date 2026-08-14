@@ -9,38 +9,38 @@ import CajeroIdentificacionGateModal, {
   type CajeroIdentificacionMotivo,
 } from "@/components/CajeroIdentificacionGateModal";
 import { MetasRetosCajaProvider } from "@/components/MetasRetosCajaProvider";
-import CrearClientePosModal from "@/components/CrearClientePosModal";
-import EdicionItemCuentaModal from "@/components/EdicionItemCuentaModal";
-import PerfilUsuarioModal from "@/components/PerfilUsuarioModal";
-import PosGebAyudaMotorModal from "@/components/PosGebAyudaMotorModal";
-import PosGebBienvenidaModal from "@/components/PosGebBienvenidaModal";
-import PosGebTutorialOverlay from "@/components/PosGebTutorialOverlay";
-import CobroImpresionCelebracionOverlay from "@/components/CobroImpresionCelebracionOverlay";
-import TicketPrevisualizacionModal from "@/components/TicketPrevisualizacionModal";
-import ModalCobroSinInternet from "@/components/ModalCobroSinInternet";
-import ModalInformeCierreCorreo from "@/components/ModalInformeCierreCorreo";
-import PosMetaCumplidaCelebracion from "@/components/PosMetaCumplidaCelebracion";
-import PosAnunciosCajaWatcher from "@/components/PosAnunciosCajaWatcher";
-import PosDomiciliosNuevoPedidoAlerta from "@/components/PosDomiciliosNuevoPedidoAlerta";
-import PosDomiciliosNuevosWatcher from "@/components/PosDomiciliosNuevosWatcher";
-import PosDomiciliosChatFloatingDock from "@/components/PosDomiciliosChatFloatingDock";
-import PosAjustePantallaPanel from "@/components/PosAjustePantallaPanel";
-import PosFeEstadoCajaPanel from "@/components/PosFeEstadoCajaPanel";
 import type { DetallePagoConfirmado } from "@/components/RegistrarPagoPanel";
-import TurnoCierreExitoPremiumModal from "@/components/TurnoCierreExitoPremiumModal";
 import {
   CajeroReportesDashboard,
   CargueInventarioManualPanel,
+  CobroImpresionCelebracionOverlay,
   ConfiguracionMasModule,
+  CrearClientePosModal,
+  EdicionItemCuentaModal,
   InventarioPosModule,
   MetasBonificacionesModule,
+  ModalCobroSinInternet,
+  ModalInformeCierreCorreo,
   PlanMillasPosModule,
+  PerfilUsuarioModal,
+  PosAjustePantallaPanel,
+  PosAnunciosCajaWatcher,
   PosDomiciliosModule,
+  PosDomiciliosChatFloatingDock,
+  PosDomiciliosNuevoPedidoAlerta,
+  PosDomiciliosNuevosWatcher,
+  PosFeEstadoCajaPanel,
+  PosGebAyudaMotorModal,
+  PosGebBienvenidaModal,
+  PosGebTutorialOverlay,
   TurnosHistorialModule,
+  TicketPrevisualizacionModal,
+  TurnoCierreExitoPremiumModal,
   UltimosRecibosModule,
   PosChatFloatingDock,
   PosCajaPremiumHeader,
   PosLigaTurnoYMotivacion,
+  PosMetaCumplidaCelebracion,
   RegistrarPagoPanel,
   SeleccionClienteVenta,
 } from "@/app/caja/caja-modulos-dynamic";
@@ -1040,6 +1040,7 @@ export default function CajaPageClient() {
   /** Catálogo de domicilios por SKU del punto (check bajo el precio). */
   useEffect(() => {
     if (user && esContadorInvitado(user.role)) return;
+    if (!serviciosSecundarios) return;
     const pv = user?.puntoVenta?.trim() ?? "";
     if (!pv) {
       setCatalogoDomiciliosPorSku({});
@@ -1062,7 +1063,7 @@ export default function CajaPageClient() {
     return () => {
       cancelled = true;
     };
-  }, [user?.puntoVenta, user?.role, user]);
+  }, [serviciosSecundarios, user?.puntoVenta, user?.role, user]);
 
   const toggleProductoDomicilios = useCallback(
     async (sku: string, habilitado: boolean) => {
@@ -5400,29 +5401,32 @@ export default function CajaPageClient() {
         }}
       />
 
-      <PosAnunciosCajaWatcher
-        turnoAbierto={turnoAbierto}
-        getIdToken={getIdTokenCajaMensajes}
-        ventaCompletadaTick={ventaCompletadaAnuncioTick}
-        suprimido={moduloActivo === "domicilios"}
-      />
-
-      <PosDomiciliosNuevosWatcher
-        puntoVenta={user?.puntoVenta}
-        activo={Boolean(user?.puntoVenta?.trim() && turnoAbierto)}
-        moduloDomiciliosActivo={moduloActivo === "domicilios"}
-        soloContador
-      />
-      {!esContador ? (
-        <PosDomiciliosNuevoPedidoAlerta
-          puntoVenta={user?.puntoVenta}
-          habilitado={Boolean(user?.puntoVenta?.trim() && turnoAbierto)}
+      {serviciosSecundarios && turnoAbierto ? (
+        <PosAnunciosCajaWatcher
+          turnoAbierto
+          getIdToken={getIdTokenCajaMensajes}
+          ventaCompletadaTick={ventaCompletadaAnuncioTick}
+          suprimido={moduloActivo === "domicilios"}
         />
       ) : null}
-      <PosDomiciliosChatFloatingDock
-        puntoVenta={user?.puntoVenta}
-        visible={Boolean(user?.puntoVenta?.trim() && turnoAbierto)}
-      />
+
+      {serviciosSecundarios && user?.puntoVenta?.trim() && turnoAbierto ? (
+        <PosDomiciliosNuevosWatcher
+          puntoVenta={user.puntoVenta}
+          activo
+          moduloDomiciliosActivo={moduloActivo === "domicilios"}
+          soloContador
+        />
+      ) : null}
+      {serviciosSecundarios && !esContador && user?.puntoVenta?.trim() && turnoAbierto ? (
+        <PosDomiciliosNuevoPedidoAlerta
+          puntoVenta={user.puntoVenta}
+          habilitado
+        />
+      ) : null}
+      {serviciosSecundarios && user?.puntoVenta?.trim() && turnoAbierto ? (
+        <PosDomiciliosChatFloatingDock puntoVenta={user.puntoVenta} visible />
+      ) : null}
 
       {serviciosSecundarios && !esContador ? (
         <PosChatFloatingDock

@@ -10,6 +10,10 @@ function ModuloSpinner() {
   );
 }
 
+function SinLoader() {
+  return null;
+}
+
 export const InventarioPosModule = dynamic(() => import("@/components/InventarioPosModule"), {
   loading: () => <ModuloSpinner />,
 });
@@ -53,3 +57,66 @@ export const RegistrarPagoPanel = dynamic(() => import("@/components/RegistrarPa
 export const SeleccionClienteVenta = dynamic(() => import("@/components/SeleccionClienteVenta"), {
   loading: () => null,
 });
+
+export const CrearClientePosModal = dynamic(() => import("@/components/CrearClientePosModal"), {
+  loading: () => <SinLoader />,
+});
+export const EdicionItemCuentaModal = dynamic(() => import("@/components/EdicionItemCuentaModal"), {
+  loading: () => <SinLoader />,
+});
+export const PerfilUsuarioModal = dynamic(() => import("@/components/PerfilUsuarioModal"), {
+  loading: () => <SinLoader />,
+});
+export const PosGebAyudaMotorModal = dynamic(() => import("@/components/PosGebAyudaMotorModal"), {
+  loading: () => <SinLoader />,
+});
+export const PosGebBienvenidaModal = dynamic(() => import("@/components/PosGebBienvenidaModal"), {
+  loading: () => <SinLoader />,
+});
+export const PosGebTutorialOverlay = dynamic(() => import("@/components/PosGebTutorialOverlay"), {
+  loading: () => <SinLoader />,
+});
+export const CobroImpresionCelebracionOverlay = dynamic(
+  () => import("@/components/CobroImpresionCelebracionOverlay"),
+  { loading: () => <SinLoader /> }
+);
+export const TicketPrevisualizacionModal = dynamic(() => import("@/components/TicketPrevisualizacionModal"), {
+  loading: () => <SinLoader />,
+});
+export const ModalCobroSinInternet = dynamic(() => import("@/components/ModalCobroSinInternet"), {
+  loading: () => <SinLoader />,
+});
+export const ModalInformeCierreCorreo = dynamic(() => import("@/components/ModalInformeCierreCorreo"), {
+  loading: () => <SinLoader />,
+});
+export const PosMetaCumplidaCelebracion = dynamic(() => import("@/components/PosMetaCumplidaCelebracion"), {
+  ssr: false,
+  loading: () => <SinLoader />,
+});
+export const PosAnunciosCajaWatcher = dynamic(() => import("@/components/PosAnunciosCajaWatcher"), {
+  ssr: false,
+  loading: () => <SinLoader />,
+});
+export const PosDomiciliosNuevoPedidoAlerta = dynamic(
+  () => import("@/components/PosDomiciliosNuevoPedidoAlerta"),
+  { ssr: false, loading: () => <SinLoader /> }
+);
+export const PosDomiciliosNuevosWatcher = dynamic(() => import("@/components/PosDomiciliosNuevosWatcher"), {
+  ssr: false,
+  loading: () => <SinLoader />,
+});
+export const PosDomiciliosChatFloatingDock = dynamic(
+  () => import("@/components/PosDomiciliosChatFloatingDock"),
+  { ssr: false, loading: () => <SinLoader /> }
+);
+export const PosAjustePantallaPanel = dynamic(() => import("@/components/PosAjustePantallaPanel"), {
+  ssr: false,
+  loading: () => <SinLoader />,
+});
+export const PosFeEstadoCajaPanel = dynamic(() => import("@/components/PosFeEstadoCajaPanel"), {
+  loading: () => <SinLoader />,
+});
+export const TurnoCierreExitoPremiumModal = dynamic(
+  () => import("@/components/TurnoCierreExitoPremiumModal"),
+  { loading: () => <SinLoader /> }
+);
