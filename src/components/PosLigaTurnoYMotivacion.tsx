@@ -33,7 +33,7 @@ export type LigaTurnoFila = {
   barPct?: number;
   abiertoHoraCorta?: string;
   uid?: string;
-  /** Clientes fidelizados en el concurso activo (julio, ≥3 millas). */
+  /** Clientes fidelizados Club de millas del punto (stock total, ≥3 millas). */
   clientesFidelizados?: number;
   /** Meta del concurso de fidelización (p. ej. 100). */
   metaFidelizacion?: number;
@@ -829,7 +829,13 @@ function LigaTurnoTextoCajero({
           <span>{esCumpleFestivo ? "¡Hoy es su cumpleaños!" : fila.cajeroCumpleanosCorto}</span>
         </p>
       ) : null}
-      <p className="mt-1.5 line-clamp-2 text-[11px] font-bold leading-snug text-[#FFE9B8] sm:text-xs sm:leading-snug">
+      <p
+        className="mt-1 text-[10px] font-black tabular-nums leading-tight text-[#FFD700] sm:text-[11px]"
+        title={`${fila.clientesFidelizados ?? 0} clientes fidelizados Club de millas`}
+      >
+        {fila.clientesFidelizados ?? 0} fidelizados
+      </p>
+      <p className="mt-0.5 line-clamp-2 text-[11px] font-bold leading-snug text-[#FFE9B8] sm:text-xs sm:leading-snug">
         {nombrePv}
       </p>
     </div>
@@ -1057,9 +1063,9 @@ export default function PosLigaTurnoYMotivacion({
       rawList.forEach((item, i) => {
         const row = normalizarFila(item, i);
         if (row) {
+          if (row.clientesFidelizados == null) row.clientesFidelizados = 0;
           if (concursoFidelizacion?.activo) {
             row.metaFidelizacion = concursoFidelizacion.metaUnidades;
-            if (row.clientesFidelizados == null) row.clientesFidelizados = 0;
           }
           next.push(row);
         }
@@ -1199,12 +1205,12 @@ export default function PosLigaTurnoYMotivacion({
         variante={variante}
         esMiTurno={esMiTurno}
         esCumpleFestivo={esCumpleFestivo}
-        mostrarFidelizados={Boolean(fidelizacionConcurso?.activo)}
+        mostrarFidelizados
       />
     );
   }
 
-  const mostrarFidelizados = Boolean(fidelizacionConcurso?.activo);
+  const mostrarFidelizados = true;
 
   if (ocultar) return null;
 
@@ -1340,7 +1346,7 @@ export default function PosLigaTurnoYMotivacion({
                     {mostrarFidelizados ? (
                       <>
                         {" "}
-                        · Fidelizados julio · cada hora
+                        · Clientes Club de millas · cada hora
                         {fidelizacionConcurso?.actualizadoEn ? (
                           <span className="block text-[9px] text-[#8A7B64] sm:inline sm:before:content-['_']">
                             Últ. sync fidelizados: {fidelizacionConcurso.actualizadoEn}
