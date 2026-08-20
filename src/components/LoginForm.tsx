@@ -8,10 +8,9 @@ import { useAuth } from "@/context/AuthContext";
 import { auth } from "@/lib/firebase";
 import { LOGO_ORG_URL } from "@/lib/brand";
 import { esContadorInvitado } from "@/lib/auth-roles";
-import { PUNTOS_DE_VENTA } from "@/lib/puntos-venta";
 
 export default function LoginForm() {
-  const { signIn, signOut, user, setPuntoVentaSeleccionado } = useAuth();
+  const { signIn, signOut, user } = useAuth();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -34,11 +33,6 @@ export default function LoginForm() {
     } finally {
       setSubmitting(false);
     }
-  };
-
-  const handleSeleccionarPunto = async (punto: string) => {
-    await setPuntoVentaSeleccionado(punto);
-    router.replace("/caja");
   };
 
   const handleCerrarSesion = async () => {
@@ -132,25 +126,13 @@ export default function LoginForm() {
         </header>
 
         <main className="flex flex-1 flex-col items-center justify-center p-6 md:p-12">
-          <div className="w-full max-w-md">
-            <h1 className="mb-2 text-2xl font-bold text-gray-900">
-              Selecciona tu punto de venta
-            </h1>
-            <p className="mb-8 text-gray-600">
-              No tienes un punto asignado. Elige uno para continuar:
+          <div className="w-full max-w-lg rounded-xl border border-amber-200 bg-amber-50 p-6 text-center">
+            <h1 className="text-xl font-bold text-amber-950">Cuenta sin punto de venta asignado</h1>
+            <p className="mt-3 text-sm text-amber-900">
+              El punto de venta lo asigna administración con el nombre real del local. No se puede
+              elegir un cargo genérico como «Franquiciado» o «Cajero 1», porque eso sale mal en los
+              reportes. Contacta a soporte POS GEB para que asignen tu local.
             </p>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {PUNTOS_DE_VENTA.map((punto) => (
-                <button
-                  key={punto}
-                  type="button"
-                  onClick={() => handleSeleccionarPunto(punto)}
-                  className="group rounded-xl border-2 border-brand-yellow/50 bg-brand-yellow px-6 py-4 text-lg font-semibold text-gray-900 shadow-sm transition-all hover:opacity-90"
-                >
-                  {punto}
-                </button>
-              ))}
-            </div>
           </div>
         </main>
       </div>

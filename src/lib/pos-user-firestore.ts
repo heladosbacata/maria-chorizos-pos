@@ -5,6 +5,7 @@ import { emptyCajeroFicha } from "@/types/pos-perfil-cajero";
 import type { PosPerfilOrganizacionDatos } from "@/types/pos-perfil-organizacion";
 import { mergePosPerfilOrganizacion } from "@/types/pos-perfil-organizacion";
 import { db } from "@/lib/firebase";
+import { pareceEtiquetaCajeroNoPunto } from "@/lib/puntos-venta";
 
 const USERS = "users";
 
@@ -33,10 +34,17 @@ export async function persistPuntoVentaUsuario(params: {
         message: "Las cuentas de contador no pueden cambiar el punto de venta desde aquí.",
       };
     }
+    const pv = params.puntoVenta.trim();
+    if (!pv || pareceEtiquetaCajeroNoPunto(pv)) {
+      return {
+        ok: false,
+        message: "El punto de venta debe ser el nombre del local, no «Franquiciado» ni «Cajero N».",
+      };
+    }
     await setDoc(
       doc(db, USERS, params.uid),
       {
-        puntoVenta: params.puntoVenta.trim(),
+        puntoVenta: pv,
         email: params.email ?? null,
         role: "pos",
         updatedAt: serverTimestamp(),

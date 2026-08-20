@@ -13,6 +13,7 @@ import { auth, db } from "@/lib/firebase";
 import { POS_CONTADOR_ROLE } from "@/lib/auth-roles";
 import { persistPuntoVentaUsuario } from "@/lib/pos-user-firestore";
 import { clearPosGebOnboarding } from "@/lib/pos-onboarding-storage";
+import { pareceEtiquetaCajeroNoPunto } from "@/lib/puntos-venta";
 
 export interface AuthUser {
   uid: string;
@@ -147,7 +148,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 /* si las reglas impiden el parche, el API Admin igual usa .trim() al validar */
               }
             }
-            const puntoVentaFirestore = puntoTrim;
+            const puntoVentaFirestore =
+              puntoTrim && !pareceEtiquetaCajeroNoPunto(puntoTrim) ? puntoTrim : undefined;
             const roleFirestore = (data?.role as string | undefined) ?? null;
 
             if (puntoVentaFirestore) {
@@ -223,6 +225,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const setPuntoVentaSeleccionado = async (punto: string) => {
     if (authUser?.role === POS_CONTADOR_ROLE) {
+      return;
+    }
+    if (pareceEtiquetaCajeroNoPunto(punto)) {
+      console.warn("[POS] No se guarda puntoVenta genérico:", punto);
       return;
     }
 
