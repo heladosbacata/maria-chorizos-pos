@@ -1,10 +1,5 @@
 import { fetchCatalogoInsumosDesdeSheet } from "@/lib/catalogo-insumos-sheet-client";
-import { getCatalogoPOS } from "@/lib/catalogo-pos";
-import {
-  expandirItemsInventarioDesdeProductosPos,
-  mergeCatalogoInventarioBase,
-  mergeCatalogoInventarioConProductosPos,
-} from "@/lib/inventario-pos-catalogo";
+import { catalogoInsumosParaCargue } from "@/lib/inventario-pos-catalogo";
 import {
   claveParaConsolidarSaldoKit,
   listarInsumosKitPorPuntoVenta,
@@ -116,15 +111,10 @@ function esMovimientoEnsamble(m: InventarioMovimientoDoc): boolean {
 
 type EntradaCatalogoCruda = { item: InsumoKitItem; origen: string };
 
-function recolectarCatalogoCrudo(
-  sheet: InsumoKitItem[],
-  firestore: InsumoKitItem[],
-  productosPos: ReturnType<typeof expandirItemsInventarioDesdeProductosPos>
-): EntradaCatalogoCruda[] {
+function recolectarCatalogoCrudo(sheet: InsumoKitItem[], firestore: InsumoKitItem[]): EntradaCatalogoCruda[] {
   const out: EntradaCatalogoCruda[] = [];
   for (const item of sheet) out.push({ item, origen: "Hoja Google" });
   for (const item of firestore) out.push({ item, origen: "Firestore kit" });
-  for (const item of productosPos) out.push({ item, origen: "Catálogo POS" });
   return out;
 }
 
@@ -359,32 +349,19 @@ export async function cargarDatosAuditoriaInventarioPos(puntoVenta: string): Pro
   const pv = puntoVenta.replace(/\u00a0/g, " ").trim();
   const generadoIso = new Date().toISOString();
 
-  const [sheetRes, saldosPack, posRes, listaFs, movimientos] = await Promise.all([
+  const [sheetRes, saldosPack, listaFs, movimientos] = await Promise.all([
     fetchCatalogoInsumosDesdeSheet(pv),
     listarSaldosInventarioConFuentePorPuntoVenta(pv),
-    getCatalogoPOS(null, pv),
     listarInsumosKitPorPuntoVenta(pv),
     listarMovimientosInventario(pv, LIMITE_MOVIMIENTOS_AUDITORIA_INVENTARIO),
   ]);
 
-  const productosPos = posRes.ok ? posRes.productos ?? [] : [];
-  const itemsPos = expandirItemsInventarioDesdeProductosPos(productosPos);
   const sheet = sheetRes.ok ? sheetRes.data : [];
-  const crudo = recolectarCatalogoCrudo(sheet, listaFs, itemsPos);
+  const crudo = recolectarCatalogoCrudo(sheet, listaFs);
 
-  let fuenteCatalogo: "sheet" | "firestore" | "wms" = "wms";
-  let insumos: InsumoKitItem[] = [];
-
-  if (sheet.length > 0) {
-    const mergedBase = mergeCatalogoInventarioBase(sheet, listaFs);
-    const merged = mergeCatalogoInventarioConProductosPos(mergedBase, productosPos);
-    insumos = merged.items;
-    fuenteCatalogo = "sheet";
-  } else {
-    const merged = mergeCatalogoInventarioConProductosPos(listaFs, productosPos);
-    insumos = merged.items;
-    fuenteCatalogo = listaFs.length > 0 ? "firestore" : "wms";
-  }
+  const insumos = catalogoInsumosParaCargue(sheet, listaFs);
+  const fuenteCatalogo: "sheet" | "firestore" | "wms" =
+    sheet.length > 0 ? "sheet" : listaFs.length > 0 ? "firestore" : "wms";
 
   const duplicadosCatalogo = detectarDuplicadosCatalogo(crudo);
   const descripcionesSimilares = detectarDescripcionesSimilares(insumos);
@@ -439,7 +416,7 @@ export async function cargarDatosAuditoriaInventarioPos(puntoVenta: string): Pro
     puntoVenta: pv,
     generadoIso,
     fuenteCatalogo,
-    incluyeCatalogoPos: productosPos.length > 0,
+    incluyeCatalogoPos: false,
     limiteMovimientos: LIMITE_MOVIMIENTOS_AUDITORIA_INVENTARIO,
     resumen,
     duplicadosCatalogo,

@@ -1,5 +1,6 @@
 import { buildLineIdPos } from "@/lib/chorizo-variante-pos";
 import { normSkuInventario } from "@/lib/inventario-pos-firestore";
+import { precioEfectivoCarrito, type ProductoCarritoPrecio } from "@/lib/precios-compra-carrito";
 import type { ProductoPOS } from "@/types";
 import type { InsumoKitItem } from "@/types/inventario-pos";
 
@@ -7,25 +8,45 @@ const CATEGORIA_POS_PRODUCTOS = "db_pos_productos";
 
 /** Rubros de catálogo que representan productos de venta/ensamble, no insumos cargables. */
 const RUBRO_ENSAMBLE_RE = /\b(ensamble|combo|paquete|producto\s*pos|producto\s*terminado|venta|bebida|combo|paquetes)\b/i;
+/** Rubros administrativos del franquiciado; no hacen parte de recetas de ensamble POS. */
+const RUBRO_UTIL_FRANQUICIADO_RE =
+  /\b(operacion|aseo|inocuidad|dotacion|seguridad|administrativo|papeleria|limpieza|residuos)\b/i;
+
+function textoSinAcentos(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 /** Ítem derivado del catálogo POS o marcado como ensamble/paquete (no es insumo cargable). */
 export function itemEsEnsambleOCatalogoPos(item: InsumoKitItem): boolean {
   const cat = (item.categoria ?? "").trim();
-  const catNorm = cat.toLowerCase().replace(/\s+/g, " ");
+  const catNorm = textoSinAcentos(cat);
   if (catNorm === CATEGORIA_POS_PRODUCTOS) return true;
   if (cat && RUBRO_ENSAMBLE_RE.test(cat)) return true;
   // Variantes POS: «SKU · Etiqueta» (p. ej. GAS-PV-6 · Con Gas).
   if (/\s·\s/.test(item.sku)) return true;
-  // SKU carrito / producto terminado (p. ej. PT-ARE-PETOQ-X6).
-  if (/^PT-/i.test(item.sku.trim())) return true;
+  // En hojas de producción, PT-* es producto terminado; en DB_Carrito puede ser producto comprable por franquiciado.
+  if (/^PT-/i.test(item.sku.trim()) && !/\b(franquiciado|db_carrito|desechable|mercadeo)\b/i.test(catNorm)) {
+    return true;
+  }
   // Id de variante POS (p. ej. GAS-PV-6|var:con-gas).
   if (/\|var:/i.test(item.id)) return true;
   return false;
 }
 
-/** Solo insumos del kit/franquicia; excluye ensambles y productos del catálogo POS. */
+/** Ítems de dotación/operación del franquiciado; visibles en la hoja, pero no descuentan por receta POS. */
+export function itemEsUtilFranquiciadoNoEnsamble(item: InsumoKitItem): boolean {
+  const catNorm = textoSinAcentos(item.categoria ?? "");
+  return Boolean(catNorm && RUBRO_UTIL_FRANQUICIADO_RE.test(catNorm));
+}
+
+/** Solo insumos de receta/cargue; excluye ensambles, productos POS y útiles administrativos. */
 export function filtrarCatalogoSoloInsumos(items: InsumoKitItem[]): InsumoKitItem[] {
-  return items.filter((item) => !itemEsEnsambleOCatalogoPos(item));
+  return items.filter((item) => !itemEsEnsambleOCatalogoPos(item) && !itemEsUtilFranquiciadoNoEnsamble(item));
 }
 
 function clavesLookupFirestoreInsumo(item: InsumoKitItem): string[] {
@@ -58,22 +79,48 @@ function enriquecerInsumoDesdeFirestore(item: InsumoKitItem, fsByKey: Map<string
   return item;
 }
 
+export function catalogoInventarioDesdeProductosCarrito(productos: ProductoCarritoPrecio[]): InsumoKitItem[] {
+  const out = new Map<string, InsumoKitItem>();
+  for (const p of productos) {
+    const sku = String(p.sku ?? "").trim();
+    const descripcion = String(p.producto ?? "").trim();
+    if (!sku || !descripcion) continue;
+    const key = normSkuInventario(sku);
+    if (!key || out.has(key)) continue;
+    const precio = precioEfectivoCarrito(p);
+    out.set(key, {
+      id: sku,
+      sku,
+      descripcion,
+      unidad: "und",
+      categoria: String(p.categoria ?? "").trim() || "DB_Carrito",
+      ...(precio != null ? { precioCompraUnitario: precio } : {}),
+    });
+  }
+  return Array.from(out.values()).sort((a, b) => a.descripcion.localeCompare(b.descripcion, "es"));
+}
+
 /**
- * Catálogo para cargue e inventario POS: insumos de la hoja (si hay hoja), sin ensambles ni catálogo POS.
- * Firestore solo enriquece precios; no agrega filas extra cuando la hoja ya trae el catálogo.
+ * Catálogo para cargue e inventario POS: productos/insumos que compra el franquiciado.
+ * Firestore `DB_Franquicia_Insumos_Kit` gana cuando tiene datos; DB_Carrito respalda los productos disponibles
+ * para pedidos del franquiciado; la hoja queda como último respaldo.
  */
 export function catalogoInsumosParaCargue(
   sheet: InsumoKitItem[],
-  firestore: InsumoKitItem[]
+  firestore: InsumoKitItem[],
+  carrito: ProductoCarritoPrecio[] = []
 ): InsumoKitItem[] {
   const sheetBase = filtrarCatalogoSoloInsumos(sheet);
   const fsFiltered = filtrarCatalogoSoloInsumos(firestore);
+  const carritoItems = catalogoInventarioDesdeProductosCarrito(carrito);
   const base =
-    sheetBase.length > 0
-      ? sheetBase
-      : fsFiltered.length > 0
-        ? mergeCatalogoInventarioBase([], fsFiltered)
-        : [];
+    fsFiltered.length > 0
+      ? mergeCatalogoInventarioBase([], fsFiltered)
+      : carritoItems.length > 0
+        ? carritoItems
+        : sheetBase.length > 0
+          ? sheetBase
+          : [];
   const fsByKey = indexarFirestoreInsumos(firestore);
   return base.map((it) => enriquecerInsumoDesdeFirestore(it, fsByKey));
 }

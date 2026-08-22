@@ -152,7 +152,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
 
   const [historialCargue, setHistorialCargue] = useState<Awaited<ReturnType<typeof listarMovimientosInventario>>>([]);
   const [cargandoHist, setCargandoHist] = useState(false);
-  const [fuenteCat, setFuenteCat] = useState<"sheet" | "firestore" | null>(null);
+  const [fuenteCat, setFuenteCat] = useState<"sheet" | "firestore" | "wms" | null>(null);
   const [preciosCarritoMap, setPreciosCarritoMap] = useState<MapaPreciosCarrito>(() => mapaPreciosCarritoVacio());
 
   const [movDetalle, setMovDetalle] = useState<InventarioMovimientoDoc | null>(null);
@@ -182,10 +182,18 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
       ]);
       setPreciosCarritoMap(carritoPrecios.ok ? carritoPrecios.mapa : mapaPreciosCarritoVacio());
       const sheetItems = sheet.ok ? sheet.data : [];
-      const items = catalogoInsumosParaCargue(sheetItems, listaFs);
+      const items = catalogoInsumosParaCargue(sheetItems, listaFs, carritoPrecios.productos);
+      const fuenteItems: "sheet" | "firestore" | "wms" | null =
+        listaFs.length > 0
+          ? "firestore"
+          : carritoPrecios.productos.length > 0
+            ? "wms"
+            : sheetItems.length > 0
+              ? "sheet"
+              : null;
       if (items.length > 0) {
         setInsumos(items);
-        setFuenteCat(sheetItems.length > 0 ? "sheet" : "firestore");
+        setFuenteCat(fuenteItems);
         if (!sheet.ok && sheet.message) {
           setErrorCat(
             `No se leyó la hoja de Google (${sheet.message}). Se muestra el catálogo de Firestore «${CATALOGO_INSUMOS_KIT_COLLECTION}».`
@@ -486,6 +494,8 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                 Firestore{" "}
                 <code className="rounded bg-gray-100 px-1 text-xs">{CATALOGO_INSUMOS_KIT_COLLECTION}</code>
               </>
+            ) : fuenteCat === "wms" ? (
+              "DB_Carrito (WMS)"
             ) : (
               "la hoja de Google"
             )}

@@ -43,7 +43,25 @@ describe("filtrarCatalogoSoloInsumos", () => {
     expect(filtrarCatalogoSoloInsumos([insumo, pt])).toEqual([insumo]);
   });
 
-  it("con hoja disponible no agrega filas extra de Firestore", () => {
+  it("excluye útiles administrativos del franquiciado", () => {
+    const util: InsumoKitItem = {
+      id: "sheet-14",
+      sku: "14",
+      descripcion: "Base caja menor / sencillo en efectivo para dar cambio",
+      unidad: "Operación",
+      categoria: "Operación",
+    };
+    const dotacion: InsumoKitItem = {
+      id: "sheet-23",
+      sku: "23",
+      descripcion: "Bolsas plásticas para llevar producto congelado",
+      unidad: "Dotación y seguridad",
+      categoria: "Dotación y seguridad",
+    };
+    expect(filtrarCatalogoSoloInsumos([insumo, util, dotacion])).toEqual([insumo]);
+  });
+
+  it("prefiere Firestore DB_Franquicia_Insumos_Kit cuando existe", () => {
     const hoja: InsumoKitItem = { id: "sheet-2", sku: "2", descripcion: "Arepa bocadillo", unidad: "Paquete" };
     const fsDup: InsumoKitItem = {
       id: "FRAN-KIT-2",
@@ -59,6 +77,30 @@ describe("filtrarCatalogoSoloInsumos", () => {
       categoria: "DB_POS_Productos",
     };
     const items = catalogoInsumosParaCargue([hoja], [fsDup, fsExtra, insumo]);
-    expect(items.map((i) => i.sku)).toEqual(["2"]);
+    expect(items.map((i) => i.sku)).toEqual(["FRAN-KIT-2", "FRAN-KIT-5"]);
+  });
+
+  it("usa DB_Carrito como respaldo para productos comprables del franquiciado", () => {
+    const items = catalogoInsumosParaCargue(
+      [],
+      [],
+      [
+        {
+          sku: "PT-ARE-PETOQ-X6",
+          producto: "Arepa de Peto con Queso x6,Arepas,Paquete",
+          categoria: "Insumos Franquiciado",
+          precio: 16800,
+        },
+      ]
+    );
+    expect(items).toMatchObject([
+      {
+        id: "PT-ARE-PETOQ-X6",
+        sku: "PT-ARE-PETOQ-X6",
+        descripcion: "Arepa de Peto con Queso x6,Arepas,Paquete",
+        categoria: "Insumos Franquiciado",
+        precioCompraUnitario: 16800,
+      },
+    ]);
   });
 });

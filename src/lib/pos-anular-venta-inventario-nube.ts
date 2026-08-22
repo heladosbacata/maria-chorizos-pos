@@ -1,7 +1,6 @@
 import { fetchCatalogoInsumosDesdeSheet } from "@/lib/catalogo-insumos-sheet-client";
 import { auth } from "@/lib/firebase";
-import { getCatalogoPOS } from "@/lib/catalogo-pos";
-import { mergeCatalogoInventarioBase, mergeCatalogoInventarioConProductosPos } from "@/lib/inventario-pos-catalogo";
+import { catalogoInsumosParaCargue } from "@/lib/inventario-pos-catalogo";
 import {
   insumoKitDesdeCatalogoPorSku,
   listarInsumosKitPorPuntoVenta,
@@ -14,13 +13,11 @@ import { marcarVentaAnuladaLocal, type VentaGuardadaLocal } from "@/lib/pos-vent
 import type { InsumoKitItem } from "@/types/inventario-pos";
 
 async function catalogoInsumosKitParaAnulacion(puntoVenta: string): Promise<InsumoKitItem[]> {
-  const [sheetRes, desdeFs, posRes] = await Promise.all([
+  const [sheetRes, desdeFs] = await Promise.all([
     fetchCatalogoInsumosDesdeSheet(puntoVenta),
     listarInsumosKitPorPuntoVenta(puntoVenta),
-    getCatalogoPOS(null, puntoVenta),
   ]);
-  const base = mergeCatalogoInventarioBase(sheetRes.ok && sheetRes.data.length > 0 ? sheetRes.data : [], desdeFs);
-  return mergeCatalogoInventarioConProductosPos(base, posRes.ok ? posRes.productos ?? [] : []).items;
+  return catalogoInsumosParaCargue(sheetRes.ok ? sheetRes.data : [], desdeFs);
 }
 
 /**

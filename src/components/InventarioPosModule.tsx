@@ -51,8 +51,8 @@ import { fetchMapaPreciosCarritoCompras } from "@/lib/wms-carrito-precios-client
 type Pestaña = "stock" | "movimiento" | "historial";
 type FuenteCatalogoInventario = "sheet" | "firestore" | "wms";
 
-/** v4: catálogo solo insumos (sin ensambles POS); invalida caché v3 con productos mezclados. */
-const INVENTARIO_CATALOGO_CACHE_PREFIX = "pos_mc_inventario_catalogo_v4";
+/** v7: Firestore kit o DB_Carrito ganan sobre hojas de producción INS-*. */
+const INVENTARIO_CATALOGO_CACHE_PREFIX = "pos_mc_inventario_catalogo_v7";
 const HISTORIAL_LIMITE_STOCK = 80;
 const HISTORIAL_LIMITE_COMPLETO = 150;
 
@@ -342,21 +342,29 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       setProductosPosAgregados(0);
 
       const sheetItems = sheetRes.ok ? sheetRes.data : [];
-      const items = catalogoInsumosParaCargue(sheetItems, listaFs);
+      const items = catalogoInsumosParaCargue(sheetItems, listaFs, carritoPrecios.productos);
+      const fuenteItems: FuenteCatalogoInventario | null =
+        listaFs.length > 0
+          ? "firestore"
+          : carritoPrecios.productos.length > 0
+            ? "wms"
+            : sheetItems.length > 0
+              ? "sheet"
+              : null;
 
       if (items.length > 0) {
         setInsumos(items);
-        setFuenteCatalogo(sheetItems.length > 0 ? "sheet" : "firestore");
+        setFuenteCatalogo(fuenteItems);
         guardarCacheCatalogoInventario(pv, {
           items,
-          fuenteCatalogo: sheetItems.length > 0 ? "sheet" : "firestore",
-          incluyeCatalogoPos: false,
-          productosPosAgregados: 0,
+          fuenteCatalogo: fuenteItems,
+          incluyeCatalogoPos: fuenteItems === "wms",
+          productosPosAgregados: fuenteItems === "wms" ? carritoPrecios.productos.length : 0,
         });
         setError(null);
         if (sheetRes.pvFiltroSinCoincidencias) {
           setAvisoPvHoja(
-            `Ninguna fila de la hoja tenía el punto de venta «${pv}» en la columna PV (o el texto no coincidía). Se muestran todos los productos de la hoja; revisá la columna PV o el código en tu perfil.`
+            `Ninguna fila de la hoja tenía el punto de venta «${pv}» en la columna PV (o el texto no coincidía). Se muestran todos los insumos de la hoja; revisá la columna PV o el código en tu perfil.`
           );
         }
         if (!sheetRes.ok && sheetRes.message) {
@@ -368,8 +376,10 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
         setInsumos([]);
         setFuenteCatalogo(null);
         setError(
-          sheetRes.message ??
-            `No hay ítems en hoja ni en «${CATALOGO_INSUMOS_KIT_COLLECTION}» para «${pv}». Revisá la hoja DB_Franquicia_Insumos_Kit (columna PV si aplica) o documentos en Firestore.`
+          sheetRes.pvFiltroSinCoincidencias
+            ? `La hoja de insumos no tiene filas para el punto de venta «${pv}». Revisá la columna PV o el código del perfil.`
+            : sheetRes.message ??
+              `No hay ítems en hoja ni en «${CATALOGO_INSUMOS_KIT_COLLECTION}» para «${pv}». Revisá la hoja DB_Franquicia_Insumos_Kit (columna PV si aplica) o documentos en Firestore.`
         );
       }
     } catch {
@@ -654,7 +664,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
   const filasStock = useMemo(() => {
     const q = busqueda.trim().toLowerCase();
     const categoriaActiva = categoriaFiltro.trim().toLowerCase();
-    const base = insumos.map((i) => {
+    const base = filtrarCatalogoSoloInsumos(insumos).map((i) => {
       const { saldo, editable: saldoEditableClic, costoUnitarioReferencia } = saldoMostradoYFuenteParaInsumoKit(
         i,
         saldosPorClaveMap,
@@ -696,7 +706,11 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
 
   const categoriasDisponibles = useMemo(() => {
     return Array.from(
-      new Set(insumos.map((i) => i.categoria?.trim()).filter((categoria): categoria is string => Boolean(categoria)))
+      new Set(
+        filtrarCatalogoSoloInsumos(insumos)
+          .map((i) => i.categoria?.trim())
+          .filter((categoria): categoria is string => Boolean(categoria))
+      )
     ).sort((a, b) => a.localeCompare(b, "es"));
   }, [insumos]);
 
@@ -785,7 +799,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                 ? "hoja Google (DB_Franquicia_Insumos_Kit)"
                 : fuenteCatalogo === "firestore"
                   ? `Firestore «${CATALOGO_INSUMOS_KIT_COLLECTION}»`
-                  : "catálogo POS (DB_POS_Productos / WMS)"}
+                  : "DB_Carrito (WMS)"}
               {" · "}
               solo insumos cargables (sin ensambles POS)
             </p>

@@ -28,7 +28,7 @@ type OkResponse = {
   ok: true;
   data: InsumoKitItem[];
   fuente: string;
-  /** La hoja tiene filas pero ninguna coincidió con el PV; se devolvieron todas las filas (PV vacío en filtro). */
+  /** La hoja tiene filas pero ninguna coincidió con el PV; se devolvieron todos los insumos de la hoja. */
   pvFiltroSinCoincidencias?: boolean;
 };
 type ErrResponse = {
@@ -49,6 +49,19 @@ function sheetSetupFromEnv(): SheetSetupHint | undefined {
     shareOnceHint:
       "Comparte la hoja de insumos con el correo de la cuenta de servicio (solo lectura basta). Un solo paso: todos los usuarios POS usan el mismo acceso automáticamente.",
   };
+}
+
+function normalizarTituloSheet(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function tituloSheetPareceCatalogoInsumos(title: string): boolean {
+  const t = normalizarTituloSheet(title);
+  if (/util|apertura|dotacion|aseo|operacion/.test(t)) return false;
+  return /insumo|kit|inventario/.test(t);
 }
 
 /**
@@ -79,7 +92,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         pvFiltroSinCoincidencias = true;
       }
     }
-    return res.status(200).json({ ok: true, data, fuente, ...(pvFiltroSinCoincidencias ? { pvFiltroSinCoincidencias: true } : {}) });
+    return res
+      .status(200)
+      .json({ ok: true, data, fuente, ...(pvFiltroSinCoincidencias ? { pvFiltroSinCoincidencias: true } : {}) });
   } catch (e) {
     const message =
       e instanceof Error
@@ -133,7 +148,11 @@ async function obtenerFilasDesdeSheet(): Promise<{ rows: string[][]; fuente: str
       if (!metaRes.ok) {
         throw new Error(metaJson.error?.message || `Sheets API metadata ${metaRes.status}`);
       }
-      const sheet = metaJson.sheets?.find((s) => s.properties?.sheetId === gid);
+      const preferredSheet = metaJson.sheets?.find((s) => {
+        const title = s.properties?.title?.trim();
+        return title ? tituloSheetPareceCatalogoInsumos(title) : false;
+      });
+      const sheet = preferredSheet ?? metaJson.sheets?.find((s) => s.properties?.sheetId === gid);
       const title = sheet?.properties?.title?.trim();
       if (!title) {
         throw new Error(

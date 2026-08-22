@@ -71,6 +71,19 @@ export function googleSheetsApiEnableUrl(projectId: string): string {
   return `https://console.cloud.google.com/apis/library/sheets.googleapis.com?project=${encodeURIComponent(p)}`;
 }
 
+function normalizarTituloSheet(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function tituloSheetPareceCatalogoInsumos(title: string): boolean {
+  const t = normalizarTituloSheet(title);
+  if (/util|apertura|dotacion|aseo|operacion/.test(t)) return false;
+  return /insumo|kit|inventario/.test(t);
+}
+
 export async function fetchSpreadsheetRowsWithJwt(
   jwt: JWT,
   spreadsheetId: string,
@@ -86,7 +99,11 @@ export async function fetchSpreadsheetRowsWithJwt(
       sheets?: { properties?: { sheetId?: number; title?: string } }[];
     }>({ url: metaUrl });
     const sheets = metaRes.data.sheets;
-    const sheet = sheets?.find((s) => s.properties?.sheetId === gid);
+    const preferredSheet = sheets?.find((s) => {
+      const title = s.properties?.title?.trim();
+      return title ? tituloSheetPareceCatalogoInsumos(title) : false;
+    });
+    const sheet = preferredSheet ?? sheets?.find((s) => s.properties?.sheetId === gid);
     const title = sheet?.properties?.title?.trim();
     if (!title) {
       throw new Error(

@@ -8,6 +8,7 @@ import {
 export type MapaPreciosCarritoResult = {
   ok: boolean;
   mapa: MapaPreciosCarrito;
+  productos: ProductoCarritoPrecio[];
   /** Productos con precio en DB_Carrito. */
   totalCarrito: number;
   message?: string;
@@ -31,16 +32,19 @@ export async function fetchMapaPreciosCarritoCompras(): Promise<MapaPreciosCarri
       return {
         ok: false,
         mapa: mapaPreciosCarritoVacio(),
+        productos: [],
         totalCarrito: 0,
         message: data.error ?? `No se pudo leer el carrito (${res.status}).`,
       };
     }
+    const productos = data.data;
     const mapa = buildMapaPreciosCarrito(data.data);
-    return { ok: true, mapa, totalCarrito: mapa.porSku.size };
+    return { ok: true, mapa, productos, totalCarrito: mapa.porSku.size };
   } catch {
     return {
       ok: false,
       mapa: mapaPreciosCarritoVacio(),
+      productos: [],
       totalCarrito: 0,
       message: "No se pudo conectar con el carrito de compras.",
     };

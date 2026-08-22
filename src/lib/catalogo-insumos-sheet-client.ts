@@ -15,7 +15,7 @@ export async function fetchCatalogoInsumosDesdeSheet(
   message?: string;
   fuente?: string;
   sheetSetup?: CatalogoSheetSetupHint;
-  /** Ninguna fila coincidió con el PV en columna PV; se listaron todos los ítems de la hoja. */
+  /** Ninguna fila coincidió con el PV en columna PV; se listan todos los insumos de la hoja. */
   pvFiltroSinCoincidencias?: boolean;
 }> {
   const pv = (puntoVenta ?? "").trim();

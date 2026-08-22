@@ -94,7 +94,7 @@ import {
 import { fetchCatalogoInsumosDesdeSheet } from "@/lib/catalogo-insumos-sheet-client";
 import { getCatalogoPOS, leerCatalogoCacheSync } from "@/lib/catalogo-pos";
 import { solicitarCambioPrecioProductoPos } from "@/lib/pos-solicitud-cambio-precio";
-import { mergeCatalogoInventarioBase, mergeCatalogoInventarioConProductosPos } from "@/lib/inventario-pos-catalogo";
+import { catalogoInsumosParaCargue } from "@/lib/inventario-pos-catalogo";
 import {
   insumoBolsaPapelParaLlevarResolver,
   insumoKitDesdeCatalogoPorSku,
@@ -325,13 +325,11 @@ function detalleVarianteTicketLinea(it: ItemCuenta): string | undefined {
 }
 
 async function cargarCatalogoInventarioUnificado(puntoVenta: string) {
-  const [sheetRes, desdeFs, posRes] = await Promise.all([
+  const [sheetRes, desdeFs] = await Promise.all([
     fetchCatalogoInsumosDesdeSheet(puntoVenta),
     listarInsumosKitPorPuntoVenta(puntoVenta),
-    getCatalogoPOS(null, puntoVenta),
   ]);
-  const base = mergeCatalogoInventarioBase(sheetRes.ok && sheetRes.data.length > 0 ? sheetRes.data : [], desdeFs);
-  return mergeCatalogoInventarioConProductosPos(base, posRes.ok ? posRes.productos ?? [] : []).items;
+  return catalogoInsumosParaCargue(sheetRes.ok ? sheetRes.data : [], desdeFs);
 }
 
 function itemCuentaEsBebidaConInventarioDirecto(it: ItemCuenta): boolean {

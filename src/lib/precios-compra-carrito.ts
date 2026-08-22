@@ -3,11 +3,14 @@ import type { InsumoKitItem } from "@/types/inventario-pos";
 
 /** Producto del carrito de compras (app móvil / web / WMS — hoja DB_Carrito). */
 export type ProductoCarritoPrecio = {
+  id?: string;
   sku?: string;
   producto?: string;
+  categoria?: string;
   precio?: number;
   precioPromo?: number;
   promo?: boolean;
+  agotado?: boolean;
 };
 
 export type MapaPreciosCarrito = {

@@ -50,7 +50,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
   const [cargando, setCargando] = useState(true);
   const [errorCat, setErrorCat] = useState<string | null>(null);
   const [sheetSetupAyuda, setSheetSetupAyuda] = useState<CatalogoSheetSetupHint | null>(null);
-  const [fuenteCat, setFuenteCat] = useState<"sheet" | "firestore" | null>(null);
+  const [fuenteCat, setFuenteCat] = useState<"sheet" | "firestore" | "wms" | null>(null);
 
   const [busqueda, setBusqueda] = useState("");
   const [fechaCargue, setFechaCargue] = useState(() => ymdColombia());
@@ -94,10 +94,18 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
       ]);
       setSaldoRows(saldosR);
       const sheetItems = sheet.ok ? sheet.data : [];
-      const items = catalogoInsumosParaCargue(sheetItems, listaFs);
+      const items = catalogoInsumosParaCargue(sheetItems, listaFs, carritoPrecios.productos);
+      const fuenteItems: "sheet" | "firestore" | "wms" | null =
+        listaFs.length > 0
+          ? "firestore"
+          : carritoPrecios.productos.length > 0
+            ? "wms"
+            : sheetItems.length > 0
+              ? "sheet"
+              : null;
       if (items.length > 0) {
         setInsumos(items);
-        setFuenteCat(sheetItems.length > 0 ? "sheet" : "firestore");
+        setFuenteCat(fuenteItems);
         if (sheet.sheetSetup) setSheetSetupAyuda(sheet.sheetSetup);
         setMapaPreciosCarritoRespaldo(carritoPrecios.ok ? carritoPrecios.mapa : mapaPreciosCarritoVacio());
         const desdeHoja = contarInsumosConPrecioHoja(items);
@@ -434,7 +442,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
           insumos={insumos}
           saldoRows={saldoRows}
           mapaPreciosCarrito={mapaPreciosCarritoRespaldo}
-          fuenteCatalogo={fuenteCat}
+          fuenteCatalogo={fuenteCat === "sheet" || fuenteCat === "firestore" ? fuenteCat : null}
           emailSesion={email}
         />
 
@@ -529,7 +537,8 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
         {fuenteCat && insumos.length > 0 && (
           <div className="shrink-0 border-t border-gray-100 bg-gray-50 px-4 py-2">
             <p className="text-xs text-gray-500">
-              Catálogo: {fuenteCat === "sheet" ? "hoja Google" : "Firestore"} (solo insumos, sin ensambles POS)
+              Catálogo: {fuenteCat === "sheet" ? "hoja Google" : fuenteCat === "wms" ? "DB_Carrito (WMS)" : "Firestore"}{" "}
+              (productos comprables del franquiciado)
               {" · "}
               {insumosFiltrados.length} de {insumos.length} filas mostradas
               {busqueda.trim() ? " (filtro activo)" : ""}.
