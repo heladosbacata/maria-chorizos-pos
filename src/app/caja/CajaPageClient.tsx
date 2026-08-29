@@ -2109,7 +2109,8 @@ export default function CajaPageClient() {
     const okConfirm = window.confirm(
       "¿Anular por completo esta venta?\n\n" +
         "Se devolverán los productos a la cuenta actual y se marcará el recibo como anulado. " +
-        "El inventario por ensamble aún no se había descontado (se aplica al pulsar «Imprimir»), así que no hay reversión de stock de productos.\n\n" +
+        "El descuento de insumos por ensamble (WMS) ya se aplicó al cobrar: esta anulación no lo revierte sola; " +
+        "ajustá stock en Inventarios o pedí a soporte si hace falta.\n\n" +
         "Si activaste «Cliente frecuente», se devolverá el sticker en inventario. " +
         "El reporte de venta ya enviado a red / WMS no se revierte solo; coordiná con soporte si hace falta."
     );
@@ -2228,6 +2229,7 @@ export default function CajaPageClient() {
         ...ultimoEnsamble,
       });
     }
+    return ultimoEnsamble;
   }, []);
 
   type OpcionesCobroVenta = { notaPie?: string; detallePago?: DetallePagoConfirmado };
@@ -2433,23 +2435,22 @@ export default function CajaPageClient() {
           }
         }
 
-        let ensamblePendienteParaVista: WmsAplicarVentaEnsambleBody | null = null;
+        // Descontar ensamble al cobrar (no esperar a «Imprimir»): si la caja cierra la
+        // vista previa sin imprimir o hay fallo de impresión, el stock de insumos igual baja.
+        // Idempotencia WMS por idVenta: un reintento al imprimir solo si el cobro falló.
         const lineasEnsamble = lineasWmsEnsambleDesdeItemsCuenta(itemsSnap);
         const idEnsamble =
           ventaLocalId ?? `ens-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
-        const prefsImpresionCobro = loadImpresionPrefs();
-        const aplazarEnsambleHastaImprimir =
-          prefsImpresionCobro.imprimirAutomaticoAlCobrar && lineasEnsamble.length > 0 && !esCanjeClubMillas;
-        if (lineasEnsamble.length > 0) {
+        let ensamblePendienteParaVista: WmsAplicarVentaEnsambleBody | null = null;
+        if (lineasEnsamble.length > 0 && !esCanjeClubMillas) {
           const bodyEnsamble: WmsAplicarVentaEnsambleBody = {
             lineas: lineasEnsamble,
             idVenta: idEnsamble,
             puntoVenta: pv,
           };
-          if (aplazarEnsambleHastaImprimir) {
+          const rEns = await ejecutarAplicarVentaEnsambleWmsDesdeBody(bodyEnsamble);
+          if (!rEns.ok) {
             ensamblePendienteParaVista = bodyEnsamble;
-          } else {
-            await ejecutarAplicarVentaEnsambleWmsDesdeBody(bodyEnsamble);
           }
         }
 
