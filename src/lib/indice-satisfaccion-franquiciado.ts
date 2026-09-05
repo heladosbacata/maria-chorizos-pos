@@ -184,6 +184,103 @@ export function normalizarRegistroMes(ym: string, raw: unknown): IndiceSatisfacc
  * Al guardar desde el franquiciado: conserva respuestas WMS ya existentes
  * en áreas que siguen con ≤3 estrellas.
  */
+/** Respuesta WMS publicada en un mes (para notificaciones al franquiciado). */
+export type RespuestaWmsPublicada = {
+  ym: string;
+  areaId: IndiceSatisfaccionAreaId;
+  areaLabel: string;
+  texto: string;
+  respondidoAt: string | null;
+  respondidoPorNombre: string;
+};
+
+export function listarRespuestasWmsPublicadas(registro: IndiceSatisfaccionMes): RespuestaWmsPublicada[] {
+  const items: RespuestaWmsPublicada[] = [];
+  if (!registro.guardadoAt) return items;
+  for (const a of INDICE_SATISFACCION_AREAS) {
+    const cal = registro.areas[a.id];
+    const rw = cal?.respuestaWms;
+    if (rw?.estado === "respondida" && rw.texto.trim()) {
+      items.push({
+        ym: registro.ym,
+        areaId: a.id,
+        areaLabel: a.label,
+        texto: rw.texto,
+        respondidoAt: rw.respondidoAt,
+        respondidoPorNombre: rw.respondidoPorNombre,
+      });
+    }
+  }
+  return items;
+}
+
+/** Elige la respuesta WMS más reciente entre local y nube (prioriza nube en empate). */
+export function elegirRespuestaWmsMejor(
+  a: RespuestaWmsArea | null | undefined,
+  b: RespuestaWmsArea | null | undefined
+): RespuestaWmsArea {
+  const aOk = a?.estado === "respondida" && Boolean(a.texto.trim());
+  const bOk = b?.estado === "respondida" && Boolean(b.texto.trim());
+  if (aOk && bOk) {
+    const aAt = a!.respondidoAt ?? "";
+    const bAt = b!.respondidoAt ?? "";
+    return bAt >= aAt ? b! : a!;
+  }
+  if (bOk) return b!;
+  if (aOk) return a!;
+  if (b?.texto?.trim() || b?.respondidoAt) return b;
+  if (a?.texto?.trim() || a?.respondidoAt) return a;
+  return { texto: "", respondidoAt: null, respondidoPorNombre: "", estado: "pendiente" };
+}
+
+/**
+ * Combina datos del franquiciado (primary) con el otro origen;
+ * las respuestas WMS se toman de cualquiera que tenga `respondida`.
+ */
+export function fusionarAreasIndiceLocalNube(
+  primary: AreasCalificacionMap,
+  secondary: AreasCalificacionMap
+): AreasCalificacionMap {
+  const out = areasVacias();
+  for (const a of INDICE_SATISFACCION_AREAS) {
+    const p = primary[a.id] ?? areaCalificacionVacia();
+    const s = secondary[a.id] ?? areaCalificacionVacia();
+    const estrellas = p.estrellas >= 1 ? p.estrellas : s.estrellas;
+    const observacion = p.estrellas >= 1 ? p.observacion : s.observacion;
+    const respuestaWms = requiereSeguimientoWms(estrellas)
+      ? elegirRespuestaWmsMejor(p.respuestaWms, s.respuestaWms)
+      : null;
+    out[a.id] = { estrellas, observacion, respuestaWms };
+  }
+  return out;
+}
+
+/**
+ * Fusiona local ↔ nube: datos del mes (estrellas) del `guardadoAt` más reciente;
+ * respuestas WMS siempre se combinan para no perder actualizaciones de administración.
+ */
+export function fusionarRegistrosIndiceSatisfaccion(
+  local: IndiceSatisfaccionMes,
+  cloud: IndiceSatisfaccionMes | null | undefined
+): IndiceSatisfaccionMes | null {
+  if (!local.guardadoAt && !cloud?.guardadoAt) return null;
+  if (!local.guardadoAt) return cloud ?? null;
+  if (!cloud?.guardadoAt) return local;
+
+  const localMasReciente = local.guardadoAt >= cloud.guardadoAt;
+  const base = localMasReciente ? local : cloud;
+  const otro = localMasReciente ? cloud : local;
+  const areasMerged = fusionarAreasIndiceLocalNube(base.areas, otro.areas);
+
+  return {
+    ym: base.ym || local.ym,
+    areas: areasMerged,
+    guardadoAt: base.guardadoAt,
+    indice: calcularIndice(areasMerged),
+    seguimientoWmsAreaIds: listarAreasSeguimientoWms(areasMerged),
+  };
+}
+
 export function fusionarAreasPreservandoRespuestasWms(
   nuevas: AreasCalificacionMap,
   previas: AreasCalificacionMap | null | undefined

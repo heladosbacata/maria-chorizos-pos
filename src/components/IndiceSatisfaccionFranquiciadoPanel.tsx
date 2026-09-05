@@ -26,6 +26,7 @@ import {
   type IndiceSatisfaccionAreaId,
   type IndiceSatisfaccionMes,
   requiereSeguimientoWms,
+  type RespuestaWmsPublicada,
 } from "@/lib/indice-satisfaccion-franquiciado";
 import {
   aniosDisponiblesIndice,
@@ -33,6 +34,11 @@ import {
   leerIndiceSatisfaccionMes,
   listarMesesIndiceSatisfaccion,
 } from "@/lib/indice-satisfaccion-franquiciado-storage";
+import {
+  marcarRespuestaWmsVista,
+  sincronizarYContarRespuestasWmsNuevas,
+} from "@/lib/indice-satisfaccion-franquiciado-notificaciones";
+import { emitirIndiceSatisfaccionRespuestasCambio } from "@/lib/pos-indice-satisfaccion-event";
 import {
   cargarIndiceSatisfaccionAnioConSync,
   cargarIndiceSatisfaccionMesConSync,
@@ -44,6 +50,8 @@ export interface IndiceSatisfaccionFranquiciadoPanelProps {
   puntoVenta: string | null;
   uid: string | null;
   onVolver?: () => void;
+  /** Se invoca cuando cambia el conteo de respuestas WMS no vistas (para badge en menú). */
+  onRespuestasWmsActualizadas?: (count: number) => void;
 }
 
 type ModoVista = "este-mes" | "avance";
@@ -221,8 +229,8 @@ function ModalSeguimientoWms({
             <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50/80 px-3 py-3">
               <p className="text-sm font-semibold text-amber-950">Pendiente de respuesta</p>
               <p className="mt-1 text-sm leading-relaxed text-amber-900/90">
-                Esta calificación quedó marcada para que un administrador la responda desde el WMS. La opción ya
-                está habilitada en el POS; el enlace con WMS se completará en una próxima etapa.
+                Un administrador revisará su observación desde el WMS y publicará aquí la respuesta
+                cuando esté lista. Vuelva a abrir esta pantalla o sincronice para ver novedades.
               </p>
             </div>
           )}
@@ -339,6 +347,7 @@ function AreaCard({
 export default function IndiceSatisfaccionFranquiciadoPanel({
   puntoVenta,
   onVolver,
+  onRespuestasWmsActualizadas,
 }: IndiceSatisfaccionFranquiciadoPanelProps) {
   const pv = (puntoVenta ?? "").replace(/\u00a0/g, " ").trim();
   const hoyYmd = ymdColombia();
@@ -370,7 +379,50 @@ export default function IndiceSatisfaccionFranquiciadoPanel({
     areaId: IndiceSatisfaccionAreaId;
     label: string;
     cal: AreaCalificacion;
+    ym: string;
   } | null>(null);
+  const [respuestasNoVistas, setRespuestasNoVistas] = useState<RespuestaWmsPublicada[]>([]);
+
+  const refrescarNotificaciones = useCallback(async () => {
+    if (!pv) {
+      setRespuestasNoVistas([]);
+      onRespuestasWmsActualizadas?.(0);
+      return;
+    }
+    const token = await tokenSesion();
+    const r = await sincronizarYContarRespuestasWmsNuevas({
+      token,
+      puntoVenta: pv,
+      emitirEvento: false,
+    });
+    setRespuestasNoVistas(r.items);
+    onRespuestasWmsActualizadas?.(r.count);
+    emitirIndiceSatisfaccionRespuestasCambio({ puntoVenta: pv, count: r.count });
+  }, [onRespuestasWmsActualizadas, pv]);
+
+  const abrirSeguimientoWms = useCallback(
+    (opts: { areaId: IndiceSatisfaccionAreaId; label: string; cal: AreaCalificacion; ym: string }) => {
+      setSeguimientoModal(opts);
+      const rw = opts.cal.respuestaWms;
+      if (rw?.estado === "respondida" && rw.texto.trim() && rw.respondidoAt && pv) {
+        marcarRespuestaWmsVista(pv, {
+          ym: opts.ym,
+          areaId: opts.areaId,
+          areaLabel: opts.label,
+          texto: rw.texto,
+          respondidoAt: rw.respondidoAt,
+          respondidoPorNombre: rw.respondidoPorNombre,
+        });
+        setRespuestasNoVistas((prev) => {
+          const next = prev.filter((x) => !(x.ym === opts.ym && x.areaId === opts.areaId));
+          onRespuestasWmsActualizadas?.(next.length);
+          emitirIndiceSatisfaccionRespuestasCambio({ puntoVenta: pv, count: next.length });
+          return next;
+        });
+      }
+    },
+    [onRespuestasWmsActualizadas, pv]
+  );
 
   useEffect(() => {
     if (!ymsEditables.includes(ymEdicion)) {
@@ -407,6 +459,10 @@ export default function IndiceSatisfaccionFranquiciadoPanel({
   }, [aplicarRegistro, pv, ymEdicion]);
 
   useEffect(() => {
+    void refrescarNotificaciones();
+  }, [refrescarNotificaciones, tick]);
+
+  useEffect(() => {
     void cargarMesEdicion();
   }, [cargarMesEdicion, tick]);
 
@@ -422,11 +478,12 @@ export default function IndiceSatisfaccionFranquiciadoPanel({
       const r = await cargarIndiceSatisfaccionAnioConSync({ token, puntoVenta: pv, anio });
       setPorYmCache(r.porYm);
       setYmsTodos(Array.from(new Set([...listarMesesIndiceSatisfaccion(pv), ...r.yms])).sort());
+      void refrescarNotificaciones();
       if (r.message) setAvisoSync(r.message);
     } finally {
       setSincronizando(false);
     }
-  }, [pv]);
+  }, [pv, refrescarNotificaciones]);
 
   useEffect(() => {
     if (modo !== "avance") return;
@@ -596,6 +653,47 @@ export default function IndiceSatisfaccionFranquiciadoPanel({
         </p>
       </header>
 
+      {respuestasNoVistas.length > 0 ? (
+        <div
+          className="mt-4 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 shadow-sm"
+          role="status"
+          aria-live="polite"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-sm font-bold text-sky-950">
+                {respuestasNoVistas.length === 1
+                  ? "Administración respondió a tu calificación"
+                  : `Administración respondió a ${respuestasNoVistas.length} calificaciones tuyas`}
+              </p>
+              <p className="mt-1 text-xs text-sky-900/90">
+                {labelMesYm(respuestasNoVistas[0]!.ym)} · {respuestasNoVistas[0]!.areaLabel}
+                {respuestasNoVistas.length > 1 ? ` y ${respuestasNoVistas.length - 1} más` : ""}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const primera = respuestasNoVistas[0];
+                if (!primera) return;
+                const reg =
+                  porYmCache[primera.ym] ?? leerIndiceSatisfaccionMes(pv, primera.ym);
+                const cal = reg.areas[primera.areaId];
+                abrirSeguimientoWms({
+                  areaId: primera.areaId,
+                  label: primera.areaLabel,
+                  cal,
+                  ym: primera.ym,
+                });
+              }}
+              className="flex-shrink-0 rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-700"
+            >
+              Ver respuesta
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       <div className="mt-4 flex gap-2 rounded-xl border border-gray-200 bg-gray-50 p-1">
         <button
           type="button"
@@ -700,7 +798,12 @@ export default function IndiceSatisfaccionFranquiciadoPanel({
                   highlightError={errorAreaId === a.id}
                   onChange={(next) => actualizarArea(a.id, next)}
                   onVerSeguimientoWms={() =>
-                    setSeguimientoModal({ areaId: a.id, label: a.label, cal: areas[a.id] })
+                    abrirSeguimientoWms({
+                      areaId: a.id,
+                      label: a.label,
+                      cal: areas[a.id],
+                      ym: ymEdicion,
+                    })
                   }
                 />
               ))}
@@ -900,7 +1003,12 @@ export default function IndiceSatisfaccionFranquiciadoPanel({
                               cal.respuestaWms?.estado === "respondida" && Boolean(cal.respuestaWms.texto.trim())
                             }
                             onClick={() =>
-                              setSeguimientoModal({ areaId: a.id, label: a.label, cal })
+                              abrirSeguimientoWms({
+                                areaId: a.id,
+                                label: a.label,
+                                cal,
+                                ym: ymSeleccionadoAvance,
+                              })
                             }
                           />
                         ) : null}

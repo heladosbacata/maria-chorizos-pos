@@ -15,6 +15,12 @@ import DianAlegraHabilitacionGuiaPanel from "@/components/DianAlegraHabilitacion
 import PosDianFacturacionPanel from "@/components/PosDianFacturacionPanel";
 import ProductosServiciosFranquiciaPanel from "@/components/ProductosServiciosFranquiciaPanel";
 import VentasDocumentosPosPanel from "@/components/VentasDocumentosPosPanel";
+import { auth } from "@/lib/firebase";
+import { sincronizarYContarRespuestasWmsNuevas } from "@/lib/indice-satisfaccion-franquiciado-notificaciones";
+import {
+  EVENT_INDICE_SATISFACCION_RESPUESTAS_CAMBIO,
+  type IndiceSatisfaccionRespuestasCambioDetail,
+} from "@/lib/pos-indice-satisfaccion-event";
 
 /** Id de la herramienta «Perfil de la organización» en CATEGORIAS */
 const PERFIL_ORGANIZACION_ITEM_ID = "gen-org-perfil";
@@ -270,6 +276,8 @@ export default function ConfiguracionMasModule({
   const [vistaDetalleItemId, setVistaDetalleItemId] = useState<string | null>(null);
   const [busquedaVentasDocs, setBusquedaVentasDocs] = useState<string>("");
   const [tabVentasDocs, setTabVentasDocs] = useState<DestinoFacturacionMas["tab"]>("factura_electronica");
+  /** Respuestas WMS al índice de satisfacción que el franquiciado aún no ha visto */
+  const [respuestasWmsNuevas, setRespuestasWmsNuevas] = useState(0);
   /** Ids completados (desmarcados del fondo rojo = pendiente resuelto) */
   const [completados, setCompletados] = useState<Set<string>>(
     () =>
@@ -304,6 +312,42 @@ export default function ConfiguracionMasModule({
     () => ALL_IDS.filter((id) => !completados.has(id)).length,
     [completados]
   );
+
+  const revisarRespuestasWmsIndice = useCallback(async () => {
+    const pv = (puntoVenta ?? "").trim();
+    if (!pv) {
+      setRespuestasWmsNuevas(0);
+      return;
+    }
+    try {
+      const token = (await auth?.currentUser?.getIdToken()) ?? null;
+      const { count } = await sincronizarYContarRespuestasWmsNuevas({
+        token,
+        puntoVenta: pv,
+        emitirEvento: false,
+      });
+      setRespuestasWmsNuevas(count);
+    } catch {
+      /* offline */
+    }
+  }, [puntoVenta]);
+
+  useEffect(() => {
+    void revisarRespuestasWmsIndice();
+    const intervalId = window.setInterval(() => void revisarRespuestasWmsIndice(), 120_000);
+    const onCambio = (ev: Event) => {
+      const detail = (ev as CustomEvent<IndiceSatisfaccionRespuestasCambioDetail>).detail;
+      const pv = (puntoVenta ?? "").trim();
+      if (detail?.puntoVenta && pv && detail.puntoVenta === pv) {
+        setRespuestasWmsNuevas(detail.count);
+      }
+    };
+    window.addEventListener(EVENT_INDICE_SATISFACCION_RESPUESTAS_CAMBIO, onCambio);
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener(EVENT_INDICE_SATISFACCION_RESPUESTAS_CAMBIO, onCambio);
+    };
+  }, [puntoVenta, revisarRespuestasWmsIndice]);
 
   const toggleCategoriaExpandida = useCallback((id: ConfigCategoriaId) => {
     setCategoriasExpandidas((prev) => {
@@ -438,16 +482,23 @@ export default function ConfiguracionMasModule({
                       <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
                         <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
                       </svg>
+                      {respuestasWmsNuevas > 0 ? (
+                        <span className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white">
+                          {respuestasWmsNuevas > 9 ? "9+" : respuestasWmsNuevas}
+                        </span>
+                      ) : null}
                     </span>
                     <span className="relative min-w-0 flex-1">
                       <span className="block text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-100">
-                        Nuevo · Franquiciado
+                        {respuestasWmsNuevas > 0 ? "Respuesta nueva" : "Nuevo · Franquiciado"}
                       </span>
                       <span className="mt-0.5 block text-sm font-bold leading-snug text-white">
                         ÍNDICE de satisfacción al Franquiciado
                       </span>
                       <span className="mt-0.5 block text-[11px] font-medium text-white/90">
-                        Contanos cómo le va — entrar aquí
+                        {respuestasWmsNuevas > 0
+                          ? `${respuestasWmsNuevas} respuesta${respuestasWmsNuevas === 1 ? "" : "s"} de administración — ver aquí`
+                          : "Contanos cómo le va — entrar aquí"}
                       </span>
                     </span>
                     <svg
@@ -609,6 +660,7 @@ export default function ConfiguracionMasModule({
           <IndiceSatisfaccionFranquiciadoPanel
             puntoVenta={puntoVenta}
             uid={uid}
+            onRespuestasWmsActualizadas={setRespuestasWmsNuevas}
             onVolver={() => {
               setVistaDetalleItemId(null);
               setCategoriaActiva("general");

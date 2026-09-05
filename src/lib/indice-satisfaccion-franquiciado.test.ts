@@ -6,6 +6,7 @@ import {
   colorIndice,
   contarAreasCompletas,
   fusionarAreasPreservandoRespuestasWms,
+  fusionarRegistrosIndiceSatisfaccion,
   listarAreasSeguimientoWms,
   normalizarRegistroMes,
   puedeEditarYmIndice,
@@ -96,6 +97,33 @@ describe("indice-satisfaccion-franquiciado", () => {
     expect(puedeEditarYmIndice("2026-07", "2026-09-04")).toBe(false);
     expect(ymsEditablesIndice("2026-09-10")).toEqual(["2026-08", "2026-09"]);
     expect(ymsEditablesIndice("2026-09-16")).toEqual(["2026-09"]);
+  });
+
+  it("fusionarRegistrosIndiceSatisfaccion conserva respuesta WMS aunque guardadoAt sea igual", () => {
+    const local = normalizarRegistroMes("2026-08", {
+      areas: {
+        operaciones: { estrellas: 2, observacion: "Demora en soporte" },
+      },
+      guardadoAt: "2026-08-15T10:00:00.000Z",
+    });
+    const cloud = normalizarRegistroMes("2026-08", {
+      areas: {
+        operaciones: {
+          estrellas: 2,
+          observacion: "Demora en soporte",
+          respuestaWms: {
+            texto: "Ya escalamos su caso con Experiencia",
+            respondidoAt: "2026-09-04T22:00:00.000Z",
+            respondidoPorNombre: "Admin WMS",
+            estado: "respondida",
+          },
+        },
+      },
+      guardadoAt: "2026-08-15T10:00:00.000Z",
+    });
+    const merged = fusionarRegistrosIndiceSatisfaccion(local, cloud);
+    expect(merged?.areas.operaciones.respuestaWms?.estado).toBe("respondida");
+    expect(merged?.areas.operaciones.respuestaWms?.texto).toContain("escalamos");
   });
 
   it("requiereSeguimientoWms y preserva respuesta en fusión", () => {

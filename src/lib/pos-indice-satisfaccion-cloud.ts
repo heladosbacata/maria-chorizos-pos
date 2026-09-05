@@ -7,6 +7,7 @@
  */
 
 import {
+  fusionarRegistrosIndiceSatisfaccion,
   normalizarRegistroMes,
   type AreasCalificacionMap,
   type IndiceSatisfaccionMes,
@@ -17,7 +18,6 @@ import {
   leerIndiceSatisfaccionMes,
   listarMesesIndiceSatisfaccion,
   persistirIndiceSatisfaccionMesLocal,
-  preferirRegistroMasReciente,
 } from "@/lib/indice-satisfaccion-franquiciado-storage";
 
 export const COL_INDICE_SATISFACCION = "pos_indice_satisfaccion_franquiciado";
@@ -221,7 +221,7 @@ export async function cargarIndiceSatisfaccionMesConSync(opts: {
       fuente: "local",
     };
   }
-  const preferido = preferirRegistroMasReciente(local, cloud.registro);
+  const preferido = fusionarRegistrosIndiceSatisfaccion(local, cloud.registro);
   if (preferido?.guardadoAt) {
     persistirIndiceSatisfaccionMesLocal(opts.puntoVenta, preferido);
     // Si solo estaba en local, subir a la nube en segundo plano (best-effort).
@@ -287,7 +287,7 @@ export async function cargarIndiceSatisfaccionAnioConSync(opts: {
 
   for (const reg of cloud.registros) {
     const prev = porYm[reg.ym] ?? leerIndiceSatisfaccionMes(pv, reg.ym);
-    const preferido = preferirRegistroMasReciente(prev, reg);
+    const preferido = fusionarRegistrosIndiceSatisfaccion(prev, reg);
     if (preferido?.guardadoAt) {
       porYm[preferido.ym] = preferido;
       persistirIndiceSatisfaccionMesLocal(pv, preferido);
