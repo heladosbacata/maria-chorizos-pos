@@ -233,6 +233,12 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Índice de satisfacción al Franquiciado: escritura/lectura vía Admin API
+    // (`/api/pos_indice_satisfaccion`). El cliente no escribe directo.
+    match /pos_indice_satisfaccion_franquiciado/{id} {
+      allow read, write: if false;
+    }
+
     // Usuarios POS: contador (role pos_contador) no puede cambiar punto de venta, rol ni invitadoPorUid desde el cliente.
     match /users/{uid} {
       allow read: if request.auth != null && request.auth.uid == uid;

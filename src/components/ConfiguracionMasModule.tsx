@@ -9,6 +9,7 @@ import PerfilOrganizacionForm from "@/components/PerfilOrganizacionForm";
 import ClientesProveedoresFranquiciaPanel from "@/components/ClientesProveedoresFranquiciaPanel";
 import ComprasGastosFranquiciaPanel from "@/components/ComprasGastosFranquiciaPanel";
 import PygFranquiciaPanel from "@/components/PygFranquiciaPanel";
+import IndiceSatisfaccionFranquiciadoPanel from "@/components/IndiceSatisfaccionFranquiciadoPanel";
 import UsuariosPosRegistradosPanel from "@/components/UsuariosPosRegistradosPanel";
 import DianAlegraHabilitacionGuiaPanel from "@/components/DianAlegraHabilitacionGuiaPanel";
 import PosDianFacturacionPanel from "@/components/PosDianFacturacionPanel";
@@ -31,6 +32,8 @@ const VEN_DOC_COT_ITEM_ID = "ven-doc-cot";
 const VEN_DOC_REM_ITEM_ID = "ven-doc-rem";
 /** PyG / estado de resultados simplificado para el franquiciado */
 const CONT_PYG_ITEM_ID = "cont-pyg";
+/** Índice de satisfacción al Franquiciado */
+const INDICE_SATISFACCION_ITEM_ID = "isf-indice";
 /** Registro de compras, proveedores y gastos (enlaza con PyG mensual) */
 const CG_COMPRAS_GASTOS_ITEM_ID = "cg-registro";
 /** Clientes (Firestore) y proveedores del punto */
@@ -56,6 +59,7 @@ const VISTA_DETALLE_ITEM_IDS = new Set<string>([
   VEN_DOC_COT_ITEM_ID,
   VEN_DOC_REM_ITEM_ID,
   CONT_PYG_ITEM_ID,
+  INDICE_SATISFACCION_ITEM_ID,
   CG_COMPRAS_GASTOS_ITEM_ID,
   CP_CENTRO_ITEM_ID,
   PS_POLITICA_ITEM_ID,
@@ -72,7 +76,8 @@ export type ConfigCategoriaId =
   | "compras-gastos"
   | "clientes-proveedores"
   | "productos-servicios"
-  | "pyg-punto-venta";
+  | "pyg-punto-venta"
+  | "indice-satisfaccion-franquiciado";
 
 export interface ConfigHerramienta {
   id: string;
@@ -196,6 +201,21 @@ const CATEGORIAS: ConfigCategoria[] = [
       },
     ],
   },
+  {
+    id: "indice-satisfaccion-franquiciado",
+    label: "ÍNDICE de satisfacción al Franquiciado",
+    secciones: [
+      {
+        titulo: "Tu voz cuenta",
+        items: [
+          {
+            id: INDICE_SATISFACCION_ITEM_ID,
+            label: "Medir y compartir mi satisfacción",
+          },
+        ],
+      },
+    ],
+  },
 ];
 
 function collectAllIds(categorias: ConfigCategoria[]): string[] {
@@ -258,6 +278,7 @@ export default function ConfiguracionMasModule({
         CONTRATO_POS_GEB_ITEM_ID,
         CONFIG_IMPRESION_POS_GEB_ITEM_ID,
         CONT_PYG_ITEM_ID,
+        INDICE_SATISFACCION_ITEM_ID,
         PS_POLITICA_ITEM_ID,
         VEN_DOC_COT_ITEM_ID,
         VEN_DOC_REM_ITEM_ID,
@@ -303,11 +324,19 @@ export default function ConfiguracionMasModule({
       setVistaDetalleItemId(
         catId === "pyg-punto-venta"
           ? CONT_PYG_ITEM_ID
-          : catId === "productos-servicios"
-            ? PS_POLITICA_ITEM_ID
-            : null
+          : catId === "indice-satisfaccion-franquiciado"
+            ? INDICE_SATISFACCION_ITEM_ID
+            : catId === "productos-servicios"
+              ? PS_POLITICA_ITEM_ID
+              : null
       );
-      setPendingScrollItemId(catId === "pyg-punto-venta" || catId === "productos-servicios" ? null : itemId);
+      setPendingScrollItemId(
+        catId === "pyg-punto-venta" ||
+          catId === "indice-satisfaccion-franquiciado" ||
+          catId === "productos-servicios"
+          ? null
+          : itemId
+      );
     }
   }, []);
 
@@ -325,6 +354,8 @@ export default function ConfiguracionMasModule({
     setCategoriasExpandidas((prev) => new Set(prev).add(catId));
     if (catId === "pyg-punto-venta") {
       setVistaDetalleItemId(CONT_PYG_ITEM_ID);
+    } else if (catId === "indice-satisfaccion-franquiciado") {
+      setVistaDetalleItemId(INDICE_SATISFACCION_ITEM_ID);
     } else if (catId === "compras-gastos") {
       setVistaDetalleItemId(CG_COMPRAS_GASTOS_ITEM_ID);
     } else if (catId === "clientes-proveedores") {
@@ -381,6 +412,58 @@ export default function ConfiguracionMasModule({
           {CATEGORIAS.map((cat) => {
             const expandida = categoriasExpandidas.has(cat.id);
             const esActiva = categoriaActiva === cat.id;
+            const esIndiceSatisfaccion = cat.id === "indice-satisfaccion-franquiciado";
+
+            if (esIndiceSatisfaccion) {
+              return (
+                <div key={cat.id} className="mb-1 mt-2">
+                  <button
+                    type="button"
+                    onClick={() => seleccionarSoloCategoria(cat.id)}
+                    className={`group relative flex w-full items-center gap-3 overflow-hidden rounded-xl px-3 py-3.5 text-left shadow-md transition-all ${
+                      esActiva
+                        ? "bg-gradient-to-br from-emerald-500 to-emerald-700 ring-2 ring-emerald-200 ring-offset-1"
+                        : "bg-gradient-to-br from-emerald-400 via-emerald-500 to-teal-600 hover:brightness-105 hover:shadow-lg"
+                    }`}
+                    aria-current={esActiva ? "page" : undefined}
+                  >
+                    <span
+                      className="pointer-events-none absolute -right-2 -top-3 h-16 w-16 rounded-full bg-white/20 blur-md"
+                      aria-hidden
+                    />
+                    <span
+                      className="relative flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-white text-emerald-600 shadow-sm"
+                      aria-hidden
+                    >
+                      <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z" />
+                      </svg>
+                    </span>
+                    <span className="relative min-w-0 flex-1">
+                      <span className="block text-[10px] font-bold uppercase tracking-[0.14em] text-emerald-100">
+                        Nuevo · Franquiciado
+                      </span>
+                      <span className="mt-0.5 block text-sm font-bold leading-snug text-white">
+                        ÍNDICE de satisfacción al Franquiciado
+                      </span>
+                      <span className="mt-0.5 block text-[11px] font-medium text-white/90">
+                        Contanos cómo le va — entrar aquí
+                      </span>
+                    </span>
+                    <svg
+                      className="relative h-5 w-5 flex-shrink-0 text-white/95 transition-transform group-hover:translate-x-0.5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                      aria-hidden
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                </div>
+              );
+            }
+
             return (
               <div key={cat.id} className="mb-1">
                 <div
@@ -520,6 +603,15 @@ export default function ConfiguracionMasModule({
               setCategoriaActiva("compras-gastos");
               setCategoriasExpandidas((prev) => new Set(prev).add("compras-gastos"));
               setVistaDetalleItemId(CG_COMPRAS_GASTOS_ITEM_ID);
+            }}
+          />
+        ) : vistaDetalleItemId === INDICE_SATISFACCION_ITEM_ID ? (
+          <IndiceSatisfaccionFranquiciadoPanel
+            puntoVenta={puntoVenta}
+            uid={uid}
+            onVolver={() => {
+              setVistaDetalleItemId(null);
+              setCategoriaActiva("general");
             }}
           />
         ) : vistaDetalleItemId === CG_COMPRAS_GASTOS_ITEM_ID ? (
