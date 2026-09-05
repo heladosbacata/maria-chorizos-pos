@@ -38,7 +38,7 @@ function leerIndex(pv: string): string[] {
 function escribirIndex(pv: string, yms: string[]): void {
   if (typeof window === "undefined" || !pv.trim()) return;
   try {
-    const uniq = [...new Set(yms.filter((y) => /^\d{4}-\d{2}$/.test(y)))].sort();
+    const uniq = Array.from(new Set(yms.filter((y) => /^\d{4}-\d{2}$/.test(y)))).sort();
     localStorage.setItem(indexKey(pv), JSON.stringify(uniq));
   } catch {
     /* quota */
@@ -112,7 +112,9 @@ export function listarMesesIndiceSatisfaccion(pv: string): string[] {
 
 /** Fusiona yms locales con una lista externa (nube). */
 export function fusionarMesesIndiceLocal(pv: string, ymsNube: string[]): string[] {
-  const merged = [...new Set([...leerIndex(pv), ...ymsNube.filter((y) => /^\d{4}-\d{2}$/.test(y))])].sort();
+  const merged = Array.from(
+    new Set([...leerIndex(pv), ...ymsNube.filter((y) => /^\d{4}-\d{2}$/.test(y))])
+  ).sort();
   escribirIndex(pv, merged);
   return merged;
 }
@@ -124,5 +126,5 @@ export function aniosDisponiblesIndice(pv: string, anioActual: number, ymsExtra:
     const y = Number(ym.slice(0, 4));
     if (Number.isFinite(y)) set.add(y);
   }
-  return [...set].sort((a, b) => b - a);
+  return Array.from(set).sort((a, b) => b - a);
 }

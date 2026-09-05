@@ -299,7 +299,11 @@ function AreaCard({
             }
           />
         ))}
-        {cal.estrellas > 0 ? (
+        {cal.estrellas === 1 ||
+        cal.estrellas === 2 ||
+        cal.estrellas === 3 ||
+        cal.estrellas === 4 ||
+        cal.estrellas === 5 ? (
           <span className="ml-2 text-xs font-medium text-emerald-700">{ESTRELLAS_LABELS[cal.estrellas]}</span>
         ) : (
           <span className="ml-2 text-xs text-gray-400">Sin calificar</span>
@@ -417,7 +421,7 @@ export default function IndiceSatisfaccionFranquiciadoPanel({
       const token = await tokenSesion();
       const r = await cargarIndiceSatisfaccionAnioConSync({ token, puntoVenta: pv, anio });
       setPorYmCache(r.porYm);
-      setYmsTodos([...new Set([...listarMesesIndiceSatisfaccion(pv), ...r.yms])].sort());
+      setYmsTodos(Array.from(new Set([...listarMesesIndiceSatisfaccion(pv), ...r.yms])).sort());
       if (r.message) setAvisoSync(r.message);
     } finally {
       setSincronizando(false);
