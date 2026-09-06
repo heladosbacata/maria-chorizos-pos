@@ -13,10 +13,8 @@ import {
 import type { InsumoKitItem, InventarioMovimientoDoc, TipoMovimientoInventario } from "@/types/inventario-pos";
 
 /** Tipos que reflejan demanda real (venta / uso), no ajustes de conteo. */
-export const TIPOS_CONSUMO_PEDIDO_SUGERIDO: ReadonlySet<TipoMovimientoInventario> = new Set([
-  "venta_ensamble",
-  "consumo_interno",
-]);
+export const TIPOS_CONSUMO_PEDIDO_SUGERIDO: ReadonlySet<TipoMovimientoInventario> =
+  new Set<TipoMovimientoInventario>(["venta_ensamble", "consumo_interno"]);
 
 export const DIAS_VENTANA_ROTACION_DEFAULT = 7;
 export const DIAS_COBERTURA_PEDIDO_DEFAULT = 7;
