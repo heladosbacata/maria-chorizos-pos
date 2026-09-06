@@ -107,6 +107,15 @@ export default function AjusteInventarioPanel({
   const [enviando, setEnviando] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+  /** null = cerrado · confirmar = ¿seguro? · correo = resultado del envío */
+  const [modalPaso, setModalPaso] = useState<null | "confirmar" | "correo">(null);
+  const [resultadoCorreo, setResultadoCorreo] = useState<{
+    ok: boolean;
+    mensaje: string;
+    productos: number;
+    fallidos: number;
+    para: string;
+  } | null>(null);
 
   /** Todas las filas del catálogo (sin filtro de búsqueda) para totales globales. */
   const filasTodas = useMemo(() => {
@@ -221,34 +230,51 @@ export default function AjusteInventarioPanel({
     };
   }, [filasTodas, saldoNuevoSistema]);
 
-  const aplicarAjuste = useCallback(async () => {
+  const validarAntesDeConfirmar = useCallback((): boolean => {
     setError(null);
     setOk(null);
     const nombre = nombrePersona.trim();
     const mot = motivo.trim();
     if (!fechaAjuste.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(fechaAjuste.trim())) {
       setError("Indicá una fecha válida del ajuste.");
-      return;
+      return false;
     }
     if (!nombre) {
       setError("Indicá el nombre de la persona que realiza el ajuste.");
-      return;
+      return false;
     }
     if (mot.length < 5) {
       setError("Indicá el motivo del ajuste (al menos 5 caracteres).");
-      return;
+      return false;
     }
     if (cambiosPreview.length === 0) {
       setError("No hay cambios de saldo. Escribí el nuevo saldo en los productos a ajustar.");
-      return;
+      return false;
     }
-    const to = correoDestino.trim();
-    if (!to) {
+    if (!correoDestino.trim()) {
       setError("Indicá el correo donde se enviará el resumen del ajuste.");
+      return false;
+    }
+    return true;
+  }, [nombrePersona, motivo, fechaAjuste, cambiosPreview.length, correoDestino]);
+
+  const abrirConfirmacion = useCallback(() => {
+    if (!validarAntesDeConfirmar()) return;
+    setResultadoCorreo(null);
+    setModalPaso("confirmar");
+  }, [validarAntesDeConfirmar]);
+
+  const aplicarAjuste = useCallback(async () => {
+    if (!validarAntesDeConfirmar()) {
+      setModalPaso(null);
       return;
     }
+    const nombre = nombrePersona.trim();
+    const mot = motivo.trim();
+    const to = correoDestino.trim();
 
     setEnviando(true);
+    setError(null);
     const lineasCorreo: LineaAjusteInventarioCorreo[] = [];
     const fallidos: string[] = [];
 
@@ -302,6 +328,7 @@ export default function AjusteInventarioPanel({
 
     if (lineasCorreo.length === 0) {
       setEnviando(false);
+      setModalPaso(null);
       setError(
         fallidos.length
           ? `No se pudo registrar ningún ajuste. ${fallidos.slice(0, 3).join(" · ")}`
@@ -310,11 +337,12 @@ export default function AjusteInventarioPanel({
       return;
     }
 
+    let correoOk = false;
     let correoMsg = "";
     try {
       const token = await auth?.currentUser?.getIdToken();
       if (!token) {
-        correoMsg = " Ajuste guardado, pero no hay sesión para enviar el correo.";
+        correoMsg = "Ajuste guardado, pero no hay sesión para enviar el correo.";
       } else {
         const mail = await enviarResumenAjusteInventarioPorCorreo({
           idToken: token,
@@ -327,23 +355,32 @@ export default function AjusteInventarioPanel({
             lineas: lineasCorreo,
           },
         });
+        correoOk = mail.ok;
         correoMsg = mail.ok
-          ? " Correo de resumen enviado."
-          : ` Ajuste guardado; el correo no se pudo enviar: ${mail.message}`;
+          ? "El resumen del ajuste se envió correctamente."
+          : `El ajuste se guardó, pero el correo no se pudo enviar: ${mail.message}`;
       }
     } catch (e) {
-      correoMsg = ` Ajuste guardado; error al enviar correo: ${e instanceof Error ? e.message : "red"}`;
+      correoMsg = `El ajuste se guardó; error al enviar correo: ${e instanceof Error ? e.message : "red"}`;
     }
 
     setBorrador({});
     setModosEntrada({});
     setEnviando(false);
-    const avisoFallidos = fallidos.length ? ` (${fallidos.length} ítem(s) fallaron)` : "";
+    setResultadoCorreo({
+      ok: correoOk,
+      mensaje: correoMsg,
+      productos: lineasCorreo.length,
+      fallidos: fallidos.length,
+      para: to,
+    });
+    setModalPaso("correo");
     setOk(
-      `Ajuste registrado: ${lineasCorreo.length} producto(s)${avisoFallidos}.${correoMsg} El stock se actualiza en Inventarios.`
+      `Ajuste registrado: ${lineasCorreo.length} producto(s)${fallidos.length ? ` (${fallidos.length} fallaron)` : ""}.`
     );
     onCompletado();
   }, [
+    validarAntesDeConfirmar,
     nombrePersona,
     motivo,
     fechaAjuste,
@@ -680,12 +717,10 @@ export default function AjusteInventarioPanel({
         <button
           type="button"
           disabled={enviando || cambiosPreview.length === 0}
-          onClick={() => void aplicarAjuste()}
+          onClick={abrirConfirmacion}
           className="rounded-xl border-2 border-brand-yellow bg-brand-yellow px-5 py-3 text-sm font-bold text-gray-900 shadow-sm hover:brightness-105 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {enviando
-            ? "Aplicando ajuste…"
-            : `Aplicar ajuste${cambiosPreview.length ? ` (${cambiosPreview.length})` : ""} y enviar correo`}
+          {`Aplicar ajuste${cambiosPreview.length ? ` (${cambiosPreview.length})` : ""}…`}
         </button>
         <button
           type="button"
@@ -699,6 +734,148 @@ export default function AjusteInventarioPanel({
           Limpiar cambios
         </button>
       </div>
+
+      {modalPaso === "confirmar" ? (
+        <div
+          className="fixed inset-0 z-[270] flex items-center justify-center p-4"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="ajuste-confirmar-titulo"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/50"
+            aria-label="Cerrar"
+            disabled={enviando}
+            onClick={() => !enviando && setModalPaso(null)}
+          />
+          <div className="relative z-10 w-full max-w-lg overflow-hidden rounded-2xl border-2 border-amber-300 bg-white shadow-2xl">
+            <div className="border-b border-amber-100 bg-amber-50 px-5 py-4">
+              <h2 id="ajuste-confirmar-titulo" className="text-lg font-bold text-amber-950">
+                ¿Está seguro de guardar los cambios?
+              </h2>
+              <p className="mt-1 text-sm text-amber-900/90">
+                Se actualizará el inventario de{" "}
+                <strong className="font-semibold">{cambiosPreview.length}</strong> producto(s) y luego se enviará el
+                resumen a <strong className="font-semibold">{correoDestino.trim()}</strong>.
+              </p>
+            </div>
+            <div className="max-h-56 overflow-auto px-5 py-3">
+              <ul className="space-y-2 text-sm text-gray-800">
+                {cambiosPreview.slice(0, 12).map((c) => (
+                  <li key={c.insumo.id} className="flex justify-between gap-3 border-b border-gray-100 pb-2">
+                    <span className="min-w-0 truncate">
+                      <span className="font-mono text-xs text-gray-500">{c.insumo.sku}</span>{" "}
+                      {c.insumo.descripcion}
+                    </span>
+                    <span
+                      className={`shrink-0 font-semibold tabular-nums ${
+                        c.delta > 0 ? "text-emerald-700" : "text-red-700"
+                      }`}
+                    >
+                      {c.delta > 0 ? "+" : ""}
+                      {formatNum(c.delta)} paq.
+                    </span>
+                  </li>
+                ))}
+                {cambiosPreview.length > 12 ? (
+                  <li className="text-xs text-gray-500">… y {cambiosPreview.length - 12} más</li>
+                ) : null}
+              </ul>
+            </div>
+            <div className="flex flex-wrap justify-end gap-2 border-t border-gray-200 bg-gray-50 px-5 py-3">
+              <button
+                type="button"
+                disabled={enviando}
+                onClick={() => setModalPaso(null)}
+                className="rounded-xl border border-gray-300 bg-white px-4 py-2.5 text-sm font-semibold text-gray-800 hover:bg-gray-100 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={enviando}
+                onClick={() => void aplicarAjuste()}
+                className="rounded-xl border-2 border-amber-600 bg-amber-500 px-4 py-2.5 text-sm font-bold text-gray-900 hover:bg-amber-400 disabled:opacity-50"
+              >
+                {enviando ? "Guardando…" : "Sí, guardar cambios"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {modalPaso === "correo" && resultadoCorreo ? (
+        <div
+          className="fixed inset-0 z-[270] flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="ajuste-correo-titulo"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/50"
+            aria-label="Cerrar"
+            onClick={() => setModalPaso(null)}
+          />
+          <div className="relative z-10 w-full max-w-md overflow-hidden rounded-2xl border-2 border-emerald-200 bg-white shadow-2xl">
+            <div
+              className={`border-b px-5 py-5 text-center ${
+                resultadoCorreo.ok
+                  ? "border-emerald-100 bg-gradient-to-b from-emerald-50 to-white"
+                  : "border-amber-100 bg-gradient-to-b from-amber-50 to-white"
+              }`}
+            >
+              <div
+                className={`mx-auto flex h-14 w-14 items-center justify-center rounded-full ${
+                  resultadoCorreo.ok ? "bg-emerald-500/15 text-emerald-700" : "bg-amber-500/15 text-amber-800"
+                }`}
+              >
+                {resultadoCorreo.ok ? (
+                  <svg className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24" aria-hidden>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                  </svg>
+                ) : (
+                  <svg className="h-8 w-8" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24" aria-hidden>
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"
+                    />
+                  </svg>
+                )}
+              </div>
+              <h2 id="ajuste-correo-titulo" className="mt-3 text-lg font-bold text-gray-900">
+                {resultadoCorreo.ok ? "Correo enviado" : "Ajuste guardado"}
+              </h2>
+              <p className="mt-2 text-sm text-gray-600">{resultadoCorreo.mensaje}</p>
+            </div>
+            <div className="space-y-2 px-5 py-4 text-sm text-gray-700">
+              <p>
+                <span className="font-semibold text-gray-900">Destinatario:</span>{" "}
+                <span className="break-all">{resultadoCorreo.para}</span>
+              </p>
+              <p>
+                <span className="font-semibold text-gray-900">Productos ajustados:</span>{" "}
+                {resultadoCorreo.productos}
+                {resultadoCorreo.fallidos > 0 ? (
+                  <span className="text-red-700"> · {resultadoCorreo.fallidos} con error</span>
+                ) : null}
+              </p>
+              <p className="text-xs text-gray-500">El stock ya se actualizó en Inventarios.</p>
+            </div>
+            <div className="flex justify-end border-t border-gray-200 bg-gray-50 px-5 py-3">
+              <button
+                type="button"
+                onClick={() => setModalPaso(null)}
+                className="rounded-xl border-2 border-emerald-600 bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-emerald-700"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -47,8 +47,8 @@ describe("inventario-pedido-sugerido", () => {
     expect(v.saldoEnPaquetes).toBe(true);
     expect(v.paquetes).toBe(12);
     expect(v.unidadesEquivalentes).toBe(72);
-    expect(v.textoPrincipal).toMatch(/12/);
-    expect(v.textoSecundario).toMatch(/72/);
+    expect(v.textoPrincipal).toMatch(/12 paquetes/);
+    expect(v.textoSecundario).toMatch(/72 und/);
   });
 
   it("sugiere pedido en paquetes (saldo ya es paquetes)", () => {

@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  desglosarSaldoPaquetes,
   inferirUnidadesPorPaquete,
   itemParecePaqueteCargue,
   presentacionCargueInventario,
+  vistaSaldoConEmpaque,
 } from "./inventario-cargue-presentacion";
 
 describe("inventario-cargue-presentacion", () => {
@@ -51,5 +53,38 @@ describe("inventario-cargue-presentacion", () => {
         unidad: "und",
       })
     ).toBe(false);
+  });
+
+  it("desglosa decimales a paquetes + unidades", () => {
+    expect(desglosarSaldoPaquetes(14.167, 6)).toEqual({
+      paquetesEnteros: 14,
+      unidadesSueltas: 1,
+      totalUnidades: 85,
+    });
+    expect(desglosarSaldoPaquetes(52.1, 10)).toEqual({
+      paquetesEnteros: 52,
+      unidadesSueltas: 1,
+      totalUnidades: 521,
+    });
+  });
+
+  it("vista saldo legible sin decimales", () => {
+    const v = vistaSaldoConEmpaque(14.167, {
+      sku: "PT-ARE-PETOQB-X6",
+      descripcion: "Arepa Bocadillo y queso x6",
+      unidad: "und",
+    });
+    expect(v.textoPrincipal).toBe("14 paquetes + 1 unidad");
+    expect(v.textoSecundario).toMatch(/85 und/);
+    expect(v.paquetes).toBe(14);
+    expect(v.unidadesSueltas).toBe(1);
+
+    const entero = vistaSaldoConEmpaque(12, {
+      sku: "PT-ARE-PETOQB-X6",
+      descripcion: "Arepa Bocadillo y queso x6",
+      unidad: "und",
+    });
+    expect(entero.textoPrincipal).toBe("12 paquetes");
+    expect(entero.unidadesSueltas).toBe(0);
   });
 });
