@@ -10,7 +10,6 @@ import { catalogoInsumosParaCargue } from "@/lib/inventario-pos-catalogo";
 import {
   cantidadUnidadesDesdeCarguePaquetes,
   presentacionCargueInventario,
-  precioUnitarioDesdePrecioPaquete,
 } from "@/lib/inventario-cargue-presentacion";
 import { valorStockValorizado } from "@/lib/inventario-valorizacion-unidades";
 import {
@@ -465,13 +464,11 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
         pres.esPaquete && undPorPaq != null && undPorPaq >= 2
           ? cantidadUnidadesDesdeCarguePaquetes(line.cantidad, undPorPaq)
           : line.cantidad;
-      const precioGuardar =
-        pres.esPaquete && undPorPaq != null && undPorPaq >= 2
-          ? precioUnitarioDesdePrecioPaquete(line.precioCompraUnitario, undPorPaq)
-          : line.precioCompraUnitario;
+      /** Precio de hoja = COP/paquete; se guarda así (la valorización divide ÷xN). */
+      const precioGuardar = line.precioCompraUnitario;
       const notasExtra =
         pres.esPaquete && undPorPaq != null && undPorPaq >= 2
-          ? ` · ${line.cantidad} paq. ×${undPorPaq} = ${cantidadGuardar} und`
+          ? ` · ${line.cantidad} paq. ×${undPorPaq} = ${cantidadGuardar} und · precio ${precioGuardar}/paq`
           : "";
       const r = await registrarMovimientoInventario({
         puntoVenta: pv,

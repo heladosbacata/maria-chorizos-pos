@@ -685,13 +685,14 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
         saldosPorClaveMap,
         saldoRows
       );
-      const metaCosto = metaCostoInventarioItem(costoUnitarioReferencia, i);
-      const valorStockAprox = valorStockValorizado(saldo, costoUnitarioReferencia, i);
+      const vistaEmpaque = vistaSaldoConEmpaque(saldo, i);
+      const itemVal = { ...i, unidadesPorPaquete: vistaEmpaque.unidadesPorPaquete };
+      const metaCosto = metaCostoInventarioItem(costoUnitarioReferencia, itemVal);
+      const valorStockAprox = valorStockValorizado(saldo, costoUnitarioReferencia, itemVal);
       const skuK = normSkuInventario(i.sku);
       const minUsuario = minimosUsuario.get(skuK);
       const minSheet = i.minimoSugeridoSheet;
       const minimoEfectivo = minUsuario ?? minSheet ?? null;
-      const vistaEmpaque = vistaSaldoConEmpaque(saldo, i);
       const nEmpaque = vistaEmpaque.unidadesPorPaquete;
       /** Mínimo se captura en paquetes; el saldo del sistema está en unidades. */
       const minimoEnUnidades =

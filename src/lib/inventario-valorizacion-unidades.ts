@@ -1,6 +1,6 @@
 /**
  * Valorización de inventario cuando el saldo y el precio no usan la misma unidad
- * (caso típico: salsas con saldo en ml y precio de compra por litro).
+ * (salsas: ml vs COP/L; empaques x6/x10: und vs COP/paquete).
  */
 
 export type UnidadInventarioBase = "ml" | "l" | "g" | "kg" | "und" | "otro";
@@ -12,6 +12,24 @@ function textoNorm(s: string): string {
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/** Misma lógica que `inferirUnidadesPorPaquete` (sin import circular con cargue-presentación). */
+function unidadesPorPaqueteDesdeTexto(texto: string): number | null {
+  const t = textoNorm(texto);
+  const patterns = [
+    /(?:^|[\s_\-·.])x\s*(\d{1,3})(?:\b|$)/i,
+    /\bpaquete[s]?\s*(?:de\s*)?(\d{1,3})\b/i,
+    /\b(\d{1,3})\s*(?:und|unidades?)\s*(?:por\s*)?(?:paq|paquete)/i,
+    /\bpaq(?:uete)?s?\s*x\s*(\d{1,3})\b/i,
+  ];
+  for (const re of patterns) {
+    const m = re.exec(t);
+    if (!m?.[1]) continue;
+    const n = Number(m[1]);
+    if (Number.isFinite(n) && n >= 2 && n <= 500) return n;
+  }
+  return null;
 }
 
 function unidadEsGenerica(u: string): boolean {
@@ -87,7 +105,7 @@ export type CostoParaSaldo = {
   costoPorUnidadSaldo: number;
   /** Etiqueta corta para UI (ej. COP/L · stock en ml). */
   etiquetaCosto: string;
-  /** true si se dividió /1000 (L→ml o kg→g). */
+  /** true si se dividió /1000 (L→ml o kg→g) o /xN (paq→und). */
   convirtioMacroAMicro: boolean;
 };
 
@@ -146,22 +164,54 @@ export function costoParaUnidadDeSaldo(
   };
 }
 
+/**
+ * Empaques x6/x10/x100…: el precio de hoja/cargue es COP/paquete y el saldo del sistema es en und.
+ * Ej.: 96,99 paq × $15.000/paq → 9.699 und × ($15.000/100) = $1.454.850.
+ */
 export function metaCostoInventarioItem(
   costoCompraRegistrado: number | null | undefined,
-  item: { unidad?: string; descripcion?: string; sku?: string }
+  item: {
+    unidad?: string;
+    descripcion?: string;
+    sku?: string;
+    /** Si ya se calculó en UI (vistaSaldoConEmpaque), preferirlo. */
+    unidadesPorPaquete?: number | null;
+  }
 ): CostoParaSaldo | null {
   if (costoCompraRegistrado == null || !Number.isFinite(costoCompraRegistrado) || costoCompraRegistrado <= 0) {
     return null;
   }
+
+  const nExplicito =
+    item.unidadesPorPaquete != null &&
+    Number.isFinite(item.unidadesPorPaquete) &&
+    item.unidadesPorPaquete >= 2
+      ? Math.round(item.unidadesPorPaquete)
+      : null;
+  const nTexto = unidadesPorPaqueteDesdeTexto(`${item.sku ?? ""} ${item.descripcion ?? ""}`);
+  const n = nExplicito ?? nTexto;
+  if (n != null && n >= 2) {
+    return {
+      costoPorUnidadSaldo: costoCompraRegistrado / n,
+      etiquetaCosto: `COP/paq x${n}`,
+      convirtioMacroAMicro: true,
+    };
+  }
+
   const unidad = clasificarUnidadInventario(item.unidad ?? "", item.descripcion ?? "", item.sku ?? "");
   return costoParaUnidadDeSaldo(costoCompraRegistrado, unidad);
 }
 
-/** Valor en stock = saldo × costo por unidad de saldo (con conversión ml/L si aplica). */
+/** Valor en stock = saldo × costo por unidad de saldo (con conversión ml/L o paq→und si aplica). */
 export function valorStockValorizado(
   saldo: number,
   costoCompraRegistrado: number | null | undefined,
-  item: { unidad?: string; descripcion?: string; sku?: string }
+  item: {
+    unidad?: string;
+    descripcion?: string;
+    sku?: string;
+    unidadesPorPaquete?: number | null;
+  }
 ): number | null {
   const meta = metaCostoInventarioItem(costoCompraRegistrado, item);
   if (!meta || !Number.isFinite(saldo)) return null;

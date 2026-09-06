@@ -5,7 +5,6 @@ import {
   inferirUnidadesPorPaquete,
   itemParecePaqueteCargue,
   presentacionCargueInventario,
-  precioUnitarioDesdePrecioPaquete,
   vistaSaldoConEmpaque,
 } from "./inventario-cargue-presentacion";
 
@@ -32,7 +31,7 @@ describe("inventario-cargue-presentacion", () => {
     expect(p.labelCantidad).toMatch(/paquetes/i);
     expect(p.ayuda).toMatch(/und/i);
     expect(cantidadUnidadesDesdeCarguePaquetes(10, 6)).toBe(60);
-    expect(precioUnitarioDesdePrecioPaquete(16_800, 6)).toBe(2800);
+    expect(p.labelPrecio).toMatch(/paquete/i);
   });
 
   it("insumo suelto sigue en unidades", () => {

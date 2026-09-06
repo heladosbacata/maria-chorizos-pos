@@ -204,8 +204,14 @@ export default function AjusteInventarioPanel({
       const nuevo = saldoNuevoSistema(f);
       const saldoEfectivo = nuevo != null ? nuevo : f.saldoActual;
 
-      const vActual = valorStockValorizado(f.saldoActual, f.costoUnitario, f.insumo);
-      const vNuevo = valorStockValorizado(saldoEfectivo, f.costoUnitario, f.insumo);
+      const vActual = valorStockValorizado(f.saldoActual, f.costoUnitario, {
+        ...f.insumo,
+        unidadesPorPaquete: f.vista.unidadesPorPaquete,
+      });
+      const vNuevo = valorStockValorizado(saldoEfectivo, f.costoUnitario, {
+        ...f.insumo,
+        unidadesPorPaquete: f.vista.unidadesPorPaquete,
+      });
 
       if (vActual != null) {
         totalActual += vActual;
@@ -499,8 +505,9 @@ export default function AjusteInventarioPanel({
             <span className="font-semibold tabular-nums">{valorizacion.sinCosto}</span> sin costo
           </p>
           <p className="mt-0.5 text-xs text-gray-500">
-            El valor usa el costo medio de cargues. Si el saldo está en ml y el precio es por litro, se convierte
-            (ml÷1000). Ítems sin precio no entran al total.
+            El valor usa el costo medio de cargues. Empaques (x6, x10, x100…): el precio es por paquete y el
+            saldo en und, así que se divide ÷xN. Líquidos: ml con precio por litro → ÷1000. Ítems sin precio no
+            entran al total.
           </p>
         </div>
       </div>
@@ -538,9 +545,18 @@ export default function AjusteInventarioPanel({
               const delta =
                 nuevoSis != null ? Math.round((nuevoSis - f.saldoActual) * 1000) / 1000 : null;
               const cambiado = delta != null && Math.abs(delta) >= 1e-9;
-              const vActual = valorStockValorizado(f.saldoActual, f.costoUnitario, f.insumo);
-              const vNuevo = valorStockValorizado(saldoEfectivo, f.costoUnitario, f.insumo);
-              const metaCosto = metaCostoInventarioItem(f.costoUnitario, f.insumo);
+              const vActual = valorStockValorizado(f.saldoActual, f.costoUnitario, {
+                ...f.insumo,
+                unidadesPorPaquete: f.vista.unidadesPorPaquete,
+              });
+              const vNuevo = valorStockValorizado(saldoEfectivo, f.costoUnitario, {
+                ...f.insumo,
+                unidadesPorPaquete: f.vista.unidadesPorPaquete,
+              });
+              const metaCosto = metaCostoInventarioItem(f.costoUnitario, {
+                ...f.insumo,
+                unidadesPorPaquete: f.vista.unidadesPorPaquete,
+              });
               const placeholderEntrada = formatNum(
                 valorEntradaDesdeSaldoSistema(f.saldoActual, modo, f.vista)
               );
@@ -643,7 +659,7 @@ export default function AjusteInventarioPanel({
                     modo === "unidades" &&
                     undPorPaq != null ? (
                       <span className="mt-0.5 block text-[10px] font-medium text-sky-800">
-                        = {formatNum(nuevoSis)} paq. en sistema
+                        ≈ {formatNum(Math.round((nuevoSis / undPorPaq) * 1000) / 1000)} paq.
                       </span>
                     ) : null}
                     {nuevoSis != null &&
@@ -651,7 +667,7 @@ export default function AjusteInventarioPanel({
                     modo === "paquetes" &&
                     undPorPaq != null ? (
                       <span className="mt-0.5 block text-[10px] font-medium text-gray-500">
-                        ({formatNum(nuevoSis * undPorPaq)} und)
+                        ({formatNum(nuevoSis)} und)
                       </span>
                     ) : null}
                   </td>
