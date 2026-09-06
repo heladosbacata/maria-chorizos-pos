@@ -3,6 +3,7 @@ import {
   type InventarioSaldoRow,
 } from "@/lib/inventario-pos-firestore";
 import { precioCompraParaInsumo, type MapaPreciosCarrito } from "@/lib/precios-compra-carrito";
+import { valorStockValorizado } from "@/lib/inventario-valorizacion-unidades";
 import type { InsumoKitItem } from "@/types/inventario-pos";
 
 export type FilaInformeInventarioActual = {
@@ -50,8 +51,11 @@ export function construirDatosInformeInventarioActual(params: {
     const precio = precioCompraParaInsumo(it, params.mapaPreciosCarrito);
     let valorStock: number | null = null;
     if (precio != null && precio > 0 && Number.isFinite(saldoR) && saldoR > 0) {
-      valorStock = Math.round(saldoR * precio);
-      totalValorStock += valorStock;
+      const v = valorStockValorizado(saldoR, precio, it);
+      if (v != null) {
+        valorStock = Math.round(v);
+        totalValorStock += valorStock;
+      }
     }
     if (saldoR > 0) {
       productosConSaldo += 1;

@@ -1,4 +1,5 @@
 import type { InsumoKitItem } from "@/types/inventario-pos";
+import { clasificarUnidadInventario } from "@/lib/inventario-valorizacion-unidades";
 
 export type PresentacionCargueInventario = {
   /** El cajero debe indicar paquetes (no unidades sueltas). */
@@ -19,6 +20,10 @@ function textoBusqueda(item: Pick<InsumoKitItem, "sku" | "descripcion" | "unidad
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase();
+}
+
+function formatNumInventario(n: number): string {
+  return n.toLocaleString("es-CO", { maximumFractionDigits: 3 });
 }
 
 /**
@@ -57,6 +62,72 @@ export function itemParecePaqueteCargue(
   return false;
 }
 
+export type VistaSaldoEmpaque = {
+  /** Factor xN del empaque de matriz; null si no aplica. */
+  unidadesPorPaquete: number | null;
+  /** El saldo del sistema se interpreta como paquetes (cargue POS). */
+  saldoEnPaquetes: boolean;
+  paquetes: number | null;
+  unidadesEquivalentes: number | null;
+  /** Línea principal (ej. «12 paq.»). */
+  textoPrincipal: string;
+  /** Línea secundaria (ej. «72 und · x6»). */
+  textoSecundario: string | null;
+  /** Etiqueta corta para columna Unidad. */
+  labelUnidad: string;
+};
+
+/**
+ * Presenta el saldo en paquetes y unidades sueltas.
+ * Convención POS: en productos de empaque (x6, x100…) el saldo guardado = paquetes cargados.
+ */
+export function vistaSaldoConEmpaque(
+  saldo: number,
+  item: Pick<InsumoKitItem, "sku" | "descripcion" | "unidad">
+): VistaSaldoEmpaque {
+  const n = inferirUnidadesPorPaquete(`${item.sku} ${item.descripcion}`);
+  const esPaquete = itemParecePaqueteCargue(item) || (n != null && n >= 2);
+  const saldoR = Math.round(saldo * 1000) / 1000;
+
+  if (esPaquete && n != null && n >= 2) {
+    const und = Math.round(saldoR * n * 1000) / 1000;
+    return {
+      unidadesPorPaquete: n,
+      saldoEnPaquetes: true,
+      paquetes: saldoR,
+      unidadesEquivalentes: und,
+      textoPrincipal: `${formatNumInventario(saldoR)} paq.`,
+      textoSecundario: `${formatNumInventario(und)} und · x${n}`,
+      labelUnidad: `paq. x${n}`,
+    };
+  }
+
+  const unidadClas = clasificarUnidadInventario(item.unidad ?? "", item.descripcion ?? "", item.sku ?? "");
+  if (unidadClas === "ml") {
+    const litros = Math.round((saldoR / 1000) * 1000) / 1000;
+    return {
+      unidadesPorPaquete: null,
+      saldoEnPaquetes: false,
+      paquetes: null,
+      unidadesEquivalentes: saldoR,
+      textoPrincipal: `${formatNumInventario(saldoR)} ml`,
+      textoSecundario: `${formatNumInventario(litros)} L`,
+      labelUnidad: "ml",
+    };
+  }
+
+  const u = (item.unidad ?? "").trim() || "und";
+  return {
+    unidadesPorPaquete: n,
+    saldoEnPaquetes: false,
+    paquetes: null,
+    unidadesEquivalentes: saldoR,
+    textoPrincipal: `${formatNumInventario(saldoR)} ${u}`,
+    textoSecundario: null,
+    labelUnidad: u,
+  };
+}
+
 /**
  * Presentación UX del cargue: si es paquete (arepas x6, etc.), el cajero escribe
  * cuántos paquetes llegaron. El número guardado NO se multiplica: el ensamble WMS
@@ -81,6 +152,35 @@ export function presentacionCargueInventario(
   const esPaquete = itemParecePaqueteCargue(item);
 
   if (!esPaquete) {
+    const unidadClas = clasificarUnidadInventario(
+      item.unidad ?? "",
+      item.descripcion ?? "",
+      item.sku ?? ""
+    );
+    if (unidadClas === "ml") {
+      return {
+        esPaquete: false,
+        unidadesPorPaquete: null,
+        labelCantidad: "Cantidad (ml)",
+        placeholderCantidad: "Ej. 1000",
+        labelPrecio: "Precio de compra (COP / litro)",
+        labelUnidadCorta: "ml",
+        ayuda:
+          "Indique mililitros (ej. 1000 = 1 L). El precio de la hoja es por litro; el valor del cargue se calcula como ml÷1000×precio.",
+      };
+    }
+    if (unidadClas === "g") {
+      return {
+        esPaquete: false,
+        unidadesPorPaquete: null,
+        labelCantidad: "Cantidad (g)",
+        placeholderCantidad: "Ej. 1000",
+        labelPrecio: "Precio de compra (COP / kg)",
+        labelUnidadCorta: "g",
+        ayuda:
+          "Indique gramos. Si el precio es por kilo, el valor del cargue se calcula como g÷1000×precio.",
+      };
+    }
     const u = (item.unidad ?? "").trim() || "und";
     return {
       esPaquete: false,

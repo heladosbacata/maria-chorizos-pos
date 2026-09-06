@@ -8,6 +8,7 @@ import {
 import { fechaColombia, fechaHoraColombia, mediodiaColombiaDesdeYmd, ymdColombia } from "@/lib/fecha-colombia";
 import { catalogoInsumosParaCargue } from "@/lib/inventario-pos-catalogo";
 import { presentacionCargueInventario } from "@/lib/inventario-cargue-presentacion";
+import { valorStockValorizado } from "@/lib/inventario-valorizacion-unidades";
 import {
   CATALOGO_INSUMOS_KIT_COLLECTION,
   corregirMovimientoCargueInventario,
@@ -340,7 +341,8 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
         const cant = Number(line.cantidad);
         const precio = Number(line.precioCompraUnitario);
         if (!Number.isFinite(cant) || !Number.isFinite(precio) || cant <= 0 || precio <= 0) return acc;
-        return acc + cant * precio;
+        const v = valorStockValorizado(cant, precio, line.insumo);
+        return acc + (v ?? cant * precio);
       }, 0),
     [lineasCargue]
   );
@@ -877,7 +879,9 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                 <tbody className="divide-y divide-gray-100">
                   {lineasCargue.map((line) => {
                     const pres = presentacionCargueInventario(line.insumo);
-                    const totalLinea = line.cantidad * line.precioCompraUnitario;
+                    const totalLinea =
+                      valorStockValorizado(line.cantidad, line.precioCompraUnitario, line.insumo) ??
+                      line.cantidad * line.precioCompraUnitario;
                     return (
                     <tr key={line.key} className="bg-white">
                       <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-gray-700">{line.insumo.sku}</td>
@@ -932,7 +936,13 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                       <td className="px-3 py-2 text-right align-middle tabular-nums text-gray-800">
                         {formatPrecioCompraCop(line.precioCompraUnitario)}
                         <span className="mt-0.5 block text-[10px] font-medium text-gray-500">
-                          {pres.esPaquete ? "COP/paquete" : "COP/u."}
+                          {pres.esPaquete
+                            ? "COP/paquete"
+                            : pres.labelUnidadCorta === "ml"
+                              ? "COP/L"
+                              : pres.labelUnidadCorta === "g"
+                                ? "COP/kg"
+                                : "COP/u."}
                         </span>
                       </td>
                       <td className="px-3 py-2 text-right align-middle">
@@ -942,7 +952,11 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                         <span className="mt-0.5 block text-[10px] font-medium text-gray-500">
                           {pres.esPaquete
                             ? `${line.cantidad} paq. × precio`
-                            : `${line.cantidad} × precio`}
+                            : pres.labelUnidadCorta === "ml"
+                              ? `${line.cantidad} ml ÷1000 × $/L`
+                              : pres.labelUnidadCorta === "g"
+                                ? `${line.cantidad} g ÷1000 × $/kg`
+                                : `${line.cantidad} × precio`}
                         </span>
                       </td>
                       <td className="px-3 py-2 align-middle">

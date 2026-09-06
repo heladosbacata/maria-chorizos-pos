@@ -28,6 +28,8 @@ type Body = {
 
   text?: string;
 
+  html?: string;
+
   to?: string;
 
   cc?: string;
@@ -261,6 +263,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     subject,
 
     text,
+
+    html: typeof body?.html === "string" && body.html.trim() ? body.html.trim() : undefined,
 
     cc: ccList,
 

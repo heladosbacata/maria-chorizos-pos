@@ -33,6 +33,8 @@ import {
 } from "@/lib/inventario-pos-firestore";
 import ModalAuditoriaInventarioPos from "@/components/ModalAuditoriaInventarioPos";
 import ModalInformeInventarioActual from "@/components/ModalInformeInventarioActual";
+import ModalPedidoSugeridoInventario from "@/components/ModalPedidoSugeridoInventario";
+import AjusteInventarioPanel from "@/components/AjusteInventarioPanel";
 import { cargarDatosAuditoriaInventarioPos, type DatosAuditoriaInventarioPos } from "@/lib/inventario-auditoria-pos-data";
 import {
   descargarPdfAuditoriaInventarioPos,
@@ -47,8 +49,13 @@ import {
 import { construirDatosInformeInventarioActual } from "@/lib/inventario-actual-pos-data";
 import { mapaPreciosCarritoVacio, type MapaPreciosCarrito } from "@/lib/precios-compra-carrito";
 import { fetchMapaPreciosCarritoCompras } from "@/lib/wms-carrito-precios-client";
+import {
+  metaCostoInventarioItem,
+  valorStockValorizado,
+} from "@/lib/inventario-valorizacion-unidades";
+import { vistaSaldoConEmpaque } from "@/lib/inventario-cargue-presentacion";
 
-type Pestaña = "stock" | "movimiento" | "historial";
+type Pestaña = "stock" | "movimiento" | "historial" | "ajuste";
 type FuenteCatalogoInventario = "sheet" | "firestore" | "wms";
 
 /** v7: Firestore kit o DB_Carrito ganan sobre hojas de producción INS-*. */
@@ -192,6 +199,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
   const [cargando, setCargando] = useState(true);
   const [modalAuditoriaAbierto, setModalAuditoriaAbierto] = useState(false);
   const [modalInformeInventarioAbierto, setModalInformeInventarioAbierto] = useState(false);
+  const [modalPedidoSugeridoAbierto, setModalPedidoSugeridoAbierto] = useState(false);
   const [mapaPreciosCarritoRespaldo, setMapaPreciosCarritoRespaldo] = useState<MapaPreciosCarrito>(() =>
     mapaPreciosCarritoVacio()
   );
@@ -670,25 +678,36 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
         saldosPorClaveMap,
         saldoRows
       );
+      const metaCosto = metaCostoInventarioItem(costoUnitarioReferencia, i);
+      const valorStockAprox = valorStockValorizado(saldo, costoUnitarioReferencia, i);
       const skuK = normSkuInventario(i.sku);
       const minUsuario = minimosUsuario.get(skuK);
       const minSheet = i.minimoSugeridoSheet;
       const minimoEfectivo = minUsuario ?? minSheet ?? null;
-      const bajoMinimo = minimoEfectivo != null && saldo < minimoEfectivo;
-      const valorStockAprox =
-        costoUnitarioReferencia != null && Number.isFinite(saldo)
-          ? Math.round(saldo * costoUnitarioReferencia * 100) / 100
-          : null;
+      const tieneMinimo = minimoEfectivo != null && minimoEfectivo > 0;
+      const bajoMinimo =
+        tieneMinimo && Number.isFinite(saldo) && saldo <= (minimoEfectivo as number);
+      /** Cerca del mínimo: por encima pero a ≤25% del mínimo o ≤2 unidades/paquetes. */
+      const cercaMinimo =
+        tieneMinimo &&
+        !bajoMinimo &&
+        Number.isFinite(saldo) &&
+        (saldo <= (minimoEfectivo as number) * 1.25 ||
+          saldo <= (minimoEfectivo as number) + 2);
+      const vistaEmpaque = vistaSaldoConEmpaque(saldo, i);
       return {
         ...i,
         saldo,
         saldoEditableClic,
         costoUnitarioReferencia,
+        metaCosto,
         valorStockAprox,
         minimoEfectivo,
         minimoUsuario: minUsuario,
         minimoSheet: minSheet,
         bajoMinimo,
+        cercaMinimo,
+        vistaEmpaque,
       };
     });
     return base.filter((r) => {
@@ -715,13 +734,20 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
   }, [insumos]);
 
   const cantidadBajoMinimo = useMemo(() => filasStock.filter((r) => r.bajoMinimo).length, [filasStock]);
+  const cantidadCercaMinimo = useMemo(() => filasStock.filter((r) => r.cercaMinimo).length, [filasStock]);
+
+  const minimoPorSkuParaPedido = useMemo(() => {
+    const m = new Map<string, number | null | undefined>();
+    for (const r of filasStock) {
+      m.set(normSkuInventario(r.sku), r.minimoEfectivo);
+    }
+    return m;
+  }, [filasStock]);
 
   const totalInventarioValorizado = useMemo(() => {
     let t = 0;
     for (const r of filasStock) {
-      if (r.costoUnitarioReferencia != null && Number.isFinite(r.saldo)) {
-        t += r.saldo * r.costoUnitarioReferencia;
-      }
+      if (r.valorStockAprox != null) t += r.valorStockAprox;
     }
     return Math.round(t);
   }, [filasStock]);
@@ -1024,6 +1050,21 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
             {label}
           </button>
         ))}
+        <button
+          type="button"
+          onClick={() => {
+            setPestaña("ajuste");
+            setMensajeOk(null);
+            setError(null);
+          }}
+          className={`rounded-lg border-2 px-4 py-2 text-sm font-bold transition-colors ${
+            pestaña === "ajuste"
+              ? "border-brand-yellow bg-brand-yellow text-gray-900 shadow-sm"
+              : "border-brand-yellow/80 bg-amber-50 text-amber-950 hover:bg-brand-yellow/90 hover:text-gray-900"
+          }`}
+        >
+          Ajuste de inventario
+        </button>
       </div>
 
       {pestaña === "stock" && (
@@ -1069,12 +1110,13 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                   })}
                 </span>
                 <span className="mt-1 block text-xs font-normal text-gray-500">
-                  Suma saldo × costo medio por ítem (desde cargues con precio). Si un producto muestra «—» en costo, no
-                  entra en el total hasta que registres un cargue con precio.
+                  Suma saldo × costo (desde cargues con precio). Si el saldo está en <strong>ml</strong> y el precio es
+                  por <strong>litro</strong> (ej. salsa a $18.000/L), el valor se calcula como ml÷1000×precio. Ítems sin
+                  costo muestran «—» y no entran al total.
                 </span>
               </p>
             )}
-            {!cargando && cantidadBajoMinimo > 0 && (
+            {!cargando && (cantidadBajoMinimo > 0 || cantidadCercaMinimo > 0) && (
               <div
                 className="mt-4 flex items-start gap-3 rounded-xl border border-amber-400/70 bg-gradient-to-r from-amber-50 to-orange-50/90 px-4 py-3 text-sm text-amber-950 shadow-sm"
                 role="status"
@@ -1086,16 +1128,26 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                 </span>
                 <div>
                   <p className="font-semibold text-amber-950">
-                    {cantidadBajoMinimo === 1
-                      ? "1 producto está bajo el mínimo sugerido"
-                      : `${cantidadBajoMinimo} productos están bajo el mínimo sugerido`}
+                    {cantidadBajoMinimo > 0
+                      ? cantidadBajoMinimo === 1
+                        ? "1 producto está en o bajo el mínimo sugerido"
+                        : `${cantidadBajoMinimo} productos están en o bajo el mínimo sugerido`
+                      : cantidadCercaMinimo === 1
+                        ? "1 producto está cerca del mínimo"
+                        : `${cantidadCercaMinimo} productos están cerca del mínimo`}
                   </p>
                   <p className="mt-0.5 text-amber-900/90">
-                    Conviene planificar el <strong className="font-semibold">próximo pedido</strong> a proveedor o matriz para
-                    no quedarte sin stock.
+                    La alerta <strong className="font-semibold">Pedir</strong> aparece cuando el saldo (en paquetes) es
+                    menor o igual al mínimo. Ejemplo: saldo 12 y mínimo 15 → Pedir.
                   </p>
                 </div>
               </div>
+            )}
+            {!cargando && cantidadBajoMinimo === 0 && cantidadCercaMinimo === 0 && (
+              <p className="mt-3 text-xs text-gray-500">
+                Alerta «Pedir»: solo si el saldo ≤ mínimo (misma unidad: paquetes). Con saldo 12 y mínimo 5 no alerta.
+                Probá poner mínimo 15 y salir del campo.
+              </p>
             )}
           </div>
           <div className="overflow-x-auto">
@@ -1106,7 +1158,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                   <th className="px-4 py-3">Descripción</th>
                   <th className="px-4 py-3">Categoría</th>
                   <th className="px-4 py-3">Unidad</th>
-                  <th className="px-4 py-3 text-right">Saldo actual</th>
+                  <th className="min-w-[8rem] px-4 py-3 text-right">Saldo (paq. / und)</th>
                   <th
                     className="min-w-[7rem] px-4 py-3 text-right"
                     title="Costo medio ponderado (COP/unidad) según cargues POS."
@@ -1116,8 +1168,16 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                   <th className="min-w-[7rem] px-4 py-3 text-right" title="Saldo actual × costo unitario aproximado.">
                     Valor stock
                   </th>
-                  <th className="min-w-[9rem] px-4 py-3 text-right">Mín. sugerido</th>
-                  <th className="w-px whitespace-nowrap px-3 py-3 text-center" title="Icono si conviene pedir">
+                  <th
+                    className="min-w-[10rem] px-4 py-3 text-right"
+                    title="Mínimo en la misma unidad del saldo: paquetes cuando el producto es x6/x100…"
+                  >
+                    Mín. (paquetes)
+                  </th>
+                  <th
+                    className="min-w-[6.5rem] px-3 py-3 text-center"
+                    title="Pedir = saldo ≤ mínimo. OK = por encima del mínimo."
+                  >
                     Alerta
                   </th>
                 </tr>
@@ -1160,41 +1220,62 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                     return (
                       <tr
                         key={row.id}
-                        className={`hover:bg-gray-50/80 ${row.bajoMinimo ? "bg-red-50/50" : ""}`}
+                        className={`hover:bg-gray-50/80 ${
+                          row.bajoMinimo ? "bg-red-50/60" : row.cercaMinimo ? "bg-amber-50/40" : ""
+                        }`}
                       >
                         <td className="px-4 py-2.5 font-mono text-xs text-gray-800">{row.sku}</td>
                         <td className="px-4 py-2.5 text-gray-900">{row.descripcion}</td>
                         <td className="px-4 py-2.5 text-gray-600">{row.categoria?.trim() || "—"}</td>
-                        <td className="px-4 py-2.5 text-gray-600">{row.unidad}</td>
+                        <td className="px-4 py-2.5 text-gray-600">{row.vistaEmpaque.labelUnidad}</td>
                         <td className="px-4 py-2.5 text-right align-middle">
                           <div className="inline-flex max-w-full items-center justify-end gap-1.5">
-                            {row.saldoEditableClic ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  abrirModalAjusteSaldo(
-                                    {
-                                      id: row.id,
-                                      sku: row.sku,
-                                      descripcion: row.descripcion,
-                                      unidad: row.unidad,
-                                      ...(row.categoria != null ? { categoria: row.categoria } : {}),
-                                    },
-                                    row.saldo
-                                  )
-                                }
-                                className="rounded px-1 py-0.5 text-right font-semibold tabular-nums text-primary-700 underline decoration-primary-300 underline-offset-2 hover:bg-primary-50 hover:text-primary-800"
-                              >
-                                {row.saldo.toLocaleString("es-CO", { maximumFractionDigits: 3 })}
-                              </button>
-                            ) : (
-                              <span
-                                className="font-semibold tabular-nums text-gray-800"
-                                title="Saldo del WMS (ensamble). No se puede ajustar desde aquí con clic; usá Registrar movimiento o el WMS."
-                              >
-                                {row.saldo.toLocaleString("es-CO", { maximumFractionDigits: 3 })}
-                              </span>
-                            )}
+                            <div className="text-right">
+                              {row.saldoEditableClic ? (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    abrirModalAjusteSaldo(
+                                      {
+                                        id: row.id,
+                                        sku: row.sku,
+                                        descripcion: row.descripcion,
+                                        unidad: row.unidad,
+                                        ...(row.categoria != null ? { categoria: row.categoria } : {}),
+                                      },
+                                      row.saldo
+                                    )
+                                  }
+                                  className={`rounded px-1 py-0.5 text-right font-semibold tabular-nums underline underline-offset-2 hover:bg-primary-50 ${
+                                    row.bajoMinimo
+                                      ? "text-red-700 decoration-red-400 hover:text-red-800"
+                                      : row.cercaMinimo
+                                        ? "text-amber-800 decoration-amber-400 hover:text-amber-900"
+                                        : "text-gray-800 decoration-gray-300 hover:text-gray-950"
+                                  }`}
+                                >
+                                  {row.vistaEmpaque.textoPrincipal}
+                                </button>
+                              ) : (
+                                <span
+                                  className={`block font-semibold tabular-nums ${
+                                    row.bajoMinimo
+                                      ? "text-red-700"
+                                      : row.cercaMinimo
+                                        ? "text-amber-800"
+                                        : "text-gray-800"
+                                  }`}
+                                  title="Saldo del WMS (ensamble). No se puede ajustar desde aquí con clic; usá Registrar movimiento o el WMS."
+                                >
+                                  {row.vistaEmpaque.textoPrincipal}
+                                </span>
+                              )}
+                              {row.vistaEmpaque.textoSecundario ? (
+                                <span className="mt-0.5 block text-[10px] font-medium text-gray-500">
+                                  {row.vistaEmpaque.textoSecundario}
+                                </span>
+                              ) : null}
+                            </div>
                             <button
                               type="button"
                               onClick={() =>
@@ -1235,6 +1316,12 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                                 maximumFractionDigits: 0,
                               })
                             : "—"}
+                          {row.metaCosto ? (
+                            <span className="mt-0.5 block text-[10px] font-medium normal-case text-gray-500">
+                              {row.metaCosto.etiquetaCosto}
+                              {row.metaCosto.convirtioMacroAMicro ? " · valor ÷1000" : ""}
+                            </span>
+                          ) : null}
                         </td>
                         <td className="px-4 py-2.5 text-right align-middle tabular-nums text-gray-800">
                           {row.valorStockAprox != null
@@ -1247,40 +1334,77 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                         </td>
                         <td className="px-4 py-2 text-right align-middle">
                           <div className="flex flex-col items-end gap-0.5">
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              title="Se guarda solo en este navegador al salir del campo. Vacío: quita tu ajuste y aplica el mínimo de la hoja."
-                              defaultValue={defaultInput}
-                              key={`${row.id}-${minInputTick}-${minimosUsuario.has(skuK) ? "u" : "s"}-${row.minimoSheet ?? ""}`}
-                              disabled={guardandoMinimoSku === skuK}
-                              onBlur={(e) => {
-                                commitMinimoSugerido(
-                                  row,
-                                  e.target.value,
-                                  row.minimoUsuario != null,
-                                  row.minimoEfectivo
-                                );
-                              }}
-                              className="w-full max-w-[7rem] rounded-md border border-gray-300 px-2 py-1.5 text-right text-sm tabular-nums focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-200 disabled:opacity-50"
-                            />
+                            <div className="flex w-full max-w-[9rem] items-center justify-end gap-1">
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                title={
+                                  row.vistaEmpaque.saldoEnPaquetes
+                                    ? "Mínimo en paquetes (igual que el saldo). Se guarda en este navegador al salir del campo."
+                                    : "Mínimo en la unidad del saldo. Se guarda en este navegador al salir del campo. Vacío: quita tu ajuste."
+                                }
+                                defaultValue={defaultInput}
+                                key={`${row.id}-${minInputTick}-${minimosUsuario.has(skuK) ? "u" : "s"}-${row.minimoSheet ?? ""}`}
+                                disabled={guardandoMinimoSku === skuK}
+                                onBlur={(e) => {
+                                  commitMinimoSugerido(
+                                    row,
+                                    e.target.value,
+                                    row.minimoUsuario != null,
+                                    row.minimoEfectivo
+                                  );
+                                }}
+                                className="w-full min-w-0 rounded-md border border-gray-300 px-2 py-1.5 text-right text-sm tabular-nums focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-200 disabled:opacity-50"
+                                aria-label={
+                                  row.vistaEmpaque.saldoEnPaquetes
+                                    ? `Mínimo en paquetes ${row.sku}`
+                                    : `Mínimo sugerido ${row.sku}`
+                                }
+                              />
+                              {row.vistaEmpaque.saldoEnPaquetes ? (
+                                <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+                                  paq.
+                                </span>
+                              ) : null}
+                            </div>
+                            {eff != null &&
+                            Number.isFinite(eff) &&
+                            row.vistaEmpaque.saldoEnPaquetes &&
+                            row.vistaEmpaque.unidadesPorPaquete != null &&
+                            row.vistaEmpaque.unidadesPorPaquete >= 2 ? (
+                              <span className="text-[10px] font-medium tabular-nums text-gray-600">
+                                (
+                                {(
+                                  Math.round(eff * row.vistaEmpaque.unidadesPorPaquete * 1000) / 1000
+                                ).toLocaleString("es-CO", { maximumFractionDigits: 3 })}{" "}
+                                und · x{row.vistaEmpaque.unidadesPorPaquete})
+                              </span>
+                            ) : null}
                             {row.minimoSheet != null && row.minimoUsuario != null && (
                               <span className="text-[10px] text-gray-500">
-                                Hoja sugería: {row.minimoSheet.toLocaleString("es-CO", { maximumFractionDigits: 3 })}
+                                Hoja sugería:{" "}
+                                {row.minimoSheet.toLocaleString("es-CO", { maximumFractionDigits: 3 })}
+                                {row.vistaEmpaque.saldoEnPaquetes ? " paq." : ""}
                               </span>
                             )}
                             {row.minimoSheet != null && row.minimoUsuario == null && (
-                              <span className="text-[10px] text-gray-500">Desde hoja</span>
+                              <span className="text-[10px] text-gray-500">
+                                {row.vistaEmpaque.saldoEnPaquetes ? "Desde hoja (paquetes)" : "Desde hoja"}
+                              </span>
                             )}
                           </div>
                         </td>
-                        <td className="px-3 py-2 text-center align-middle">
+                        <td className="min-w-[6.5rem] px-3 py-2 text-center align-middle">
                           {row.bajoMinimo ? (
                             <span
-                              className="inline-flex items-center justify-center"
-                              title={`Stock (${row.saldo}) por debajo del mínimo (${row.minimoEfectivo != null ? row.minimoEfectivo.toLocaleString("es-CO", { maximumFractionDigits: 3 }) : "—"}). Sugerencia: incluir en el próximo pedido.`}
+                              className="inline-flex flex-col items-center justify-center gap-0.5"
+                              title={
+                                row.vistaEmpaque.saldoEnPaquetes
+                                  ? `Saldo ${row.saldo} paq. ≤ mínimo ${row.minimoEfectivo} paq. Incluir en el pedido.`
+                                  : `Saldo ${row.saldo} ≤ mínimo ${row.minimoEfectivo}. Incluir en el pedido.`
+                              }
                             >
-                              <span className="relative flex h-9 w-9 items-center justify-center rounded-full bg-amber-500/15 text-amber-700 ring-2 ring-amber-400/40 shadow-sm">
+                              <span className="relative flex h-9 w-9 items-center justify-center rounded-full bg-red-500/15 text-red-700 ring-2 ring-red-400/50 shadow-sm">
                                 <svg
                                   className="h-5 w-5"
                                   fill="none"
@@ -1295,12 +1419,40 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                                     d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"
                                   />
                                 </svg>
-                                <span className="absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-brand-red text-[9px] font-bold text-white ring-2 ring-white">
+                                <span className="absolute -right-0.5 -top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-red-600 text-[9px] font-bold text-white ring-2 ring-white">
                                   !
                                 </span>
                               </span>
-                              <span className="sr-only">
-                                Alerta: conviene incluir este producto en el próximo pedido
+                              <span className="text-[10px] font-bold uppercase tracking-wide text-red-700">
+                                Pedir
+                              </span>
+                            </span>
+                          ) : row.cercaMinimo ? (
+                            <span
+                              className="inline-flex flex-col items-center justify-center gap-0.5"
+                              title={`Saldo ${row.saldo} cerca del mínimo ${row.minimoEfectivo}.`}
+                            >
+                              <span className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-500/20 text-amber-800 ring-2 ring-amber-400/40">
+                                <svg className="h-5 w-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden>
+                                  <path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z" />
+                                </svg>
+                              </span>
+                              <span className="text-[10px] font-bold uppercase tracking-wide text-amber-800">
+                                Cerca
+                              </span>
+                            </span>
+                          ) : row.minimoEfectivo != null && row.minimoEfectivo > 0 ? (
+                            <span
+                              className="inline-flex flex-col items-center justify-center gap-0.5"
+                              title={`Saldo ${row.saldo} por encima del mínimo ${row.minimoEfectivo}.`}
+                            >
+                              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-700 ring-1 ring-emerald-400/40">
+                                <svg className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24" aria-hidden>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                </svg>
+                              </span>
+                              <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-700">
+                                OK
                               </span>
                             </span>
                           ) : (
@@ -1341,11 +1493,12 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                     Descargá el PDF con saldos, precios de compra y valores, o enviálo por correo al franquiciado.
                   </p>
                 </div>
+                <div className="flex w-full max-w-lg flex-col items-stretch gap-3">
                 <button
                   type="button"
                   onClick={() => setModalInformeInventarioAbierto(true)}
                   disabled={cargando || insumos.length === 0}
-                  className="inline-flex w-full max-w-lg items-center justify-center gap-3 rounded-2xl border-2 border-emerald-600 bg-emerald-600 px-8 py-4 text-base font-bold text-white shadow-[0_10px_30px_-8px_rgba(5,150,105,0.55)] transition hover:border-emerald-700 hover:bg-emerald-700 hover:shadow-[0_14px_36px_-8px_rgba(5,150,105,0.65)] focus:outline-none focus:ring-4 focus:ring-emerald-200 disabled:opacity-50 sm:px-10 sm:py-5 sm:text-lg"
+                  className="inline-flex w-full items-center justify-center gap-3 rounded-2xl border-2 border-emerald-600 bg-emerald-600 px-8 py-4 text-base font-bold text-white shadow-[0_10px_30px_-8px_rgba(5,150,105,0.55)] transition hover:border-emerald-700 hover:bg-emerald-700 hover:shadow-[0_14px_36px_-8px_rgba(5,150,105,0.65)] focus:outline-none focus:ring-4 focus:ring-emerald-200 disabled:opacity-50 sm:px-10 sm:py-5 sm:text-lg"
                   title="Generar PDF del inventario actual y enviarlo por correo"
                 >
                   <svg className="h-6 w-6 shrink-0 sm:h-7 sm:w-7" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
@@ -1358,6 +1511,24 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                   </svg>
                   Informe PDF / correo
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setModalPedidoSugeridoAbierto(true)}
+                  disabled={cargando || insumos.length === 0}
+                  className="inline-flex w-full max-w-lg items-center justify-center gap-3 rounded-2xl border-2 border-sky-600 bg-sky-600 px-8 py-4 text-base font-bold text-white shadow-[0_10px_30px_-8px_rgba(2,132,199,0.5)] transition hover:border-sky-700 hover:bg-sky-700 focus:outline-none focus:ring-4 focus:ring-sky-200 disabled:opacity-50 sm:px-10 sm:py-5 sm:text-lg"
+                  title="Calcular pedido según rotación de la última semana y empaques de matriz"
+                >
+                  <svg className="h-6 w-6 shrink-0 sm:h-7 sm:w-7" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"
+                    />
+                  </svg>
+                  Generar pedido sugerido
+                </button>
+                </div>
               </div>
             </div>
           )}
@@ -1434,6 +1605,21 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
           </div>
         </div>
       )}
+
+      {pestaña === "ajuste" && pv ? (
+        <AjusteInventarioPanel
+          puntoVenta={pv}
+          uid={uid}
+          email={email}
+          insumos={insumos}
+          saldoRows={saldoRows}
+          saldosPorClaveMap={saldosPorClaveMap}
+          onCompletado={() => {
+            void cargarTodo();
+            void cargarHistorial(HISTORIAL_LIMITE_STOCK);
+          }}
+        />
+      ) : null}
 
       {pestaña === "movimiento" && (
         <div className="max-w-xl space-y-4 rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
@@ -1871,6 +2057,15 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
         mapaPreciosCarrito={mapaPreciosCarritoRespaldo}
         fuenteCatalogo={fuenteCatalogo === "sheet" || fuenteCatalogo === "firestore" ? fuenteCatalogo : null}
         emailSesion={email}
+      />
+
+      <ModalPedidoSugeridoInventario
+        open={modalPedidoSugeridoAbierto}
+        onClose={() => setModalPedidoSugeridoAbierto(false)}
+        puntoVenta={pv}
+        insumos={filtrarCatalogoSoloInsumos(insumos)}
+        saldoRows={saldoRows}
+        minimoPorSku={minimoPorSkuParaPedido}
       />
     </div>
   );
