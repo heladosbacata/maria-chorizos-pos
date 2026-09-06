@@ -7,6 +7,8 @@ import {
   etiquetaTokenSalsaPedido,
   productoEsHawaiano,
   productoRequiereSalsaFavorita,
+  productoRequiereSoloChorizoPan,
+  productoRequiereVarianteChorizo,
   toggleSalsaFavoritaEnToken,
   tokenDesdeSalsas,
   tokenSinSalsa,
@@ -33,6 +35,18 @@ describe("salsa favorita pedidos", () => {
     expect(productoEsHawaiano(prod({ sku: "HAW-01", descripcion: "Chorizo Hawaiano" }))).toBe(true);
     expect(productoEsHawaiano(prod({ sku: "X", descripcion: "Combo hawaiana especial" }))).toBe(true);
     expect(productoEsHawaiano(prod({ sku: "CHO-1", descripcion: "Chorizo con pan" }))).toBe(false);
+  });
+
+  it("hawaiano / choripan abre Picante o Tradicional en caja", () => {
+    expect(
+      productoRequiereSoloChorizoPan(prod({ sku: "HAW-01", descripcion: "Choripan Hawaiano" }))
+    ).toBe(true);
+    expect(
+      productoRequiereSoloChorizoPan(prod({ sku: "CHO-HAW", descripcion: "Chorizo Hawaiano" }))
+    ).toBe(true);
+    expect(
+      productoRequiereVarianteChorizo(prod({ sku: "HAW-01", descripcion: "Choripan Hawaiano" }))
+    ).toBe(true);
   });
 
   it("exige elección de salsa en chorizo pan/arepa y hawaiano", () => {

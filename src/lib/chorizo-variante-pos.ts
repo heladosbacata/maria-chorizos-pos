@@ -51,10 +51,11 @@ export function productoRequiereChorizoYArepa(p: ProductoPOS): boolean {
 }
 
 /**
- * Chorizo con pan, o chorizo con arepa paisa: solo Picante / Tradicional (sin subtipo de arepa).
+ * Chorizo con pan, arepa paisa, o hawaiano/choripan: solo Picante / Tradicional (sin subtipo de arepa).
  */
 export function productoRequiereSoloChorizoPan(p: ProductoPOS): boolean {
   if (productoRequiereChorizoYArepa(p)) return false;
+  if (productoEsHawaiano(p)) return true;
   const d = `${p.descripcion ?? ""}`.toLowerCase();
   const sku = `${p.sku ?? ""}`.toUpperCase();
   const pareceChorizoEnSku = /CHO|CHORIZO/i.test(sku);
