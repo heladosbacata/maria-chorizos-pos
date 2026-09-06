@@ -38,8 +38,8 @@ describe("inventario-pedido-sugerido", () => {
     expect(unidadesPorEmpaqueInsumo({ sku: "PT-ARE-X6", descripcion: "Arepa x6", unidad: "und" })).toBe(6);
   });
 
-  it("muestra saldo en paquetes y unidades", () => {
-    const v = vistaSaldoConEmpaque(12, {
+  it("muestra saldo en paquetes desde und del sistema", () => {
+    const v = vistaSaldoConEmpaque(72, {
       sku: "PT-ARE-PETOQU-X6",
       descripcion: "Arepa Bocadillo x6",
       unidad: "und",
@@ -48,10 +48,9 @@ describe("inventario-pedido-sugerido", () => {
     expect(v.paquetes).toBe(12);
     expect(v.unidadesEquivalentes).toBe(72);
     expect(v.textoPrincipal).toMatch(/12 paquetes/);
-    expect(v.textoSecundario).toMatch(/72 und/);
   });
 
-  it("sugiere pedido en paquetes (saldo ya es paquetes)", () => {
+  it("sugiere pedido en paquetes (saldo en und)", () => {
     const item: InsumoKitItem = {
       id: "1",
       sku: "PT-ARE-PETOQU-X6",
@@ -68,38 +67,39 @@ describe("inventario-pedido-sugerido", () => {
         createdAt: { seconds: sec - 2 * 86400 },
       }),
     ];
-    // consumo 42 paq / 7 × 7 = 42 objetivo; saldo 12 paq → pedir 30 paq (= 180 und)
+    // consumo 42 und / 7 × 7 = 42 objetivo; saldo 12 und → pedir 30 und = 5 paq x6
     const r = construirPedidoSugerido({
       puntoVenta: "PV1",
       insumos: [item],
       saldoRows: [{ insumoId: "1", insumoSku: "PT-ARE-PETOQU-X6", cantidad: 12 }],
       movimientos,
-      minimoPorSku: new Map([["pt-are-petoqu-x6", 10]]),
+      minimoPorSku: new Map([["pt-are-petoqu-x6", 1]]),
       ahora,
     });
     expect(r.lineas).toHaveLength(1);
-    expect(r.lineas[0].paquetesPedir).toBe(30);
-    expect(r.lineas[0].unidadesEquivPedir).toBe(180);
+    expect(r.lineas[0].paquetesPedir).toBe(5);
+    expect(r.lineas[0].unidadesEquivPedir).toBe(30);
     expect(r.lineas[0].saldoEnPaquetes).toBe(true);
   });
 
-  it("prioriza reponer mínimo en paquetes", () => {
+  it("prioriza reponer mínimo en paquetes (min UI × xN)", () => {
     const item: InsumoKitItem = {
       id: "2",
       sku: "BOL-PAPEL-X100",
       descripcion: "Bolsa papel x100",
       unidad: "und",
     };
+    // min 1 paquete = 100 und; saldo 20 und → pedir 80 und = 1 paq? 80 ceil to 100 = 1 paq
     const r = construirPedidoSugerido({
       puntoVenta: "PV1",
       insumos: [item],
       saldoRows: [{ insumoId: "2", insumoSku: "BOL-PAPEL-X100", cantidad: 20 }],
       movimientos: [],
-      minimoPorSku: { "bol-papel-x100": 100 },
+      minimoPorSku: { "bol-papel-x100": 1 },
     });
     expect(r.lineas).toHaveLength(1);
     expect(r.lineas[0].bajoMinimo).toBe(true);
-    expect(r.lineas[0].paquetesPedir).toBe(80);
-    expect(r.lineas[0].unidadesEquivPedir).toBe(8000);
+    expect(r.lineas[0].paquetesPedir).toBe(1);
+    expect(r.lineas[0].unidadesEquivPedir).toBe(100);
   });
 });

@@ -171,17 +171,16 @@ export default function ModalPedidoSugeridoInventario({
                             ) : null}
                           </td>
                           <td className="px-3 py-2 text-right tabular-nums">
-                            <span className="font-semibold">
-                              {l.saldoEnPaquetes ? `${l.saldoActual} paq.` : l.saldoActual}
-                            </span>
-                            {l.saldoUnidadesEquiv != null ? (
+                            <span className="font-semibold">{l.saldoActual} und</span>
+                            {l.saldoEnPaquetes && l.unidadesPorEmpaque > 1 ? (
                               <span className="mt-0.5 block text-[10px] text-gray-500">
-                                {l.saldoUnidadesEquiv} und
+                                {Math.floor(l.saldoActual / l.unidadesPorEmpaque)} paq. +{" "}
+                                {l.saldoActual % l.unidadesPorEmpaque} und
                               </span>
                             ) : null}
                           </td>
                           <td className="px-3 py-2 text-right tabular-nums text-gray-700">
-                            {l.saldoEnPaquetes ? `${l.consumoVentana} paq.` : l.consumoVentana}
+                            {l.consumoVentana} und
                           </td>
                           <td className="px-3 py-2 text-right tabular-nums text-gray-600">
                             {l.unidadesPorEmpaque > 1 ? `x${l.unidadesPorEmpaque}` : "und"}

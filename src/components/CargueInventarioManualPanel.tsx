@@ -7,7 +7,11 @@ import {
 } from "@/lib/catalogo-insumos-sheet-client";
 import { fechaColombia, fechaHoraColombia, mediodiaColombiaDesdeYmd, ymdColombia } from "@/lib/fecha-colombia";
 import { catalogoInsumosParaCargue } from "@/lib/inventario-pos-catalogo";
-import { presentacionCargueInventario } from "@/lib/inventario-cargue-presentacion";
+import {
+  cantidadUnidadesDesdeCarguePaquetes,
+  presentacionCargueInventario,
+  precioUnitarioDesdePrecioPaquete,
+} from "@/lib/inventario-cargue-presentacion";
 import { valorStockValorizado } from "@/lib/inventario-valorizacion-unidades";
 import {
   CATALOGO_INSUMOS_KIT_COLLECTION,
@@ -455,16 +459,30 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
     const keysOk: string[] = [];
     const fallos: string[] = [];
     for (const line of lineasCargue) {
+      const pres = presentacionCargueInventario(line.insumo);
+      const undPorPaq = pres.unidadesPorPaquete;
+      const cantidadGuardar =
+        pres.esPaquete && undPorPaq != null && undPorPaq >= 2
+          ? cantidadUnidadesDesdeCarguePaquetes(line.cantidad, undPorPaq)
+          : line.cantidad;
+      const precioGuardar =
+        pres.esPaquete && undPorPaq != null && undPorPaq >= 2
+          ? precioUnitarioDesdePrecioPaquete(line.precioCompraUnitario, undPorPaq)
+          : line.precioCompraUnitario;
+      const notasExtra =
+        pres.esPaquete && undPorPaq != null && undPorPaq >= 2
+          ? ` · ${line.cantidad} paq. ×${undPorPaq} = ${cantidadGuardar} und`
+          : "";
       const r = await registrarMovimientoInventario({
         puntoVenta: pv,
         insumo: line.insumo,
         tipo: "cargue",
-        cantidad: line.cantidad,
-        notas: notasMovimientoCargueLinea(notasBase, line.lote),
+        cantidad: cantidadGuardar,
+        notas: `${notasMovimientoCargueLinea(notasBase, line.lote)}${notasExtra}`.slice(0, 500),
         uid,
         email,
         fechaCargue: fecha,
-        precioCompraUnitario: line.precioCompraUnitario,
+        precioCompraUnitario: precioGuardar,
       });
       if (r.ok) keysOk.push(line.key);
       else fallos.push(`${line.insumo.sku}: ${r.message ?? "error"}`);
@@ -636,7 +654,8 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
             </h3>
             <p className="mt-1 text-xs text-gray-600">
               Buscá y tocá un ítem del catálogo. A la derecha cargá cantidad y lote. Si el producto es un paquete (ej.
-              arepas x6), indicá cuántos paquetes llegaron; el ensamble WMS ya usa el contenido en unidades.
+              arepas x6), indicá cuántos paquetes llegaron; al guardar se convierten a unidades (×x6) para que el WMS
+              descuente 1 und por cada venta.
             </p>
             {insumoSel && (
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-sm">

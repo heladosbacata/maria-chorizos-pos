@@ -59,8 +59,8 @@ function formatNum(n: number): string {
 }
 
 /**
- * Convierte lo escrito en el input al saldo del sistema (paquetes si el ítem es de empaque).
- * Unidades permiten fracciones de paquete (ej. 9 und de x6 → 1,5 paq. destapado).
+ * Convierte lo escrito en el input al saldo del sistema (**unidades**).
+ * Modo paquetes: multiplica ×xN. Modo unidades: se guarda tal cual (paq. destapados).
  */
 function saldoSistemaDesdeEntrada(
   valorEntrada: number,
@@ -70,8 +70,8 @@ function saldoSistemaDesdeEntrada(
   if (!vista.saldoEnPaquetes || vista.unidadesPorPaquete == null || vista.unidadesPorPaquete < 2) {
     return valorEntrada;
   }
-  if (modo === "paquetes") return valorEntrada;
-  return Math.round((valorEntrada / vista.unidadesPorPaquete) * 1000) / 1000;
+  if (modo === "unidades") return valorEntrada;
+  return Math.round(valorEntrada * vista.unidadesPorPaquete * 1000) / 1000;
 }
 
 function valorEntradaDesdeSaldoSistema(
@@ -82,8 +82,8 @@ function valorEntradaDesdeSaldoSistema(
   if (!vista.saldoEnPaquetes || vista.unidadesPorPaquete == null || vista.unidadesPorPaquete < 2) {
     return saldoSistema;
   }
-  if (modo === "paquetes") return saldoSistema;
-  return Math.round(saldoSistema * vista.unidadesPorPaquete * 1000) / 1000;
+  if (modo === "unidades") return saldoSistema;
+  return Math.round((saldoSistema / vista.unidadesPorPaquete) * 1000) / 1000;
 }
 
 export default function AjusteInventarioPanel({
@@ -397,9 +397,8 @@ export default function AjusteInventarioPanel({
       <div>
         <h3 className="text-lg font-bold text-gray-900">Ajuste de inventario</h3>
         <p className="mt-1 text-sm text-gray-600">
-          Indique fecha, quién ajusta y el motivo. El saldo del sistema en productos <strong>x6 / x100</strong> es en{" "}
-          <strong>paquetes</strong>. Para paquetes destapados, elija cargar el nuevo saldo en{" "}
-          <strong>unidades</strong> (se convierte a paquetes, incluso fracciones).
+          El saldo del sistema y el WMS están en <strong>unidades</strong>. En productos x6/x100 la pantalla muestra
+          paquetes + unidades. Para destapados, cargue el nuevo saldo en <strong>unidades</strong>.
         </p>
       </div>
 
@@ -524,7 +523,7 @@ export default function AjusteInventarioPanel({
               <th className="min-w-[7rem] px-3 py-2 text-right">Saldo actual</th>
               <th className="min-w-[11rem] px-3 py-2 text-right">Cargar en</th>
               <th className="min-w-[8rem] px-3 py-2 text-right">Nuevo saldo</th>
-              <th className="px-3 py-2 text-right">Delta (paq.)</th>
+              <th className="px-3 py-2 text-right">Delta (und)</th>
               <th className="px-3 py-2 text-right">Costo unit.</th>
               <th className="px-3 py-2 text-right">Valor actual</th>
               <th className="px-3 py-2 text-right">Valor nuevo</th>
@@ -774,7 +773,7 @@ export default function AjusteInventarioPanel({
                       }`}
                     >
                       {c.delta > 0 ? "+" : ""}
-                      {formatNum(c.delta)} paq.
+                      {formatNum(c.delta)} und
                     </span>
                   </li>
                 ))}

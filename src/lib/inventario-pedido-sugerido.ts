@@ -129,45 +129,47 @@ export function construirPedidoSugerido(params: {
     const minRaw = minMap.get(skuK);
     const minimoEfectivo =
       minRaw != null && Number.isFinite(minRaw) && (minRaw as number) > 0 ? (minRaw as number) : null;
-    const bajoMinimo = minimoEfectivo != null && saldoActual <= minimoEfectivo;
+    const unidadesPorEmpaque = unidadesPorEmpaqueInsumo(item);
+    const enPaquetes = saldoSeLlevaEnPaquetes(item);
+    /** Mínimo en UI = paquetes; saldo/consumo del sistema = unidades. */
+    const minimoUnd =
+      minimoEfectivo != null && enPaquetes && unidadesPorEmpaque > 1
+        ? minimoEfectivo * unidadesPorEmpaque
+        : minimoEfectivo;
+    const bajoMinimo = minimoUnd != null && saldoActual <= minimoUnd;
 
     const consumoVentana = consumoInsumoEnVentana(params.movimientos, item, desdeEpochSec);
     const promedioDiario = diasVentana > 0 ? consumoVentana / diasVentana : 0;
     const objetivoCobertura = promedioDiario * diasCobertura;
 
     let necesidad = Math.max(0, objetivoCobertura - saldoActual);
-    if (minimoEfectivo != null && saldoActual < minimoEfectivo) {
-      necesidad = Math.max(necesidad, minimoEfectivo - saldoActual);
+    if (minimoUnd != null && saldoActual < minimoUnd) {
+      necesidad = Math.max(necesidad, minimoUnd - saldoActual);
     }
-    if (bajoMinimo && necesidad <= 0 && minimoEfectivo != null) {
-      necesidad = Math.max(objetivoCobertura, minimoEfectivo * 0.5, 1);
+    if (bajoMinimo && necesidad <= 0 && minimoUnd != null) {
+      necesidad = Math.max(objetivoCobertura, minimoUnd * 0.5, 1);
     }
-
-    const unidadesPorEmpaque = unidadesPorEmpaqueInsumo(item);
-    const enPaquetes = saldoSeLlevaEnPaquetes(item);
 
     /**
-     * Saldo/consumo del POS en empaques = paquetes. El pedido a matriz es en paquetes enteros.
-     * Si no hay empaque, se pide en la misma unidad del saldo (1 «paquete» = 1 und).
+     * Necesidad en unidades. Pedido a matriz = paquetes enteros (ceil und / xN).
      */
-    const paquetesPedir = redondearAMultiploEmpaque(necesidad, 1);
+    const paquetesPedir =
+      enPaquetes && unidadesPorEmpaque > 1
+        ? redondearAMultiploEmpaque(necesidad, unidadesPorEmpaque) / unidadesPorEmpaque
+        : redondearAMultiploEmpaque(necesidad, 1);
     if (paquetesPedir <= 0) continue;
 
-    const saldoUnidadesEquiv =
-      enPaquetes && unidadesPorEmpaque > 1
-        ? Math.round(saldoActual * unidadesPorEmpaque * 1000) / 1000
-        : null;
     const unidadesEquivPedir =
       enPaquetes && unidadesPorEmpaque > 1
         ? Math.round(paquetesPedir * unidadesPorEmpaque * 1000) / 1000
-        : null;
+        : paquetesPedir;
 
     lineas.push({
       sku: item.sku,
       descripcion: item.descripcion,
       unidad: item.unidad,
       saldoActual: Math.round(saldoActual * 1000) / 1000,
-      saldoUnidadesEquiv,
+      saldoUnidadesEquiv: Math.round(saldoActual * 1000) / 1000,
       minimoEfectivo,
       bajoMinimo,
       consumoVentana,
@@ -175,7 +177,7 @@ export function construirPedidoSugerido(params: {
       objetivoCobertura: Math.round(objetivoCobertura * 1000) / 1000,
       unidadesPorEmpaque,
       saldoEnPaquetes: enPaquetes,
-      paquetesPedir,
+      paquetesPedir: Math.round(paquetesPedir * 1000) / 1000,
       unidadesEquivPedir,
     });
   }

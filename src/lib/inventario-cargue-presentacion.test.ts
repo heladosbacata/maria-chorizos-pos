@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  desglosarSaldoPaquetes,
+  cantidadUnidadesDesdeCarguePaquetes,
+  desglosarSaldoUnidades,
   inferirUnidadesPorPaquete,
   itemParecePaqueteCargue,
   presentacionCargueInventario,
+  precioUnitarioDesdePrecioPaquete,
   vistaSaldoConEmpaque,
 } from "./inventario-cargue-presentacion";
 
@@ -19,7 +21,7 @@ describe("inventario-cargue-presentacion", () => {
     ).toBe(true);
   });
 
-  it("presentación pide paquetes y no multiplica", () => {
+  it("presentación pide paquetes y avisa conversión a und", () => {
     const p = presentacionCargueInventario({
       sku: "PT-ARE-PETOQB-X6",
       descripcion: "Arepa Bocadillo y queso x6",
@@ -28,9 +30,9 @@ describe("inventario-cargue-presentacion", () => {
     expect(p.esPaquete).toBe(true);
     expect(p.unidadesPorPaquete).toBe(6);
     expect(p.labelCantidad).toMatch(/paquetes/i);
-    expect(p.ayuda).toMatch(/paquetes llegaron/i);
-    expect(p.ayuda).toMatch(/ensamble/i);
-    expect(p.labelPrecio).toMatch(/paquete/i);
+    expect(p.ayuda).toMatch(/und/i);
+    expect(cantidadUnidadesDesdeCarguePaquetes(10, 6)).toBe(60);
+    expect(precioUnitarioDesdePrecioPaquete(16_800, 6)).toBe(2800);
   });
 
   it("insumo suelto sigue en unidades", () => {
@@ -55,21 +57,21 @@ describe("inventario-cargue-presentacion", () => {
     ).toBe(false);
   });
 
-  it("desglosa decimales a paquetes + unidades", () => {
-    expect(desglosarSaldoPaquetes(14.167, 6)).toEqual({
+  it("desglosa unidades a paquetes + sueltas", () => {
+    expect(desglosarSaldoUnidades(85, 6)).toEqual({
       paquetesEnteros: 14,
       unidadesSueltas: 1,
       totalUnidades: 85,
     });
-    expect(desglosarSaldoPaquetes(52.1, 10)).toEqual({
+    expect(desglosarSaldoUnidades(521, 10)).toEqual({
       paquetesEnteros: 52,
       unidadesSueltas: 1,
       totalUnidades: 521,
     });
   });
 
-  it("vista saldo legible sin decimales", () => {
-    const v = vistaSaldoConEmpaque(14.167, {
+  it("vista saldo legible desde unidades del sistema", () => {
+    const v = vistaSaldoConEmpaque(85, {
       sku: "PT-ARE-PETOQB-X6",
       descripcion: "Arepa Bocadillo y queso x6",
       unidad: "und",
@@ -79,7 +81,7 @@ describe("inventario-cargue-presentacion", () => {
     expect(v.paquetes).toBe(14);
     expect(v.unidadesSueltas).toBe(1);
 
-    const entero = vistaSaldoConEmpaque(12, {
+    const entero = vistaSaldoConEmpaque(72, {
       sku: "PT-ARE-PETOQB-X6",
       descripcion: "Arepa Bocadillo y queso x6",
       unidad: "und",

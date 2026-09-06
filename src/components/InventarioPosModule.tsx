@@ -54,6 +54,12 @@ import {
   valorStockValorizado,
 } from "@/lib/inventario-valorizacion-unidades";
 import { vistaSaldoConEmpaque } from "@/lib/inventario-cargue-presentacion";
+import {
+  ejecutarMigracionPaquetesAUnidades,
+  marcarMigracionPaqAUndHecha,
+  migracionPaqAUndYaHecha,
+  planMigracionPaquetesAUnidades,
+} from "@/lib/inventario-migrar-paquetes-a-unidades";
 
 type Pestaña = "stock" | "movimiento" | "historial" | "ajuste";
 type FuenteCatalogoInventario = "sheet" | "firestore" | "wms";
@@ -200,6 +206,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
   const [modalAuditoriaAbierto, setModalAuditoriaAbierto] = useState(false);
   const [modalInformeInventarioAbierto, setModalInformeInventarioAbierto] = useState(false);
   const [modalPedidoSugeridoAbierto, setModalPedidoSugeridoAbierto] = useState(false);
+  const [migrandoPaqAUnd, setMigrandoPaqAUnd] = useState(false);
   const [mapaPreciosCarritoRespaldo, setMapaPreciosCarritoRespaldo] = useState<MapaPreciosCarrito>(() =>
     mapaPreciosCarritoVacio()
   );
@@ -684,17 +691,26 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       const minUsuario = minimosUsuario.get(skuK);
       const minSheet = i.minimoSugeridoSheet;
       const minimoEfectivo = minUsuario ?? minSheet ?? null;
-      const tieneMinimo = minimoEfectivo != null && minimoEfectivo > 0;
+      const vistaEmpaque = vistaSaldoConEmpaque(saldo, i);
+      const nEmpaque = vistaEmpaque.unidadesPorPaquete;
+      /** Mínimo se captura en paquetes; el saldo del sistema está en unidades. */
+      const minimoEnUnidades =
+        minimoEfectivo != null &&
+        minimoEfectivo > 0 &&
+        vistaEmpaque.saldoEnPaquetes &&
+        nEmpaque != null &&
+        nEmpaque >= 2
+          ? minimoEfectivo * nEmpaque
+          : minimoEfectivo;
+      const tieneMinimo = minimoEnUnidades != null && minimoEnUnidades > 0;
       const bajoMinimo =
-        tieneMinimo && Number.isFinite(saldo) && saldo <= (minimoEfectivo as number);
-      /** Cerca del mínimo: por encima pero a ≤25% del mínimo o ≤2 unidades/paquetes. */
+        tieneMinimo && Number.isFinite(saldo) && saldo <= (minimoEnUnidades as number);
       const cercaMinimo =
         tieneMinimo &&
         !bajoMinimo &&
         Number.isFinite(saldo) &&
-        (saldo <= (minimoEfectivo as number) * 1.25 ||
-          saldo <= (minimoEfectivo as number) + 2);
-      const vistaEmpaque = vistaSaldoConEmpaque(saldo, i);
+        (saldo <= (minimoEnUnidades as number) * 1.25 ||
+          saldo <= (minimoEnUnidades as number) + (nEmpaque ?? 2));
       return {
         ...i,
         saldo,
@@ -703,6 +719,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
         metaCosto,
         valorStockAprox,
         minimoEfectivo,
+        minimoEnUnidades,
         minimoUsuario: minUsuario,
         minimoSheet: minSheet,
         bajoMinimo,
@@ -743,6 +760,46 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     }
     return m;
   }, [filasStock]);
+
+  const planMigracionPaqAUnd = useMemo(() => {
+    if (!pv || !uid || migracionPaqAUndYaHecha(pv, uid)) return [];
+    return planMigracionPaquetesAUnidades({
+      insumos: filtrarCatalogoSoloInsumos(insumos),
+      saldoRows,
+      saldosPorClaveMap,
+    });
+  }, [pv, uid, insumos, saldoRows, saldosPorClaveMap]);
+
+  const correrMigracionPaqAUnd = useCallback(async () => {
+    if (!pv || !uid || planMigracionPaqAUnd.length === 0 || migrandoPaqAUnd) return;
+    const okConfirm = window.confirm(
+      `Esto convierte saldos guardados como paquetes a unidades (×x6, ×x10…), para que al vender 1 arepa solo se descuente 1 unidad.\n\nSe ajustarán ${planMigracionPaqAUnd.length} producto(s). ¿Continuar?`
+    );
+    if (!okConfirm) return;
+    setMigrandoPaqAUnd(true);
+    setError(null);
+    try {
+      const r = await ejecutarMigracionPaquetesAUnidades({
+        puntoVenta: pv,
+        uid,
+        email,
+        lineas: planMigracionPaqAUnd,
+      });
+      marcarMigracionPaqAUndHecha(pv, uid);
+      if (r.fallidos.length) {
+        setError(`Migración parcial: ${r.ok} ok. Fallos: ${r.fallidos.slice(0, 3).join(" · ")}`);
+      } else {
+        setMensajeOk(
+          `Migración lista: ${r.ok} producto(s) convertidos a unidades. Probá vender 1 arepa: debe descontar 1 und.`
+        );
+      }
+      await cargarTodo();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo migrar saldos.");
+    } finally {
+      setMigrandoPaqAUnd(false);
+    }
+  }, [pv, uid, email, planMigracionPaqAUnd, migrandoPaqAUnd, cargarTodo]);
 
   const totalInventarioValorizado = useMemo(() => {
     let t = 0;
@@ -1116,6 +1173,27 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                 </span>
               </p>
             )}
+            {!cargando && planMigracionPaqAUnd.length > 0 && (
+              <div
+                className="mt-4 rounded-xl border-2 border-red-400 bg-red-50 px-4 py-3 text-sm text-red-950 shadow-sm"
+                role="alert"
+              >
+                <p className="font-bold text-red-900">Corrección urgente: saldo en unidades</p>
+                <p className="mt-1 text-red-900/90">
+                  Antes el cargue guardaba <strong>paquetes</strong> y el WMS descuenta <strong>unidades</strong>, por eso
+                  vender 1 arepa restaba 1 paquete entero. Hay{" "}
+                  <strong>{planMigracionPaqAUnd.length}</strong> producto(s) para convertir (× factor x6/x10…).
+                </p>
+                <button
+                  type="button"
+                  disabled={migrandoPaqAUnd}
+                  onClick={() => void correrMigracionPaqAUnd()}
+                  className="mt-3 rounded-xl border-2 border-red-700 bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-50"
+                >
+                  {migrandoPaqAUnd ? "Convirtiendo…" : "Convertir saldos paquetes → unidades"}
+                </button>
+              </div>
+            )}
             {!cargando && (cantidadBajoMinimo > 0 || cantidadCercaMinimo > 0) && (
               <div
                 className="mt-4 flex items-start gap-3 rounded-xl border border-amber-400/70 bg-gradient-to-r from-amber-50 to-orange-50/90 px-4 py-3 text-sm text-amber-950 shadow-sm"
@@ -1137,8 +1215,8 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                         : `${cantidadCercaMinimo} productos están cerca del mínimo`}
                   </p>
                   <p className="mt-0.5 text-amber-900/90">
-                    La alerta <strong className="font-semibold">Pedir</strong> aparece cuando el saldo (en paquetes) es
-                    menor o igual al mínimo. Ejemplo: saldo 12 y mínimo 15 → Pedir.
+                    La alerta <strong className="font-semibold">Pedir</strong> aparece cuando el saldo en unidades es
+                    menor o igual al mínimo en paquetes × contenido (ej. mín. 15 paq. x6 = 90 und).
                   </p>
                 </div>
               </div>

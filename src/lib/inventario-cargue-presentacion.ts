@@ -65,13 +65,16 @@ export function itemParecePaqueteCargue(
 export type VistaSaldoEmpaque = {
   /** Factor xN del empaque de matriz; null si no aplica. */
   unidadesPorPaquete: number | null;
-  /** El saldo del sistema se interpreta como paquetes (cargue POS). */
+  /**
+   * Producto de empaque (x6, x100…): la UI muestra paquetes+unidades.
+   * El saldo del sistema / WMS está en **unidades sueltas**.
+   */
   saldoEnPaquetes: boolean;
   /** Paquetes enteros (sin decimales). */
   paquetes: number | null;
   /** Unidades sueltas fuera de paquetes enteros (0…N-1). */
   unidadesSueltas: number | null;
-  /** Total de unidades sueltas equivalentes. */
+  /** Total de unidades (saldo del sistema). */
   unidadesEquivalentes: number | null;
   /** Línea principal (ej. «14 paquetes + 1 unidad»). */
   textoPrincipal: string;
@@ -82,18 +85,27 @@ export type VistaSaldoEmpaque = {
 };
 
 /**
- * Parte un saldo en paquetes (posiblemente fraccionario) a paquetes enteros + unidades sueltas.
- * Evita decimales confusos (14,167 paq. → 14 paquetes + 1 unidad si x6).
+ * Parte un saldo en **unidades** a paquetes enteros + unidades sueltas.
+ * Ej.: 85 und con x6 → 14 paquetes + 1 unidad.
  */
+export function desglosarSaldoUnidades(
+  saldoUnidades: number,
+  unidadesPorPaquete: number
+): { paquetesEnteros: number; unidadesSueltas: number; totalUnidades: number } {
+  const n = unidadesPorPaquete >= 2 ? unidadesPorPaquete : 1;
+  const totalUnidades = Math.max(0, Math.round(Number(saldoUnidades) || 0));
+  const paquetesEnteros = Math.floor(totalUnidades / n);
+  const unidadesSueltas = totalUnidades % n;
+  return { paquetesEnteros, unidadesSueltas, totalUnidades };
+}
+
+/** @deprecated Usar desglosarSaldoUnidades (el saldo del sistema es en und). */
 export function desglosarSaldoPaquetes(
   saldoPaquetes: number,
   unidadesPorPaquete: number
 ): { paquetesEnteros: number; unidadesSueltas: number; totalUnidades: number } {
   const n = unidadesPorPaquete >= 2 ? unidadesPorPaquete : 1;
-  const totalUnidades = Math.max(0, Math.round(saldoPaquetes * n));
-  const paquetesEnteros = Math.floor(totalUnidades / n);
-  const unidadesSueltas = totalUnidades % n;
-  return { paquetesEnteros, unidadesSueltas, totalUnidades };
+  return desglosarSaldoUnidades(saldoPaquetes * n, n);
 }
 
 function textoPaquetesYUnidades(paquetesEnteros: number, unidadesSueltas: number): string {
@@ -105,9 +117,26 @@ function textoPaquetesYUnidades(paquetesEnteros: number, unidadesSueltas: number
   return `${paqTxt} + ${undTxt}`;
 }
 
+/** Cargue: paquetes escritos por el cajero → unidades a guardar (WMS descuenta und). */
+export function cantidadUnidadesDesdeCarguePaquetes(
+  cantidadPaquetes: number,
+  unidadesPorPaquete: number
+): number {
+  const n = unidadesPorPaquete >= 2 ? unidadesPorPaquete : 1;
+  return Math.round(cantidadPaquetes * n * 1000) / 1000;
+}
+
+/** Precio por paquete → precio por unidad de saldo (para costo medio). */
+export function precioUnitarioDesdePrecioPaquete(
+  precioPaquete: number,
+  unidadesPorPaquete: number
+): number {
+  const n = unidadesPorPaquete >= 2 ? unidadesPorPaquete : 1;
+  return Math.round((precioPaquete / n) * 100) / 100;
+}
+
 /**
- * Presenta el saldo en paquetes enteros + unidades sueltas (sin decimales).
- * Convención POS: en productos de empaque (x6, x100…) el saldo guardado = paquetes (puede ser fracción si hay destape).
+ * Presenta el saldo (en unidades del sistema) como paquetes enteros + unidades sueltas.
  */
 export function vistaSaldoConEmpaque(
   saldo: number,
@@ -118,7 +147,7 @@ export function vistaSaldoConEmpaque(
   const saldoR = Math.round(saldo * 1000) / 1000;
 
   if (esPaquete && n != null && n >= 2) {
-    const { paquetesEnteros, unidadesSueltas, totalUnidades } = desglosarSaldoPaquetes(saldoR, n);
+    const { paquetesEnteros, unidadesSueltas, totalUnidades } = desglosarSaldoUnidades(saldoR, n);
     return {
       unidadesPorPaquete: n,
       saldoEnPaquetes: true,
@@ -162,9 +191,8 @@ export function vistaSaldoConEmpaque(
 }
 
 /**
- * Presentación UX del cargue: si es paquete (arepas x6, etc.), el cajero escribe
- * cuántos paquetes llegaron. El número guardado NO se multiplica: el ensamble WMS
- * ya usa el factor definido en la receta.
+ * Presentación UX del cargue: el cajero escribe paquetes; al guardar se multiplica ×xN
+ * porque el saldo del sistema y el ensamble WMS trabajan en unidades.
  */
 export function presentacionCargueInventario(
   item: Pick<InsumoKitItem, "sku" | "descripcion" | "unidad"> | null | undefined
@@ -236,7 +264,7 @@ export function presentacionCargueInventario(
     labelUnidadCorta: unidadesPorPaquete != null ? `paquete (x${unidadesPorPaquete})` : "paquete",
     ayuda:
       unidadesPorPaquete != null
-        ? `Escriba cuántos paquetes llegaron (no las unidades sueltas). Cada paquete trae ${nTxt} und; el ensamble WMS ya usa esa cantidad al descontar inventario.`
-        : "Escriba cuántos paquetes llegaron (no las unidades sueltas). El ensamble WMS ya usa el contenido definido en la receta al descontar inventario.",
+        ? `Escriba cuántos paquetes llegaron. Al guardar se registran ${nTxt} und por paquete (el WMS descuenta 1 und por cada arepa/unidad vendida).`
+        : "Escriba cuántos paquetes llegaron. Al guardar se convierten a unidades para que el ensamble WMS descuente bien.",
   };
 }
