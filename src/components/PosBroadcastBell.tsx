@@ -14,6 +14,15 @@ import {
 } from "@/lib/wms-broadcast-client";
 import PosBodyPortal from "@/components/PosBodyPortal";
 import { comprimirImagenParaBroadcastChat } from "@/lib/pos-broadcast-chat-imagen";
+import {
+  POS_MSG_SNOOZE_MS,
+  estaEnSnooze,
+  formatCountdown,
+  guardarEstadoRespuestaBroadcast,
+  leerEstadoRespuestaBroadcast,
+  msRestantesSnooze,
+  ultimoAdminBroadcastSinRespuestaPropia,
+} from "@/lib/pos-msg-respuesta-obligatoria";
 
 function formatHora(ms: number): string {
   if (!ms) return "—";
@@ -65,6 +74,9 @@ export default function PosBroadcastBell({
   const [reactionMessageId, setReactionMessageId] = useState<string | null>(null);
   const [reaccionandoId, setReaccionandoId] = useState<string | null>(null);
   const [imagenPendiente, setImagenPendiente] = useState<{ previewUrl: string; dataUrl: string } | null>(null);
+  const [gateObligatorio, setGateObligatorio] = useState(false);
+  const [snoozeUntilMs, setSnoozeUntilMs] = useState(0);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const listaRef = useRef<HTMLDivElement>(null);
   const inputImagenRef = useRef<HTMLInputElement>(null);
   const prevUnreadRef = useRef(0);
@@ -78,26 +90,55 @@ export default function PosBroadcastBell({
     moved: boolean;
   } | null>(null);
 
+  const adminSinRespuesta = ultimoAdminBroadcastSinRespuestaPropia(mensajes, currentUid);
+  const requiereRespuesta = Boolean(adminSinRespuesta);
+  const enSnooze = estaEnSnooze(snoozeUntilMs, nowMs);
+
   const abrirChat = useCallback(() => {
     setAbierto(true);
     setMinimizado(false);
     setEmojiPickerAbierto(false);
     setReactionMessageId(null);
+    setGateObligatorio(false);
   }, []);
 
+  const posponerCincoMinutos = useCallback(() => {
+    const until = Date.now() + POS_MSG_SNOOZE_MS;
+    setSnoozeUntilMs(until);
+    setAbierto(false);
+    setMinimizado(false);
+    setGateObligatorio(false);
+    setEmojiPickerAbierto(false);
+    setReactionMessageId(null);
+    const adminId = adminSinRespuesta?.id ?? leerEstadoRespuestaBroadcast().pendingAdminMsgId;
+    guardarEstadoRespuestaBroadcast({ pendingAdminMsgId: adminId, snoozeUntilMs: until });
+  }, [adminSinRespuesta?.id]);
+
   const minimizarChat = useCallback(() => {
+    if (requiereRespuesta && !enSnooze) {
+      posponerCincoMinutos();
+      return;
+    }
     setAbierto(false);
     setMinimizado(true);
     setEmojiPickerAbierto(false);
     setReactionMessageId(null);
-  }, []);
+  }, [requiereRespuesta, enSnooze, posponerCincoMinutos]);
 
   const cerrarChat = useCallback(() => {
+    if (requiereRespuesta && !enSnooze) {
+      setAbierto(false);
+      setMinimizado(false);
+      setEmojiPickerAbierto(false);
+      setReactionMessageId(null);
+      setGateObligatorio(true);
+      return;
+    }
     setAbierto(false);
     setMinimizado(false);
     setEmojiPickerAbierto(false);
     setReactionMessageId(null);
-  }, []);
+  }, [requiereRespuesta, enSnooze]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -189,6 +230,20 @@ export default function PosBroadcastBell({
     }
   }, [getIdToken]);
 
+  const cargarHilo = useCallback(async () => {
+    const token = await getIdToken();
+    if (!token) return;
+    setCargando(true);
+    setError(null);
+    try {
+      const r = await wmsBroadcastMensajes(token);
+      if (r.ok) setMensajes(r.mensajes);
+      else setError(r.error);
+    } finally {
+      setCargando(false);
+    }
+  }, [getIdToken]);
+
   const fetchUnread = useCallback(async () => {
     if (!sesion) {
       setUnread(0);
@@ -203,26 +258,15 @@ export default function PosBroadcastBell({
       const debeAutoAbrir = next > 0 && (!autoAbiertoInicialRef.current || huboNuevoMensaje);
       prevUnreadRef.current = next;
       setUnread(next);
+      if (next > 0 || huboNuevoMensaje) {
+        void cargarHilo();
+      }
       if (debeAutoAbrir) {
         autoAbiertoInicialRef.current = true;
         setAutoAbrirPendiente(true);
       }
     }
-  }, [getIdToken, sesion]);
-
-  const cargarHilo = useCallback(async () => {
-    const token = await getIdToken();
-    if (!token) return;
-    setCargando(true);
-    setError(null);
-    try {
-      const r = await wmsBroadcastMensajes(token);
-      if (r.ok) setMensajes(r.mensajes);
-      else setError(r.error);
-    } finally {
-      setCargando(false);
-    }
-  }, [getIdToken]);
+  }, [getIdToken, sesion, cargarHilo]);
 
   useEffect(() => {
     if (!visible) return;
@@ -278,10 +322,70 @@ export default function PosBroadcastBell({
 
   useEffect(() => {
     if (!autoAbrirPendiente || !visible || !sesion) return;
-    setAbierto(true);
     setMinimizado(false);
+    setAbierto(false);
+    if (!enSnooze) setGateObligatorio(true);
     setAutoAbrirPendiente(false);
-  }, [autoAbrirPendiente, visible, sesion]);
+    void cargarHilo();
+  }, [autoAbrirPendiente, visible, sesion, enSnooze, cargarHilo]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = leerEstadoRespuestaBroadcast();
+    if (saved.snoozeUntilMs > Date.now()) setSnoozeUntilMs(saved.snoozeUntilMs);
+  }, []);
+
+  useEffect(() => {
+    if (!sesion) {
+      setGateObligatorio(false);
+      return;
+    }
+    if (!requiereRespuesta) {
+      if (mensajes.length > 0 || (unread === 0 && !cargando)) {
+        setGateObligatorio(false);
+      }
+      if (mensajes.length > 0) {
+        guardarEstadoRespuestaBroadcast({ pendingAdminMsgId: null, snoozeUntilMs: 0 });
+        setSnoozeUntilMs(0);
+      }
+      return;
+    }
+    guardarEstadoRespuestaBroadcast({
+      pendingAdminMsgId: adminSinRespuesta?.id ?? null,
+      snoozeUntilMs,
+    });
+    if (!enSnooze && !abierto) {
+      setGateObligatorio(true);
+      setMinimizado(false);
+    }
+  }, [
+    sesion,
+    requiereRespuesta,
+    adminSinRespuesta?.id,
+    enSnooze,
+    abierto,
+    snoozeUntilMs,
+    mensajes.length,
+    unread,
+    cargando,
+  ]);
+
+  useEffect(() => {
+    if (!enSnooze) return;
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [enSnooze]);
+
+  useEffect(() => {
+    if (!requiereRespuesta || !enSnooze) return;
+    const rest = msRestantesSnooze(snoozeUntilMs);
+    const id = window.setTimeout(() => {
+      setNowMs(Date.now());
+      setGateObligatorio(true);
+      setMinimizado(false);
+    }, rest + 50);
+    return () => window.clearTimeout(id);
+  }, [requiereRespuesta, enSnooze, snoozeUntilMs]);
 
   useEffect(() => {
     if (!abierto || !listaRef.current) return;
@@ -366,6 +470,9 @@ export default function PosBroadcastBell({
       setTexto("");
       setEmojiPickerAbierto(false);
       quitarImagenPendiente();
+      setSnoozeUntilMs(0);
+      setGateObligatorio(false);
+      guardarEstadoRespuestaBroadcast({ pendingAdminMsgId: null, snoozeUntilMs: 0 });
       await cargarHilo();
       await fetchUnread();
     } finally {
@@ -484,15 +591,16 @@ export default function PosBroadcastBell({
         ) : null}
       </PosBodyPortal>
 
-      <PosBodyPortal open={abierto} lockScroll onEscape={cerrarChat}>
+      <PosBodyPortal open={abierto} lockScroll onEscape={requiereRespuesta && !enSnooze ? undefined : cerrarChat}>
         {abierto ? (
           <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6">
             <button
               type="button"
               tabIndex={-1}
               className="absolute inset-0 z-0 bg-slate-950/45 backdrop-blur-[2px]"
-              aria-label="Cerrar chat"
-              onClick={cerrarChat}
+              aria-label={requiereRespuesta && !enSnooze ? "Respuesta obligatoria" : "Cerrar chat"}
+              onClick={requiereRespuesta && !enSnooze ? undefined : cerrarChat}
+              disabled={requiereRespuesta && !enSnooze}
             />
             <div
               className="relative z-10 flex h-[min(92vh,820px)] w-[min(100vw-1.5rem,56rem)] min-w-[min(100vw-1.5rem,20rem)] max-w-4xl flex-col overflow-hidden rounded-3xl border border-indigo-200/50 bg-gradient-to-b from-[#15122a] via-[#1a1630] to-[#120f1c] text-indigo-50 shadow-[0_28px_90px_-20px_rgba(0,0,0,0.65)] ring-2 ring-indigo-500/20"
@@ -508,33 +616,54 @@ export default function PosBroadcastBell({
                 <h2 id="pos-broadcast-title" className="mt-1 text-base font-semibold tracking-tight text-white">
                   {sesion.titulo?.trim() ? sesion.titulo : "Conversación grupal"}
                 </h2>
-                <p className="mt-0.5 text-xs text-indigo-200/50">Administración abre y cierra este chat.</p>
+                {requiereRespuesta ? (
+                  <p className="mt-1 text-xs font-semibold text-indigo-200">
+                    Debés responder desde este punto. Podés posponer 5 minutos.
+                  </p>
+                ) : (
+                  <p className="mt-0.5 text-xs text-indigo-200/50">Administración abre y cierra este chat.</p>
+                )}
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    minimizarChat();
-                  }}
-                  className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-indigo-200/80 transition hover:bg-white/10 hover:text-white"
-                  aria-label="Minimizar chat"
-                >
-                  Minimizar
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    cerrarChat();
-                  }}
-                  className="rounded-xl border border-white/10 bg-white/5 p-2 text-indigo-200/80 transition hover:bg-white/10 hover:text-white"
-                  aria-label="Cerrar chat"
-                >
-                  <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
+                {requiereRespuesta ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      posponerCincoMinutos();
+                    }}
+                    className="rounded-xl border border-indigo-400/40 bg-indigo-500/25 px-3 py-2 text-xs font-bold text-indigo-100 transition hover:bg-indigo-500/35"
+                  >
+                    Posponer 5 min
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        minimizarChat();
+                      }}
+                      className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-indigo-200/80 transition hover:bg-white/10 hover:text-white"
+                      aria-label="Minimizar chat"
+                    >
+                      Minimizar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        cerrarChat();
+                      }}
+                      className="rounded-xl border border-white/10 bg-white/5 p-2 text-indigo-200/80 transition hover:bg-white/10 hover:text-white"
+                      aria-label="Cerrar chat"
+                    >
+                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </>
+                )}
               </div>
             </header>
 
@@ -814,6 +943,77 @@ export default function PosBroadcastBell({
           </div>
         ) : null}
       </PosBodyPortal>
+
+      <PosBodyPortal open={Boolean(sesion && gateObligatorio && !enSnooze && !abierto)} lockScroll>
+        {sesion && gateObligatorio && !enSnooze && !abierto ? (
+          <div
+            className="fixed inset-0 z-[280] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="pos-broadcast-gate-title"
+          >
+            <div className="w-full max-w-lg overflow-hidden rounded-3xl border-2 border-indigo-400/50 bg-gradient-to-b from-[#1e1838] to-[#120f1c] text-indigo-50 shadow-2xl ring-2 ring-indigo-500/30">
+              <div className="border-b border-indigo-400/30 bg-gradient-to-r from-indigo-600 to-violet-600 px-5 py-4 text-white">
+                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-indigo-100">
+                  Chat grupal · Administración
+                </p>
+                <h2 id="pos-broadcast-gate-title" className="mt-1 text-xl font-black">
+                  Mensaje pendiente de respuesta
+                </h2>
+                <p className="mt-1 text-sm font-medium text-indigo-50/95">
+                  Cada punto debe responder. Podés posponer 5 minutos si estás cobrando.
+                </p>
+              </div>
+              <div className="space-y-4 px-5 py-4">
+                {adminSinRespuesta ? (
+                  <div className="rounded-2xl border border-indigo-300/30 bg-indigo-50 px-3 py-3 text-sm text-gray-900">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-indigo-800/70">
+                      Administración · {formatHora(adminSinRespuesta.createdAtMs)}
+                    </p>
+                    {adminSinRespuesta.imageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={adminSinRespuesta.imageUrl}
+                        alt=""
+                        className="mt-2 max-h-28 rounded-lg object-cover"
+                      />
+                    ) : null}
+                    <p className="mt-1.5 whitespace-pre-wrap">{adminSinRespuesta.text || "(imagen)"}</p>
+                  </div>
+                ) : (
+                  <p className="text-sm text-indigo-100/70">
+                    {cargando ? "Cargando mensaje…" : "Hay un aviso grupal. Abrí para responder."}
+                  </p>
+                )}
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={abrirChat}
+                    className="flex-1 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 px-4 py-3.5 text-sm font-black text-white shadow-lg transition hover:brightness-110"
+                  >
+                    Responder ahora
+                  </button>
+                  <button
+                    type="button"
+                    onClick={posponerCincoMinutos}
+                    className="flex-1 rounded-2xl border border-indigo-400/40 bg-white/5 px-4 py-3.5 text-sm font-bold text-indigo-100 transition hover:bg-white/10"
+                  >
+                    Posponer 5 minutos
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </PosBodyPortal>
+
+      {sesion && requiereRespuesta && enSnooze && !abierto && !gateObligatorio ? (
+        <PosBodyPortal open>
+          <div className="pointer-events-none fixed bottom-16 left-1/2 z-[190] -translate-x-1/2 rounded-full border border-indigo-300/80 bg-indigo-950/95 px-4 py-2 text-xs font-bold text-indigo-100 shadow-lg">
+            Chat grupal · vuelve en {formatCountdown(msRestantesSnooze(snoozeUntilMs, nowMs))}
+          </div>
+        </PosBodyPortal>
+      ) : null}
     </>
   );
 }

@@ -21,6 +21,15 @@ import {
   EVENT_DIAN_TEST_SET_REGISTRADO,
   type DianTestSetRegistradoDetail,
 } from "@/lib/pos-notificaciones-event";
+import {
+  POS_MSG_SNOOZE_MS,
+  estaEnSnooze,
+  formatCountdown,
+  guardarEstadoRespuestaCaja,
+  leerEstadoRespuestaCaja,
+  msRestantesSnooze,
+  ultimoMensajeAdminSinRespuesta,
+} from "@/lib/pos-msg-respuesta-obligatoria";
 
 function formatHora(ms: number): string {
   if (!ms) return "—";
@@ -118,6 +127,10 @@ export default function PosCajaMensajesBell({
   );
   const [error, setError] = useState<string | null>(null);
   const [avisoSistema, setAvisoSistema] = useState<string | null>(null);
+  /** Overlay: Responder ahora / Posponer 5 min (hasta que haya respuesta del cajero). */
+  const [gateObligatorio, setGateObligatorio] = useState(false);
+  const [snoozeUntilMs, setSnoozeUntilMs] = useState(0);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const listaRef = useRef<HTMLDivElement>(null);
   const inputImagenRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -131,6 +144,10 @@ export default function PosCajaMensajesBell({
     originY: number;
     moved: boolean;
   } | null>(null);
+
+  const adminSinRespuesta = ultimoMensajeAdminSinRespuesta(mensajes, "admin_to_pos");
+  const requiereRespuesta = Boolean(adminSinRespuesta);
+  const enSnooze = estaEnSnooze(snoozeUntilMs, nowMs);
 
   const quitarImagenPendiente = useCallback(() => {
     setImagenPendiente((prev) => {
@@ -186,19 +203,43 @@ export default function PosCajaMensajesBell({
     setAbierto(true);
     setMinimizado(false);
     setEmojiPickerAbierto(false);
+    setGateObligatorio(false);
   }, []);
 
+  const posponerCincoMinutos = useCallback(() => {
+    const until = Date.now() + POS_MSG_SNOOZE_MS;
+    setSnoozeUntilMs(until);
+    setAbierto(false);
+    setMinimizado(false);
+    setGateObligatorio(false);
+    setEmojiPickerAbierto(false);
+    const adminId = adminSinRespuesta?.id ?? leerEstadoRespuestaCaja().pendingAdminMsgId;
+    guardarEstadoRespuestaCaja({ pendingAdminMsgId: adminId, snoozeUntilMs: until });
+  }, [adminSinRespuesta?.id]);
+
   const minimizarChat = useCallback(() => {
+    if (requiereRespuesta && !enSnooze) {
+      posponerCincoMinutos();
+      return;
+    }
     setAbierto(false);
     setMinimizado(true);
     setEmojiPickerAbierto(false);
-  }, []);
+  }, [requiereRespuesta, enSnooze, posponerCincoMinutos]);
 
   const cerrarChat = useCallback(() => {
+    if (requiereRespuesta && !enSnooze) {
+      // No se puede cerrar sin responder: mostrar de nuevo el aviso.
+      setAbierto(false);
+      setMinimizado(false);
+      setEmojiPickerAbierto(false);
+      setGateObligatorio(true);
+      return;
+    }
     setAbierto(false);
     setMinimizado(false);
     setEmojiPickerAbierto(false);
-  }, []);
+  }, [requiereRespuesta, enSnooze]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -273,26 +314,6 @@ export default function PosCajaMensajesBell({
     }
   }, []);
 
-  const fetchUnread = useCallback(async () => {
-    const token = await getIdToken();
-    if (!token) return;
-    const r = await wmsCajaMensajesUnread(token);
-    if (r.ok) {
-      const next = r.count;
-      const huboNuevoMensaje = next > prevUnreadRef.current;
-      const debeAutoAbrir = next > 0 && (!autoAbiertoInicialRef.current || huboNuevoMensaje);
-      prevUnreadRef.current = next;
-      setUnread(next);
-      if (debeAutoAbrir) {
-        autoAbiertoInicialRef.current = true;
-        setAutoAbrirPendiente(true);
-      }
-    }
-    else if (process.env.NODE_ENV === "development") {
-      console.warn("[PosCajaMensajes] no se pudo consultar no leídos:", r.error);
-    }
-  }, [getIdToken]);
-
   const cargarHilo = useCallback(async () => {
     const token = await getIdToken();
     if (!token) return;
@@ -306,6 +327,30 @@ export default function PosCajaMensajesBell({
       setCargando(false);
     }
   }, [getIdToken]);
+
+  const fetchUnread = useCallback(async () => {
+    const token = await getIdToken();
+    if (!token) return;
+    const r = await wmsCajaMensajesUnread(token);
+    if (r.ok) {
+      const next = r.count;
+      const huboNuevoMensaje = next > prevUnreadRef.current;
+      const debeAutoAbrir = next > 0 && (!autoAbiertoInicialRef.current || huboNuevoMensaje);
+      prevUnreadRef.current = next;
+      setUnread(next);
+      if (next > 0 || huboNuevoMensaje) {
+        // Cargar hilo aunque el chat esté cerrado: hace falta para el aviso obligatorio.
+        void cargarHilo();
+      }
+      if (debeAutoAbrir) {
+        autoAbiertoInicialRef.current = true;
+        setAutoAbrirPendiente(true);
+      }
+    }
+    else if (process.env.NODE_ENV === "development") {
+      console.warn("[PosCajaMensajes] no se pudo consultar no leídos:", r.error);
+    }
+  }, [getIdToken, cargarHilo]);
 
   useEffect(() => {
     if (!visible || typeof window === "undefined") return;
@@ -371,10 +416,70 @@ export default function PosCajaMensajesBell({
 
   useEffect(() => {
     if (!autoAbrirPendiente || !visible) return;
-    setAbierto(true);
+    // Siempre el aviso primero (Responder / Posponer); el chat se abre solo con «Responder ahora».
     setMinimizado(false);
+    setAbierto(false);
+    if (!enSnooze) {
+      setGateObligatorio(true);
+    }
     setAutoAbrirPendiente(false);
-  }, [autoAbrirPendiente, visible]);
+    void cargarHilo();
+  }, [autoAbrirPendiente, visible, enSnooze, cargarHilo]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = leerEstadoRespuestaCaja();
+    if (saved.snoozeUntilMs > Date.now()) {
+      setSnoozeUntilMs(saved.snoozeUntilMs);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!requiereRespuesta) {
+      if (mensajes.length > 0 || (unread === 0 && !cargando)) {
+        setGateObligatorio(false);
+      }
+      if (mensajes.length > 0) {
+        guardarEstadoRespuestaCaja({ pendingAdminMsgId: null, snoozeUntilMs: 0 });
+        setSnoozeUntilMs(0);
+      }
+      return;
+    }
+    guardarEstadoRespuestaCaja({
+      pendingAdminMsgId: adminSinRespuesta?.id ?? null,
+      snoozeUntilMs,
+    });
+    if (!enSnooze && !abierto) {
+      setGateObligatorio(true);
+      setMinimizado(false);
+    }
+  }, [
+    requiereRespuesta,
+    adminSinRespuesta?.id,
+    enSnooze,
+    abierto,
+    snoozeUntilMs,
+    mensajes.length,
+    unread,
+    cargando,
+  ]);
+
+  useEffect(() => {
+    if (!enSnooze) return;
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, [enSnooze]);
+
+  useEffect(() => {
+    if (!requiereRespuesta || !enSnooze) return;
+    const rest = msRestantesSnooze(snoozeUntilMs);
+    const id = window.setTimeout(() => {
+      setNowMs(Date.now());
+      setGateObligatorio(true);
+      setMinimizado(false);
+    }, rest + 50);
+    return () => window.clearTimeout(id);
+  }, [requiereRespuesta, enSnooze, snoozeUntilMs]);
 
   useEffect(() => {
     if (!abierto || !listaRef.current) return;
@@ -410,6 +515,9 @@ export default function PosCajaMensajesBell({
       setTexto("");
       setEmojiPickerAbierto(false);
       quitarImagenPendiente();
+      setSnoozeUntilMs(0);
+      setGateObligatorio(false);
+      guardarEstadoRespuestaCaja({ pendingAdminMsgId: null, snoozeUntilMs: 0 });
       await cargarHilo();
     } finally {
       setEnviando(false);
@@ -493,15 +601,16 @@ export default function PosCajaMensajesBell({
         ) : null}
       </PosBodyPortal>
 
-      <PosBodyPortal open={abierto} lockScroll onEscape={cerrarChat}>
+      <PosBodyPortal open={abierto} lockScroll onEscape={requiereRespuesta && !enSnooze ? undefined : cerrarChat}>
         {abierto ? (
           <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6">
             <button
               type="button"
               tabIndex={-1}
               className="absolute inset-0 z-0 bg-black/45 backdrop-blur-[2px]"
-              aria-label="Cerrar chat"
-              onClick={cerrarChat}
+              aria-label={requiereRespuesta && !enSnooze ? "Respuesta obligatoria" : "Cerrar chat"}
+              onClick={requiereRespuesta && !enSnooze ? undefined : cerrarChat}
+              disabled={requiereRespuesta && !enSnooze}
             />
             <div
               className="relative z-10 flex h-[min(92vh,820px)] w-[min(100vw-1.5rem,56rem)] min-w-[min(100vw-1.5rem,20rem)] max-w-4xl flex-col overflow-hidden rounded-3xl border border-amber-200/40 bg-gradient-to-b from-[#1c1410] via-[#231a14] to-[#181210] text-amber-50 shadow-[0_28px_90px_-20px_rgba(0,0,0,0.65),inset_0_1px_0_rgba(255,255,255,0.05)] ring-2 ring-amber-500/25"
@@ -521,33 +630,54 @@ export default function PosCajaMensajesBell({
                 <h2 id="pos-caja-msg-title" className="mt-1 text-base font-semibold tracking-tight text-white">
                   Mensajes en vivo
                 </h2>
+                {requiereRespuesta ? (
+                  <p className="mt-1 text-xs font-semibold text-amber-300">
+                    Debés responder para continuar. Podés posponer 5 minutos.
+                  </p>
+                ) : null}
                 {puntoVentaLabel ? (
                   <p className="mt-0.5 truncate text-xs text-amber-200/50">{puntoVentaLabel}</p>
                 ) : null}
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    minimizarChat();
-                  }}
-                  className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-amber-200/80 transition hover:bg-white/10 hover:text-white"
-                  aria-label="Minimizar chat"
-                >
-                  Minimizar
-                </button>
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    cerrarChat();
-                  }}
-                  className="rounded-xl border border-white/10 bg-white/5 p-2 text-amber-200/80 transition hover:bg-white/10 hover:text-white"
-                  aria-label="Cerrar chat"
-                >
-                  <IconX className="h-5 w-5" />
-                </button>
+                {requiereRespuesta ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      posponerCincoMinutos();
+                    }}
+                    className="rounded-xl border border-amber-400/40 bg-amber-500/20 px-3 py-2 text-xs font-bold text-amber-100 transition hover:bg-amber-500/30"
+                    aria-label="Posponer 5 minutos"
+                  >
+                    Posponer 5 min
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        minimizarChat();
+                      }}
+                      className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-amber-200/80 transition hover:bg-white/10 hover:text-white"
+                      aria-label="Minimizar chat"
+                    >
+                      Minimizar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        cerrarChat();
+                      }}
+                      className="rounded-xl border border-white/10 bg-white/5 p-2 text-amber-200/80 transition hover:bg-white/10 hover:text-white"
+                      aria-label="Cerrar chat"
+                    >
+                      <IconX className="h-5 w-5" />
+                    </button>
+                  </>
+                )}
               </div>
             </header>
 
@@ -710,6 +840,71 @@ export default function PosCajaMensajesBell({
           </div>
         ) : null}
       </PosBodyPortal>
+
+      <PosBodyPortal open={gateObligatorio && !enSnooze && !abierto} lockScroll>
+        {gateObligatorio && !enSnooze && !abierto ? (
+          <div
+            className="fixed inset-0 z-[280] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="pos-caja-msg-gate-title"
+          >
+            <div className="w-full max-w-lg overflow-hidden rounded-3xl border-2 border-amber-400/50 bg-gradient-to-b from-[#2a1c12] to-[#1a120c] text-amber-50 shadow-2xl ring-2 ring-amber-500/30">
+              <div className="border-b border-amber-400/30 bg-gradient-to-r from-amber-600 to-orange-600 px-5 py-4 text-white">
+                <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-amber-100">
+                  Administración WMS
+                </p>
+                <h2 id="pos-caja-msg-gate-title" className="mt-1 text-xl font-black">
+                  Tenés un mensaje pendiente
+                </h2>
+                <p className="mt-1 text-sm font-medium text-amber-50/95">
+                  Debés responder para confirmar recepción. Podés posponer 5 minutos si estás en una venta.
+                </p>
+              </div>
+              <div className="space-y-4 px-5 py-4">
+                {adminSinRespuesta ? (
+                  <div className="rounded-2xl border border-amber-400/25 bg-amber-50 px-3 py-3 text-sm text-gray-900">
+                    <p className="text-[10px] font-bold uppercase tracking-wide text-amber-800/70">
+                      Último mensaje · {formatHora(adminSinRespuesta.createdAtMs)}
+                    </p>
+                    <div className="mt-1.5 max-h-40 overflow-y-auto">
+                      <PosCajaMensajeContenido mensaje={adminSinRespuesta} />
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-sm text-amber-100/70">
+                    {cargando ? "Cargando mensaje…" : "Hay un aviso de administración. Abrí para responder."}
+                  </p>
+                )}
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={abrirChat}
+                    className="flex-1 rounded-2xl bg-gradient-to-br from-brand-yellow to-amber-500 px-4 py-3.5 text-sm font-black text-gray-900 shadow-lg transition hover:brightness-105"
+                  >
+                    Responder ahora
+                  </button>
+                  <button
+                    type="button"
+                    onClick={posponerCincoMinutos}
+                    className="flex-1 rounded-2xl border border-amber-400/40 bg-white/5 px-4 py-3.5 text-sm font-bold text-amber-100 transition hover:bg-white/10"
+                  >
+                    Posponer 5 minutos
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </PosBodyPortal>
+
+      {requiereRespuesta && enSnooze && !abierto && !gateObligatorio ? (
+        <PosBodyPortal open>
+          <div className="pointer-events-none fixed bottom-4 left-1/2 z-[190] -translate-x-1/2 rounded-full border border-amber-300/80 bg-amber-950/95 px-4 py-2 text-xs font-bold text-amber-100 shadow-lg">
+            Mensaje admin · vuelve en {formatCountdown(msRestantesSnooze(snoozeUntilMs, nowMs))}
+          </div>
+        </PosBodyPortal>
+      ) : null}
     </>
   );
 }
