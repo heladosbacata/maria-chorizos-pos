@@ -7,6 +7,7 @@ import {
 } from "@/lib/catalogo-insumos-sheet-client";
 import { fechaColombia, fechaHoraColombia, mediodiaColombiaDesdeYmd, ymdColombia } from "@/lib/fecha-colombia";
 import { catalogoInsumosParaCargue } from "@/lib/inventario-pos-catalogo";
+import { presentacionCargueInventario } from "@/lib/inventario-cargue-presentacion";
 import {
   CATALOGO_INSUMOS_KIT_COLLECTION,
   corregirMovimientoCargueInventario,
@@ -331,6 +332,19 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
 
   const insumoSel = useMemo(() => insumos.find((i) => i.id === insumoId) ?? null, [insumos, insumoId]);
 
+  const presentacionSel = useMemo(() => presentacionCargueInventario(insumoSel), [insumoSel]);
+
+  const totalCargueCop = useMemo(
+    () =>
+      lineasCargue.reduce((acc, line) => {
+        const cant = Number(line.cantidad);
+        const precio = Number(line.precioCompraUnitario);
+        if (!Number.isFinite(cant) || !Number.isFinite(precio) || cant <= 0 || precio <= 0) return acc;
+        return acc + cant * precio;
+      }, 0),
+    [lineasCargue]
+  );
+
   const precioOficialSel = useMemo(() => {
     if (!insumoSel) return null;
     return precioCompraParaInsumo(insumoSel, preciosCarritoMap);
@@ -345,7 +359,11 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
     }
     const cant = parseFloat(cantidad.replace(/,/g, "."));
     if (!Number.isFinite(cant) || cant <= 0) {
-      setError("Indicá una cantidad mayor que cero.");
+      setError(
+        presentacionCargueInventario(insumoSel).esPaquete
+          ? "Indicá cuántos paquetes llegaron (cantidad mayor que cero)."
+          : "Indicá una cantidad mayor que cero."
+      );
       return;
     }
     const loteNorm = loteLinea.trim();
@@ -615,15 +633,23 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
               Producto
             </h3>
             <p className="mt-1 text-xs text-gray-600">
-              Buscá y tocá un ítem del catálogo. A la derecha cargá cantidad y lote; el precio de compra viene fijo de
-              DB_Franquicia_Insumos_Kit (PRECIO_COMPRA_UNITARIO) y no se edita en el POS.
+              Buscá y tocá un ítem del catálogo. A la derecha cargá cantidad y lote. Si el producto es un paquete (ej.
+              arepas x6), indicá cuántos paquetes llegaron; el ensamble WMS ya usa el contenido en unidades.
             </p>
             {insumoSel && (
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-sm">
                 <div className="min-w-0 flex-1">
                   <span className="font-mono text-xs text-emerald-900">{insumoSel.sku}</span>
                   <span className="text-emerald-950"> · {insumoSel.descripcion}</span>
-                  <span className="text-emerald-800/90"> ({insumoSel.unidad})</span>
+                  <span className="text-emerald-800/90">
+                    {" "}
+                    ({presentacionSel.esPaquete ? presentacionSel.labelUnidadCorta : insumoSel.unidad})
+                  </span>
+                  {presentacionSel.esPaquete ? (
+                    <span className="mt-1 block text-xs font-semibold text-emerald-900">
+                      Cargue por paquetes — no por unidades sueltas
+                    </span>
+                  ) : null}
                 </div>
                 <button
                   type="button"
@@ -730,23 +756,41 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
               Cantidad y lote
             </h3>
             <p className="mt-1 text-xs text-gray-600">
-              Misma fecha para todo el cargue. El lote es el del paquete que llegó. El precio de compra es por unidad
-              (COP) y es obligatorio para valorizar el inventario. Podés sumar varios productos y al final registrás de
-              una vez.
+              Misma fecha para todo el cargue. El lote es el del paquete que llegó. El precio de compra es obligatorio
+              para valorizar el inventario. Podés sumar varios productos y al final registrás de una vez.
             </p>
+            {insumoSel && presentacionSel.esPaquete ? (
+              <div
+                role="note"
+                className="mt-3 rounded-xl border-2 border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-950 shadow-sm"
+              >
+                <p className="font-bold text-amber-900">¿Unidades o paquetes?</p>
+                <p className="mt-1 leading-snug">{presentacionSel.ayuda}</p>
+              </div>
+            ) : null}
             {/* Siempre 2 columnas: en móvil el lote quedaba abajo y parecía “faltar”. */}
             <div className="mt-4 grid grid-cols-2 gap-3 sm:gap-4">
               <div className="min-w-0">
-                <label className="block text-sm font-semibold text-gray-800">Cantidad</label>
+                <label className="block text-sm font-semibold text-gray-800">
+                  {presentacionSel.labelCantidad}
+                </label>
                 <input
                   type="text"
                   inputMode="decimal"
                   value={cantidad}
                   onChange={(e) => setCantidad(e.target.value)}
-                  placeholder={insumoSel ? "Ej. 10" : "—"}
+                  placeholder={presentacionSel.placeholderCantidad}
                   disabled={!insumoSel}
                   className="mt-2 w-full min-w-0 rounded-xl border-2 border-gray-200 bg-white px-3 py-3 text-base tabular-nums focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:bg-gray-100 disabled:text-gray-400 sm:px-4"
                 />
+                {insumoSel && presentacionSel.esPaquete ? (
+                  <p className="mt-1.5 text-xs font-semibold text-emerald-800">
+                    Solo paquetes recibidos
+                    {presentacionSel.unidadesPorPaquete != null
+                      ? ` · 1 paquete = ${presentacionSel.unidadesPorPaquete} und`
+                      : ""}
+                  </p>
+                ) : null}
               </div>
               <div className="min-w-0">
                 <label className="block text-sm font-semibold text-gray-800">Lote</label>
@@ -762,9 +806,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
               </div>
             </div>
             <div className="mt-3">
-              <p className="block text-sm font-semibold text-gray-800">
-                Precio de compra (COP / unidad)
-              </p>
+              <p className="block text-sm font-semibold text-gray-800">{presentacionSel.labelPrecio}</p>
               <p
                 className={`mt-2 rounded-xl border-2 px-3 py-3 text-base tabular-nums sm:px-4 ${
                   insumoSel
@@ -783,7 +825,13 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
             </div>
             {insumoSel ? (
               <p className="mt-3 text-sm text-gray-700">
-                Unidad: <span className="font-semibold text-gray-900">{insumoSel.unidad}</span>
+                Se registra como:{" "}
+                <span className="font-semibold text-gray-900">{presentacionSel.labelUnidadCorta}</span>
+                {presentacionSel.esPaquete ? (
+                  <span className="block text-xs font-medium text-gray-600">
+                    El número que escriba = paquetes. El ensamble WMS descuenta las unidades de la receta.
+                  </span>
+                ) : null}
               </p>
             ) : (
               <p className="mt-3 text-xs text-gray-500">
@@ -821,17 +869,21 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                     <th className="px-3 py-2">Descripción</th>
                     <th className="min-w-[6rem] px-3 py-2 text-right">Cantidad</th>
                     <th className="min-w-[7rem] px-3 py-2">Lote</th>
-                    <th className="min-w-[7rem] px-3 py-2 text-right">Precio compra COP/u.</th>
+                    <th className="min-w-[7rem] px-3 py-2 text-right">Precio compra</th>
+                    <th className="min-w-[7.5rem] px-3 py-2 text-right">Total</th>
                     <th className="w-20 px-3 py-2" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {lineasCargue.map((line) => (
+                  {lineasCargue.map((line) => {
+                    const pres = presentacionCargueInventario(line.insumo);
+                    const totalLinea = line.cantidad * line.precioCompraUnitario;
+                    return (
                     <tr key={line.key} className="bg-white">
                       <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-gray-700">{line.insumo.sku}</td>
                       <td className="px-3 py-2 text-gray-900">
                         {line.insumo.descripcion}
-                        <span className="block text-xs text-gray-500">({line.insumo.unidad})</span>
+                        <span className="block text-xs text-gray-500">({pres.labelUnidadCorta})</span>
                       </td>
                       <td className="px-3 py-2 text-right align-middle">
                         <input
@@ -848,8 +900,17 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                             }
                           }}
                           className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-right text-sm tabular-nums focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-200"
-                          aria-label={`Cantidad ${line.insumo.sku}`}
+                          aria-label={
+                            pres.esPaquete
+                              ? `Cantidad de paquetes ${line.insumo.sku}`
+                              : `Cantidad ${line.insumo.sku}`
+                          }
                         />
+                        {pres.esPaquete ? (
+                          <span className="mt-0.5 block text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                            paquetes
+                          </span>
+                        ) : null}
                       </td>
                       <td className="px-3 py-2 align-middle">
                         <input
@@ -870,6 +931,19 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                       </td>
                       <td className="px-3 py-2 text-right align-middle tabular-nums text-gray-800">
                         {formatPrecioCompraCop(line.precioCompraUnitario)}
+                        <span className="mt-0.5 block text-[10px] font-medium text-gray-500">
+                          {pres.esPaquete ? "COP/paquete" : "COP/u."}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-right align-middle">
+                        <span className="block text-sm font-bold tabular-nums text-gray-900">
+                          {formatPrecioCompraCop(totalLinea)}
+                        </span>
+                        <span className="mt-0.5 block text-[10px] font-medium text-gray-500">
+                          {pres.esPaquete
+                            ? `${line.cantidad} paq. × precio`
+                            : `${line.cantidad} × precio`}
+                        </span>
                       </td>
                       <td className="px-3 py-2 align-middle">
                         <button
@@ -881,8 +955,25 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                         </button>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
+                <tfoot>
+                  <tr className="border-t-2 border-emerald-200 bg-emerald-50/90">
+                    <td colSpan={5} className="px-3 py-3 text-right text-sm font-semibold text-emerald-950">
+                      Total del cargue
+                    </td>
+                    <td className="px-3 py-3 text-right">
+                      <span className="block text-base font-bold tabular-nums text-emerald-950">
+                        {formatPrecioCompraCop(totalCargueCop)}
+                      </span>
+                      <span className="text-[10px] font-medium uppercase tracking-wide text-emerald-800">
+                        COP
+                      </span>
+                    </td>
+                    <td />
+                  </tr>
+                </tfoot>
               </table>
             </div>
           </div>
