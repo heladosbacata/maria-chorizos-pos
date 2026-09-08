@@ -67,7 +67,10 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Mínimos sugeridos editados en pantalla Inventarios (por PV + SKU).
+    // Mínimos sugeridos editados en Inventarios POS (por PV + SKU).
+    // La app de franquiciados lee la misma colección para el «pedido sugerido».
+    // DocId típico: `{puntoVenta}__min__{sku_slug}` vía idMinimoInventarioDoc.
+    // Sin escritura pública: solo el usuario autenticado de ese PV, con uid propio.
     match /posInventarioMinimos/{id} {
       allow read: if request.auth != null
         && (
@@ -77,7 +80,11 @@ service cloud.firestore {
       allow create, update: if request.auth != null
         && request.resource.data.puntoVenta == posInventarioPuntoVentaUsuario()
         && request.resource.data.uid == request.auth.uid
-        && request.resource.data.keys().hasAll(['puntoVenta', 'insumoSku', 'minimo', 'uid']);
+        && request.resource.data.keys().hasAll(['puntoVenta', 'insumoSku', 'minimo', 'uid'])
+        && request.resource.data.minimo is number
+        && request.resource.data.minimo >= 0
+        && request.resource.data.insumoSku is string
+        && request.resource.data.insumoSku.size() > 0;
       allow delete: if request.auth != null
         && resource.data.puntoVenta == posInventarioPuntoVentaUsuario()
         && resource.data.uid == request.auth.uid;

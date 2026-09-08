@@ -51,7 +51,9 @@ export const POS_INVENTARIO_ENSAMBLE_SALDOS_COLLECTION = "pos_inventario_ensambl
 /** Movimientos generados por el WMS al aplicar ensamble. */
 export const POS_INVENTARIO_ENSAMBLE_MOVIMIENTOS_COLLECTION = "pos_inventario_ensamble_movimientos";
 
-/** Mínimos sugeridos editados por el usuario en el POS (por PV + SKU). */
+/** Mínimos sugeridos editados por el usuario en el POS (por PV + SKU).
+ * Fuente de verdad para la app de franquiciados / pedido sugerido (además del mínimo de hoja).
+ */
 export const POS_INVENTARIO_MINIMOS_COLLECTION = "posInventarioMinimos";
 
 function parseEdicionesLogMovimiento(raw: unknown): InventarioMovimientoEdicionLogEntry[] | undefined {

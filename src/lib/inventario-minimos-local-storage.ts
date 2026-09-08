@@ -1,5 +1,10 @@
 /**
- * Mínimos sugeridos editados en Inventarios: solo en este navegador, por usuario Firebase y punto de venta.
+ * Mínimos sugeridos editados en Inventarios: caché local por usuario Firebase y punto de venta.
+ * Clave: `pos-inv-minimos-v1:{uid}:{puntoVenta}`.
+ *
+ * La fuente de verdad para la app de franquiciados es Firestore `posInventarioMinimos`
+ * (ver `inventario-minimos-sync.ts` / `guardarMinimoUsuarioInventario`). El localStorage
+ * se mantiene como respaldo offline y se migra a la nube al abrir Inventarios.
  */
 
 import { normSkuInventario } from "@/lib/inventario-pos-firestore";
