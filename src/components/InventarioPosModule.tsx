@@ -355,14 +355,14 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       setMapaPreciosCarritoRespaldo(carritoPrecios.ok ? carritoPrecios.mapa : mapaPreciosCarritoVacio());
       setSaldoRows(saldosPack.saldoRows);
       setSaldosPorClaveMap(saldosPack.porClave);
-      // Firestore + localStorage (migra mínimos locales que aún no están en la nube).
-      const minimosSync = await cargarYSincronizarMinimosUsuarioInventario(uid, pv);
-      setMinimosUsuario(minimosSync);
       setIncluyeCatalogoPos(false);
       setProductosPosAgregados(0);
 
       const sheetItems = sheetRes.ok ? sheetRes.data : [];
       const items = catalogoInsumosParaCargue(sheetItems, listaFs, carritoPrecios.productos);
+      // Override por PV en Firestore (fuente de verdad); migra localStorage si falta en la nube.
+      const minimosSync = await cargarYSincronizarMinimosUsuarioInventario(uid, pv, items);
+      setMinimosUsuario(minimosSync);
       const fuenteItems: FuenteCatalogoInventario | null =
         listaFs.length > 0
           ? "firestore"
@@ -446,7 +446,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
             });
             setMensajeOk(
               rCloud.ok
-                ? "Se quitó tu ajuste; vuelve a aplicarse el mínimo de la hoja si existe (también en la nube)."
+                ? "Se quitó tu ajuste por punto de venta en la nube; si no hay override, puede verse el mínimo de catálogo."
                 : "Se quitó el ajuste en este equipo. No se pudo borrar en la nube; reintentá con conexión."
             );
             return;
@@ -467,16 +467,20 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
             setMinInputTick((x) => x + 1);
             return;
           }
+          const vista = vistaSaldoConEmpaque(0, item);
+          const uxp = vista.unidadesPorPaquete != null && vista.unidadesPorPaquete >= 2 ? vista.unidadesPorPaquete : 1;
           const rCloud = await guardarMinimoUsuarioInventario({
             puntoVenta: pv,
             insumoSku: item.sku,
             minimo: redondeado,
             uid,
+            descripcion: item.descripcion,
+            unidadesPorPaquete: uxp,
           });
           setMinimosUsuario((prev) => new Map(prev).set(k, redondeado));
           setMensajeOk(
             rCloud.ok
-              ? "Mínimo guardado y sincronizado con la nube (app de franquiciados / pedido sugerido)."
+              ? "Mínimo del punto guardado en la nube (mcapp / pedido sugerido usan minimoPaquetes)."
               : `Mínimo guardado en este equipo, pero no se pudo sincronizar con la nube: ${rCloud.message ?? "error"}.`
           );
         } finally {

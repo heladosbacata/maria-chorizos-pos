@@ -51,10 +51,30 @@ export const POS_INVENTARIO_ENSAMBLE_SALDOS_COLLECTION = "pos_inventario_ensambl
 /** Movimientos generados por el WMS al aplicar ensamble. */
 export const POS_INVENTARIO_ENSAMBLE_MOVIMIENTOS_COLLECTION = "pos_inventario_ensamble_movimientos";
 
-/** Mínimos sugeridos editados por el usuario en el POS (por PV + SKU).
- * Fuente de verdad para la app de franquiciados / pedido sugerido (además del mínimo de hoja).
+/** Mínimos por punto de venta (fuente de verdad compartida con mcapp-web / pedido sugerido).
+ * DocId: `{puntoVenta}__{sku}` vía `idMinimoInventarioDoc` (no el catálogo global de hoja).
  */
 export const POS_INVENTARIO_MINIMOS_COLLECTION = "posInventarioMinimos";
+
+/** Documento de mínimo por PV + SKU (campos alineados con la app de franquiciados). */
+export type PosInventarioMinimoDoc = {
+  puntoVenta: string;
+  sku: string;
+  insumoSku: string;
+  descripcion: string;
+  /** Mínimo en paquetes (valor principal en UI). */
+  minimoPaquetes: number;
+  /** Alias de `minimoPaquetes` (compat lectura app). */
+  minPaquetes: number;
+  /** Mínimo en unidades: minimoPaquetes × unidadesPorPaquete. */
+  stockMinimo: number;
+  /** Alias histórico: mismo valor que minimoPaquetes (paquetes, no unidades). */
+  minimo: number;
+  unidadesPorPaquete: number;
+  updatedBy: string;
+  /** Compat reglas / lecturas antiguas. */
+  uid: string;
+};
 
 function parseEdicionesLogMovimiento(raw: unknown): InventarioMovimientoEdicionLogEntry[] | undefined {
   if (!Array.isArray(raw)) return undefined;
@@ -736,7 +756,18 @@ export async function obtenerSaldosPorPuntoVenta(
   return map;
 }
 
+/**
+ * DocId compartido con mcapp-web:
+ * `${puntoVenta.replaceAll("/", "|")}__${sku.replaceAll("/", "_").replace(/\s+/g, "_")}`
+ */
 export function idMinimoInventarioDoc(puntoVenta: string, sku: string): string {
+  const safePv = puntoVenta.trim().replace(/\//g, "|");
+  const safeSku = sku.trim().replace(/\//g, "_").replace(/\s+/g, "_");
+  return `${safePv}__${safeSku || "sku"}`;
+}
+
+/** Formato anterior (`…__min__{slug}`); se borra al guardar el nuevo id. */
+export function idMinimoInventarioDocLegacy(puntoVenta: string, sku: string): string {
   const safePv = puntoVenta.trim().replace(/\//g, "|");
   const slug = sku
     .trim()
@@ -747,7 +778,17 @@ export function idMinimoInventarioDoc(puntoVenta: string, sku: string): string {
   return `${safePv}__min__${slug || "sku"}`;
 }
 
-/** Mínimos editados por el usuario (clave SKU tal como en el catálogo). */
+/** Lee mínimo en paquetes desde un doc (prioriza minimoPaquetes / minPaquetes / minimo). */
+export function minimoPaquetesDesdeFirestoreDoc(data: Record<string, unknown>): number | null {
+  const candidates = [data.minimoPaquetes, data.minPaquetes, data.minimo];
+  for (const c of candidates) {
+    const n = Number(c);
+    if (Number.isFinite(n) && n >= 0) return Math.round(n * 1000) / 1000;
+  }
+  return null;
+}
+
+/** Mínimos editados por PV (clave = SKU normalizado; valor = paquetes). */
 export async function listarMinimosUsuarioInventario(puntoVenta: string): Promise<Map<string, number>> {
   const map = new Map<string, number>();
   if (!db) return map;
@@ -757,10 +798,10 @@ export async function listarMinimosUsuarioInventario(puntoVenta: string): Promis
     const q = query(collection(db, POS_INVENTARIO_MINIMOS_COLLECTION), where("puntoVenta", "==", pv));
     const snap = await getDocs(q);
     snap.forEach((d) => {
-      const x = d.data();
-      const sku = str(x.insumoSku);
-      const m = Number(x.minimo);
-      if (sku && Number.isFinite(m) && m >= 0) map.set(normSkuInventario(sku), m);
+      const x = d.data() as Record<string, unknown>;
+      const sku = str(x.sku) || str(x.insumoSku);
+      const m = minimoPaquetesDesdeFirestoreDoc(x);
+      if (sku && m != null) map.set(normSkuInventario(sku), m);
     });
   } catch {
     /* ignore */
@@ -771,28 +812,61 @@ export async function listarMinimosUsuarioInventario(puntoVenta: string): Promis
 export async function guardarMinimoUsuarioInventario(params: {
   puntoVenta: string;
   insumoSku: string;
+  /** Mínimo en paquetes (o und si el producto no es empaque). */
   minimo: number;
   uid: string;
+  descripcion?: string;
+  unidadesPorPaquete?: number;
 }): Promise<{ ok: boolean; message?: string }> {
   if (!db) return { ok: false, message: "Firestore no está disponible." };
   const pv = params.puntoVenta.trim();
   const sku = params.insumoSku.trim();
   if (!pv || !sku) return { ok: false, message: "Falta punto de venta o código de producto." };
-  const m = params.minimo;
-  if (!Number.isFinite(m) || m < 0) return { ok: false, message: "El mínimo debe ser un número ≥ 0." };
+  const minimoPaquetes = params.minimo;
+  if (!Number.isFinite(minimoPaquetes) || minimoPaquetes < 0) {
+    return { ok: false, message: "El mínimo debe ser un número ≥ 0." };
+  }
+  const uxpRaw = params.unidadesPorPaquete;
+  const unidadesPorPaquete =
+    typeof uxpRaw === "number" && Number.isFinite(uxpRaw) && uxpRaw >= 1
+      ? Math.round(uxpRaw)
+      : 1;
+  const minimoPaquetesR = Math.round(minimoPaquetes * 1000) / 1000;
+  const stockMinimo = Math.round(minimoPaquetesR * unidadesPorPaquete * 1000) / 1000;
+  const uid = params.uid.trim();
+  const descripcion = (params.descripcion ?? "").trim();
   const docId = idMinimoInventarioDoc(pv, sku);
+  const payload: PosInventarioMinimoDoc = {
+    puntoVenta: pv,
+    sku,
+    insumoSku: sku,
+    descripcion,
+    minimoPaquetes: minimoPaquetesR,
+    minPaquetes: minimoPaquetesR,
+    stockMinimo,
+    minimo: minimoPaquetesR,
+    unidadesPorPaquete,
+    updatedBy: uid,
+    uid,
+  };
   try {
     await setDoc(
       doc(db, POS_INVENTARIO_MINIMOS_COLLECTION, docId),
       {
-        puntoVenta: pv,
-        insumoSku: sku,
-        minimo: Math.round(m * 1000) / 1000,
+        ...payload,
         updatedAt: serverTimestamp(),
-        uid: params.uid.trim(),
       },
       { merge: true }
     );
+    // Limpia doc legacy si existía (otro docId).
+    const legacyId = idMinimoInventarioDocLegacy(pv, sku);
+    if (legacyId !== docId) {
+      try {
+        await deleteDoc(doc(db, POS_INVENTARIO_MINIMOS_COLLECTION, legacyId));
+      } catch {
+        /* ignore */
+      }
+    }
     return { ok: true };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "No se pudo guardar el mínimo." };
@@ -804,11 +878,23 @@ export async function eliminarMinimoUsuarioInventario(
   insumoSku: string
 ): Promise<{ ok: boolean; message?: string }> {
   if (!db) return { ok: false, message: "Firestore no está disponible." };
+  const firestoreDb = db;
   const pv = puntoVenta.trim();
   const sku = insumoSku.trim();
   if (!pv || !sku) return { ok: false, message: "Falta punto de venta o código." };
   try {
-    await deleteDoc(doc(db, POS_INVENTARIO_MINIMOS_COLLECTION, idMinimoInventarioDoc(pv, sku)));
+    const ids = Array.from(
+      new Set([idMinimoInventarioDoc(pv, sku), idMinimoInventarioDocLegacy(pv, sku)])
+    );
+    await Promise.all(
+      ids.map(async (id) => {
+        try {
+          await deleteDoc(doc(firestoreDb, POS_INVENTARIO_MINIMOS_COLLECTION, id));
+        } catch {
+          /* ignore missing */
+        }
+      })
+    );
     return { ok: true };
   } catch (e) {
     return { ok: false, message: e instanceof Error ? e.message : "No se pudo quitar el mínimo guardado." };

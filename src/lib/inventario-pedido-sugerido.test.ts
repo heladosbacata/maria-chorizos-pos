@@ -90,7 +90,6 @@ describe("inventario-pedido-sugerido", () => {
       unidad: "und",
       minimoSugeridoSheet: 15,
     };
-    // Mínimo efectivo 15 paq × 6 = 90 und; saldo 60 und → faltan 30 und = 5 paquetes
     const r = construirPedidoSugerido({
       puntoVenta: "Punto Demo App",
       insumos: [item],
@@ -105,6 +104,30 @@ describe("inventario-pedido-sugerido", () => {
     expect(r.lineas[0].unidadesEquivPedir).toBe(30);
     expect(r.lineas[0].bajoMinimo).toBe(true);
     expect(r.lineas[0].minimoEfectivo).toBe(15);
+  });
+
+  it("Punto Demo: PAP-PARAFINADO-X100 — minimoPaquetes 2, no el mínimo global de hoja", () => {
+    const item: InsumoKitItem = {
+      id: "pap",
+      sku: "PAP-PARAFINADO-X100",
+      descripcion: "Papel parafinado x100",
+      unidad: "und",
+      // Catálogo global erróneo en und; no debe usarse si hay override PV.
+      minimoSugeridoSheet: 3000,
+    };
+    const r = construirPedidoSugerido({
+      puntoVenta: "Punto Demo App",
+      insumos: [item],
+      saldoRows: [{ insumoId: "pap", insumoSku: "PAP-PARAFINADO-X100", cantidad: 50 }],
+      movimientos: [],
+      // Override PV: 2 paquetes → stockMinimo 200 und; faltan ~1.5 paq → ceil 2
+      minimoPorSku: new Map([["pap-parafinado-x100", 2]]),
+    });
+    expect(r.lineas).toHaveLength(1);
+    expect(r.lineas[0].unidadesPorEmpaque).toBe(100);
+    expect(r.lineas[0].minimoEfectivo).toBe(2);
+    expect(r.lineas[0].bajoMinimo).toBe(true);
+    expect(r.lineas[0].paquetesPedir).toBeGreaterThanOrEqual(2);
   });
 
   it("prioriza reponer mínimo en paquetes (min UI × xN)", () => {

@@ -67,10 +67,9 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Mínimos sugeridos editados en Inventarios POS (por PV + SKU).
-    // La app de franquiciados lee la misma colección para el «pedido sugerido».
-    // DocId típico: `{puntoVenta}__min__{sku_slug}` vía idMinimoInventarioDoc.
-    // Sin escritura pública: solo el usuario autenticado de ese PV, con uid propio.
+    // Mínimos por punto de venta (POS + mcapp-web). No es catálogo global.
+    // DocId: `{puntoVenta}__{sku}` ( "/" → "|" en PV; "/" y espacios → "_" en SKU ).
+    // Campos clave: minimoPaquetes / minPaquetes / stockMinimo (= paquetes × undPorPaq) / minimo.
     match /posInventarioMinimos/{id} {
       allow read: if request.auth != null
         && (
@@ -79,15 +78,33 @@ service cloud.firestore {
         );
       allow create, update: if request.auth != null
         && request.resource.data.puntoVenta == posInventarioPuntoVentaUsuario()
-        && request.resource.data.uid == request.auth.uid
-        && request.resource.data.keys().hasAll(['puntoVenta', 'insumoSku', 'minimo', 'uid'])
-        && request.resource.data.minimo is number
-        && request.resource.data.minimo >= 0
+        && (
+          (request.resource.data.keys().hasAny(['updatedBy'])
+            && request.resource.data.updatedBy == request.auth.uid)
+          || (request.resource.data.keys().hasAny(['uid'])
+            && request.resource.data.uid == request.auth.uid)
+        )
+        && request.resource.data.keys().hasAll(['puntoVenta', 'insumoSku'])
+        && (
+          request.resource.data.keys().hasAny(['minimoPaquetes'])
+          || request.resource.data.keys().hasAny(['minimo'])
+        )
+        && (
+          !('minimoPaquetes' in request.resource.data)
+          || (request.resource.data.minimoPaquetes is number && request.resource.data.minimoPaquetes >= 0)
+        )
+        && (
+          !('minimo' in request.resource.data)
+          || (request.resource.data.minimo is number && request.resource.data.minimo >= 0)
+        )
         && request.resource.data.insumoSku is string
         && request.resource.data.insumoSku.size() > 0;
       allow delete: if request.auth != null
         && resource.data.puntoVenta == posInventarioPuntoVentaUsuario()
-        && resource.data.uid == request.auth.uid;
+        && (
+          (resource.data.keys().hasAny(['updatedBy']) && resource.data.updatedBy == request.auth.uid)
+          || (resource.data.keys().hasAny(['uid']) && resource.data.uid == request.auth.uid)
+        );
     }
 
     // Cajeros operativos por punto de venta (selección al abrir turno en el POS).

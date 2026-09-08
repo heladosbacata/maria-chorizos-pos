@@ -1,19 +1,25 @@
 /**
- * Sincronización de mínimos de Inventarios POS → Firestore (`posInventarioMinimos`)
- * para que la app de franquiciados lea el mismo mínimo efectivo que el POS.
+ * Sincronización de mínimos de Inventarios POS → Firestore (`posInventarioMinimos`).
+ * Fuente de verdad por punto de venta (no el catálogo global de hoja).
  *
- * Prioridad al combinar: Firestore → localStorage → (hoja en el caller).
+ * Prioridad al combinar: Firestore (`minimoPaquetes`) → localStorage → hoja (fallback débil).
  */
 
+import { inferirUnidadesPorPaquete } from "@/lib/inventario-cargue-presentacion";
 import { leerMinimosInventarioLocal } from "@/lib/inventario-minimos-local-storage";
 import {
   guardarMinimoUsuarioInventario,
   listarMinimosUsuarioInventario,
   normSkuInventario,
 } from "@/lib/inventario-pos-firestore";
+import type { InsumoKitItem } from "@/types/inventario-pos";
+
+function unidadesPorPaqueteInsumo(item: Pick<InsumoKitItem, "sku" | "descripcion" | "unidad">): number {
+  return inferirUnidadesPorPaquete(`${item.sku} ${item.descripcion}`) ?? 1;
+}
 
 /**
- * Combina mínimos de nube y de este navegador.
+ * Combina mínimos de nube y de este navegador (valor = paquetes).
  * Si un SKU está en Firestore, prevalece; si no, se usa el valor local.
  */
 export function combinarMinimosUsuarioInventario(
@@ -32,7 +38,10 @@ export function combinarMinimosUsuarioInventario(
   return out;
 }
 
-/** Mínimo efectivo mostrado en Inventarios / pedido sugerido. */
+/**
+ * Mínimo efectivo en paquetes (o und si no hay empaque).
+ * Prioriza override por PV (Firestore/local); la hoja global es solo fallback.
+ */
 export function minimoEfectivoInventario(
   minUsuario: number | undefined | null,
   minSheet: number | undefined | null
@@ -40,6 +49,20 @@ export function minimoEfectivoInventario(
   if (minUsuario != null && Number.isFinite(minUsuario) && minUsuario >= 0) return minUsuario;
   if (minSheet != null && Number.isFinite(minSheet) && minSheet >= 0) return minSheet;
   return null;
+}
+
+/** stockMinimo (und) = minimoPaquetes × unidadesPorPaquete */
+export function stockMinimoDesdePaquetes(minimoPaquetes: number, unidadesPorPaquete: number): number {
+  const p = Number.isFinite(minimoPaquetes) && minimoPaquetes >= 0 ? minimoPaquetes : 0;
+  const u = unidadesPorPaquete >= 1 ? unidadesPorPaquete : 1;
+  return Math.round(p * u * 1000) / 1000;
+}
+
+/** faltantePaquetes = max(0, minimoPaquetes − stockActualPaquetes) */
+export function faltantePaquetesPedido(minimoPaquetes: number, stockActualPaquetes: number): number {
+  const min = Number.isFinite(minimoPaquetes) ? minimoPaquetes : 0;
+  const stock = Number.isFinite(stockActualPaquetes) ? stockActualPaquetes : 0;
+  return Math.max(0, Math.round((min - stock) * 1000) / 1000);
 }
 
 /**
@@ -53,6 +76,8 @@ export async function migrarMinimosLocalesAFirestore(params: {
   locales?: Map<string, number>;
   /** Si se omite, se consulta Firestore. */
   existentesFirestore?: Map<string, number>;
+  /** Catálogo para enriquecer descripcion / unidadesPorPaquete. */
+  insumos?: InsumoKitItem[];
 }): Promise<{ migrados: number; errores: number }> {
   const uid = params.uid.trim();
   const pv = params.puntoVenta.trim();
@@ -62,16 +87,26 @@ export async function migrarMinimosLocalesAFirestore(params: {
   if (locales.size === 0) return { migrados: 0, errores: 0 };
 
   const existentes = params.existentesFirestore ?? (await listarMinimosUsuarioInventario(pv));
+  const porSku = new Map<string, InsumoKitItem>();
+  for (const it of params.insumos ?? []) {
+    const k = normSkuInventario(it.sku);
+    if (k) porSku.set(k, it);
+  }
+
   let migrados = 0;
   let errores = 0;
 
   for (const [skuNorm, minimo] of Array.from(locales.entries())) {
     if (existentes.has(skuNorm)) continue;
+    const item = porSku.get(skuNorm);
+    const uxp = item ? unidadesPorPaqueteInsumo(item) : 1;
     const r = await guardarMinimoUsuarioInventario({
       puntoVenta: pv,
-      insumoSku: skuNorm,
+      insumoSku: item?.sku ?? skuNorm,
       minimo,
       uid,
+      descripcion: item?.descripcion,
+      unidadesPorPaquete: uxp,
     });
     if (r.ok) {
       migrados += 1;
@@ -86,11 +121,12 @@ export async function migrarMinimosLocalesAFirestore(params: {
 
 /**
  * Carga Firestore + local, migra lo que falte en la nube y devuelve el mapa combinado
- * (Firestore prevalece sobre local).
+ * (Firestore prevalece sobre local). Valores = minimoPaquetes.
  */
 export async function cargarYSincronizarMinimosUsuarioInventario(
   uid: string,
-  puntoVenta: string
+  puntoVenta: string,
+  insumos?: InsumoKitItem[]
 ): Promise<Map<string, number>> {
   const u = uid.trim();
   const pv = puntoVenta.trim();
@@ -103,7 +139,7 @@ export async function cargarYSincronizarMinimosUsuarioInventario(
     puntoVenta: pv,
     locales: local,
     existentesFirestore: firestore,
+    insumos,
   });
-  // Releer nube por si hubo migraciones (el mapa `firestore` ya se actualizó in-place).
   return combinarMinimosUsuarioInventario(firestore, local);
 }
