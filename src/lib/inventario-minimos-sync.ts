@@ -21,11 +21,11 @@ export function combinarMinimosUsuarioInventario(
   local: Map<string, number>
 ): Map<string, number> {
   const out = new Map<string, number>();
-  for (const [k, v] of local) {
+  for (const [k, v] of Array.from(local.entries())) {
     const nk = normSkuInventario(k);
     if (nk && Number.isFinite(v) && v >= 0) out.set(nk, v);
   }
-  for (const [k, v] of firestore) {
+  for (const [k, v] of Array.from(firestore.entries())) {
     const nk = normSkuInventario(k);
     if (nk && Number.isFinite(v) && v >= 0) out.set(nk, v);
   }
@@ -65,7 +65,7 @@ export async function migrarMinimosLocalesAFirestore(params: {
   let migrados = 0;
   let errores = 0;
 
-  for (const [skuNorm, minimo] of locales) {
+  for (const [skuNorm, minimo] of Array.from(locales.entries())) {
     if (existentes.has(skuNorm)) continue;
     const r = await guardarMinimoUsuarioInventario({
       puntoVenta: pv,
