@@ -4,17 +4,20 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { fetchCatalogoInsumosDesdeSheet } from "@/lib/catalogo-insumos-sheet-client";
 import { db } from "@/lib/firebase";
+import { escribirMinimoInventarioLocal } from "@/lib/inventario-minimos-local-storage";
 import {
-  escribirMinimoInventarioLocal,
-  leerMinimosInventarioLocal,
-} from "@/lib/inventario-minimos-local-storage";
+  cargarYSincronizarMinimosUsuarioInventario,
+  minimoEfectivoInventario,
+} from "@/lib/inventario-minimos-sync";
 import { catalogoInsumosParaCargue, filtrarCatalogoSoloInsumos } from "@/lib/inventario-pos-catalogo";
 import type { InsumoKitItem, InventarioMovimientoDoc, TipoMovimientoInventario } from "@/types/inventario-pos";
 import { fechaColombia, fechaHoraColombia, mediodiaColombiaDesdeYmd } from "@/lib/fecha-colombia";
 import { normPuntoVentaCatalogo } from "@/lib/punto-venta-catalogo-norm";
 import {
   CATALOGO_INSUMOS_KIT_COLLECTION,
+  eliminarMinimoUsuarioInventario,
   etiquetaTipoMovimiento,
+  guardarMinimoUsuarioInventario,
   listarInsumosKitPorPuntoVenta,
   listarMovimientosInventario,
   listarMovimientosRecientesPorInsumoKit,
@@ -352,12 +355,14 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       setMapaPreciosCarritoRespaldo(carritoPrecios.ok ? carritoPrecios.mapa : mapaPreciosCarritoVacio());
       setSaldoRows(saldosPack.saldoRows);
       setSaldosPorClaveMap(saldosPack.porClave);
-      setMinimosUsuario(leerMinimosInventarioLocal(uid, pv));
       setIncluyeCatalogoPos(false);
       setProductosPosAgregados(0);
 
       const sheetItems = sheetRes.ok ? sheetRes.data : [];
       const items = catalogoInsumosParaCargue(sheetItems, listaFs, carritoPrecios.productos);
+      // Override por PV en Firestore (fuente de verdad); migra localStorage si falta en la nube.
+      const minimosSync = await cargarYSincronizarMinimosUsuarioInventario(uid, pv, items);
+      setMinimosUsuario(minimosSync);
       const fuenteItems: FuenteCatalogoInventario | null =
         listaFs.length > 0
           ? "firestore"
@@ -421,46 +426,67 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       setGuardandoMinimoSku(k);
       setMensajeOk(null);
       setError(null);
-      try {
-        if (t === "") {
-          if (!teniaMinimoUsuario) {
+      void (async () => {
+        try {
+          if (t === "") {
+            if (!teniaMinimoUsuario) {
+              setMinInputTick((x) => x + 1);
+              return;
+            }
+            const okLocal = escribirMinimoInventarioLocal(uid, pv, item.sku, null);
+            if (!okLocal) {
+              setError("No se pudo guardar en este equipo (memoria local bloqueada o llena).");
+              return;
+            }
+            const rCloud = await eliminarMinimoUsuarioInventario(pv, item.sku);
+            setMinimosUsuario((prev) => {
+              const n = new Map(prev);
+              n.delete(k);
+              return n;
+            });
+            setMensajeOk(
+              rCloud.ok
+                ? "Se quitó tu ajuste por punto de venta en la nube; si no hay override, puede verse el mínimo de catálogo."
+                : "Se quitó el ajuste en este equipo. No se pudo borrar en la nube; reintentá con conexión."
+            );
+            return;
+          }
+          const num = parseFloat(t.replace(/,/g, "."));
+          if (!Number.isFinite(num) || num < 0) {
+            setError("El mínimo debe ser un número mayor o igual a cero.");
             setMinInputTick((x) => x + 1);
             return;
           }
-          const ok = escribirMinimoInventarioLocal(uid, pv, item.sku, null);
-          if (!ok) {
-            setError("No se pudo guardar en este equipo (memoria local bloqueada o llena).");
+          const redondeado = Math.round(num * 1000) / 1000;
+          if (minimoEfectivoEnFila != null && Math.abs(redondeado - minimoEfectivoEnFila) < 1e-9) {
             return;
           }
-          setMinimosUsuario((prev) => {
-            const n = new Map(prev);
-            n.delete(k);
-            return n;
+          const okLocal = escribirMinimoInventarioLocal(uid, pv, item.sku, redondeado);
+          if (!okLocal) {
+            setError("No se pudo guardar en este equipo (memoria local bloqueada o llena).");
+            setMinInputTick((x) => x + 1);
+            return;
+          }
+          const vista = vistaSaldoConEmpaque(0, item);
+          const uxp = vista.unidadesPorPaquete != null && vista.unidadesPorPaquete >= 2 ? vista.unidadesPorPaquete : 1;
+          const rCloud = await guardarMinimoUsuarioInventario({
+            puntoVenta: pv,
+            insumoSku: item.sku,
+            minimo: redondeado,
+            uid,
+            descripcion: item.descripcion,
+            unidadesPorPaquete: uxp,
           });
-          setMensajeOk("Se quitó tu ajuste en este equipo; vuelve a aplicarse el mínimo de la hoja si existe.");
-          return;
+          setMinimosUsuario((prev) => new Map(prev).set(k, redondeado));
+          setMensajeOk(
+            rCloud.ok
+              ? "Mínimo del punto guardado en la nube (mcapp / pedido sugerido usan minimoPaquetes)."
+              : `Mínimo guardado en este equipo, pero no se pudo sincronizar con la nube: ${rCloud.message ?? "error"}.`
+          );
+        } finally {
+          setGuardandoMinimoSku(null);
         }
-        const num = parseFloat(t.replace(/,/g, "."));
-        if (!Number.isFinite(num) || num < 0) {
-          setError("El mínimo debe ser un número mayor o igual a cero.");
-          setMinInputTick((x) => x + 1);
-          return;
-        }
-        const redondeado = Math.round(num * 1000) / 1000;
-        if (minimoEfectivoEnFila != null && Math.abs(redondeado - minimoEfectivoEnFila) < 1e-9) {
-          return;
-        }
-        const ok = escribirMinimoInventarioLocal(uid, pv, item.sku, redondeado);
-        if (!ok) {
-          setError("No se pudo guardar en este equipo (memoria local bloqueada o llena).");
-          setMinInputTick((x) => x + 1);
-          return;
-        }
-        setMinimosUsuario((prev) => new Map(prev).set(k, redondeado));
-        setMensajeOk("Mínimo guardado en este equipo (solo este navegador / usuario).");
-      } finally {
-        setGuardandoMinimoSku(null);
-      }
+      })();
     },
     [pv, uid]
   );
@@ -692,7 +718,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       const skuK = normSkuInventario(i.sku);
       const minUsuario = minimosUsuario.get(skuK);
       const minSheet = i.minimoSugeridoSheet;
-      const minimoEfectivo = minUsuario ?? minSheet ?? null;
+      const minimoEfectivo = minimoEfectivoInventario(minUsuario, minSheet);
       const nEmpaque = vistaEmpaque.unidadesPorPaquete;
       /** Mínimo se captura en paquetes; el saldo del sistema está en unidades. */
       const minimoEnUnidades =
@@ -1419,8 +1445,8 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                                 inputMode="decimal"
                                 title={
                                   row.vistaEmpaque.saldoEnPaquetes
-                                    ? "Mínimo en paquetes (igual que el saldo). Se guarda en este navegador al salir del campo."
-                                    : "Mínimo en la unidad del saldo. Se guarda en este navegador al salir del campo. Vacío: quita tu ajuste."
+                                    ? "Mínimo en paquetes (igual que el saldo). Se guarda en este equipo y en Firestore (app franquiciados)."
+                                    : "Mínimo en la unidad del saldo. Se guarda en este equipo y en Firestore. Vacío: quita tu ajuste."
                                 }
                                 defaultValue={defaultInput}
                                 key={`${row.id}-${minInputTick}-${minimosUsuario.has(skuK) ? "u" : "s"}-${row.minimoSheet ?? ""}`}

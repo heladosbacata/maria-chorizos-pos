@@ -82,6 +82,54 @@ describe("inventario-pedido-sugerido", () => {
     expect(r.lineas[0].saldoEnPaquetes).toBe(true);
   });
 
+  it("Punto Demo: Arepa de Peto con Queso x6 — saldo 60 und, empaque x6, pedir 5 paquetes", () => {
+    const item: InsumoKitItem = {
+      id: "demo-are",
+      sku: "PT-ARE-PETOQ-X6",
+      descripcion: "Arepa de Peto con Queso x6",
+      unidad: "und",
+      minimoSugeridoSheet: 15,
+    };
+    const r = construirPedidoSugerido({
+      puntoVenta: "Punto Demo App",
+      insumos: [item],
+      saldoRows: [{ insumoId: "demo-are", insumoSku: "PT-ARE-PETOQ-X6", cantidad: 60 }],
+      movimientos: [],
+      minimoPorSku: new Map([["pt-are-petoq-x6", 15]]),
+    });
+    expect(r.lineas).toHaveLength(1);
+    expect(r.lineas[0].saldoActual).toBe(60);
+    expect(r.lineas[0].unidadesPorEmpaque).toBe(6);
+    expect(r.lineas[0].paquetesPedir).toBe(5);
+    expect(r.lineas[0].unidadesEquivPedir).toBe(30);
+    expect(r.lineas[0].bajoMinimo).toBe(true);
+    expect(r.lineas[0].minimoEfectivo).toBe(15);
+  });
+
+  it("Punto Demo: PAP-PARAFINADO-X100 — minimoPaquetes 2, no el mínimo global de hoja", () => {
+    const item: InsumoKitItem = {
+      id: "pap",
+      sku: "PAP-PARAFINADO-X100",
+      descripcion: "Papel parafinado x100",
+      unidad: "und",
+      // Catálogo global erróneo en und; no debe usarse si hay override PV.
+      minimoSugeridoSheet: 3000,
+    };
+    const r = construirPedidoSugerido({
+      puntoVenta: "Punto Demo App",
+      insumos: [item],
+      saldoRows: [{ insumoId: "pap", insumoSku: "PAP-PARAFINADO-X100", cantidad: 50 }],
+      movimientos: [],
+      // Override PV: 2 paquetes → stockMinimo 200 und; faltan ~1.5 paq → ceil 2
+      minimoPorSku: new Map([["pap-parafinado-x100", 2]]),
+    });
+    expect(r.lineas).toHaveLength(1);
+    expect(r.lineas[0].unidadesPorEmpaque).toBe(100);
+    expect(r.lineas[0].minimoEfectivo).toBe(2);
+    expect(r.lineas[0].bajoMinimo).toBe(true);
+    expect(r.lineas[0].paquetesPedir).toBeGreaterThanOrEqual(2);
+  });
+
   it("prioriza reponer mínimo en paquetes (min UI × xN)", () => {
     const item: InsumoKitItem = {
       id: "2",
