@@ -37,6 +37,7 @@ import {
   EVENT_DOMICILIOS_AVISO_PEDIDO_NUEVO,
   EVENT_DOMICILIOS_FORZAR_REFRESH,
   emitirDomiciliosAbrirAlertaPedido,
+  emitirDomiciliosChatUnread,
   type DomiciliosAvisoPedidoNuevoDetail,
 } from "@/lib/pos-domicilios-nuevos-event";
 import { reproducirAlertaNuevoPedidoDomicilio } from "@/lib/pos-domicilios-sonidos";
@@ -45,11 +46,20 @@ import type { PedidoDomicilio } from "@/types/pos-domicilios";
 type Props = {
   puntoVenta?: string | null;
   visible?: boolean;
+  /**
+   * true = mostrar dock flotante de chats (módulo Domicilios).
+   * false = oculto en venta (badge en menú lateral); reaparece si hay conversación abierta.
+   */
+  accesoFlotanteVisible?: boolean;
 };
 
 type UnreadPorPedido = Record<string, number>;
 
-export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = true }: Props) {
+export default function PosDomiciliosChatFloatingDock({
+  puntoVenta,
+  visible = true,
+  accesoFlotanteVisible = true,
+}: Props) {
   const pv = (puntoVenta ?? "").trim();
   const dockRef = useRef<HTMLDivElement>(null);
   const [posicion, setPosicion] = useState<{ x: number; y: number } | null>(null);
@@ -92,6 +102,14 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
     () => Object.values(unreadPorPedido).reduce((acc, n) => acc + n, 0),
     [unreadPorPedido]
   );
+
+  useEffect(() => {
+    if (!visible || !pv) {
+      emitirDomiciliosChatUnread({ cantidad: 0 });
+      return;
+    }
+    emitirDomiciliosChatUnread({ cantidad: totalNoLeidos });
+  }, [visible, pv, totalNoLeidos]);
 
   useEffect(() => {
     chatPedidoIdAbiertoRef.current = chatPedido?.id ?? null;
@@ -263,13 +281,15 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
       noLeidosPedido,
       noLeidosTotal: totalNoLeidos,
     });
+    // Toast flotante solo si el acceso flotante está visible; si no, basta el badge del menú.
+    if (!accesoFlotanteVisible) return;
     setToastMensajeCliente({
       texto: `Nuevo mensaje de ${nombre} · pedido ${subio}`,
       pedidoId: subio,
     });
     const t = window.setTimeout(() => setToastMensajeCliente(null), 8000);
     return () => window.clearTimeout(t);
-  }, [unreadPorPedido, totalNoLeidos, pedidosActivos, pv]);
+  }, [unreadPorPedido, totalNoLeidos, pedidosActivos, pv, accesoFlotanteVisible]);
 
   const abrirChat = useCallback((detail: DomiciliosAbrirChatDetail) => {
     setChatPedido(detail.pedido);
@@ -421,10 +441,12 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
   if (!visible || !pv) return null;
 
   const hayAvisoPedido = Boolean(avisoPedidoNuevo);
+  /** Flotante solo con conversación abierta; si no, el aviso vive en el menú lateral. */
+  const mostrarFlotante = accesoFlotanteVisible || Boolean(chatPedido);
 
   return (
     <>
-      {avisoPedidoNuevo ? (
+      {mostrarFlotante && avisoPedidoNuevo ? (
         <PosBodyPortal open>
           <div
             ref={avisoRef}
@@ -480,7 +502,7 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
           </div>
         </PosBodyPortal>
       ) : null}
-      {toastMensajeCliente && !avisoPedidoNuevo ? (
+      {mostrarFlotante && toastMensajeCliente && !avisoPedidoNuevo ? (
         <PosBodyPortal open>
           <div className="fixed inset-x-0 top-3 z-[230] flex justify-center px-3 pointer-events-none">
             <button
@@ -499,6 +521,7 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
           </div>
         </PosBodyPortal>
       ) : null}
+      {mostrarFlotante ? (
       <PosBodyPortal open>
         <div
           ref={dockRef}
@@ -602,9 +625,10 @@ export default function PosDomiciliosChatFloatingDock({ puntoVenta, visible = tr
           </div>
         </div>
       </PosBodyPortal>
+      ) : null}
 
-      <PosBodyPortal open={panelAbierto} lockScroll onEscape={() => setPanelAbierto(false)}>
-        {panelAbierto ? (
+      <PosBodyPortal open={panelAbierto && mostrarFlotante} lockScroll onEscape={() => setPanelAbierto(false)}>
+        {panelAbierto && mostrarFlotante ? (
           <div className="fixed inset-0 z-[200] flex items-center justify-center p-3 sm:p-6">
             <button
               type="button"

@@ -9,6 +9,17 @@ export const EVENT_DOMICILIOS_AVISO_PEDIDO_NUEVO = "pos-domicilios-aviso-pedido-
 export const EVENT_DOMICILIOS_ABRIR_ALERTA_PEDIDO = "pos-domicilios-abrir-alerta-pedido";
 /** Modal atendido o cola vacía → limpiar aviso del dock. */
 export const EVENT_DOMICILIOS_ALERTA_ATENDIDA = "pos-domicilios-alerta-atendida";
+/** Contador de mensajes de chat sin leer (dock → badge del menú lateral). */
+export const EVENT_DOMICILIOS_CHAT_UNREAD = "pos-domicilios-chat-unread";
+
+export type DomiciliosChatUnreadDetail = {
+  cantidad: number;
+};
+
+export function emitirDomiciliosChatUnread(detail: DomiciliosChatUnreadDetail): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent<DomiciliosChatUnreadDetail>(EVENT_DOMICILIOS_CHAT_UNREAD, { detail }));
+}
 
 export type DomiciliosPedidoNuevoDetail = {
   pedido: PedidoDomicilio;

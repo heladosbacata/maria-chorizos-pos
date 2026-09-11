@@ -2,6 +2,7 @@
 
 import { useId, useMemo } from "react";
 import { useMetasRetosCaja } from "@/components/MetasRetosCajaProvider";
+import PosChatsPremiumBanner from "@/components/PosChatsPremiumBanner";
 import { avanceUnidadesReto, etiquetaRangoPeriodo } from "@/lib/metas-retos-avance-ventas";
 import { formatPesosCop } from "@/lib/pesos-cop-input";
 import type { MetaRetoActiva } from "@/lib/wms-metas-retos-activas";
@@ -142,8 +143,17 @@ function mensajeMotivacional(
 
 /**
  * Resumen emocional del avance en metas (retos WMS), alineado al banner premium oscuro de caja.
+ * Incluye acceso al chat grupal (broadcast) para no saturar el menú izquierdo.
  */
-export default function PosCajaMetasMotivationPanel() {
+export default function PosCajaMetasMotivationPanel({
+  getIdToken,
+  currentUid,
+  puntoVentaLabel,
+}: {
+  getIdToken?: () => Promise<string | null>;
+  currentUid?: string | null;
+  puntoVentaLabel?: string;
+} = {}) {
   const { retos, ventas, ymdRef, cargando, error } = useMetasRetosCaja();
 
   const stats = useMemo(() => {
@@ -396,6 +406,15 @@ export default function PosCajaMetasMotivationPanel() {
           </>
         )}
       </div>
+
+      {getIdToken ? (
+        <PosChatsPremiumBanner
+          getIdToken={getIdToken}
+          currentUid={currentUid}
+          puntoVentaLabel={puntoVentaLabel}
+          className="mt-2"
+        />
+      ) : null}
     </div>
   );
 }

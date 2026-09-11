@@ -4,6 +4,7 @@ import type { CSSProperties } from "react";
 import { useMemo } from "react";
 import PosCajaMetasMotivationPanel from "@/components/PosCajaMetasMotivationPanel";
 import PosAnuncioCajaBanner from "@/components/PosAnuncioCajaBanner";
+import PosChatsPremiumBanner from "@/components/PosChatsPremiumBanner";
 
 type Props = {
   puntoVenta: string | null | undefined;
@@ -12,7 +13,10 @@ type Props = {
   mostrarAccesoChatAdmin?: boolean;
   /** Panel de metas en cabecera (fetch + animaciones); diferir al abrir caja. */
   mostrarPanelMetas?: boolean;
+  /** Token Firebase para chats premium en el panel de metas. */
   getIdToken?: () => Promise<string | null>;
+  currentUid?: string | null;
+  puntoVentaLabel?: string;
 };
 
 /**
@@ -148,8 +152,12 @@ export default function PosCajaPremiumHeader({
   etiquetaModulo,
   mostrarAccesoChatAdmin = false,
   mostrarPanelMetas = true,
+  getIdToken,
+  currentUid,
+  puntoVentaLabel,
 }: Props) {
   const pv = puntoVenta?.trim() || "Sin punto asignado";
+  const pvLabel = puntoVentaLabel?.trim() || pv;
 
   const particles = useMemo(
     () =>
@@ -226,7 +234,19 @@ export default function PosCajaPremiumHeader({
           </div>
           {mostrarPanelMetas ? (
             <div className="w-full shrink-0 lg:w-[28rem]">
-              <PosCajaMetasMotivationPanel />
+              <PosCajaMetasMotivationPanel
+                getIdToken={getIdToken}
+                currentUid={currentUid}
+                puntoVentaLabel={pvLabel}
+              />
+            </div>
+          ) : getIdToken ? (
+            <div className="w-full shrink-0 lg:w-[22rem]">
+              <PosChatsPremiumBanner
+                getIdToken={getIdToken}
+                currentUid={currentUid}
+                puntoVentaLabel={pvLabel}
+              />
             </div>
           ) : null}
         </div>

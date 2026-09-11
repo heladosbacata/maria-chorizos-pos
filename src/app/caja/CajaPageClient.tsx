@@ -37,7 +37,6 @@ import {
   TicketPrevisualizacionModal,
   TurnoCierreExitoPremiumModal,
   UltimosRecibosModule,
-  PosChatFloatingDock,
   PosCajaPremiumHeader,
   PosLigaTurnoYMotivacion,
   PosMetaCumplidaCelebracion,
@@ -45,8 +44,10 @@ import {
   SeleccionClienteVenta,
 } from "@/app/caja/caja-modulos-dynamic";
 import {
-  EVENT_DOMICILIOS_CONTADOR_NUEVOS,
   emitirDomiciliosForzarRefresh,
+  EVENT_DOMICILIOS_CHAT_UNREAD,
+  EVENT_DOMICILIOS_CONTADOR_NUEVOS,
+  type DomiciliosChatUnreadDetail,
   type DomiciliosContadorNuevosDetail,
 } from "@/lib/pos-domicilios-nuevos-event";
 import { emitirDomiciliosAbrirChat } from "@/lib/pos-domicilios-chat-event";
@@ -431,6 +432,8 @@ export default function CajaPageClient() {
 
   const [moduloActivo, setModuloActivo] = useState<ModuloActivo>("ventas");
   const [domiciliosNuevosCount, setDomiciliosNuevosCount] = useState(0);
+  const [domiciliosChatUnread, setDomiciliosChatUnread] = useState(0);
+  const domiciliosPendientesBadge = domiciliosNuevosCount + domiciliosChatUnread;
   const metasActivas = moduloActivo === "ventas" || moduloActivo === "metasBonificaciones";
   const [serviciosSecundarios, setServiciosSecundarios] = useState(false);
   const [posGebBienvenidaAbierta, setPosGebBienvenidaAbierta] = useState(false);
@@ -457,8 +460,16 @@ export default function CajaPageClient() {
       const detail = (e as CustomEvent<DomiciliosContadorNuevosDetail>).detail;
       setDomiciliosNuevosCount(typeof detail?.cantidad === "number" ? detail.cantidad : 0);
     };
+    const onChatUnread = (e: Event) => {
+      const detail = (e as CustomEvent<DomiciliosChatUnreadDetail>).detail;
+      setDomiciliosChatUnread(typeof detail?.cantidad === "number" ? detail.cantidad : 0);
+    };
     window.addEventListener(EVENT_DOMICILIOS_CONTADOR_NUEVOS, onContador);
-    return () => window.removeEventListener(EVENT_DOMICILIOS_CONTADOR_NUEVOS, onContador);
+    window.addEventListener(EVENT_DOMICILIOS_CHAT_UNREAD, onChatUnread);
+    return () => {
+      window.removeEventListener(EVENT_DOMICILIOS_CONTADOR_NUEVOS, onContador);
+      window.removeEventListener(EVENT_DOMICILIOS_CHAT_UNREAD, onChatUnread);
+    };
   }, []);
 
   const irADomiciliosDesdeAlerta = useCallback((pedido?: PedidoDomicilio) => {
@@ -3260,14 +3271,17 @@ export default function CajaPageClient() {
             className={`group relative flex w-full items-center gap-3 overflow-hidden rounded-xl border px-3 py-2.5 text-left text-sm font-semibold transition-all ${
               moduloActivo === "domicilios"
                 ? "border-cyan-400 bg-gradient-to-r from-cyan-600 to-sky-600 text-white shadow-md"
-                : domiciliosNuevosCount > 0
-                  ? "border-amber-400 bg-gradient-to-r from-amber-50 via-cyan-50 to-sky-50 text-cyan-950 shadow-md ring-2 ring-amber-400/80 ring-offset-1 animate-[pulse_1.6s_ease-in-out_infinite]"
+                : domiciliosPendientesBadge > 0
+                  ? "border-rose-400 bg-gradient-to-r from-rose-50 via-cyan-50 to-sky-50 text-cyan-950 shadow-md ring-2 ring-rose-400/70 ring-offset-1"
                   : "border-cyan-200 bg-gradient-to-r from-cyan-50 to-sky-50 text-cyan-900 hover:border-cyan-300 hover:shadow-sm"
             }`}
           >
-            {domiciliosNuevosCount > 0 ? (
-              <span className="absolute right-2 top-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-black text-white shadow-md animate-bounce">
-                {domiciliosNuevosCount > 9 ? "9+" : domiciliosNuevosCount}
+            {domiciliosPendientesBadge > 0 ? (
+              <span
+                className="absolute right-2 top-2 flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-black text-white shadow-md ring-2 ring-white"
+                aria-label={`${domiciliosPendientesBadge} notificaciones de domicilios pendientes`}
+              >
+                {domiciliosPendientesBadge > 9 ? "9+" : domiciliosPendientesBadge}
               </span>
             ) : null}
             <span
@@ -3291,9 +3305,15 @@ export default function CajaPageClient() {
             </span>
             <span className="relative flex min-w-0 flex-1 flex-col leading-tight">
               <span>Domicilios</span>
-              {domiciliosNuevosCount > 0 && moduloActivo !== "domicilios" ? (
-                <span className="text-[10px] font-extrabold uppercase tracking-wide text-rose-600 animate-pulse">
-                  ¡Pedido nuevo!
+              {domiciliosPendientesBadge > 0 && moduloActivo !== "domicilios" ? (
+                <span className="text-[10px] font-extrabold uppercase tracking-wide text-rose-600">
+                  {domiciliosNuevosCount > 0
+                    ? domiciliosNuevosCount === 1
+                      ? "1 pedido nuevo"
+                      : `${domiciliosNuevosCount} pedidos nuevos`
+                    : domiciliosChatUnread === 1
+                      ? "1 mensaje"
+                      : `${domiciliosChatUnread} mensajes`}
                 </span>
               ) : (
                 <span className={`text-[10px] uppercase tracking-wide ${moduloActivo === "domicilios" ? "text-cyan-100" : "text-cyan-700"}`}>
@@ -4270,7 +4290,9 @@ export default function CajaPageClient() {
               etiquetaModulo={tituloModulo}
               mostrarAccesoChatAdmin={!esContador && moduloActivo !== "domicilios"}
               mostrarPanelMetas={serviciosSecundarios && metasActivas}
-              getIdToken={getIdTokenCajaMensajes}
+              getIdToken={!esContador && serviciosSecundarios ? getIdTokenCajaMensajes : undefined}
+              currentUid={user?.uid}
+              puntoVentaLabel={user.puntoVenta?.trim() || undefined}
             />
             {!esContador && serviciosSecundarios && turnoAbierto && moduloActivo === "ventas" ? (
               <PosLigaTurnoYMotivacion
@@ -5423,15 +5445,11 @@ export default function CajaPageClient() {
         />
       ) : null}
       {serviciosSecundarios && user?.puntoVenta?.trim() && turnoAbierto ? (
-        <PosDomiciliosChatFloatingDock puntoVenta={user.puntoVenta} visible />
-      ) : null}
-
-      {serviciosSecundarios && !esContador ? (
-        <PosChatFloatingDock
+        <PosDomiciliosChatFloatingDock
+          puntoVenta={user.puntoVenta}
           visible
-          getIdToken={getIdTokenCajaMensajes}
-          currentUid={user?.uid}
-          puntoVentaLabel={user.puntoVenta?.trim() || undefined}
+          /** En ventas queda en el menú lateral; en Domicilios siempre se ve el acceso a chats. */
+          accesoFlotanteVisible={moduloActivo === "domicilios"}
         />
       ) : null}
     </div>
