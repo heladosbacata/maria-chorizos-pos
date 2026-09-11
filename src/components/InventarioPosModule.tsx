@@ -20,7 +20,7 @@ import {
   listarMovimientosRecientesPorInsumoKit,
   listarSaldosInventarioConFuentePorPuntoVenta,
   mapSaldosLegacyYEnsambleConFuente,
-  mergeSaldosInventarioLegacyYEnsamble,
+  unirSaldosEnsamblePorClave,
   NOTAS_PREFIJO_AJUSTE_SALDO_STOCK,
   normSkuInventario,
   POS_INVENTARIO_ENSAMBLE_SALDOS_COLLECTION,
@@ -476,7 +476,8 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     let ensPorPv: InventarioSaldoRow[] = [];
     let ensPorClave: InventarioSaldoRow[] = [];
     const pushMerged = () => {
-      const ens = mergeSaldosInventarioLegacyYEnsamble(ensPorPv, ensPorClave);
+      // Misma colección por PV y por clave: unir por clave de kit, sin sumar el mismo saldo dos veces.
+      const ens = unirSaldosEnsamblePorClave([...ensPorPv, ...ensPorClave]);
       const mapFuente = mapSaldosLegacyYEnsambleConFuente(legacy, ens);
       setSaldosPorClaveMap(mapFuente);
       setSaldoRows(Array.from(mapFuente.values()).map((v) => v.row));

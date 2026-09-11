@@ -423,7 +423,7 @@ export async function cargarDatosAuditoriaInventarioPos(puntoVenta: string): Pro
     descripcionesSimilares,
     productos,
     notasMetodologia: [
-      "Saldo mostrado = posInventarioSaldos (legacy) + pos_inventario_ensamble_saldo (WMS) fusionados por SKU/clave kit.",
+      "Saldo mostrado = posInventarioSaldos (legacy) + pos_inventario_ensamble_saldo (WMS) fusionados por SKU/clave kit (prevalece absoluto WMS; neto < 0 se suma).",
       "Los movimientos analizados son los más recientes (legacy + ensamble), hasta el límite indicado.",
       "Desajuste compara cantidad del documento de saldo con la suma de delta de movimientos del mismo canal.",
       "Duplicados: varias filas de catálogo con la misma clave kit (p. ej. sheet-fran-kit-6 y FRAN-KIT-6 ya fusionados en pantalla, pero entradas crudas distintas en fuentes).",
