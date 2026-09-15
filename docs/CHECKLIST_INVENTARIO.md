@@ -46,7 +46,7 @@ Estos puntos **no** los puede cerrar el script; debes revisarlos en Firebase, Go
 - [x] **Inventarios** (`InventarioPosModule`) y **Cargue** (`CargueInventarioManualPanel`) en Caja.
 - [x] **Firestore** `src/lib/inventario-pos-firestore.ts`.
 - [x] **API** `pages/api/catalogo_insumos_sheet.ts`.
-- [x] **Plantilla de reglas** `firestore.rules.example` (bloques inventario + `users`).
+- [x] **Mínimos Inventarios → Firestore** `posInventarioMinimos` (sync al editar + migración desde localStorage al abrir). Plantilla de reglas en `firestore.rules.example`. **Publicá** las reglas en Firebase Console si aún no incluyen ese bloque (validación `minimo is number`).
 - [x] **Archivo `firestore.rules` en repo**: no existe (normal); las reglas vivas están en Firebase Console o en el repo del WMS — **fusionar** lo de la plantilla si falta inventario.
 
 ---
