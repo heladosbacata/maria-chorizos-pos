@@ -62,9 +62,11 @@ La pantalla de venta (módulo **Ventas e ingresos** en `/caja`) carga el catálo
 
 ## Descuento de inventario por ensamble (tras cada cobro)
 
-Tras confirmar la venta, el POS llama al WMS:
+Tras confirmar la venta, el POS llama al WMS **en el cobro** (no espera a «Imprimir»):
 
 `POST [NEXT_PUBLIC_WMS_URL]/api/pos/inventario/aplicar-venta-ensamble` (vía proxy **`/api/pos_aplicar_venta_ensamble`** en el servidor Next, que reenvía `Authorization: Bearer <Firebase idToken>`).
+
+Si hay vista previa de tirilla, al imprimir se reintenta con el mismo `idVenta` (idempotencia en el WMS).
 
 Cuerpo JSON que envía el POS (resumen):
 
@@ -78,11 +80,11 @@ El POS **lee** el stock en pantalla Inventarios fusionando:
 
 | Colección | Uso |
 |-----------|-----|
-| **`pos_inventario_ensamble_saldo`** | Saldos actualizados por el WMS al aplicar ensamble (prevalece sobre legacy si el mismo `insumoId` existe en ambas). |
+| **`pos_inventario_ensamble_saldo`** | Saldos actualizados por el WMS al aplicar ensamble (**prevalece** sobre legacy si el mismo kit existe en ambas y la cantidad WMS es ≥ 0; si es neto &lt; 0, se suma al cargue POS). |
 | **`pos_inventario_ensamble_movimientos`** | Movimientos por línea de descuento (`tipo` p. ej. `venta_ensamble`). |
 | **`posInventarioSaldos`** | Legacy: cargue y ajustes hechos **desde el POS**; sigue siendo fuente si no hay fila ensamble para ese insumo. |
 
-Código en el repo: `src/lib/inventario-pos-firestore.ts` (`listarSaldosInventarioPorPuntoVenta`, `listarMovimientosInventario`). Query de saldos: `where("puntoVenta", "==", pv)` en cada colección. **Merge en cliente:** por clave de kit (`claveParaConsolidarSaldoKit`): prioriza `insumoSku` y, en hoja Google, el sufijo tras prefijos `sheet-` / `gs-` en `insumoId`, para que el saldo del WMS (`insumoId` = `FRAN-KIT-*`) reemplace al legacy aunque el catálogo muestre `id` tipo `sheet-fran-kit-*`.
+Código en el repo: `src/lib/inventario-pos-firestore.ts` (`listarSaldosInventarioPorPuntoVenta`, `listarMovimientosInventario`). Query de saldos: `where("puntoVenta", "==", pv)` en cada colección. **Merge en cliente:** por clave de kit (`claveParaConsolidarSaldoKit`): prioriza `insumoSku` y, en hoja Google, el sufijo tras prefijos `sheet-` / `gs-` en `insumoId`. Si hay fila ensamble WMS y legacy para el mismo kit, **prevalece el saldo absoluto del WMS** (no se suma al cargue); solo se suma si el WMS guarda neto negativo.
 
 El WMS debe resolver la composición (**DB_POS_Composición** / BOM) y escribir en **`pos_inventario_ensamble_*`** con **`insumoId` / `insumoSku` alineados al catálogo kit** (`DB_Franquicia_Insumos_Kit`). Reglas de ejemplo para lectura cliente: `firestore.rules.example`.
 

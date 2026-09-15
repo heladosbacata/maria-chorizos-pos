@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   cantidadSaldoParaInsumoKit,
   claveParaConsolidarSaldoKit,
+  mergeSaldosInventarioLegacyYEnsamble,
   saldoRowDesdeFirestoreSaldoDoc,
+  unirSaldosEnsamblePorClave,
   type InventarioSaldoRow,
 } from "./inventario-pos-firestore";
 import type { InsumoKitItem } from "@/types/inventario-pos";
@@ -85,5 +87,39 @@ describe("cantidadSaldoParaInsumoKit con hoja vs WMS", () => {
     map.set(claveParaConsolidarSaldoKit(wms), wms);
     const rows = Array.from(map.values());
     expect(cantidadSaldoParaInsumoKit(itemHoja, rows)).toBe(94);
+  });
+});
+
+describe("mergeSaldosInventarioLegacyYEnsamble", () => {
+  it("prevalece saldo absoluto del WMS sobre el cargue POS", () => {
+    const legacy: InventarioSaldoRow = {
+      insumoId: "sheet-fran-kit-5",
+      insumoSku: "FRAN-KIT-5",
+      cantidad: 100,
+    };
+    const wms: InventarioSaldoRow = { insumoId: "FRAN-KIT-5", insumoSku: "FRAN-KIT-5", cantidad: 94 };
+    const merged = mergeSaldosInventarioLegacyYEnsamble([legacy], [wms]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].cantidad).toBe(94);
+  });
+
+  it("suma neto negativo del WMS al cargue POS", () => {
+    const legacy: InventarioSaldoRow = {
+      insumoId: "sheet-fran-kit-5",
+      insumoSku: "FRAN-KIT-5",
+      cantidad: 100,
+    };
+    const wms: InventarioSaldoRow = { insumoId: "FRAN-KIT-5", insumoSku: "FRAN-KIT-5", cantidad: -3 };
+    const merged = mergeSaldosInventarioLegacyYEnsamble([legacy], [wms]);
+    expect(merged[0].cantidad).toBe(97);
+  });
+});
+
+describe("unirSaldosEnsamblePorClave", () => {
+  it("no duplica el mismo kit si aparece en dos consultas", () => {
+    const a: InventarioSaldoRow = { insumoId: "FRAN-KIT-1", insumoSku: "FRAN-KIT-1", cantidad: 10 };
+    const b: InventarioSaldoRow = { insumoId: "FRAN-KIT-1", insumoSku: "FRAN-KIT-1", cantidad: 10 };
+    expect(unirSaldosEnsamblePorClave([a, b])).toHaveLength(1);
+    expect(unirSaldosEnsamblePorClave([a, b])[0].cantidad).toBe(10);
   });
 });
