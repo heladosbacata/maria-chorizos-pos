@@ -33,8 +33,15 @@ export type LigaTurnoFila = {
   barPct?: number;
   abiertoHoraCorta?: string;
   uid?: string;
-  /** Clientes fidelizados Club de millas del punto (stock total, ≥3 millas). */
+  /**
+   * Compat: total acumulado si el WMS solo manda un número.
+   * Preferí `clientesFidelizadosMes` + `clientesFidelizadosTotal`.
+   */
   clientesFidelizados?: number;
+  /** Clientes fidelizados en el mes calendario actual (Colombia). */
+  clientesFidelizadosMes?: number;
+  /** Clientes fidelizados acumulados en total (histórico del punto). */
+  clientesFidelizadosTotal?: number;
   /** Meta del concurso de fidelización (p. ej. 100). */
   metaFidelizacion?: number;
 };
@@ -175,6 +182,55 @@ function numEnteroPositivo(raw: unknown): number | undefined {
   }
   return undefined;
 }
+/** Resuelve mes + total de fidelizados desde aliases del WMS (liga). */
+function resolverFidelizadosMesYTotal(r: Record<string, unknown>): {
+  mes: number | undefined;
+  total: number | undefined;
+} {
+  const nestedRaw = r.clientesFidelizados ?? r.clientes_fidelizados;
+  let nestedMes: number | undefined;
+  let nestedTotal: number | undefined;
+  if (nestedRaw && typeof nestedRaw === "object" && !Array.isArray(nestedRaw)) {
+    const n = nestedRaw as Record<string, unknown>;
+    nestedMes = numEnteroPositivo(n.mes ?? n.esteMes ?? n.este_mes ?? n.month);
+    nestedTotal = numEnteroPositivo(
+      n.total ?? n.acumulado ?? n.acumulados ?? n.lifetime ?? n.historico
+    );
+  }
+
+  const mes = numEnteroPositivo(
+    r.clientesFidelizadosMes ??
+      r.clientes_fidelizados_mes ??
+      r.clientesFidelizadosEsteMes ??
+      r.clientes_fidelizados_este_mes ??
+      r.fidelizadosMes ??
+      r.fidelizados_mes ??
+      nestedMes
+  );
+
+  const totalExplicito = numEnteroPositivo(
+    r.clientesFidelizadosTotal ??
+      r.clientes_fidelizados_total ??
+      r.clientesFidelizadosAcumulados ??
+      r.clientes_fidelizados_acumulados ??
+      r.fidelizadosTotal ??
+      r.fidelizados_total ??
+      r.fidelizadosAcumulados ??
+      r.fidelizados_acumulados ??
+      nestedTotal
+  );
+
+  const legacy =
+    typeof nestedRaw === "number" || typeof nestedRaw === "string"
+      ? numEnteroPositivo(nestedRaw)
+      : numEnteroPositivo(r.fidelizados);
+
+  // Legacy `clientesFidelizados` = stock total; mes solo si vino campo dedicado.
+  const total = totalExplicito ?? legacy;
+  return { mes, total };
+}
+
+
 
 function extraerMetaDesdeRespuesta(data: unknown): MetaLiga {
   if (!data || typeof data !== "object") return metaVacio;
@@ -354,9 +410,9 @@ function normalizarFila(raw: unknown, idx: number): LigaTurnoFila | null {
         ? r.abierto_hora_corta.trim()
         : undefined;
   const barPct = normalizarBarPct(r.barPct ?? r.bar_pct);
-  const clientesFidelizados = numEnteroPositivo(
-    r.clientesFidelizados ?? r.clientes_fidelizados ?? r.fidelizados
-  );
+  const { mes: clientesFidelizadosMes, total: clientesFidelizadosTotal } =
+    resolverFidelizadosMesYTotal(r);
+  const clientesFidelizados = clientesFidelizadosTotal;
 
   return {
     posicion: pos,
@@ -372,6 +428,8 @@ function normalizarFila(raw: unknown, idx: number): LigaTurnoFila | null {
     abiertoHoraCorta,
     uid,
     ...(clientesFidelizados != null ? { clientesFidelizados } : {}),
+    ...(clientesFidelizadosMes != null ? { clientesFidelizadosMes } : {}),
+    ...(clientesFidelizadosTotal != null ? { clientesFidelizadosTotal } : {}),
   };
 }
 
@@ -527,11 +585,13 @@ function tamanoFotoAmpliada(): { foto: string; medalla: string } {
 }
 
 function LigaTurnoBadgeFidelizados({
-  count,
+  mes,
+  total,
   meta,
   variante = "podio",
 }: {
-  count: number;
+  mes: number;
+  total: number;
   meta?: number;
   variante?: VarianteFoto;
 }) {
@@ -544,15 +604,11 @@ function LigaTurnoBadgeFidelizados({
       animate={{ scale: 1, opacity: 1, x: 0 }}
       transition={{ type: "spring", stiffness: 420, damping: 24 }}
       className="flex shrink-0 flex-col items-center"
-      title={
-        meta
-          ? `${count} clientes fidelizados · meta ${meta} · actualiza cada hora`
-          : `${count} clientes fidelizados · actualiza cada hora`
-      }
-      aria-label={`${count} clientes fidelizados`}
+      title={`Este mes ${mes} · acumulado ${total}${meta ? ` · meta ${meta}` : ""} · actualiza cada hora`}
+      aria-label={`Clientes fidelizados: ${mes} este mes, ${total} acumulados`}
     >
       <p
-        className={`mb-0.5 max-w-[3.5rem] text-center font-bold uppercase leading-tight tracking-wide text-[#FFD700] ${
+        className={`mb-0.5 max-w-[4.25rem] text-center font-bold uppercase leading-tight tracking-wide text-[#FFD700] ${
           compacto ? "text-[7px]" : "text-[8px] sm:text-[9px]"
         }`}
       >
@@ -560,15 +616,15 @@ function LigaTurnoBadgeFidelizados({
       </p>
       <div className="relative">
         <span
-          className="pointer-events-none absolute -inset-1 rounded-full bg-[conic-gradient(from_0deg,#fde68a,#f59e0b,#a855f7,#fde68a)] opacity-70 motion-safe:animate-liga-cumple-ring"
+          className="pointer-events-none absolute -inset-1 rounded-2xl bg-[conic-gradient(from_0deg,#fde68a,#f59e0b,#a855f7,#fde68a)] opacity-70 motion-safe:animate-liga-cumple-ring"
           aria-hidden
         />
         <div
-          className={`relative flex items-center gap-1 rounded-full border-2 border-[#1a1610] bg-gradient-to-r from-[#FFF8E8] via-[#FFD700] to-[#B8860B] shadow-[0_0_12px_rgba(255,215,0,0.4)] ${
-            compacto ? "px-1.5 py-1" : "px-2 py-1"
+          className={`relative flex items-stretch gap-1 rounded-2xl border-2 border-[#1a1610] bg-gradient-to-r from-[#FFF8E8] via-[#FFD700] to-[#B8860B] shadow-[0_0_12px_rgba(255,215,0,0.4)] ${
+            compacto ? "px-1 py-0.5" : "px-1.5 py-1"
           }`}
         >
-          <span className="relative flex shrink-0 items-center justify-center">
+          <span className="relative flex shrink-0 items-center justify-center self-center pl-0.5">
             <User
               className={`text-[#1a140c] ${compacto ? "h-3 w-3" : "h-3.5 w-3.5 sm:h-4 sm:w-4"}`}
               strokeWidth={2.25}
@@ -579,13 +635,46 @@ function LigaTurnoBadgeFidelizados({
               aria-hidden
             />
           </span>
-          <span
-            className={`font-black tabular-nums leading-none text-[#1a140c] ${
-              compacto ? "text-xs" : "text-sm sm:text-base"
-            }`}
-          >
-            {count}
-          </span>
+          <div className={`flex min-w-0 items-end gap-1 ${compacto ? "pr-0.5" : "pr-1"}`}>
+            <div className="flex min-w-0 flex-col items-center leading-none">
+              <span
+                className={`font-bold uppercase tracking-wide text-[#5c4a1a]/90 ${
+                  compacto ? "text-[6px]" : "text-[7px] sm:text-[8px]"
+                }`}
+              >
+                Mes
+              </span>
+              <span
+                className={`font-black tabular-nums text-[#1a140c] ${
+                  compacto ? "text-xs" : "text-sm sm:text-base"
+                }`}
+              >
+                {mes}
+              </span>
+            </div>
+            <span
+              className={`self-end font-black text-[#1a140c]/55 ${compacto ? "pb-0.5 text-[9px]" : "pb-0.5 text-[10px]"}`}
+              aria-hidden
+            >
+              ·
+            </span>
+            <div className="flex min-w-0 flex-col items-center leading-none">
+              <span
+                className={`font-bold uppercase tracking-wide text-[#5c4a1a]/90 ${
+                  compacto ? "text-[6px]" : "text-[7px] sm:text-[8px]"
+                }`}
+              >
+                Total
+              </span>
+              <span
+                className={`font-black tabular-nums text-[#1a140c] ${
+                  compacto ? "text-xs" : "text-sm sm:text-base"
+                }`}
+              >
+                {total}
+              </span>
+            </div>
+          </div>
         </div>
       </div>
       {meta && !compacto ? (
@@ -594,7 +683,6 @@ function LigaTurnoBadgeFidelizados({
     </motion.div>
   );
 }
-
 function LigaTurnoMarcoFoto({
   posicion,
   cajeroFotoUrl,
@@ -602,7 +690,8 @@ function LigaTurnoMarcoFoto({
   variante = "podio",
   esMiTurno = false,
   esCumpleFestivo = false,
-  clientesFidelizados,
+  clientesFidelizadosMes,
+  clientesFidelizadosTotal,
   metaFidelizacion,
   mostrarFidelizados = false,
 }: {
@@ -612,7 +701,8 @@ function LigaTurnoMarcoFoto({
   variante?: VarianteFoto;
   esMiTurno?: boolean;
   esCumpleFestivo?: boolean;
-  clientesFidelizados?: number;
+  clientesFidelizadosMes?: number;
+  clientesFidelizadosTotal?: number;
   metaFidelizacion?: number;
   mostrarFidelizados?: boolean;
 }) {
@@ -754,9 +844,11 @@ function LigaTurnoMarcoFoto({
 
       <div className={`relative mx-auto w-fit ${fotoAmpliada ? "invisible" : ""}`} aria-hidden={fotoAmpliada}>
         <div className="flex items-center justify-center gap-1.5 sm:gap-2">
-          {mostrarFidelizados && clientesFidelizados != null ? (
+          {mostrarFidelizados &&
+          (clientesFidelizadosMes != null || clientesFidelizadosTotal != null) ? (
             <LigaTurnoBadgeFidelizados
-              count={clientesFidelizados}
+              mes={clientesFidelizadosMes ?? 0}
+              total={clientesFidelizadosTotal ?? clientesFidelizadosMes ?? 0}
               meta={metaFidelizacion}
               variante={variante}
             />
@@ -831,9 +923,21 @@ function LigaTurnoTextoCajero({
       ) : null}
       <p
         className="mt-1 text-[10px] font-black tabular-nums leading-tight text-[#FFD700] sm:text-[11px]"
-        title={`${fila.clientesFidelizados ?? 0} clientes fidelizados Club de millas`}
+        title={`Este mes ${fila.clientesFidelizadosMes ?? 0} · acumulado ${fila.clientesFidelizadosTotal ?? fila.clientesFidelizados ?? 0} clientes fidelizados Club de millas`}
       >
-        {fila.clientesFidelizados ?? 0} fidelizados
+        <span className="inline-flex flex-wrap items-baseline justify-center gap-x-1.5 gap-y-0.5">
+          <span>
+            <span className="font-bold uppercase tracking-wide text-[#FFE08A]/85">Mes</span>{" "}
+            {fila.clientesFidelizadosMes ?? 0}
+          </span>
+          <span className="text-[#FFE08A]/50" aria-hidden>
+            ·
+          </span>
+          <span>
+            <span className="font-bold uppercase tracking-wide text-[#FFE08A]/85">Total</span>{" "}
+            {fila.clientesFidelizadosTotal ?? fila.clientesFidelizados ?? 0}
+          </span>
+        </span>
       </p>
       <p className="mt-0.5 line-clamp-2 text-[11px] font-bold leading-snug text-[#FFE9B8] sm:text-xs sm:leading-snug">
         {nombrePv}
@@ -898,7 +1002,8 @@ function LigaTurnoTarjetaRanking({
         variante={variante}
         esMiTurno={esMiTurno}
         esCumpleFestivo={esCumpleFestivo}
-        clientesFidelizados={fila.clientesFidelizados}
+        clientesFidelizadosMes={fila.clientesFidelizadosMes ?? 0}
+        clientesFidelizadosTotal={fila.clientesFidelizadosTotal ?? fila.clientesFidelizados ?? 0}
         metaFidelizacion={fila.metaFidelizacion}
         mostrarFidelizados={mostrarFidelizados}
       />
@@ -934,7 +1039,8 @@ function LigaTurnoPanelTuPunto({
         variante="compact"
         esMiTurno
         esCumpleFestivo={esCumpleFestivo}
-        clientesFidelizados={fila.clientesFidelizados}
+        clientesFidelizadosMes={fila.clientesFidelizadosMes ?? 0}
+        clientesFidelizadosTotal={fila.clientesFidelizadosTotal ?? fila.clientesFidelizados ?? 0}
         metaFidelizacion={fila.metaFidelizacion}
         mostrarFidelizados={mostrarFidelizados}
       />
@@ -1063,7 +1169,13 @@ export default function PosLigaTurnoYMotivacion({
       rawList.forEach((item, i) => {
         const row = normalizarFila(item, i);
         if (row) {
-          if (row.clientesFidelizados == null) row.clientesFidelizados = 0;
+          if (row.clientesFidelizadosTotal == null) {
+            row.clientesFidelizadosTotal = row.clientesFidelizados ?? 0;
+          }
+          if (row.clientesFidelizadosMes == null) row.clientesFidelizadosMes = 0;
+          if (row.clientesFidelizados == null) {
+            row.clientesFidelizados = row.clientesFidelizadosTotal;
+          }
           if (concursoFidelizacion?.activo) {
             row.metaFidelizacion = concursoFidelizacion.metaUnidades;
           }
