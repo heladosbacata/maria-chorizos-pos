@@ -121,6 +121,7 @@ import {
 } from "@/lib/medios-pago-venta";
 import { anularVentaEnEquipoInventarioYNube } from "@/lib/pos-anular-venta-inventario-nube";
 import { encolarAplicarEnsamblePendiente, procesarColaAplicarEnsamblePendiente } from "@/lib/pos-wms-ensamble-pendiente";
+import { mensajeAlertaFeFallida } from "@/lib/pos-fe-emit-error";
 import { encolarFeEmitirPendiente, procesarColaFeEmitir } from "@/lib/pos-fe-retry-queue";
 import { encolarVentaPendienteWms, procesarColaVentasPendientesWms } from "@/lib/pos-ventas-pendientes-wms";
 import { emitirVentaLocalRegistrada } from "@/lib/pos-metas-ventas-event";
@@ -2581,11 +2582,9 @@ export default function CajaPageClient() {
             };
             const rFe = await wmsPosAlegraEmitirCobro(tokenFe, payloadFe);
             if (!rFe.ok) {
-              encolarFeEmitirPendiente(user.uid, ventaLocalId, payloadFe);
+              const encolado = encolarFeEmitirPendiente(user.uid, ventaLocalId, payloadFe, rFe.error);
               dianCaja.refrescarFePendientes();
-              window.alert(
-                `La venta se registró en caja, pero la factura electrónica no se pudo enviar a la DIAN:\n\n${rFe.error}\n\nSe reintentará automáticamente al recuperar conexión. Revisá también Espacio Franquiciado → Habilitaciones DIAN → Facturación electrónica o contactá a administración.`
-              );
+              window.alert(mensajeAlertaFeFallida(rFe.error, encolado));
             } else {
               const cufeQrContenido = rFe.alegraCufe?.trim() ? `CUFE:${rFe.alegraCufe.trim()}` : undefined;
               const cufeQrDataUrl = cufeQrContenido

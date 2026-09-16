@@ -5,6 +5,7 @@
 
 import { auth } from "@/lib/firebase";
 import { ymdColombia } from "@/lib/fecha-colombia";
+import { mensajeColaFeTrasError } from "@/lib/pos-fe-emit-error";
 import { encolarFeEmitirPendiente } from "@/lib/pos-fe-retry-queue";
 import { emitirVentaLocalRegistrada } from "@/lib/pos-metas-ventas-event";
 import { registrarVentaPosCloud } from "@/lib/pos-ventas-cloud-client";
@@ -201,8 +202,8 @@ export async function enviarPedidoDomicilioAFacturacion(
           ? `Pedido listo facturado: ${rFe.numeroFactura}.`
           : "Pedido listo: factura electrónica enviada.";
       } else {
-        encolarFeEmitirPendiente(uid, ventaLocalId, payload);
-        message = `Pedido listo enviado a facturación. La FE quedó en cola de reintento: ${rFe.error}`;
+        const encolado = encolarFeEmitirPendiente(uid, ventaLocalId, payload, rFe.error);
+        message = `Pedido listo enviado a facturación. ${mensajeColaFeTrasError(rFe.error, encolado)}`;
       }
     }
   }

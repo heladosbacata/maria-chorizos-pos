@@ -420,8 +420,12 @@ export default function VentasDocumentosPosPanel({
         const payload = buscarPayloadPendientePorVenta(u, v.id) ?? emitirCobroPayloadDesdeVentaLocal(v);
         const r = await wmsPosAlegraEmitirCobro(token, payload);
         if (!r.ok) {
-          encolarFeEmitirPendiente(u, v.id, payload);
-          throw new Error(r.error);
+          const encolado = encolarFeEmitirPendiente(u, v.id, payload, r.error);
+          throw new Error(
+            encolado
+              ? r.error
+              : `${r.error}\n\nNo se encoló reintento (error permanente DIAN/Alegra). Si es Regla 90, administración debe sincronizar el consecutivo en el WMS.`
+          );
         }
         actualizarVentaLocalFacturaElectronica(u, v.id, {
           numero: r.numeroFactura,
@@ -441,7 +445,9 @@ export default function VentasDocumentosPosPanel({
       } catch (e) {
         window.alert(
           e instanceof Error
-            ? `${e.message}\n\nSi falló la red, quedó en cola de reintento al volver conexión.`
+            ? e.message.includes("No se encoló reintento")
+              ? e.message
+              : `${e.message}\n\nSi falló la red, quedó en cola de reintento al volver conexión.`
             : "No se pudo emitir la factura electrónica."
         );
       } finally {
