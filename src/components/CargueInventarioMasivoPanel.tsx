@@ -24,6 +24,11 @@ import {
   precioCompraParaInsumo,
   type MapaPreciosCarrito,
 } from "@/lib/precios-compra-carrito";
+import {
+  cantidadUnidadesDesdeCarguePaquetes,
+  presentacionCargueInventario,
+} from "@/lib/inventario-cargue-presentacion";
+import { valorStockValorizado } from "@/lib/inventario-valorizacion-unidades";
 import { reiniciarInventarioPuntoVenta } from "@/lib/reiniciar-inventario-client";
 import { fetchMapaPreciosCarritoCompras } from "@/lib/wms-carrito-precios-client";
 import type { InsumoKitItem } from "@/types/inventario-pos";
@@ -170,7 +175,8 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
     for (const it of insumos) {
       const saldo = cantidadSaldoParaInsumoKit(it, saldoRows);
       const precio = precioCompraParaInsumo(it, mapaPreciosCarritoRespaldo);
-      if (precio != null && Number.isFinite(saldo) && saldo > 0) total += saldo * precio;
+      const valor = valorStockValorizado(saldo, precio, it);
+      if (valor != null && valor > 0) total += valor;
     }
     return Math.round(total);
   }, [insumos, saldoRows, mapaPreciosCarritoRespaldo]);
@@ -178,8 +184,9 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
   function valorStockProducto(it: InsumoKitItem): number | null {
     const saldo = cantidadSaldoParaInsumoKit(it, saldoRows);
     const precio = precioCompraParaInsumo(it, mapaPreciosCarritoRespaldo);
-    if (precio == null || precio <= 0 || !Number.isFinite(saldo) || saldo <= 0) return null;
-    return Math.round(saldo * precio);
+    const valor = valorStockValorizado(saldo, precio, it);
+    if (valor == null || valor <= 0) return null;
+    return Math.round(valor);
   }
 
   function formatValorStockCop(n: number | null): string {
@@ -266,8 +273,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
 
     const notasBase = notasGlobales.trim().slice(0, 400);
     const sufijoFecha = fechaCargue.trim();
-    const notasComunes =
-      `Cargue inicial POS${notasBase ? ` · ${notasBase}` : ""}`.slice(0, 500);
+    const notasComunes = `Cargue inicial POS${notasBase ? ` · ${notasBase}` : ""}`.slice(0, 500);
 
     setEnviando(true);
     setProgreso({ hecho: 0, total: lineas.length });
@@ -275,13 +281,23 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
 
     for (let i = 0; i < lineas.length; i++) {
       const { insumo, cantidad, precioCompraUnitario } = lineas[i]!;
+      const pres = presentacionCargueInventario(insumo);
+      const undPorPaq = pres.unidadesPorPaquete;
+      const cantidadGuardar =
+        pres.esPaquete && undPorPaq != null && undPorPaq >= 2
+          ? cantidadUnidadesDesdeCarguePaquetes(cantidad, undPorPaq)
+          : cantidad;
+      const notasExtra =
+        pres.esPaquete && undPorPaq != null && undPorPaq >= 2
+          ? ` · ${cantidad} paq. ×${undPorPaq} = ${cantidadGuardar} und · precio ${precioCompraUnitario}/paq`
+          : "";
       setProgreso({ hecho: i, total: lineas.length });
       const r = await registrarMovimientoInventario({
         puntoVenta: pv,
         insumo,
         tipo: "cargue",
-        cantidad,
-        notas: notasComunes,
+        cantidad: cantidadGuardar,
+        notas: `${notasComunes}${notasExtra}`.slice(0, 500),
         uid,
         email,
         fechaCargue: sufijoFecha || undefined,
@@ -329,7 +345,8 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
           Una sola tabla con <strong className="font-medium text-gray-800">todos</strong> los insumos del catálogo: completá
           cantidad en cada fila que entra. El <strong className="font-medium">precio de compra</strong> viene fijo de la hoja{" "}
           <strong className="font-medium">DB_Carrito</strong> (WMS) y no se puede editar en el POS. Las filas vacías o en
-          cero se omiten. Para cargue con <strong className="font-medium">lote</strong> por producto, usá la pestaña{" "}
+          cero se omiten. Si la unidad es paquete, el POS guarda unidades base automáticamente para coincidir con WMS.
+          Para cargue con <strong className="font-medium">lote</strong> por producto, usá la pestaña{" "}
           <strong className="font-medium">Cargue por producto y lote</strong>.
         </p>
       </div>

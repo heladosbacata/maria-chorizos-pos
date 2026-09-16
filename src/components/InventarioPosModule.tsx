@@ -54,12 +54,6 @@ import {
   valorStockValorizado,
 } from "@/lib/inventario-valorizacion-unidades";
 import { vistaSaldoConEmpaque } from "@/lib/inventario-cargue-presentacion";
-import {
-  ejecutarMigracionPaquetesAUnidades,
-  marcarMigracionPaqAUndHecha,
-  migracionPaqAUndYaHecha,
-  planMigracionPaquetesAUnidades,
-} from "@/lib/inventario-migrar-paquetes-a-unidades";
 
 type Pestaña = "stock" | "movimiento" | "historial" | "ajuste";
 type FuenteCatalogoInventario = "sheet" | "firestore" | "wms";
@@ -206,7 +200,6 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
   const [modalAuditoriaAbierto, setModalAuditoriaAbierto] = useState(false);
   const [modalInformeInventarioAbierto, setModalInformeInventarioAbierto] = useState(false);
   const [modalPedidoSugeridoAbierto, setModalPedidoSugeridoAbierto] = useState(false);
-  const [migrandoPaqAUnd, setMigrandoPaqAUnd] = useState(false);
   const [mapaPreciosCarritoRespaldo, setMapaPreciosCarritoRespaldo] = useState<MapaPreciosCarrito>(() =>
     mapaPreciosCarritoVacio()
   );
@@ -762,46 +755,6 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     return m;
   }, [filasStock]);
 
-  const planMigracionPaqAUnd = useMemo(() => {
-    if (!pv || !uid || migracionPaqAUndYaHecha(pv, uid)) return [];
-    return planMigracionPaquetesAUnidades({
-      insumos: filtrarCatalogoSoloInsumos(insumos),
-      saldoRows,
-      saldosPorClaveMap,
-    });
-  }, [pv, uid, insumos, saldoRows, saldosPorClaveMap]);
-
-  const correrMigracionPaqAUnd = useCallback(async () => {
-    if (!pv || !uid || planMigracionPaqAUnd.length === 0 || migrandoPaqAUnd) return;
-    const okConfirm = window.confirm(
-      `Esto convierte saldos guardados como paquetes a unidades (×x6, ×x10…), para que al vender 1 arepa solo se descuente 1 unidad.\n\nSe ajustarán ${planMigracionPaqAUnd.length} producto(s). ¿Continuar?`
-    );
-    if (!okConfirm) return;
-    setMigrandoPaqAUnd(true);
-    setError(null);
-    try {
-      const r = await ejecutarMigracionPaquetesAUnidades({
-        puntoVenta: pv,
-        uid,
-        email,
-        lineas: planMigracionPaqAUnd,
-      });
-      marcarMigracionPaqAUndHecha(pv, uid);
-      if (r.fallidos.length) {
-        setError(`Migración parcial: ${r.ok} ok. Fallos: ${r.fallidos.slice(0, 3).join(" · ")}`);
-      } else {
-        setMensajeOk(
-          `Migración lista: ${r.ok} producto(s) convertidos a unidades. Probá vender 1 arepa: debe descontar 1 und.`
-        );
-      }
-      await cargarTodo();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "No se pudo migrar saldos.");
-    } finally {
-      setMigrandoPaqAUnd(false);
-    }
-  }, [pv, uid, email, planMigracionPaqAUnd, migrandoPaqAUnd, cargarTodo]);
-
   const totalInventarioValorizado = useMemo(() => {
     let t = 0;
     for (const r of filasStock) {
@@ -1173,27 +1126,6 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                   costo muestran «—» y no entran al total.
                 </span>
               </p>
-            )}
-            {!cargando && planMigracionPaqAUnd.length > 0 && (
-              <div
-                className="mt-4 rounded-xl border-2 border-red-400 bg-red-50 px-4 py-3 text-sm text-red-950 shadow-sm"
-                role="alert"
-              >
-                <p className="font-bold text-red-900">Corrección urgente: saldo en unidades</p>
-                <p className="mt-1 text-red-900/90">
-                  Antes el cargue guardaba <strong>paquetes</strong> y el WMS descuenta <strong>unidades</strong>, por eso
-                  vender 1 arepa restaba 1 paquete entero. Hay{" "}
-                  <strong>{planMigracionPaqAUnd.length}</strong> producto(s) para convertir (× factor x6/x10…).
-                </p>
-                <button
-                  type="button"
-                  disabled={migrandoPaqAUnd}
-                  onClick={() => void correrMigracionPaqAUnd()}
-                  className="mt-3 rounded-xl border-2 border-red-700 bg-red-600 px-4 py-2 text-sm font-bold text-white hover:bg-red-700 disabled:opacity-50"
-                >
-                  {migrandoPaqAUnd ? "Convirtiendo…" : "Convertir saldos paquetes → unidades"}
-                </button>
-              </div>
             )}
             {!cargando && (cantidadBajoMinimo > 0 || cantidadCercaMinimo > 0) && (
               <div
