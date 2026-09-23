@@ -1,5 +1,10 @@
 /**
- * Mínimos sugeridos editados en Inventarios: solo en este navegador, por usuario Firebase y punto de venta.
+ * Mínimos sugeridos editados en Inventarios: caché local por usuario Firebase y punto de venta.
+ * Clave: `pos-inv-minimos-v1:{uid}:{puntoVenta}`.
+ *
+ * Fuente de verdad por PV (compartida con mcapp-web): Firestore `posInventarioMinimos`
+ * con `minimoPaquetes` / `stockMinimo` (ver `inventario-minimos-sync.ts`).
+ * El localStorage es respaldo offline y se migra a la nube al abrir Inventarios.
  */
 
 import { normSkuInventario } from "@/lib/inventario-pos-firestore";

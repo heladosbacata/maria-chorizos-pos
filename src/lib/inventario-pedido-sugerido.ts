@@ -129,32 +129,42 @@ export function construirPedidoSugerido(params: {
       minRaw != null && Number.isFinite(minRaw) && (minRaw as number) > 0 ? (minRaw as number) : null;
     const unidadesPorEmpaque = unidadesPorEmpaqueInsumo(item);
     const enPaquetes = saldoSeLlevaEnPaquetes(item);
-    /** Mínimo en UI = paquetes; saldo/consumo del sistema = unidades. */
-    const minimoUnd =
+    /** Mínimo en UI = paquetes; stockMinimo (und) = minimoPaquetes × unidadesPorPaquete. */
+    const stockMinimoUnd =
       minimoEfectivo != null && enPaquetes && unidadesPorEmpaque > 1
         ? minimoEfectivo * unidadesPorEmpaque
         : minimoEfectivo;
-    const bajoMinimo = minimoUnd != null && saldoActual <= minimoUnd;
+    const stockActualPaquetes =
+      enPaquetes && unidadesPorEmpaque > 1 ? saldoActual / unidadesPorEmpaque : saldoActual;
+    const bajoMinimo = stockMinimoUnd != null && saldoActual <= stockMinimoUnd;
+    const faltantePaquetes =
+      minimoEfectivo != null && minimoEfectivo > 0
+        ? Math.max(0, minimoEfectivo - stockActualPaquetes)
+        : 0;
 
     const consumoVentana = consumoInsumoEnVentana(params.movimientos, item, desdeEpochSec);
     const promedioDiario = diasVentana > 0 ? consumoVentana / diasVentana : 0;
     const objetivoCobertura = promedioDiario * diasCobertura;
 
     let necesidad = Math.max(0, objetivoCobertura - saldoActual);
-    if (minimoUnd != null && saldoActual < minimoUnd) {
-      necesidad = Math.max(necesidad, minimoUnd - saldoActual);
+    if (stockMinimoUnd != null && saldoActual < stockMinimoUnd) {
+      necesidad = Math.max(necesidad, stockMinimoUnd - saldoActual);
     }
-    if (bajoMinimo && necesidad <= 0 && minimoUnd != null) {
-      necesidad = Math.max(objetivoCobertura, minimoUnd * 0.5, 1);
+    if (bajoMinimo && necesidad <= 0 && stockMinimoUnd != null) {
+      necesidad = Math.max(objetivoCobertura, stockMinimoUnd * 0.5, 1);
     }
 
     /**
-     * Necesidad en unidades. Pedido a matriz = paquetes enteros (ceil und / xN).
+     * Necesidad en unidades. Pedido a matriz = paquetes enteros (ceil und / xN),
+     * y al menos el faltante respecto al mínimo en paquetes.
      */
-    const paquetesPedir =
+    let paquetesPedir =
       enPaquetes && unidadesPorEmpaque > 1
         ? redondearAMultiploEmpaque(necesidad, unidadesPorEmpaque) / unidadesPorEmpaque
         : redondearAMultiploEmpaque(necesidad, 1);
+    if (faltantePaquetes > 0) {
+      paquetesPedir = Math.max(paquetesPedir, Math.ceil(faltantePaquetes - 1e-9));
+    }
     if (paquetesPedir <= 0) continue;
 
     const unidadesEquivPedir =
