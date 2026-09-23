@@ -1,15 +1,17 @@
 /**
  * Turnos de caja en el WMS (monitor administrativo + INFORME_VENTAS_MC al cerrar).
- * Base: `getWmsPublicBaseUrl()` → NEXT_PUBLIC_WMS_URL o NEXT_PUBLIC_WMS_API_URL.
+ * El navegador llama a rutas **del propio POS** (proxy server-side al WMS) para evitar CORS
+ * y "Failed to fetch" (p. ej. túnel Cloudflare / orígenes no whitelisteados).
  */
 import { nombreDisplayCajeroTurno, type CajeroTurnoDoc } from "@/lib/cajeros-turno-firestore";
-import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
 
 const UEN_DEFAULT = "Maria Chorizos";
 
-function baseRoot(): string {
-  return getWmsPublicBaseUrl().replace(/\/$/, "");
-}
+/** Proxies same-origin → WMS. */
+const PATH_IDENTIFICAR = "/api/pos_cajeros_identificar";
+const PATH_ABRIR = "/api/pos_turnos_abrir";
+const PATH_SINCRONIZAR = "/api/pos_turnos_sincronizar";
+const PATH_CERRAR = "/api/pos_turnos_cerrar";
 
 const BACKOFF_MS = [250, 700, 1600];
 
@@ -76,7 +78,7 @@ export async function wmsCajeroIdentificar(
   const body: Record<string, string> = {};
   appendCajeroToBody(body, cajero);
   try {
-    const res = await fetch(`${baseRoot()}/api/pos/cajeros/identificar`, {
+    const res = await fetch(PATH_IDENTIFICAR, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${t}`,
@@ -117,7 +119,7 @@ export async function wmsTurnosAbrir(
   const body: Record<string, string> = { uen };
   appendCajeroToBody(body, opts);
   try {
-    const res = await fetch(`${baseRoot()}/api/pos/turnos/abrir`, {
+    const res = await fetch(PATH_ABRIR, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${t}`,
@@ -169,7 +171,7 @@ export async function wmsTurnosSincronizarSilent(
     totalVenta: Math.round(Math.max(0, Number(totalVenta) || 0) * 100) / 100,
   };
   if (cajero) appendCajeroToBody(body as Record<string, string>, cajero);
-  const url = `${baseRoot()}/api/pos/turnos/sincronizar`;
+  const url = PATH_SINCRONIZAR;
 
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -212,7 +214,7 @@ export async function wmsTurnosCerrar(
   const uen = (opts?.uen ?? UEN_DEFAULT).trim() || UEN_DEFAULT;
   const plataformaMovil = (opts?.plataformaMovil ?? "POS GEB").trim() || "POS GEB";
   try {
-    const res = await fetch(`${baseRoot()}/api/pos/turnos/cerrar`, {
+    const res = await fetch(PATH_CERRAR, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${t}`,
