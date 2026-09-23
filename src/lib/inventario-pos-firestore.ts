@@ -459,9 +459,26 @@ export function querySnapshotToSaldoRows(snap: QuerySnapshot): InventarioSaldoRo
 }
 
 /**
+ * Une filas de ensamble WMS por clave de kit sin sumar cantidades.
+ * Sirve cuando la misma colección se consulta por `puntoVenta` y por `puntoVentaClave`
+ * (el mismo doc no debe contarse dos veces).
+ */
+export function unirSaldosEnsamblePorClave(filas: InventarioSaldoRow[]): InventarioSaldoRow[] {
+  const byKey = new Map<string, InventarioSaldoRow>();
+  for (const r of filas) {
+    byKey.set(claveParaConsolidarSaldoKit(r), r);
+  }
+  return Array.from(byKey.values());
+}
+
+/**
  * Une saldos POS (`posInventarioSaldos`) con ensamble WMS (`pos_inventario_ensamble_saldo`).
  * Misma clave lógica que `listarSaldosInventarioPorPuntoVenta` (`claveParaConsolidarSaldoKit`).
- * Si existe en ambas fuentes, consolida como: saldo POS + neto ensamble WMS.
+ *
+ * Si existe en ambas fuentes:
+ * - cantidad WMS **&lt; 0** → se interpreta como neto y se suma al cargue POS;
+ * - cantidad WMS **≥ 0** → prevalece el saldo absoluto del WMS (lo que escribe aplicar-venta-ensamble).
+ * Antes se sumaba siempre (cargue + absoluto), y en pantalla el stock «no bajaba» o subía tras vender.
  */
 export function mergeSaldosInventarioLegacyYEnsamble(
   legacy: InventarioSaldoRow[],
@@ -482,10 +499,16 @@ export function mergeSaldosInventarioLegacyYEnsamble(
     const l = legacyByKey.get(k);
     const e = ensambleByKey.get(k);
     if (l && e) {
+      const lCant = Number(l.cantidad || 0);
+      const eCant = Number(e.cantidad || 0);
+      const cantidad =
+        eCant < 0
+          ? Math.round((lCant + eCant) * 1000) / 1000
+          : Math.round(eCant * 1000) / 1000;
       out.push({
         insumoId: l.insumoId || e.insumoId,
         insumoSku: l.insumoSku || e.insumoSku,
-        cantidad: Math.round((Number(l.cantidad || 0) + Number(e.cantidad || 0)) * 1000) / 1000,
+        cantidad,
         ...(typeof l.costoUnitarioPromedio === "number" && Number.isFinite(l.costoUnitarioPromedio)
           ? { costoUnitarioPromedio: l.costoUnitarioPromedio }
           : typeof e.costoUnitarioPromedio === "number" && Number.isFinite(e.costoUnitarioPromedio)
@@ -510,7 +533,8 @@ export type InventarioSaldoConFuente = {
 
 /**
  * Igual que `mergeSaldosInventarioLegacyYEnsamble` pero indica si el valor consolidado proviene del WMS
- * o del POS. Si existe en ambas fuentes, usa saldo POS + neto ensamble WMS.
+ * o del POS. Si ambas existen y el WMS trae saldo absoluto (≥ 0), fuente = ensamble (prevalece).
+ * Si el WMS trae neto (&lt; 0), se suma al POS y fuente = legacy (editable).
  */
 export function mapSaldosLegacyYEnsambleConFuente(
   legacy: InventarioSaldoRow[],
@@ -535,11 +559,17 @@ export function mapSaldosLegacyYEnsambleConFuente(
         typeof l.costoUnitarioPromedio === "number" && Number.isFinite(l.costoUnitarioPromedio) && l.costoUnitarioPromedio >= 0
           ? l.costoUnitarioPromedio
           : undefined;
+      const lCant = Number(l.cantidad || 0);
+      const eCant = Number(e.cantidad || 0);
+      const ensambleEsNeto = eCant < 0;
+      const cantidad = ensambleEsNeto
+        ? Math.round((lCant + eCant) * 1000) / 1000
+        : Math.round(eCant * 1000) / 1000;
       map.set(ck, {
         row: {
           insumoId: l.insumoId || e.insumoId,
           insumoSku: l.insumoSku || e.insumoSku,
-          cantidad: Math.round((Number(l.cantidad || 0) + Number(e.cantidad || 0)) * 1000) / 1000,
+          cantidad,
           ...(typeof costoLegacy === "number"
             ? { costoUnitarioPromedio: costoLegacy }
             : typeof e.costoUnitarioPromedio === "number" &&
@@ -548,8 +578,8 @@ export function mapSaldosLegacyYEnsambleConFuente(
               ? { costoUnitarioPromedio: e.costoUnitarioPromedio }
               : {}),
         },
-        // Cuando existe saldo POS, permitimos ajuste desde la pantalla (impacta la parte legacy).
-        fuente: "legacy",
+        // Absoluto WMS: no editable aquí. Neto negativo: el ajuste POS sigue impactando el consolidado.
+        fuente: ensambleEsNeto ? "legacy" : "ensamble",
         ...(typeof costoLegacy === "number" ? { costoUnitarioDesdeLegacy: costoLegacy } : {}),
       });
       continue;
@@ -716,8 +746,8 @@ export async function listarSaldosInventarioConFuentePorPuntoVenta(puntoVenta: s
 /**
  * Saldos mostrados en Inventarios: lee `posInventarioSaldos` (cargue/ajustes POS) y
  * `pos_inventario_ensamble_saldo` (WMS tras ventas). Fusiona por **clave de kit** (`insumoSku` o
- * sufijo tras `sheet-`/`gs-` en `insumoId`) y, cuando existe en ambas fuentes, calcula
- * `saldo final = saldo POS + neto ensamble WMS`.
+ * sufijo tras `sheet-`/`gs-` en `insumoId`). Si ambas fuentes existen: prevalece el absoluto WMS
+ * (≥ 0); si el WMS trae neto (&lt; 0), `saldo final = saldo POS + neto`.
  */
 export async function listarSaldosInventarioPorPuntoVenta(puntoVenta: string): Promise<InventarioSaldoRow[]> {
   const x = await listarSaldosInventarioConFuentePorPuntoVenta(puntoVenta);
