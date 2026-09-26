@@ -329,6 +329,40 @@ export function claveParaConsolidarSaldoKit(r: InventarioSaldoRow): string {
   return id;
 }
 
+function esIdSaldoLegacyPrefijo(insumoId: string): boolean {
+  return /^(sheet|gs|firestore)-/i.test(insumoId.trim());
+}
+
+/**
+ * Si hay dos documentos para el mismo SKU (ej. `FRAN-KIT-5` con 400 y `sheet-frankit5` con 0),
+ * gana el canónico. El leftover de hoja no debe tapar el cargue actual.
+ */
+export function elegirSaldoPreferido(
+  actual: InventarioSaldoRow | undefined,
+  candidato: InventarioSaldoRow
+): InventarioSaldoRow {
+  if (!actual) return candidato;
+  const skuActual = normSkuInventario(actual.insumoSku);
+  const skuCand = normSkuInventario(candidato.insumoSku);
+  const canonActual = Boolean(skuActual) && normSkuInventario(actual.insumoId) === skuActual;
+  const canonCand = Boolean(skuCand) && normSkuInventario(candidato.insumoId) === skuCand;
+  if (canonCand && !canonActual) return candidato;
+  if (canonActual && !canonCand) return actual;
+  const legacyActual = esIdSaldoLegacyPrefijo(actual.insumoId);
+  const legacyCand = esIdSaldoLegacyPrefijo(candidato.insumoId);
+  if (legacyActual && !legacyCand) return candidato;
+  if (legacyCand && !legacyActual) return actual;
+  return actual;
+}
+
+export function upsertSaldoPorClaveKit(
+  map: Map<string, InventarioSaldoRow>,
+  row: InventarioSaldoRow
+): void {
+  const key = claveParaConsolidarSaldoKit(row);
+  map.set(key, elegirSaldoPreferido(map.get(key), row));
+}
+
 /** Resuelve un ítem del catálogo por SKU o por id de documento (misma lógica que en recibos / hoja). */
 export function insumoKitDesdeCatalogoPorSku(catalog: InsumoKitItem[], skuOCodigo: string): InsumoKitItem | null {
   const k = normSkuInventario(skuOCodigo);
@@ -401,21 +435,19 @@ export function insumoStickerDomicilioParaLlevarResolver(
  */
 export function cantidadSaldoParaInsumoKit(item: InsumoKitItem, rows: InventarioSaldoRow[]): number {
   const k = normSkuInventario(item.sku);
+  let elegido: InventarioSaldoRow | undefined;
   if (k) {
     for (const r of rows) {
       if (normSkuInventario(r.insumoSku) === k || normSkuInventario(r.insumoId) === k) {
-        return Number(r.cantidad) || 0;
+        elegido = elegirSaldoPreferido(elegido, r);
       }
     }
   }
-  const direct = rows.find((r) => r.insumoId === item.id);
-  if (direct) return Number(direct.cantidad) || 0;
-  if (!k) return 0;
-  let sum = 0;
-  for (const r of rows) {
-    if (normSkuInventario(r.insumoSku) === k) sum += Number(r.cantidad) || 0;
+  if (!elegido) {
+    const direct = rows.find((r) => r.insumoId === item.id);
+    if (direct) elegido = direct;
   }
-  return sum;
+  return elegido ? Number(elegido.cantidad) || 0 : 0;
 }
 
 /**
@@ -468,9 +500,9 @@ export function mergeSaldosInventarioLegacyYEnsamble(
   ensamble: InventarioSaldoRow[]
 ): InventarioSaldoRow[] {
   const legacyByKey = new Map<string, InventarioSaldoRow>();
-  for (const r of legacy) legacyByKey.set(claveParaConsolidarSaldoKit(r), r);
+  for (const r of legacy) upsertSaldoPorClaveKit(legacyByKey, r);
   const ensambleByKey = new Map<string, InventarioSaldoRow>();
-  for (const r of ensamble) ensambleByKey.set(claveParaConsolidarSaldoKit(r), r);
+  for (const r of ensamble) upsertSaldoPorClaveKit(ensambleByKey, r);
 
   const keysMark = new Map<string, true>();
   legacyByKey.forEach((_, k) => keysMark.set(k, true));
@@ -517,9 +549,9 @@ export function mapSaldosLegacyYEnsambleConFuente(
   ensamble: InventarioSaldoRow[]
 ): Map<string, InventarioSaldoConFuente> {
   const legacyByKey = new Map<string, InventarioSaldoRow>();
-  for (const r of legacy) legacyByKey.set(claveParaConsolidarSaldoKit(r), r);
+  for (const r of legacy) upsertSaldoPorClaveKit(legacyByKey, r);
   const ensambleByKey = new Map<string, InventarioSaldoRow>();
-  for (const r of ensamble) ensambleByKey.set(claveParaConsolidarSaldoKit(r), r);
+  for (const r of ensamble) upsertSaldoPorClaveKit(ensambleByKey, r);
 
   const keysMark = new Map<string, true>();
   legacyByKey.forEach((_, k) => keysMark.set(k, true));
@@ -571,6 +603,42 @@ export function mapSaldosLegacyYEnsambleConFuente(
     }
   }
   return map;
+}
+
+async function listarSaldosInventarioAdminApi(puntoVenta: string): Promise<{
+  saldoRows: InventarioSaldoRow[];
+  porClave: Map<string, InventarioSaldoConFuente>;
+  legacyRows: InventarioSaldoRow[];
+  ensambleRows: InventarioSaldoRow[];
+} | null> {
+  if (typeof window === "undefined" || !auth?.currentUser) return null;
+  const pv = puntoVenta.replace(/\u00a0/g, " ").trim();
+  if (!pv) return null;
+  try {
+    const token = await auth.currentUser.getIdToken();
+    const res = await fetch(`/api/pos_inventario_saldos?puntoVenta=${encodeURIComponent(pv)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      ok?: boolean;
+      saldoRows?: InventarioSaldoRow[];
+      legacyRows?: InventarioSaldoRow[];
+      ensambleRows?: InventarioSaldoRow[];
+    };
+    if (!data.ok || !Array.isArray(data.saldoRows)) return null;
+    const legacyRows = Array.isArray(data.legacyRows) ? data.legacyRows : [];
+    const ensambleRows = Array.isArray(data.ensambleRows) ? data.ensambleRows : [];
+    return {
+      saldoRows: data.saldoRows,
+      legacyRows,
+      ensambleRows,
+      porClave: mapSaldosLegacyYEnsambleConFuente(legacyRows, ensambleRows),
+    };
+  } catch {
+    return null;
+  }
 }
 
 /** Prefijo en `notas` de movimientos creados desde «clic en saldo» en Inventarios (historial filtrable). */
@@ -659,6 +727,8 @@ export async function listarSaldosInventarioConFuentePorPuntoVenta(puntoVenta: s
     legacyRows: [],
     ensambleRows: [],
   });
+  const desdeApi = await listarSaldosInventarioAdminApi(puntoVenta);
+  if (desdeApi) return desdeApi;
   if (!db) return empty();
   const pv = puntoVenta.replace(/\u00a0/g, " ").trim();
   if (!pv) return empty();
@@ -668,7 +738,7 @@ export async function listarSaldosInventarioConFuentePorPuntoVenta(puntoVenta: s
     const qLegacy = query(collection(db, POS_INVENTARIO_SALDOS_COLLECTION), where("puntoVenta", "==", pv));
     const snapLegacy = await getDocs(qLegacy);
     for (const r of querySnapshotToSaldoRows(snapLegacy)) {
-      legacyByClave.set(claveParaConsolidarSaldoKit(r), r);
+      upsertSaldoPorClaveKit(legacyByClave, r);
     }
   } catch {
     /* ignore */
@@ -697,7 +767,7 @@ export async function listarSaldosInventarioConFuentePorPuntoVenta(puntoVenta: s
       }
     }
     for (const r of Array.from(byDocId.values())) {
-      ensByClave.set(claveParaConsolidarSaldoKit(r), r);
+      upsertSaldoPorClaveKit(ensByClave, r);
     }
   } catch {
     /* ignore: colección nueva o reglas */

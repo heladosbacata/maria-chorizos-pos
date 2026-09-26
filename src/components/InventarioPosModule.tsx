@@ -468,6 +468,15 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     let legacy: InventarioSaldoRow[] = [];
     let ensPorPv: InventarioSaldoRow[] = [];
     let ensPorClave: InventarioSaldoRow[] = [];
+    const cargarSaldosFallback = async () => {
+      try {
+        const saldosPack = await listarSaldosInventarioConFuentePorPuntoVenta(pv);
+        setSaldosPorClaveMap(saldosPack.porClave);
+        setSaldoRows(saldosPack.saldoRows);
+      } catch {
+        /* Mantiene el último saldo visible si falla la lectura en tiempo real. */
+      }
+    };
     const pushMerged = () => {
       const ens = mergeSaldosInventarioLegacyYEnsamble(ensPorPv, ensPorClave);
       const mapFuente = mapSaldosLegacyYEnsambleConFuente(legacy, ens);
@@ -478,12 +487,15 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     const unsubLeg = onSnapshot(
       qLeg,
       (snap) => {
+        if (snap.empty) {
+          void cargarSaldosFallback();
+          return;
+        }
         legacy = querySnapshotToSaldoRows(snap);
         pushMerged();
       },
       () => {
-        legacy = [];
-        pushMerged();
+        void cargarSaldosFallback();
       }
     );
     const qEns = query(collection(db, POS_INVENTARIO_ENSAMBLE_SALDOS_COLLECTION), where("puntoVenta", "==", pv));
@@ -494,8 +506,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
         pushMerged();
       },
       () => {
-        ensPorPv = [];
-        pushMerged();
+        void cargarSaldosFallback();
       }
     );
     const pvClave = normPuntoVentaCatalogo(pv);
@@ -512,8 +523,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
               pushMerged();
             },
             () => {
-              ensPorClave = [];
-              pushMerged();
+              void cargarSaldosFallback();
             }
           )
         : null;
