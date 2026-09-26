@@ -657,7 +657,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
               Producto
             </h3>
             <p className="mt-1 text-xs text-gray-600">
-              Buscá y tocá un ítem del catálogo. A la derecha cargá cantidad y lote. Si el producto es un paquete (ej.
+              Buscá y tocá un ítem del catálogo. A la derecha cargá cantidad y lote (* obligatorio). Si el producto es un paquete (ej.
               arepas x6), indicá cuántos paquetes llegaron; al guardar se convierten a unidades (×x6) para que el WMS
               descuente 1 und por cada venta.
             </p>
@@ -787,8 +787,8 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
               Cantidad y lote
             </h3>
             <p className="mt-1 text-xs text-gray-600">
-              Misma fecha para todo el cargue. El lote es el del paquete que llegó. El precio de compra es obligatorio
-              para valorizar el inventario. Podés sumar varios productos y al final registrás de una vez.
+              Misma fecha para todo el cargue. El lote del paquete es obligatorio (*). El precio de compra es
+              obligatorio para valorizar el inventario. Podés sumar varios productos y al final registrás de una vez.
             </p>
             {insumoSel && (presentacionSel.esPaquete || presentacionSel.esBolsaMl) ? (
               <div
@@ -833,16 +833,31 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                 ) : null}
               </div>
               <div className="min-w-0">
-                <label className="block text-sm font-semibold text-gray-800">Lote</label>
+                <label htmlFor="cargue-lote" className="block text-sm font-semibold text-gray-800">
+                  Lote <span className="text-red-600" aria-hidden="true">*</span>
+                  <span className="sr-only">obligatorio</span>
+                </label>
                 <input
+                  id="cargue-lote"
                   type="text"
                   value={loteLinea}
                   onChange={(e) => setLoteLinea(e.target.value)}
                   placeholder={insumoSel ? "Ej. L240315" : "—"}
                   disabled={!insumoSel}
+                  required
+                  aria-required="true"
                   autoComplete="off"
-                  className="mt-2 w-full min-w-0 rounded-xl border-2 border-gray-200 bg-white px-3 py-3 text-base focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:bg-gray-100 disabled:text-gray-400 sm:px-4"
+                  className={`mt-2 w-full min-w-0 rounded-xl border-2 bg-white px-3 py-3 text-base focus:outline-none focus:ring-2 disabled:bg-gray-100 disabled:text-gray-400 sm:px-4 ${
+                    insumoSel && !loteLinea.trim()
+                      ? "border-amber-400 focus:border-amber-500 focus:ring-amber-200"
+                      : "border-gray-200 focus:border-slate-500 focus:ring-slate-200"
+                  }`}
                 />
+                {insumoSel && !loteLinea.trim() ? (
+                  <p className="mt-1.5 text-xs font-semibold text-amber-800">
+                    Obligatorio: escriba el lote para poder agregar el producto.
+                  </p>
+                ) : null}
               </div>
             </div>
             <div className="mt-3">
@@ -885,7 +900,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
             <button
               type="button"
               onClick={agregarLineaALista}
-              disabled={cargandoCat || !insumoSel || precioOficialSel == null}
+              disabled={cargandoCat || !insumoSel || precioOficialSel == null || !loteLinea.trim()}
               className="mt-5 w-full rounded-xl border-2 border-primary-600 bg-primary-600 py-3.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-primary-700 disabled:border-gray-300 disabled:bg-gray-200 disabled:text-gray-500 disabled:opacity-90"
             >
               Agregar a la lista
@@ -912,7 +927,9 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                     <th className="px-3 py-2">Código</th>
                     <th className="px-3 py-2">Descripción</th>
                     <th className="min-w-[6rem] px-3 py-2 text-right">Cantidad</th>
-                    <th className="min-w-[7rem] px-3 py-2">Lote</th>
+                    <th className="min-w-[7rem] px-3 py-2">
+                      Lote <span className="text-red-600" aria-hidden="true">*</span>
+                    </th>
                     <th className="min-w-[7rem] px-3 py-2 text-right">Precio compra</th>
                     <th className="min-w-[7.5rem] px-3 py-2 text-right">Total</th>
                     <th className="w-20 px-3 py-2" />
@@ -979,7 +996,9 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                             }
                           }}
                           className="w-full min-w-[5rem] rounded-lg border border-gray-300 px-2 py-1.5 text-sm focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-200"
-                          aria-label={`Lote ${line.insumo.sku}`}
+                          required
+                          aria-required="true"
+                          aria-label={`Lote obligatorio ${line.insumo.sku}`}
                         />
                       </td>
                       <td className="px-3 py-2 text-right align-middle tabular-nums text-gray-800">
