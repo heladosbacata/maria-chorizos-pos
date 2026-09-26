@@ -12,6 +12,7 @@ const RUBRO_ENSAMBLE_RE = /\b(ensamble|combo|paquete|producto\s*pos|producto\s*t
 export function itemEsEnsambleOCatalogoPos(item: InsumoKitItem): boolean {
   const cat = (item.categoria ?? "").trim();
   const catNorm = cat.toLowerCase().replace(/\s+/g, " ");
+  if (catNorm === "db_pos_composicion") return false;
   if (catNorm === CATEGORIA_POS_PRODUCTOS) return true;
   if (cat && RUBRO_ENSAMBLE_RE.test(cat)) return true;
   // Variantes POS: «SKU · Etiqueta» (p. ej. GAS-PV-6 · Con Gas).

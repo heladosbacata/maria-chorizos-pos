@@ -15,6 +15,7 @@ import {
   resolveSheetsServiceAccountJsonFromEnv,
 } from "@/lib/google-sheets-service-account-read";
 import type { InsumoKitItem } from "@/types/inventario-pos";
+import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
 
 type SheetSetupHint = {
   clientEmail: string;
@@ -28,6 +29,7 @@ type OkResponse = {
   ok: true;
   data: InsumoKitItem[];
   fuente: string;
+  totalComposicion?: number;
   /** La hoja tiene filas pero ninguna coincidió con el PV; se devolvieron todas las filas (PV vacío en filtro). */
   pvFiltroSinCoincidencias?: boolean;
 };
@@ -51,6 +53,86 @@ function sheetSetupFromEnv(): SheetSetupHint | undefined {
   };
 }
 
+type WmsCatalogoInsumo = {
+  sku?: string;
+  descripcion?: string;
+  categoria?: string;
+  unidad?: string;
+  factorUnidadesConsumo?: number;
+  unidadCompra?: string;
+  unidadConsumo?: string;
+  precioCompraEmpaque?: number;
+  precioCompraUnitario?: number;
+};
+
+function normalizarSkuId(sku: string): string {
+  return sku
+    .trim()
+    .replace(/\//g, "_")
+    .replace(/\s+/g, "_")
+    .slice(0, 300);
+}
+
+function wmsItemAInsumoKitItem(item: WmsCatalogoInsumo): InsumoKitItem | null {
+  const sku = String(item.sku ?? "").trim();
+  if (!sku) return null;
+  const descripcion = String(item.descripcion ?? "").trim() || sku;
+  const categoria = String(item.categoria ?? "").trim();
+  const unidad = String(item.unidad ?? item.unidadConsumo ?? "").trim() || "und";
+  const factorUnidadesConsumo =
+    typeof item.factorUnidadesConsumo === "number" &&
+    Number.isFinite(item.factorUnidadesConsumo) &&
+    item.factorUnidadesConsumo > 0
+      ? Math.round(item.factorUnidadesConsumo * 10000) / 10000
+      : undefined;
+  const unidadCompra = String(item.unidadCompra ?? "").trim();
+  const unidadConsumo = String(item.unidadConsumo ?? "").trim();
+  const precioCompraEmpaque =
+    typeof item.precioCompraEmpaque === "number" &&
+    Number.isFinite(item.precioCompraEmpaque) &&
+    item.precioCompraEmpaque > 0
+      ? Math.round(item.precioCompraEmpaque * 100) / 100
+      : undefined;
+  const precioCompraUnitario =
+    typeof item.precioCompraUnitario === "number" &&
+    Number.isFinite(item.precioCompraUnitario) &&
+    item.precioCompraUnitario > 0
+      ? Math.round(item.precioCompraUnitario * 100) / 100
+      : undefined;
+  return {
+    id: normalizarSkuId(sku),
+    sku,
+    descripcion,
+    unidad,
+    ...(categoria ? { categoria } : {}),
+    ...(factorUnidadesConsumo != null ? { factorUnidadesConsumo } : {}),
+    ...(unidadCompra ? { unidadCompra } : {}),
+    ...(unidadConsumo ? { unidadConsumo } : {}),
+    ...(precioCompraEmpaque != null ? { precioCompraEmpaque } : {}),
+    ...(precioCompraUnitario != null ? { precioCompraUnitario } : {}),
+  };
+}
+
+async function obtenerCatalogoDesdeWms(): Promise<OkResponse | null> {
+  const base = getWmsPublicBaseUrl();
+  const res = await fetch(`${base}/api/pos/insumos-inventario/listar`, { cache: "no-store" });
+  const json = (await res.json().catch(() => ({}))) as {
+    ok?: boolean;
+    data?: WmsCatalogoInsumo[];
+    fuente?: string;
+    totalComposicion?: number;
+  };
+  if (!res.ok || json.ok !== true || !Array.isArray(json.data) || json.data.length === 0) return null;
+  const data = json.data.map(wmsItemAInsumoKitItem).filter((x): x is InsumoKitItem => Boolean(x));
+  if (data.length === 0) return null;
+  return {
+    ok: true,
+    data,
+    fuente: json.fuente ? `wms:${json.fuente}` : "wms",
+    ...(typeof json.totalComposicion === "number" ? { totalComposicion: json.totalComposicion } : {}),
+  };
+}
+
 /**
  * Catálogo de insumos para cargue manual desde Google Sheets.
  *
@@ -69,6 +151,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   const puntoVenta = typeof req.query.puntoVenta === "string" ? req.query.puntoVenta.trim() : "";
 
   try {
+    const wms = await obtenerCatalogoDesdeWms();
+    if (wms) return res.status(200).json(wms);
+
     const { rows, fuente } = await obtenerFilasDesdeSheet();
     let data = insumosDesdeGrilla(rows, puntoVenta || null, "sheet");
     let pvFiltroSinCoincidencias = false;

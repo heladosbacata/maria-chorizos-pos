@@ -345,11 +345,17 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       const items = catalogoInsumosParaCargue(sheetItems, listaFs);
 
       if (items.length > 0) {
+        const fuenteActual: FuenteCatalogoInventario =
+          sheetRes.ok && sheetRes.fuente?.startsWith("wms")
+            ? "wms"
+            : sheetItems.length > 0
+              ? "sheet"
+              : "firestore";
         setInsumos(items);
-        setFuenteCatalogo(sheetItems.length > 0 ? "sheet" : "firestore");
+        setFuenteCatalogo(fuenteActual);
         guardarCacheCatalogoInventario(pv, {
           items,
-          fuenteCatalogo: sheetItems.length > 0 ? "sheet" : "firestore",
+          fuenteCatalogo: fuenteActual,
           incluyeCatalogoPos: false,
           productosPosAgregados: 0,
         });
@@ -719,7 +725,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       insumos,
       saldoRows,
       mapaPreciosCarrito: mapaPreciosCarritoRespaldo,
-      fuenteCatalogo: fuenteCatalogo === "sheet" || fuenteCatalogo === "firestore" ? fuenteCatalogo : null,
+      fuenteCatalogo,
     }).resumen;
   }, [pv, insumos, saldoRows, mapaPreciosCarritoRespaldo, fuenteCatalogo]);
 
@@ -785,9 +791,9 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
                 ? "hoja Google (DB_Franquicia_Insumos_Kit)"
                 : fuenteCatalogo === "firestore"
                   ? `Firestore «${CATALOGO_INSUMOS_KIT_COLLECTION}»`
-                  : "catálogo POS (DB_POS_Productos / WMS)"}
+                  : "WMS (insumos + componentes de DB_POS_Composicion)"}
               {" · "}
-              solo insumos cargables (sin ensambles POS)
+              insumos cargables y componentes reales de ensamble
             </p>
           )}
           <p className="mt-2 text-xs font-medium text-primary-700">Punto de venta: {pv}</p>
@@ -1855,7 +1861,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
         insumos={insumos}
         saldoRows={saldoRows}
         mapaPreciosCarrito={mapaPreciosCarritoRespaldo}
-        fuenteCatalogo={fuenteCatalogo === "sheet" || fuenteCatalogo === "firestore" ? fuenteCatalogo : null}
+        fuenteCatalogo={fuenteCatalogo}
         emailSesion={email}
       />
     </div>

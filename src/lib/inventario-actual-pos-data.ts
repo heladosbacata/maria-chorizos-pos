@@ -17,7 +17,7 @@ export type FilaInformeInventarioActual = {
 export type DatosInformeInventarioActual = {
   puntoVenta: string;
   generadoIso: string;
-  fuenteCatalogo: "sheet" | "firestore" | null;
+  fuenteCatalogo: "sheet" | "firestore" | "wms" | null;
   filas: FilaInformeInventarioActual[];
   resumen: {
     productosCatalogo: number;
@@ -32,7 +32,7 @@ export function construirDatosInformeInventarioActual(params: {
   insumos: InsumoKitItem[];
   saldoRows: InventarioSaldoRow[];
   mapaPreciosCarrito: MapaPreciosCarrito;
-  fuenteCatalogo: "sheet" | "firestore" | null;
+  fuenteCatalogo: "sheet" | "firestore" | "wms" | null;
   generado?: Date;
 }): DatosInformeInventarioActual {
   const filas: FilaInformeInventarioActual[] = [];

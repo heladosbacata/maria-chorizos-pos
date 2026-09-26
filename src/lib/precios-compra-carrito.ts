@@ -26,6 +26,8 @@ export function normNombreProductoInventario(s: string): string {
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
     .split(/[,|;/]/)[0]!
+    .replace(/\bx\s*\d+\b/g, "")
+    .replace(/\b(paquete|pack|und|unidad|unidades)\b/g, "")
     .replace(/\s+/g, " ")
     .trim();
 }

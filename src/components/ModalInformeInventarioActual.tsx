@@ -17,7 +17,7 @@ export interface ModalInformeInventarioActualProps {
   insumos: InsumoKitItem[];
   saldoRows: InventarioSaldoRow[];
   mapaPreciosCarrito: MapaPreciosCarrito;
-  fuenteCatalogo: "sheet" | "firestore" | null;
+  fuenteCatalogo: "sheet" | "firestore" | "wms" | null;
   emailSesion: string | null;
 }
 
