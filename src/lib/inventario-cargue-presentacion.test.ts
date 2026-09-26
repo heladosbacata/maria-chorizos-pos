@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  cantidadInventarioDesdeCargue,
   cantidadUnidadesDesdeCarguePaquetes,
   desglosarSaldoUnidades,
   inferirUnidadesPorPaquete,
   itemParecePaqueteCargue,
   presentacionCargueInventario,
+  textoPreviewCargue,
   vistaSaldoConEmpaque,
 } from "./inventario-cargue-presentacion";
 
@@ -43,6 +45,20 @@ describe("inventario-cargue-presentacion", () => {
     expect(p.esPaquete).toBe(false);
     expect(p.labelCantidad).toBe("Cantidad");
     expect(p.labelPrecio).toMatch(/und/i);
+  });
+
+  it("salsa se carga por bolsa de 1000 ml", () => {
+    const p = presentacionCargueInventario({
+      sku: "FRAN-KIT-3",
+      descripcion: "Salsa de Ajo 1 Litro",
+      unidad: "Unidad",
+    });
+    expect(p.esBolsaMl).toBe(true);
+    expect(p.mlPorBolsa).toBe(1000);
+    expect(p.labelCantidad).toMatch(/bolsas/i);
+    expect(p.ayuda).toMatch(/1[.\s]?000/);
+    expect(cantidadInventarioDesdeCargue(1, p)).toBe(1000);
+    expect(textoPreviewCargue(1, p)).toMatch(/1 bolsa de .+ ml = .+ ml al inventario/i);
   });
 
   it("no confunde 600ml con paquete x6", () => {

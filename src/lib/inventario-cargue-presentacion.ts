@@ -4,8 +4,12 @@ import { clasificarUnidadInventario } from "@/lib/inventario-valorizacion-unidad
 export type PresentacionCargueInventario = {
   /** El cajero debe indicar paquetes (no unidades sueltas). */
   esPaquete: boolean;
+  /** Salsa u otro líquido que se compra por bolsa y se stockea en ml. */
+  esBolsaMl: boolean;
   /** Unds por paquete si se pudo inferir del SKU/nombre (ej. x6 → 6). */
   unidadesPorPaquete: number | null;
+  /** ml por bolsa (ej. salsa = 1000). */
+  mlPorBolsa: number | null;
   labelCantidad: string;
   placeholderCantidad: string;
   labelPrecio: string;
@@ -49,6 +53,37 @@ export function inferirUnidadesPorPaquete(texto: string): number | null {
     if (Number.isFinite(n) && n >= 2 && n <= 500) return n;
   }
   return null;
+}
+
+function pareceSalsaOLiquidoBolsa(texto: string): boolean {
+  return (
+    /\b(salsa|chimichurri|aji|aderezo|vinagre|aceite|sirope|jarabe)\b/.test(texto) ||
+    /\bpt-sal-/.test(texto)
+  );
+}
+
+/**
+ * Salsa se compra por bolsa de 1000 ml (1 L). El cajero escribe 1 = 1 bolsa.
+ */
+export function inferirMlPorBolsaSalsa(
+  item: Pick<InsumoKitItem, "sku" | "descripcion" | "unidad">
+): number | null {
+  const t = textoBusqueda(item);
+  if (!pareceSalsaOLiquidoBolsa(t)) return null;
+  const mlMatch = /\b(\d{3,5})\s*ml\b/.exec(t);
+  if (mlMatch?.[1]) {
+    const n = Number(mlMatch[1]);
+    if (Number.isFinite(n) && n >= 250 && n <= 5000) return n;
+  }
+  if (
+    /\b1\s*litro/.test(t) ||
+    /\b1\s*lt\b/.test(t) ||
+    /(?:^|[\s_\-])1l(?:\b|$)/.test(t) ||
+    /\b1000\s*ml\b/.test(t)
+  ) {
+    return 1000;
+  }
+  return 1000;
 }
 
 export function itemParecePaqueteCargue(
@@ -160,7 +195,30 @@ export function vistaSaldoConEmpaque(
     };
   }
 
+  const mlPorBolsa = inferirMlPorBolsaSalsa(item);
   const unidadClas = clasificarUnidadInventario(item.unidad ?? "", item.descripcion ?? "", item.sku ?? "");
+  if (mlPorBolsa != null && mlPorBolsa >= 250 && (unidadClas === "ml" || mlPorBolsa > 0)) {
+    const mlEnteros = Math.round(saldoR);
+    const bolsas = Math.floor(mlEnteros / mlPorBolsa);
+    const restoMl = mlEnteros % mlPorBolsa;
+    const bolsaTxt = bolsas === 1 ? "1 bolsa" : `${bolsas.toLocaleString("es-CO")} bolsas`;
+    const textoPrincipal =
+      restoMl > 0 && bolsas > 0
+        ? `${bolsaTxt} + ${restoMl.toLocaleString("es-CO")} ml`
+        : bolsas > 0
+          ? `${bolsaTxt} de ${mlPorBolsa.toLocaleString("es-CO")} ml`
+          : `${mlEnteros.toLocaleString("es-CO")} ml`;
+    return {
+      unidadesPorPaquete: mlPorBolsa,
+      saldoEnPaquetes: false,
+      paquetes: bolsas,
+      unidadesSueltas: restoMl,
+      unidadesEquivalentes: mlEnteros,
+      textoPrincipal,
+      textoSecundario: `${mlEnteros.toLocaleString("es-CO")} ml en total · bolsa ${mlPorBolsa} ml`,
+      labelUnidad: `bolsa ${mlPorBolsa} ml`,
+    };
+  }
   if (unidadClas === "ml") {
     const mlEnteros = Math.round(saldoR);
     const litros = Math.round((mlEnteros / 1000) * 1000) / 1000;
@@ -200,7 +258,9 @@ export function presentacionCargueInventario(
   if (!item) {
     return {
       esPaquete: false,
+      esBolsaMl: false,
       unidadesPorPaquete: null,
+      mlPorBolsa: null,
       labelCantidad: "Cantidad",
       placeholderCantidad: "—",
       labelPrecio: "Precio de compra (COP / unidad)",
@@ -211,6 +271,21 @@ export function presentacionCargueInventario(
 
   const unidadesPorPaquete = inferirUnidadesPorPaquete(`${item.sku} ${item.descripcion}`);
   const esPaquete = itemParecePaqueteCargue(item);
+  const mlPorBolsa = inferirMlPorBolsaSalsa(item);
+
+  if (mlPorBolsa != null && mlPorBolsa >= 250) {
+    return {
+      esPaquete: false,
+      esBolsaMl: true,
+      unidadesPorPaquete: null,
+      mlPorBolsa,
+      labelCantidad: "Bolsas recibidas",
+      placeholderCantidad: "Ej. 1",
+      labelPrecio: "Precio de compra (COP / bolsa)",
+      labelUnidadCorta: `bolsa de ${mlPorBolsa.toLocaleString("es-CO")} ml`,
+      ayuda: `1 bolsa = ${mlPorBolsa.toLocaleString("es-CO")} ml. Escriba cuántas bolsas llegaron; al guardar entran ${mlPorBolsa.toLocaleString("es-CO")} ml por cada bolsa al inventario.`,
+    };
+  }
 
   if (!esPaquete) {
     const unidadClas = clasificarUnidadInventario(
@@ -221,7 +296,9 @@ export function presentacionCargueInventario(
     if (unidadClas === "ml") {
       return {
         esPaquete: false,
+        esBolsaMl: false,
         unidadesPorPaquete: null,
+        mlPorBolsa: null,
         labelCantidad: "Cantidad (ml)",
         placeholderCantidad: "Ej. 1000",
         labelPrecio: "Precio de compra (COP / litro)",
@@ -233,7 +310,9 @@ export function presentacionCargueInventario(
     if (unidadClas === "g") {
       return {
         esPaquete: false,
+        esBolsaMl: false,
         unidadesPorPaquete: null,
+        mlPorBolsa: null,
         labelCantidad: "Cantidad (g)",
         placeholderCantidad: "Ej. 1000",
         labelPrecio: "Precio de compra (COP / kg)",
@@ -245,7 +324,9 @@ export function presentacionCargueInventario(
     const u = (item.unidad ?? "").trim() || "und";
     return {
       esPaquete: false,
+      esBolsaMl: false,
       unidadesPorPaquete: null,
+      mlPorBolsa: null,
       labelCantidad: "Cantidad",
       placeholderCantidad: "Ej. 10",
       labelPrecio: `Precio de compra (COP / ${u})`,
@@ -257,7 +338,9 @@ export function presentacionCargueInventario(
   const nTxt = unidadesPorPaquete != null ? String(unidadesPorPaquete) : "varias";
   return {
     esPaquete: true,
+    esBolsaMl: false,
     unidadesPorPaquete,
+    mlPorBolsa: null,
     labelCantidad: "Cantidad de paquetes",
     placeholderCantidad: "Ej. 10 paquetes",
     labelPrecio: "Precio de compra (COP / paquete)",
@@ -267,4 +350,49 @@ export function presentacionCargueInventario(
         ? `Escriba cuántos paquetes llegaron. Al guardar se registran ${nTxt} und por paquete (el WMS descuenta 1 und por cada arepa/unidad vendida).`
         : "Escriba cuántos paquetes llegaron. Al guardar se convierten a unidades para que el ensamble WMS descuente bien.",
   };
+}
+
+/** Convierte lo que escribió el cajero a la cantidad que se guarda en inventario. */
+export function cantidadInventarioDesdeCargue(
+  cantidadIngresada: number,
+  pres: PresentacionCargueInventario
+): number {
+  if (!Number.isFinite(cantidadIngresada) || cantidadIngresada <= 0) return 0;
+  if (pres.esBolsaMl && pres.mlPorBolsa != null && pres.mlPorBolsa > 1) {
+    return Math.round(cantidadIngresada * pres.mlPorBolsa * 1000) / 1000;
+  }
+  if (pres.esPaquete && pres.unidadesPorPaquete != null && pres.unidadesPorPaquete >= 2) {
+    return cantidadUnidadesDesdeCarguePaquetes(cantidadIngresada, pres.unidadesPorPaquete);
+  }
+  return Math.round(cantidadIngresada * 1000) / 1000;
+}
+
+export function notaConversionCargue(
+  cantidadIngresada: number,
+  pres: PresentacionCargueInventario
+): string {
+  const guardada = cantidadInventarioDesdeCargue(cantidadIngresada, pres);
+  if (pres.esBolsaMl && pres.mlPorBolsa != null && pres.mlPorBolsa > 1) {
+    return ` · ${cantidadIngresada} bolsa(s) × ${pres.mlPorBolsa} ml = ${guardada} ml`;
+  }
+  if (pres.esPaquete && pres.unidadesPorPaquete != null && pres.unidadesPorPaquete >= 2) {
+    return ` · ${cantidadIngresada} paq. ×${pres.unidadesPorPaquete} = ${guardada} und`;
+  }
+  return "";
+}
+
+export function textoPreviewCargue(
+  cantidadIngresada: number,
+  pres: PresentacionCargueInventario
+): string | null {
+  if (!Number.isFinite(cantidadIngresada) || cantidadIngresada <= 0) return null;
+  const guardada = cantidadInventarioDesdeCargue(cantidadIngresada, pres);
+  if (pres.esBolsaMl && pres.mlPorBolsa != null) {
+    const bolsaTxt = cantidadIngresada === 1 ? "1 bolsa" : `${cantidadIngresada} bolsas`;
+    return `${bolsaTxt} de ${pres.mlPorBolsa.toLocaleString("es-CO")} ml = ${guardada.toLocaleString("es-CO")} ml al inventario`;
+  }
+  if (pres.esPaquete && pres.unidadesPorPaquete != null) {
+    return `${cantidadIngresada} paquete(s) × ${pres.unidadesPorPaquete} = ${guardada.toLocaleString("es-CO")} und al inventario`;
+  }
+  return null;
 }

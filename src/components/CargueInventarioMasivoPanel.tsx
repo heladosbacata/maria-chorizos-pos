@@ -25,7 +25,8 @@ import {
   type MapaPreciosCarrito,
 } from "@/lib/precios-compra-carrito";
 import {
-  cantidadUnidadesDesdeCarguePaquetes,
+  cantidadInventarioDesdeCargue,
+  notaConversionCargue,
   presentacionCargueInventario,
 } from "@/lib/inventario-cargue-presentacion";
 import { valorStockValorizado } from "@/lib/inventario-valorizacion-unidades";
@@ -282,15 +283,14 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
     for (let i = 0; i < lineas.length; i++) {
       const { insumo, cantidad, precioCompraUnitario } = lineas[i]!;
       const pres = presentacionCargueInventario(insumo);
-      const undPorPaq = pres.unidadesPorPaquete;
-      const cantidadGuardar =
-        pres.esPaquete && undPorPaq != null && undPorPaq >= 2
-          ? cantidadUnidadesDesdeCarguePaquetes(cantidad, undPorPaq)
-          : cantidad;
-      const notasExtra =
-        pres.esPaquete && undPorPaq != null && undPorPaq >= 2
-          ? ` · ${cantidad} paq. ×${undPorPaq} = ${cantidadGuardar} und · precio ${precioCompraUnitario}/paq`
-          : "";
+      const cantidadGuardar = cantidadInventarioDesdeCargue(cantidad, pres);
+      const notasExtra = `${notaConversionCargue(cantidad, pres)}${
+        pres.esBolsaMl
+          ? ` · precio ${precioCompraUnitario}/bolsa`
+          : pres.esPaquete
+            ? ` · precio ${precioCompraUnitario}/paq`
+            : ""
+      }`;
       setProgreso({ hecho: i, total: lineas.length });
       const r = await registrarMovimientoInventario({
         puntoVenta: pv,
@@ -517,16 +517,28 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
                       {cantidadSaldoParaInsumoKit(it, saldoRows)}
                     </td>
                     <td className="px-3 py-2">
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        value={cantidades[it.id] ?? ""}
-                        onChange={(e) => setCantidad(it.id, e.target.value)}
-                        disabled={enviando}
-                        placeholder="0"
-                        className="w-full rounded border border-gray-300 px-2 py-1.5 text-right font-mono text-sm tabular-nums focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 disabled:bg-gray-100"
-                        aria-label={`Cantidad cargue ${it.sku}`}
-                      />
+                      {(() => {
+                        const pres = presentacionCargueInventario(it);
+                        return (
+                          <div>
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              value={cantidades[it.id] ?? ""}
+                              onChange={(e) => setCantidad(it.id, e.target.value)}
+                              disabled={enviando}
+                              placeholder={pres.esBolsaMl ? "Bolsas" : pres.esPaquete ? "Paquetes" : "0"}
+                              className="w-full rounded border border-gray-300 px-2 py-1.5 text-right font-mono text-sm tabular-nums focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 disabled:bg-gray-100"
+                              aria-label={`Cantidad cargue ${it.sku}`}
+                            />
+                            {pres.esBolsaMl ? (
+                              <span className="mt-0.5 block text-[10px] font-semibold text-emerald-700">
+                                1 bolsa = {pres.mlPorBolsa?.toLocaleString("es-CO")} ml
+                              </span>
+                            ) : null}
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td className="px-3 py-2 text-right">
                       <span

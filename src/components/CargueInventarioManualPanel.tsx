@@ -8,8 +8,10 @@ import {
 import { fechaColombia, fechaHoraColombia, mediodiaColombiaDesdeYmd, ymdColombia } from "@/lib/fecha-colombia";
 import { catalogoInsumosParaCargue } from "@/lib/inventario-pos-catalogo";
 import {
-  cantidadUnidadesDesdeCarguePaquetes,
+  cantidadInventarioDesdeCargue,
+  notaConversionCargue,
   presentacionCargueInventario,
+  textoPreviewCargue,
 } from "@/lib/inventario-cargue-presentacion";
 import { valorStockValorizado } from "@/lib/inventario-valorizacion-unidades";
 import {
@@ -337,6 +339,11 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
   const insumoSel = useMemo(() => insumos.find((i) => i.id === insumoId) ?? null, [insumos, insumoId]);
 
   const presentacionSel = useMemo(() => presentacionCargueInventario(insumoSel), [insumoSel]);
+  const previewCargueSel = useMemo(() => {
+    const n = parseFloat(cantidad.replace(/,/g, "."));
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return textoPreviewCargue(n, presentacionSel);
+  }, [cantidad, presentacionSel]);
 
   const totalCargueCop = useMemo(
     () =>
@@ -344,7 +351,10 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
         const cant = Number(line.cantidad);
         const precio = Number(line.precioCompraUnitario);
         if (!Number.isFinite(cant) || !Number.isFinite(precio) || cant <= 0 || precio <= 0) return acc;
-        const v = valorStockValorizado(cant, precio, line.insumo);
+        const pres = presentacionCargueInventario(line.insumo);
+        const v = pres.esBolsaMl
+          ? cant * precio
+          : valorStockValorizado(cant, precio, line.insumo);
         return acc + (v ?? cant * precio);
       }, 0),
     [lineasCargue]
@@ -365,9 +375,11 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
     const cant = parseFloat(cantidad.replace(/,/g, "."));
     if (!Number.isFinite(cant) || cant <= 0) {
       setError(
-        presentacionCargueInventario(insumoSel).esPaquete
-          ? "Indicá cuántos paquetes llegaron (cantidad mayor que cero)."
-          : "Indicá una cantidad mayor que cero."
+        presentacionCargueInventario(insumoSel).esBolsaMl
+          ? "Indicá cuántas bolsas llegaron (cantidad mayor que cero)."
+          : presentacionCargueInventario(insumoSel).esPaquete
+            ? "Indicá cuántos paquetes llegaron (cantidad mayor que cero)."
+            : "Indicá una cantidad mayor que cero."
       );
       return;
     }
@@ -459,17 +471,12 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
     const fallos: string[] = [];
     for (const line of lineasCargue) {
       const pres = presentacionCargueInventario(line.insumo);
-      const undPorPaq = pres.unidadesPorPaquete;
-      const cantidadGuardar =
-        pres.esPaquete && undPorPaq != null && undPorPaq >= 2
-          ? cantidadUnidadesDesdeCarguePaquetes(line.cantidad, undPorPaq)
-          : line.cantidad;
-      /** Precio de hoja = COP/paquete; se guarda así (la valorización divide ÷xN). */
+      const cantidadGuardar = cantidadInventarioDesdeCargue(line.cantidad, pres);
+      /** Precio de hoja = COP/paquete o COP/bolsa; se guarda así (la valorización convierte). */
       const precioGuardar = line.precioCompraUnitario;
-      const notasExtra =
-        pres.esPaquete && undPorPaq != null && undPorPaq >= 2
-          ? ` · ${line.cantidad} paq. ×${undPorPaq} = ${cantidadGuardar} und · precio ${precioGuardar}/paq`
-          : "";
+      const notasExtra = `${notaConversionCargue(line.cantidad, pres)}${
+        pres.esBolsaMl ? ` · precio ${precioGuardar}/bolsa` : pres.esPaquete ? ` · precio ${precioGuardar}/paq` : ""
+      }`;
       const r = await registrarMovimientoInventario({
         puntoVenta: pv,
         insumo: line.insumo,
@@ -661,9 +668,15 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                   <span className="text-emerald-950"> · {insumoSel.descripcion}</span>
                   <span className="text-emerald-800/90">
                     {" "}
-                    ({presentacionSel.esPaquete ? presentacionSel.labelUnidadCorta : insumoSel.unidad})
+                    ({presentacionSel.esPaquete || presentacionSel.esBolsaMl
+                      ? presentacionSel.labelUnidadCorta
+                      : insumoSel.unidad})
                   </span>
-                  {presentacionSel.esPaquete ? (
+                  {presentacionSel.esBolsaMl ? (
+                    <span className="mt-1 block text-xs font-semibold text-emerald-900">
+                      Cargue por bolsas — 1 bolsa = {presentacionSel.mlPorBolsa?.toLocaleString("es-CO")} ml
+                    </span>
+                  ) : presentacionSel.esPaquete ? (
                     <span className="mt-1 block text-xs font-semibold text-emerald-900">
                       Cargue por paquetes — no por unidades sueltas
                     </span>
@@ -777,12 +790,14 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
               Misma fecha para todo el cargue. El lote es el del paquete que llegó. El precio de compra es obligatorio
               para valorizar el inventario. Podés sumar varios productos y al final registrás de una vez.
             </p>
-            {insumoSel && presentacionSel.esPaquete ? (
+            {insumoSel && (presentacionSel.esPaquete || presentacionSel.esBolsaMl) ? (
               <div
                 role="note"
                 className="mt-3 rounded-xl border-2 border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-950 shadow-sm"
               >
-                <p className="font-bold text-amber-900">¿Unidades o paquetes?</p>
+                <p className="font-bold text-amber-900">
+                  {presentacionSel.esBolsaMl ? "¿Mililitros o bolsas?" : "¿Unidades o paquetes?"}
+                </p>
                 <p className="mt-1 leading-snug">{presentacionSel.ayuda}</p>
               </div>
             ) : null}
@@ -801,13 +816,20 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                   disabled={!insumoSel}
                   className="mt-2 w-full min-w-0 rounded-xl border-2 border-gray-200 bg-white px-3 py-3 text-base tabular-nums focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200 disabled:bg-gray-100 disabled:text-gray-400 sm:px-4"
                 />
-                {insumoSel && presentacionSel.esPaquete ? (
+                {insumoSel && presentacionSel.esBolsaMl ? (
+                  <p className="mt-1.5 text-xs font-semibold text-emerald-800">
+                    1 bolsa = {presentacionSel.mlPorBolsa?.toLocaleString("es-CO")} ml
+                  </p>
+                ) : insumoSel && presentacionSel.esPaquete ? (
                   <p className="mt-1.5 text-xs font-semibold text-emerald-800">
                     Solo paquetes recibidos
                     {presentacionSel.unidadesPorPaquete != null
                       ? ` · 1 paquete = ${presentacionSel.unidadesPorPaquete} und`
                       : ""}
                   </p>
+                ) : null}
+                {previewCargueSel ? (
+                  <p className="mt-1 text-xs font-medium text-emerald-900">{previewCargueSel}</p>
                 ) : null}
               </div>
               <div className="min-w-0">
@@ -845,7 +867,11 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
               <p className="mt-3 text-sm text-gray-700">
                 Se registra como:{" "}
                 <span className="font-semibold text-gray-900">{presentacionSel.labelUnidadCorta}</span>
-                {presentacionSel.esPaquete ? (
+                {presentacionSel.esBolsaMl ? (
+                  <span className="block text-xs font-medium text-gray-600">
+                    El número que escriba = bolsas de {presentacionSel.mlPorBolsa?.toLocaleString("es-CO")} ml.
+                  </span>
+                ) : presentacionSel.esPaquete ? (
                   <span className="block text-xs font-medium text-gray-600">
                     El número que escriba = paquetes. El ensamble WMS descuenta las unidades de la receta.
                   </span>
@@ -895,9 +921,10 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                 <tbody className="divide-y divide-gray-100">
                   {lineasCargue.map((line) => {
                     const pres = presentacionCargueInventario(line.insumo);
-                    const totalLinea =
-                      valorStockValorizado(line.cantidad, line.precioCompraUnitario, line.insumo) ??
-                      line.cantidad * line.precioCompraUnitario;
+                    const totalLinea = pres.esBolsaMl
+                      ? line.cantidad * line.precioCompraUnitario
+                      : valorStockValorizado(line.cantidad, line.precioCompraUnitario, line.insumo) ??
+                        line.cantidad * line.precioCompraUnitario;
                     return (
                     <tr key={line.key} className="bg-white">
                       <td className="whitespace-nowrap px-3 py-2 font-mono text-xs text-gray-700">{line.insumo.sku}</td>
@@ -921,12 +948,18 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                           }}
                           className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-right text-sm tabular-nums focus:border-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-200"
                           aria-label={
-                            pres.esPaquete
-                              ? `Cantidad de paquetes ${line.insumo.sku}`
-                              : `Cantidad ${line.insumo.sku}`
+                            pres.esBolsaMl
+                              ? `Cantidad de bolsas ${line.insumo.sku}`
+                              : pres.esPaquete
+                                ? `Cantidad de paquetes ${line.insumo.sku}`
+                                : `Cantidad ${line.insumo.sku}`
                           }
                         />
-                        {pres.esPaquete ? (
+                        {pres.esBolsaMl ? (
+                          <span className="mt-0.5 block text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
+                            bolsas
+                          </span>
+                        ) : pres.esPaquete ? (
                           <span className="mt-0.5 block text-[10px] font-semibold uppercase tracking-wide text-emerald-700">
                             paquetes
                           </span>
@@ -952,13 +985,15 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                       <td className="px-3 py-2 text-right align-middle tabular-nums text-gray-800">
                         {formatPrecioCompraCop(line.precioCompraUnitario)}
                         <span className="mt-0.5 block text-[10px] font-medium text-gray-500">
-                          {pres.esPaquete
-                            ? "COP/paquete"
-                            : pres.labelUnidadCorta === "ml"
-                              ? "COP/L"
-                              : pres.labelUnidadCorta === "g"
-                                ? "COP/kg"
-                                : "COP/u."}
+                          {pres.esBolsaMl
+                            ? "COP/bolsa"
+                            : pres.esPaquete
+                              ? "COP/paquete"
+                              : pres.labelUnidadCorta === "ml"
+                                ? "COP/L"
+                                : pres.labelUnidadCorta === "g"
+                                  ? "COP/kg"
+                                  : "COP/u."}
                         </span>
                       </td>
                       <td className="px-3 py-2 text-right align-middle">
@@ -966,13 +1001,15 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
                           {formatPrecioCompraCop(totalLinea)}
                         </span>
                         <span className="mt-0.5 block text-[10px] font-medium text-gray-500">
-                          {pres.esPaquete
-                            ? `${line.cantidad} paq. × precio`
-                            : pres.labelUnidadCorta === "ml"
-                              ? `${line.cantidad} ml ÷1000 × $/L`
-                              : pres.labelUnidadCorta === "g"
-                                ? `${line.cantidad} g ÷1000 × $/kg`
-                                : `${line.cantidad} × precio`}
+                          {pres.esBolsaMl
+                            ? `${line.cantidad} bolsa(s) × precio`
+                            : pres.esPaquete
+                              ? `${line.cantidad} paq. × precio`
+                              : pres.labelUnidadCorta === "ml"
+                                ? `${line.cantidad} ml ÷1000 × $/L`
+                                : pres.labelUnidadCorta === "g"
+                                  ? `${line.cantidad} g ÷1000 × $/kg`
+                                  : `${line.cantidad} × precio`}
                         </span>
                       </td>
                       <td className="px-3 py-2 align-middle">
