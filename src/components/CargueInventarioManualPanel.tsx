@@ -126,6 +126,7 @@ type LineaCargueBorrador = {
   precioCompraEmpaque: number;
   /** Precio de compra unitario en COP (obligatorio al registrar). */
   precioCompraUnitario: number;
+  precioCompraManual?: boolean;
 };
 
 /** Une anotaciones globales del cargue con el lote por línea (tope Firestore 500). */
@@ -136,6 +137,13 @@ function notasMovimientoCargueLinea(anotacionesGlobales: string, line: LineaCarg
   if (l) parts.push(`Lote: ${l}`);
   const resumen = resumenConversionCargue(line.insumo, line.cantidadCompra);
   if (resumen) parts.push(`Cargue: ${resumen}`);
+  if (line.precioCompraManual) {
+    parts.push(
+      `Precio compra manual: paquete ${formatPrecioCompraCop(line.precioCompraEmpaque)} / unidad ${formatPrecioCompraCop(
+        line.precioCompraUnitario
+      )}`
+    );
+  }
   if (g) parts.push(g);
   return parts.join(" · ").slice(0, 500);
 }
@@ -154,6 +162,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
   const [fechaCargue, setFechaCargue] = useState(fechaHoyIsoColombia);
   const [cantidad, setCantidad] = useState("");
   const [loteLinea, setLoteLinea] = useState("");
+  const [precioManualEmpaque, setPrecioManualEmpaque] = useState("");
   const [lineasCargue, setLineasCargue] = useState<LineaCargueBorrador[]>([]);
   const [anotaciones, setAnotaciones] = useState("");
   const [enviando, setEnviando] = useState(false);
@@ -335,15 +344,35 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
 
   const insumoSel = useMemo(() => insumos.find((i) => i.id === insumoId) ?? null, [insumos, insumoId]);
 
+  useEffect(() => {
+    setPrecioManualEmpaque("");
+  }, [insumoId]);
+
   const precioOficialSel = useMemo(() => {
     if (!insumoSel) return null;
     return precioCompraUnitarioInsumo(insumoSel, preciosCarritoMap);
   }, [insumoSel, preciosCarritoMap]);
 
-  const precioEmpaqueSel = useMemo(() => {
+  const precioEmpaqueOficialSel = useMemo(() => {
     if (!insumoSel) return null;
     return precioCompraEmpaqueInsumo(insumoSel, preciosCarritoMap);
   }, [insumoSel, preciosCarritoMap]);
+
+  const precioManualEmpaqueSel = useMemo(() => {
+    const n = parseFloat(precioManualEmpaque.replace(/,/g, "."));
+    return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
+  }, [precioManualEmpaque]);
+
+  const precioEmpaqueSel = precioEmpaqueOficialSel ?? precioManualEmpaqueSel;
+
+  const precioUnitarioSel = useMemo(() => {
+    if (!insumoSel) return null;
+    if (precioOficialSel != null && precioOficialSel > 0) return precioOficialSel;
+    if (precioManualEmpaqueSel == null) return null;
+    const factor = factorEmpaqueInsumo(insumoSel);
+    const f = factor > 0 ? factor : 1;
+    return Math.round((precioManualEmpaqueSel / f) * 100) / 100;
+  }, [insumoSel, precioOficialSel, precioManualEmpaqueSel]);
 
   const cantidadCompraSel = useMemo(() => {
     const n = parseFloat(cantidad.replace(/,/g, "."));
@@ -372,10 +401,10 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
       setError("Indicá el lote del paquete que llegó.");
       return;
     }
-    const precio = precioOficialSel;
+    const precio = precioUnitarioSel;
     const precioEmpaque = precioEmpaqueSel ?? (precio != null ? precio : null);
     if (precio == null || precio <= 0 || precioEmpaque == null || precioEmpaque <= 0) {
-      setError("Este producto no tiene precio de compra. Completá PRECIO_COMPRA_UNITARIO en DB_Franquicia_Insumos_Kit.");
+      setError("Este producto no tiene precio de compra. Escribí el costo del paquete para este cargue.");
       return;
     }
     const cantidadInventario = cantidadInventarioDesdeCompra(insumoSel, cant);
@@ -396,6 +425,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
           cantidadInventario: cantidadInventarioDesdeCompra(row.insumo, nuevaCantidadCompra),
           precioCompraEmpaque: precioEmpaque,
           precioCompraUnitario: precio,
+          precioCompraManual: precioOficialSel == null,
         };
         return next;
       }
@@ -409,12 +439,14 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
           lote: loteNorm,
           precioCompraEmpaque: precioEmpaque,
           precioCompraUnitario: precio,
+          precioCompraManual: precioOficialSel == null,
         },
       ];
     });
     setInsumoId("");
     setCantidad("");
     setLoteLinea("");
+    setPrecioManualEmpaque("");
     setBusqueda("");
     setPanelSugerenciasAbierto(false);
   };
@@ -660,8 +692,8 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
               Producto
             </h3>
             <p className="mt-1 text-xs text-gray-600">
-              Buscá y tocá un ítem del catálogo. A la derecha cargá cantidad y lote; el precio de compra viene fijo de
-              DB_Franquicia_Insumos_Kit (PRECIO_COMPRA_UNITARIO) y no se edita en el POS.
+              Buscá y tocá un ítem del catálogo. A la derecha cargá cantidad y lote; si el producto no tiene costo en WMS,
+              el POS permite escribir el precio de compra para este cargue.
             </p>
             {insumoSel && (
               <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50/90 px-4 py-3 text-sm">
@@ -811,21 +843,37 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
               <p className="block text-sm font-semibold text-gray-800">
                 Precio paquete / costo unitario
               </p>
-              <p
-                className={`mt-2 rounded-xl border-2 px-3 py-3 text-base tabular-nums sm:px-4 ${
-                  insumoSel
-                    ? precioOficialSel != null
-                      ? "border-gray-200 bg-gray-50 text-gray-900"
-                      : "border-amber-200 bg-amber-50 text-amber-950"
-                    : "border-gray-200 bg-gray-100 text-gray-400"
-                }`}
-              >
-                {insumoSel
-                  ? precioOficialSel != null
-                    ? `${formatPrecioCompraCop(precioEmpaqueSel)} / ${formatPrecioCompraCop(precioOficialSel)} c/u`
-                    : "Sin precio en hoja insumos"
-                  : "—"}
-              </p>
+              {insumoSel && precioOficialSel == null ? (
+                <div className="mt-2 rounded-xl border-2 border-amber-200 bg-amber-50 p-3">
+                  <label className="block text-xs font-semibold text-amber-950">
+                    Costo del paquete recibido
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={precioManualEmpaque}
+                    onChange={(e) => setPrecioManualEmpaque(e.target.value)}
+                    placeholder="Ej. 12000"
+                    className="mt-2 w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-right text-base tabular-nums text-gray-900 focus:border-amber-500 focus:outline-none focus:ring-2 focus:ring-amber-200"
+                  />
+                  <p className="mt-2 text-xs text-amber-900">
+                    Úsalo para productos como pan que no se compran a la franquicia. Se guardará solo en este movimiento.
+                  </p>
+                  {precioUnitarioSel != null ? (
+                    <p className="mt-2 rounded-lg bg-white/80 px-3 py-2 text-sm font-medium text-amber-950">
+                      {formatPrecioCompraCop(precioEmpaqueSel)} / {formatPrecioCompraCop(precioUnitarioSel)} c/u
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <p
+                  className={`mt-2 rounded-xl border-2 px-3 py-3 text-base tabular-nums sm:px-4 ${
+                    insumoSel ? "border-gray-200 bg-gray-50 text-gray-900" : "border-gray-200 bg-gray-100 text-gray-400"
+                  }`}
+                >
+                  {insumoSel ? `${formatPrecioCompraCop(precioEmpaqueSel)} / ${formatPrecioCompraCop(precioUnitarioSel)} c/u` : "—"}
+                </p>
+              )}
             </div>
             {insumoSel ? (
               <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
@@ -851,7 +899,7 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
             <button
               type="button"
               onClick={agregarLineaALista}
-              disabled={cargandoCat || !insumoSel || precioOficialSel == null}
+              disabled={cargandoCat || !insumoSel || precioUnitarioSel == null}
               className="mt-5 w-full rounded-xl border-2 border-primary-600 bg-primary-600 py-3.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-primary-700 disabled:border-gray-300 disabled:bg-gray-200 disabled:text-gray-500 disabled:opacity-90"
             >
               Agregar a la lista

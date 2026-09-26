@@ -65,6 +65,8 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
   const [notasGlobales, setNotasGlobales] = useState("");
   /** cantidades a ingresar por id de ítem del catálogo */
   const [cantidades, setCantidades] = useState<Record<string, string>>({});
+  /** Costo manual por paquete para productos sin precio automático (ej. pan comprado por fuera). */
+  const [preciosManualesEmpaque, setPreciosManualesEmpaque] = useState<Record<string, string>>({});
   /** Precios respaldo desde DB_Carrito (solo si falta PRECIO_COMPRA_UNITARIO en hoja insumos). */
   const [mapaPreciosCarritoRespaldo, setMapaPreciosCarritoRespaldo] = useState<MapaPreciosCarrito>(() =>
     mapaPreciosCarritoVacio()
@@ -169,15 +171,15 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
     let total = 0;
     for (const it of insumos) {
       const saldo = cantidadSaldoParaInsumoKit(it, saldoRows);
-      const precio = precioCompraUnitarioInsumo(it, mapaPreciosCarritoRespaldo);
+      const precio = precioCompraUnitarioEfectivo(it);
       if (precio != null && Number.isFinite(saldo) && saldo > 0) total += saldo * precio;
     }
     return Math.round(total);
-  }, [insumos, saldoRows, mapaPreciosCarritoRespaldo]);
+  }, [insumos, saldoRows, mapaPreciosCarritoRespaldo, preciosManualesEmpaque]);
 
   function valorStockProducto(it: InsumoKitItem): number | null {
     const saldo = cantidadSaldoParaInsumoKit(it, saldoRows);
-    const precio = precioCompraUnitarioInsumo(it, mapaPreciosCarritoRespaldo);
+    const precio = precioCompraUnitarioEfectivo(it);
     if (precio == null || precio <= 0 || !Number.isFinite(saldo) || saldo <= 0) return null;
     return Math.round(saldo * precio);
   }
@@ -191,11 +193,37 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
     setCantidades((prev) => ({ ...prev, [id]: raw }));
   }, []);
 
+  const setPrecioManualEmpaque = useCallback((id: string, raw: string) => {
+    setPreciosManualesEmpaque((prev) => ({ ...prev, [id]: raw }));
+  }, []);
+
   const limpiarCantidades = useCallback(() => {
     setCantidades({});
+    setPreciosManualesEmpaque({});
     setMensajeOk(null);
     setResumenErrores([]);
   }, []);
+
+  function precioManualEmpaqueNumero(id: string): number | null {
+    const raw = (preciosManualesEmpaque[id] ?? "").trim().replace(/,/g, ".");
+    if (!raw) return null;
+    const n = parseFloat(raw);
+    return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null;
+  }
+
+  function precioCompraEmpaqueEfectivo(it: InsumoKitItem): number | null {
+    return precioCompraEmpaqueInsumo(it, mapaPreciosCarritoRespaldo) ?? precioManualEmpaqueNumero(it.id);
+  }
+
+  function precioCompraUnitarioEfectivo(it: InsumoKitItem): number | null {
+    const oficial = precioCompraUnitarioInsumo(it, mapaPreciosCarritoRespaldo);
+    if (oficial != null && oficial > 0) return oficial;
+    const manualEmpaque = precioManualEmpaqueNumero(it.id);
+    if (manualEmpaque == null) return null;
+    const factor = factorEmpaqueInsumo(it);
+    const f = factor > 0 ? factor : 1;
+    return Math.round((manualEmpaque / f) * 100) / 100;
+  }
 
   const confirmarReinicioInventario = useCallback(async () => {
     if (!pv) return;
@@ -238,6 +266,8 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
       cantidadCompra: number;
       cantidadInventario: number;
       precioCompraUnitario: number;
+      precioCompraEmpaque: number;
+      precioCompraManual: boolean;
     }[] = [];
     const faltanPrecio: string[] = [];
     for (const it of insumos) {
@@ -245,8 +275,9 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
       if (raw === "") continue;
       const n = parseFloat(raw);
       if (!Number.isFinite(n) || n <= 0) continue;
-      const p = precioCompraUnitarioInsumo(it, mapaPreciosCarritoRespaldo);
-      if (p == null || p <= 0) {
+      const p = precioCompraUnitarioEfectivo(it);
+      const precioEmpaque = precioCompraEmpaqueEfectivo(it);
+      if (p == null || p <= 0 || precioEmpaque == null || precioEmpaque <= 0) {
         faltanPrecio.push(it.sku);
         continue;
       }
@@ -257,12 +288,14 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
         cantidadCompra: Math.round(n * 1000) / 1000,
         cantidadInventario,
         precioCompraUnitario: p,
+        precioCompraEmpaque: precioEmpaque,
+        precioCompraManual: precioCompraUnitarioInsumo(it, mapaPreciosCarritoRespaldo) == null,
       });
     }
 
     if (faltanPrecio.length > 0) {
       setError(
-        `Estos productos tienen cantidad pero no tienen precio (columna PRECIO_COMPRA_UNITARIO en DB_Franquicia_Insumos_Kit): ${faltanPrecio.slice(0, 8).join(", ")}${faltanPrecio.length > 8 ? "…" : ""}.`
+        `Estos productos tienen cantidad pero no tienen precio. Escribe el costo del paquete en la fila: ${faltanPrecio.slice(0, 8).join(", ")}${faltanPrecio.length > 8 ? "…" : ""}.`
       );
       return;
     }
@@ -282,15 +315,21 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
     const fallos: string[] = [];
 
     for (let i = 0; i < lineas.length; i++) {
-      const { insumo, cantidadCompra, cantidadInventario, precioCompraUnitario } = lineas[i]!;
+      const { insumo, cantidadCompra, cantidadInventario, precioCompraUnitario, precioCompraEmpaque, precioCompraManual } =
+        lineas[i]!;
       setProgreso({ hecho: i, total: lineas.length });
       const resumen = resumenConversionCargue(insumo, cantidadCompra);
+      const notaPrecioManual = precioCompraManual
+        ? `Precio compra manual: paquete ${formatPrecioCompraCop(precioCompraEmpaque)} / unidad ${formatPrecioCompraCop(
+            precioCompraUnitario
+          )}`
+        : "";
       const r = await registrarMovimientoInventario({
         puntoVenta: pv,
         insumo,
         tipo: "cargue",
         cantidad: cantidadInventario,
-        notas: [notasComunes, resumen ? `Cargue: ${resumen}` : ""].filter(Boolean).join(" · ").slice(0, 500),
+        notas: [notasComunes, resumen ? `Cargue: ${resumen}` : "", notaPrecioManual].filter(Boolean).join(" · ").slice(0, 500),
         uid,
         email,
         fechaCargue: sufijoFecha || undefined,
@@ -315,12 +354,17 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
           delete n[insumo.id];
           return n;
         });
+        setPreciosManualesEmpaque((prev) => {
+          const n = { ...prev };
+          delete n[insumo.id];
+          return n;
+        });
       }
     }
 
     const saldosR = await listarSaldosInventarioPorPuntoVenta(pv);
     setSaldoRows(saldosR);
-  }, [pv, uid, email, insumos, cantidades, mapaPreciosCarritoRespaldo, notasGlobales, fechaCargue]);
+  }, [pv, uid, email, insumos, cantidades, mapaPreciosCarritoRespaldo, notasGlobales, fechaCargue, preciosManualesEmpaque]);
 
   if (!pv) {
     return (
@@ -336,9 +380,9 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
         <h2 className="text-lg font-semibold text-gray-900">Cargue inicial del punto de venta</h2>
         <p className="mt-1 text-sm text-gray-600">
           Una sola tabla con <strong className="font-medium text-gray-800">todos</strong> los insumos del catálogo: completá
-          paquetes/cajas en cada fila que entra. El <strong className="font-medium">precio de compra</strong> viene fijo de la hoja{" "}
-          <strong className="font-medium">DB_Carrito</strong> (WMS) y no se puede editar en el POS. Las filas vacías o en
-          cero se omiten. Para cargue con <strong className="font-medium">lote</strong> por producto, usá la pestaña{" "}
+          paquetes/cajas en cada fila que entra. El <strong className="font-medium">precio de compra</strong> viene del WMS; si
+          un producto no tiene precio, podés escribir el costo del paquete en esa fila. Las filas vacías o en cero se omiten.
+          Para cargue con <strong className="font-medium">lote</strong> por producto, usá la pestaña{" "}
           <strong className="font-medium">Cargue por producto y lote</strong>.
         </p>
       </div>
@@ -483,7 +527,7 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
           ) : insumos.length === 0 ? (
             <p className="p-8 text-center text-gray-500">No hay ítems para mostrar.</p>
           ) : (
-            <table className="w-full min-w-[980px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[1060px] border-collapse text-left text-sm">
               <thead className="sticky top-0 z-[1] bg-gray-100 shadow-sm">
                 <tr>
                   <th className="border-b border-gray-200 px-3 py-2 font-semibold text-gray-800">Código</th>
@@ -538,16 +582,32 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
                       })()}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <span className="inline-block min-w-[4.5rem] rounded border border-gray-200 bg-gray-50 px-2 py-1.5 font-mono text-sm tabular-nums text-gray-800">
-                        {formatPrecioCompraCop(precioCompraEmpaqueInsumo(it, mapaPreciosCarritoRespaldo))}
-                      </span>
+                      {precioCompraUnitarioInsumo(it, mapaPreciosCarritoRespaldo) == null ? (
+                        <div>
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={preciosManualesEmpaque[it.id] ?? ""}
+                            onChange={(e) => setPrecioManualEmpaque(it.id, e.target.value)}
+                            disabled={enviando}
+                            placeholder="Costo paquete"
+                            className="w-full rounded border border-amber-300 bg-amber-50 px-2 py-1.5 text-right font-mono text-sm tabular-nums text-gray-900 focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500 disabled:bg-gray-100"
+                            aria-label={`Costo paquete manual ${it.sku}`}
+                          />
+                          <span className="mt-1 block text-[11px] text-amber-800">Manual</span>
+                        </div>
+                      ) : (
+                        <span className="inline-block min-w-[4.5rem] rounded border border-gray-200 bg-gray-50 px-2 py-1.5 font-mono text-sm tabular-nums text-gray-800">
+                          {formatPrecioCompraCop(precioCompraEmpaqueEfectivo(it))}
+                        </span>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right">
                       <span
                         className="inline-block min-w-[4.5rem] rounded border border-gray-200 bg-gray-50 px-2 py-1.5 font-mono text-sm tabular-nums text-gray-800"
                         aria-label={`Precio compra ${it.sku}`}
                       >
-                        {formatPrecioCompraCop(precioCompraUnitarioInsumo(it, mapaPreciosCarritoRespaldo))}
+                        {formatPrecioCompraCop(precioCompraUnitarioEfectivo(it))}
                       </span>
                     </td>
                     <td className="px-3 py-2 text-right">
