@@ -48,6 +48,10 @@ export const PosLigaTurnoYMotivacion = dynamic(() => import("@/components/PosLig
   ssr: false,
   loading: () => null,
 });
+export const PosPlanBonosArtesanos = dynamic(() => import("@/components/PosPlanBonosArtesanos"), {
+  ssr: false,
+  loading: () => null,
+});
 export const PosCajaPremiumHeader = dynamic(() => import("@/components/PosCajaPremiumHeader"), {
   loading: () => <div className="mb-5 h-24 animate-pulse rounded-2xl bg-neutral-200/80" />,
 });

@@ -1,0 +1,204 @@
+import type { NextApiRequest, NextApiResponse } from "next";
+import { getAuth } from "firebase-admin/auth";
+import { FieldValue, getFirestore } from "firebase-admin/firestore";
+import { getFirebaseAdminApp } from "@/lib/firebase-admin-server";
+import { ymdColombia } from "@/lib/fecha-colombia";
+import {
+  COL_PLAN_BONOS_ARTESANOS,
+  docIdPlanBonosLogro,
+  metaPorId,
+  type PlanBonosLogroPublicado,
+  type PlanBonosMetaId,
+} from "@/lib/plan-bonos-artesanos";
+
+type OkPost = { ok: true; logro: PlanBonosLogroPublicado; creado: boolean };
+type OkGet = { ok: true; logros: PlanBonosLogroPublicado[]; ymd: string };
+type Err = { ok: false; message: string };
+
+async function authUid(
+  req: NextApiRequest
+): Promise<{ ok: true; uid: string; pvUsuario: string } | { ok: false; status: number; message: string }> {
+  const app = getFirebaseAdminApp();
+  if (!app) {
+    return {
+      ok: false,
+      status: 503,
+      message: "Firebase Admin no configurado (FIREBASE_SERVICE_ACCOUNT_JSON).",
+    };
+  }
+
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!token) {
+    return { ok: false, status: 401, message: "Falta Authorization Bearer." };
+  }
+
+  let uid: string;
+  try {
+    uid = (await getAuth(app).verifyIdToken(token)).uid;
+  } catch {
+    return { ok: false, status: 401, message: "Sesión inválida o token expirado." };
+  }
+
+  const db = getFirestore(app);
+  const userSnap = await db.collection("users").doc(uid).get();
+  const userData = userSnap.data() ?? {};
+  const pvUsuario =
+    typeof userData.puntoVenta === "string" && userData.puntoVenta.trim()
+      ? userData.puntoVenta.trim()
+      : "";
+  if (!pvUsuario) {
+    return { ok: false, status: 400, message: "Tu usuario no tiene punto de venta asignado." };
+  }
+
+  return { ok: true, uid, pvUsuario };
+}
+
+function snapALogro(id: string, data: Record<string, unknown>): PlanBonosLogroPublicado | null {
+  const metaId = typeof data.metaId === "string" ? data.metaId : "";
+  const meta = metaPorId(metaId);
+  if (!meta) return null;
+  const puntoVenta = typeof data.puntoVenta === "string" ? data.puntoVenta.trim() : "";
+  if (!puntoVenta) return null;
+  return {
+    id,
+    metaId: meta.id,
+    umbralCOP: meta.umbralCOP,
+    bonoCOP: meta.bonoCOP,
+    etiqueta: meta.etiqueta,
+    tono: meta.tono,
+    puntoVenta,
+    ventaAlcanzada: typeof data.ventaAlcanzada === "number" ? data.ventaAlcanzada : 0,
+    ymd: typeof data.ymd === "string" ? data.ymd : "",
+    createdAtMs: typeof data.createdAtMs === "number" ? data.createdAtMs : 0,
+    uid: typeof data.uid === "string" ? data.uid : undefined,
+  };
+}
+
+/**
+ * Plan bonos artesanos (borrador):
+ * POST — publica un logro del PV (idempotente por día + meta).
+ * GET  — lista logros del día (Colombia) para avisar a otros POS.
+ */
+export default async function handler(req: NextApiRequest, res: NextApiResponse<OkPost | OkGet | Err>) {
+  if (req.method !== "GET" && req.method !== "POST") {
+    res.setHeader("Allow", "GET, POST");
+    return res.status(405).json({ ok: false, message: "Método no permitido." });
+  }
+
+  const auth = await authUid(req);
+  if (!auth.ok) {
+    return res.status(auth.status).json({ ok: false, message: auth.message });
+  }
+
+  const app = getFirebaseAdminApp();
+  if (!app) {
+    return res.status(503).json({ ok: false, message: "Firebase Admin no configurado." });
+  }
+  const db = getFirestore(app);
+  const ymd = ymdColombia();
+
+  if (req.method === "GET") {
+    try {
+      const snap = await db
+        .collection(COL_PLAN_BONOS_ARTESANOS)
+        .where("ymd", "==", ymd)
+        .orderBy("createdAtMs", "desc")
+        .limit(40)
+        .get();
+      const logros: PlanBonosLogroPublicado[] = [];
+      snap.docs.forEach((doc) => {
+        const logro = snapALogro(doc.id, doc.data() as Record<string, unknown>);
+        if (logro) logros.push(logro);
+      });
+      return res.status(200).json({ ok: true, logros, ymd });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Error al listar logros.";
+      // Sin índice compuesto: fallback sin orderBy.
+      if (/index|FAILED_PRECONDITION/i.test(msg)) {
+        try {
+          const snap = await db.collection(COL_PLAN_BONOS_ARTESANOS).where("ymd", "==", ymd).limit(60).get();
+          const logros = snap.docs
+            .map((doc) => snapALogro(doc.id, doc.data() as Record<string, unknown>))
+            .filter(Boolean) as PlanBonosLogroPublicado[];
+          logros.sort((a, b) => b.createdAtMs - a.createdAtMs);
+          return res.status(200).json({ ok: true, logros: logros.slice(0, 40), ymd });
+        } catch (e2) {
+          return res.status(500).json({
+            ok: false,
+            message: e2 instanceof Error ? e2.message : "Error al listar logros.",
+          });
+        }
+      }
+      return res.status(500).json({ ok: false, message: msg });
+    }
+  }
+
+  const body = (req.body ?? {}) as {
+    metaId?: string;
+    ventaAlcanzada?: number;
+    puntoVenta?: string;
+  };
+  const meta = metaPorId(String(body.metaId ?? ""));
+  if (!meta) {
+    return res.status(400).json({ ok: false, message: "metaId inválido." });
+  }
+  const ventaAlcanzada =
+    typeof body.ventaAlcanzada === "number" && Number.isFinite(body.ventaAlcanzada)
+      ? Math.max(0, Math.round(body.ventaAlcanzada))
+      : 0;
+  if (ventaAlcanzada < meta.umbralCOP) {
+    return res.status(400).json({
+      ok: false,
+      message: `La venta (${ventaAlcanzada}) aún no alcanza el umbral ${meta.umbralCOP}.`,
+    });
+  }
+
+  const puntoVenta =
+    typeof body.puntoVenta === "string" && body.puntoVenta.trim()
+      ? body.puntoVenta.trim()
+      : auth.pvUsuario;
+  const id = docIdPlanBonosLogro(puntoVenta, ymd, meta.id as PlanBonosMetaId);
+  const ref = db.collection(COL_PLAN_BONOS_ARTESANOS).doc(id);
+  const existente = await ref.get();
+  if (existente.exists) {
+    const logro = snapALogro(id, existente.data() as Record<string, unknown>);
+    if (logro) {
+      return res.status(200).json({ ok: true, logro, creado: false });
+    }
+  }
+
+  const createdAtMs = Date.now();
+  const payload = {
+    metaId: meta.id,
+    umbralCOP: meta.umbralCOP,
+    bonoCOP: meta.bonoCOP,
+    etiqueta: meta.etiqueta,
+    tono: meta.tono,
+    puntoVenta,
+    ventaAlcanzada,
+    ymd,
+    createdAtMs,
+    uid: auth.uid,
+    creadoAt: FieldValue.serverTimestamp(),
+  };
+  await ref.set(payload, { merge: true });
+
+  return res.status(200).json({
+    ok: true,
+    creado: true,
+    logro: {
+      id,
+      metaId: meta.id,
+      umbralCOP: meta.umbralCOP,
+      bonoCOP: meta.bonoCOP,
+      etiqueta: meta.etiqueta,
+      tono: meta.tono,
+      puntoVenta,
+      ventaAlcanzada,
+      ymd,
+      createdAtMs,
+      uid: auth.uid,
+    },
+  });
+}

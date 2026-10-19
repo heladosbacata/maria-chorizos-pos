@@ -10,6 +10,7 @@ import ClientesProveedoresFranquiciaPanel from "@/components/ClientesProveedores
 import ComprasGastosFranquiciaPanel from "@/components/ComprasGastosFranquiciaPanel";
 import PygFranquiciaPanel from "@/components/PygFranquiciaPanel";
 import IndiceSatisfaccionFranquiciadoPanel from "@/components/IndiceSatisfaccionFranquiciadoPanel";
+import BonosArtesanosFranquiciaPanel from "@/components/BonosArtesanosFranquiciaPanel";
 import UsuariosPosRegistradosPanel from "@/components/UsuariosPosRegistradosPanel";
 import DianAlegraHabilitacionGuiaPanel from "@/components/DianAlegraHabilitacionGuiaPanel";
 import PosDianFacturacionPanel from "@/components/PosDianFacturacionPanel";
@@ -40,6 +41,8 @@ const VEN_DOC_REM_ITEM_ID = "ven-doc-rem";
 const CONT_PYG_ITEM_ID = "cont-pyg";
 /** Índice de satisfacción al Franquiciado */
 const INDICE_SATISFACCION_ITEM_ID = "isf-indice";
+/** Historial y cancelación de bonos artesanos */
+const BONOS_ARTESANOS_ITEM_ID = "bonos-artesanos";
 /** Registro de compras, proveedores y gastos (enlaza con PyG mensual) */
 const CG_COMPRAS_GASTOS_ITEM_ID = "cg-registro";
 /** Clientes (Firestore) y proveedores del punto */
@@ -66,6 +69,7 @@ const VISTA_DETALLE_ITEM_IDS = new Set<string>([
   VEN_DOC_REM_ITEM_ID,
   CONT_PYG_ITEM_ID,
   INDICE_SATISFACCION_ITEM_ID,
+  BONOS_ARTESANOS_ITEM_ID,
   CG_COMPRAS_GASTOS_ITEM_ID,
   CP_CENTRO_ITEM_ID,
   PS_POLITICA_ITEM_ID,
@@ -83,7 +87,8 @@ export type ConfigCategoriaId =
   | "clientes-proveedores"
   | "productos-servicios"
   | "pyg-punto-venta"
-  | "indice-satisfaccion-franquiciado";
+  | "indice-satisfaccion-franquiciado"
+  | "bonos-artesanos";
 
 export interface ConfigHerramienta {
   id: string;
@@ -217,6 +222,21 @@ const CATEGORIAS: ConfigCategoria[] = [
           {
             id: INDICE_SATISFACCION_ITEM_ID,
             label: "Medir y compartir mi satisfacción",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    id: "bonos-artesanos",
+    label: "Bonos Artesanos",
+    secciones: [
+      {
+        titulo: "Plan de bonos",
+        items: [
+          {
+            id: BONOS_ARTESANOS_ITEM_ID,
+            label: "Historial y cancelación de bonos",
           },
         ],
       },
@@ -370,13 +390,16 @@ export default function ConfiguracionMasModule({
           ? CONT_PYG_ITEM_ID
           : catId === "indice-satisfaccion-franquiciado"
             ? INDICE_SATISFACCION_ITEM_ID
-            : catId === "productos-servicios"
-              ? PS_POLITICA_ITEM_ID
-              : null
+            : catId === "bonos-artesanos"
+              ? BONOS_ARTESANOS_ITEM_ID
+              : catId === "productos-servicios"
+                ? PS_POLITICA_ITEM_ID
+                : null
       );
       setPendingScrollItemId(
         catId === "pyg-punto-venta" ||
           catId === "indice-satisfaccion-franquiciado" ||
+          catId === "bonos-artesanos" ||
           catId === "productos-servicios"
           ? null
           : itemId
@@ -400,6 +423,8 @@ export default function ConfiguracionMasModule({
       setVistaDetalleItemId(CONT_PYG_ITEM_ID);
     } else if (catId === "indice-satisfaccion-franquiciado") {
       setVistaDetalleItemId(INDICE_SATISFACCION_ITEM_ID);
+    } else if (catId === "bonos-artesanos") {
+      setVistaDetalleItemId(BONOS_ARTESANOS_ITEM_ID);
     } else if (catId === "compras-gastos") {
       setVistaDetalleItemId(CG_COMPRAS_GASTOS_ITEM_ID);
     } else if (catId === "clientes-proveedores") {
@@ -457,6 +482,7 @@ export default function ConfiguracionMasModule({
             const expandida = categoriasExpandidas.has(cat.id);
             const esActiva = categoriaActiva === cat.id;
             const esIndiceSatisfaccion = cat.id === "indice-satisfaccion-franquiciado";
+            const esBonosArtesanos = cat.id === "bonos-artesanos";
 
             if (esIndiceSatisfaccion) {
               return (
@@ -499,6 +525,61 @@ export default function ConfiguracionMasModule({
                         {respuestasWmsNuevas > 0
                           ? `${respuestasWmsNuevas} respuesta${respuestasWmsNuevas === 1 ? "" : "s"} de administración — ver aquí`
                           : "Contanos cómo le va — entrar aquí"}
+                      </span>
+                    </span>
+                    <svg
+                      className="relative h-5 w-5 flex-shrink-0 text-white/95 transition-transform group-hover:translate-x-0.5"
+                      fill="none"
+                      stroke="currentColor"
+                      viewBox="0 0 24 24"
+                      aria-hidden
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                </div>
+              );
+            }
+
+            if (esBonosArtesanos) {
+              return (
+                <div key={cat.id} className="mb-1 mt-2">
+                  <button
+                    type="button"
+                    onClick={() => seleccionarSoloCategoria(cat.id)}
+                    className={`group relative flex w-full items-center gap-3 overflow-hidden rounded-xl px-3 py-3.5 text-left shadow-md transition-all ${
+                      esActiva
+                        ? "bg-gradient-to-br from-amber-500 to-orange-600 ring-2 ring-amber-200 ring-offset-1"
+                        : "bg-gradient-to-br from-amber-400 via-amber-500 to-orange-500 hover:brightness-105 hover:shadow-lg"
+                    }`}
+                    aria-current={esActiva ? "page" : undefined}
+                  >
+                    <span
+                      className="pointer-events-none absolute -right-2 -top-3 h-16 w-16 rounded-full bg-white/25 blur-md"
+                      aria-hidden
+                    />
+                    <span
+                      className="relative flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-white text-amber-600 shadow-sm"
+                      aria-hidden
+                    >
+                      <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                        />
+                      </svg>
+                    </span>
+                    <span className="relative min-w-0 flex-1">
+                      <span className="block text-[10px] font-bold uppercase tracking-[0.14em] text-amber-100">
+                        Plan de bonos
+                      </span>
+                      <span className="mt-0.5 block text-sm font-bold leading-snug text-white">
+                        Bonos Artesanos
+                      </span>
+                      <span className="mt-0.5 block text-[11px] font-medium text-white/90">
+                        Historial por artesano y marcar pagos
                       </span>
                     </span>
                     <svg
@@ -661,6 +742,14 @@ export default function ConfiguracionMasModule({
             puntoVenta={puntoVenta}
             uid={uid}
             onRespuestasWmsActualizadas={setRespuestasWmsNuevas}
+            onVolver={() => {
+              setVistaDetalleItemId(null);
+              setCategoriaActiva("general");
+            }}
+          />
+        ) : vistaDetalleItemId === BONOS_ARTESANOS_ITEM_ID ? (
+          <BonosArtesanosFranquiciaPanel
+            puntoVenta={puntoVenta}
             onVolver={() => {
               setVistaDetalleItemId(null);
               setCategoriaActiva("general");

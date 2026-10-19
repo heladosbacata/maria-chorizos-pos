@@ -39,6 +39,7 @@ import {
   UltimosRecibosModule,
   PosCajaPremiumHeader,
   PosLigaTurnoYMotivacion,
+  PosPlanBonosArtesanos,
   PosMetaCumplidaCelebracion,
   RegistrarPagoPanel,
   SeleccionClienteVenta,
@@ -4295,20 +4296,32 @@ export default function CajaPageClient() {
               puntoVentaLabel={user.puntoVenta?.trim() || undefined}
             />
             {!esContador && serviciosSecundarios && turnoAbierto && moduloActivo === "ventas" ? (
-              <PosLigaTurnoYMotivacion
-                apiBaseUrl={getWmsPublicBaseUrl()}
-                puntoVenta={user.puntoVenta ?? undefined}
-                getToken={getIdTokenCajaMensajes}
-                ventaCompletadaTick={ventaCompletadaAnuncioTick}
-                mensajeAutor={{
-                  uid: user.uid,
-                  nombre:
+              <>
+                <PosPlanBonosArtesanos
+                  puntoVenta={user.puntoVenta}
+                  ventaActual={totalVentasEnTurno}
+                  getIdToken={getIdTokenCajaMensajes}
+                  artesanoNombre={
                     cajeroTurnoActivo?.nombreDisplay?.trim() ||
                     user.email?.split("@")[0]?.trim() ||
-                    "Cajero GEB",
-                  puntoVenta: user.puntoVenta?.trim() || "—",
-                }}
-              />
+                    "Artesano del turno"
+                  }
+                />
+                <PosLigaTurnoYMotivacion
+                  apiBaseUrl={getWmsPublicBaseUrl()}
+                  puntoVenta={user.puntoVenta ?? undefined}
+                  getToken={getIdTokenCajaMensajes}
+                  ventaCompletadaTick={ventaCompletadaAnuncioTick}
+                  mensajeAutor={{
+                    uid: user.uid,
+                    nombre:
+                      cajeroTurnoActivo?.nombreDisplay?.trim() ||
+                      user.email?.split("@")[0]?.trim() ||
+                      "Cajero GEB",
+                    puntoVenta: user.puntoVenta?.trim() || "—",
+                  }}
+                />
+              </>
             ) : null}
             {esContador ? (
             moduloActivo === "ultimosRecibos" ? (

@@ -1,9 +1,16 @@
 "use client";
 
-import { useId, useMemo } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useMetasRetosCaja } from "@/components/MetasRetosCajaProvider";
 import PosChatsPremiumBanner from "@/components/PosChatsPremiumBanner";
+import { ymdColombia } from "@/lib/fecha-colombia";
 import { avanceUnidadesReto, etiquetaRangoPeriodo } from "@/lib/metas-retos-avance-ventas";
+import {
+  EVENT_PLAN_BONOS_BILLETERA,
+  leerBilleteraArtesanos,
+  rangoEtiquetaQuincena,
+  type BilleteraArtesanosEstado,
+} from "@/lib/plan-bonos-artesanos";
 import { formatPesosCop } from "@/lib/pesos-cop-input";
 import type { MetaRetoActiva } from "@/lib/wms-metas-retos-activas";
 
@@ -155,6 +162,28 @@ export default function PosCajaMetasMotivationPanel({
   puntoVentaLabel?: string;
 } = {}) {
   const { retos, ventas, ymdRef, cargando, error } = useMetasRetosCaja();
+  const ymdHoy = ymdColombia();
+  const pvBilletera = puntoVentaLabel?.trim() || "";
+  const [billeteraArtesanos, setBilleteraArtesanos] = useState<BilleteraArtesanosEstado>(() =>
+    leerBilleteraArtesanos(pvBilletera, ymdHoy)
+  );
+  const quincenaLabel = useMemo(() => rangoEtiquetaQuincena(ymdHoy).etiquetaCorta, [ymdHoy]);
+
+  useEffect(() => {
+    const refresh = () => setBilleteraArtesanos(leerBilleteraArtesanos(pvBilletera, ymdColombia()));
+    refresh();
+    const onEvt = (e: Event) => {
+      const detail = (e as CustomEvent<{ puntoVenta?: string }>).detail;
+      if (detail?.puntoVenta && pvBilletera && detail.puntoVenta.trim() !== pvBilletera) return;
+      refresh();
+    };
+    window.addEventListener(EVENT_PLAN_BONOS_BILLETERA, onEvt);
+    window.addEventListener("storage", onEvt);
+    return () => {
+      window.removeEventListener(EVENT_PLAN_BONOS_BILLETERA, onEvt);
+      window.removeEventListener("storage", onEvt);
+    };
+  }, [pvBilletera]);
 
   const stats = useMemo(() => {
     let sumPct = 0;
@@ -174,7 +203,7 @@ export default function PosCajaMetasMotivationPanel({
   }, [retos, ventas, ymdRef]);
 
   const billetera = useMemo(() => {
-    const ganados = retos
+    const ganadosRetos = retos
       .map((reto) => {
         const { avance, rango } = avanceUnidadesReto(reto, ventas, ymdRef);
         const meta = Math.max(0, Number(reto.metaUnidades) || 0);
@@ -200,9 +229,20 @@ export default function PosCajaMetasMotivationPanel({
       meta: number;
       periodo: string;
     }[];
-    const totalCOP = ganados.reduce((sum, item) => sum + item.bonoCOP, 0);
-    return { ganados, totalCOP };
-  }, [retos, ventas, ymdRef]);
+    const ganadosArtesanos = billeteraArtesanos.items.map((it) => ({
+      id: `artesanos:${it.key}`,
+      producto: `Plan artesanos · ${it.etiqueta}`,
+      bonoCOP: it.bonoCOP,
+      bonoDetalle: `$${formatPesosCop(it.bonoCOP, false)}`,
+      avance: 1,
+      meta: 1,
+      periodo: it.ymd,
+    }));
+    const ganados = [...ganadosArtesanos, ...ganadosRetos];
+    const totalCOP =
+      billeteraArtesanos.totalCOP + ganadosRetos.reduce((sum, item) => sum + item.bonoCOP, 0);
+    return { ganados, totalCOP, artesanosCOP: billeteraArtesanos.totalCOP };
+  }, [billeteraArtesanos, retos, ventas, ymdRef]);
 
   const retoHoy = useMemo(() => retoDestacadoParaHoy(retos), [retos]);
   const avanceRetoHoy = useMemo(() => {
@@ -270,9 +310,9 @@ export default function PosCajaMetasMotivationPanel({
                 Mi billetera de bonos
               </p>
               <p className="mt-1 text-[10px] leading-snug text-[#CDEEDB]/80">
-                {billetera.ganados.length > 0
-                  ? `${billetera.ganados.length} ${billetera.ganados.length === 1 ? "bono ganado" : "bonos ganados"} por metas cumplidas.`
-                  : "Aquí se acumulan los bonos cuando completas metas."}
+                {billetera.totalCOP > 0
+                  ? `Acumulado quincena ${quincenaLabel}. Se paga y reinicia en la siguiente quincena.`
+                  : `Bonos de la quincena ${quincenaLabel}. Se pagan cada quincena y la billetera vuelve a cero.`}
               </p>
             </div>
           </div>
@@ -281,7 +321,9 @@ export default function PosCajaMetasMotivationPanel({
               {billetera.totalCOP > 0 ? "Ganado" : "Premios"}
             </p>
             <p className="text-lg font-black tabular-nums leading-tight text-emerald-200">
-              {billetera.totalCOP > 0 ? `$${formatPesosCop(billetera.totalCOP, false)}` : billetera.ganados.length}
+              {billetera.totalCOP > 0
+                ? `$${formatPesosCop(billetera.totalCOP, false)}`
+                : "$0"}
             </p>
           </div>
         </div>
