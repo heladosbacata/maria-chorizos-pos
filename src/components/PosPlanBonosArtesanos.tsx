@@ -516,10 +516,14 @@ export default function PosPlanBonosArtesanos({
       >
         {mostrarAvisoDisponible ? (
           <p
-            className="mb-2 rounded-lg border border-[#FFC81C]/45 bg-[#FFC81C]/15 px-2.5 py-1.5 text-center text-[11px] font-bold leading-snug text-[#FFF4DC]"
+            className="mb-3 rounded-xl border-2 border-[#FFC81C]/70 bg-[#FFC81C]/20 px-3 py-2.5 text-center text-sm font-black leading-snug text-[#FFF8E8] shadow-[0_0_18px_rgba(255,200,28,0.25)] sm:text-base"
             role="status"
           >
-            Bonos disponibles desde el <span className="text-[#FFC81C]">23 de octubre 2026</span>
+            Bonos disponibles desde el{" "}
+            <span className="text-[#FFC81C]">23 de octubre 2026</span>
+            <span className="mt-1 block text-xs font-bold text-[#FFE9B8] sm:text-sm">
+              La billetera empieza a sumar premios desde esa fecha
+            </span>
           </p>
         ) : null}
         <div className="flex flex-wrap items-end justify-between gap-2">
@@ -541,7 +545,7 @@ export default function PosPlanBonosArtesanos({
 
         {/* Pista + metas centradas (con margen para no cortar oro) */}
         <div className="relative mt-4">
-          <div className="relative h-[7.5rem]">
+          <div className="relative h-[8.75rem]">
             <div className="absolute left-0 right-0 top-[3.15rem] h-3 overflow-hidden rounded-full border border-[#FFE9B8]/40 bg-[#0f0c09]">
               <div
                 className="h-full rounded-full bg-gradient-to-r from-[#B45309] via-[#FFC81C] to-[#FDE68A] transition-[width] duration-700 ease-out"
@@ -572,11 +576,11 @@ export default function PosPlanBonosArtesanos({
                     }`}
                     aria-hidden
                   />
-                  <p className="mt-1 w-full text-[10px] font-bold tabular-nums leading-tight text-[#FFF4DC]">
+                  <p className="mt-1 w-full text-xs font-black tabular-nums leading-tight text-[#FFF8E8] sm:text-sm">
                     {dinero(m.umbralCOP)}
                   </p>
                   <p
-                    className={`mt-0.5 w-full text-[13px] font-black tabular-nums leading-none tracking-tight drop-shadow-[0_0_8px_rgba(255,200,28,0.45)] sm:text-sm ${
+                    className={`mt-1 w-full text-base font-black tabular-nums leading-none tracking-tight drop-shadow-[0_0_10px_rgba(255,200,28,0.55)] sm:text-lg ${
                       ok ? "text-[#FFC81C]" : "text-[#FFE08A]"
                     }`}
                   >

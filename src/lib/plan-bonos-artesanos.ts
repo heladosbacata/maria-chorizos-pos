@@ -47,6 +47,15 @@ export const PLAN_BONOS_ARTESANOS_METAS: readonly PlanBonosMeta[] = [
 /** Escala visual de la barra (tope del oro). */
 export const PLAN_BONOS_ESCALA_MAX_COP = 1_000_000;
 
+/** Desde esta fecha (Colombia) los bonos empiezan a sumar en billetera e historial. */
+export const PLAN_BONOS_INICIO_YMD = "2026-10-23";
+
+export function planBonosYaIniciado(ymd: string): boolean {
+  const y = ymd.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(y)) return false;
+  return y >= PLAN_BONOS_INICIO_YMD;
+}
+
 export const COL_PLAN_BONOS_ARTESANOS = "posPlanBonosArtesanos";
 
 /** Emojis disponibles para felicitar un logro desde otros POS. */
@@ -241,10 +250,12 @@ export function listarHistorialBonosArtesanos(puntoVenta: string): HistorialBono
     }
     if (changed) guardarHistorialCrudo(pv, items);
   }
-  return [...items].sort((a, b) => {
-    if (a.ymd !== b.ymd) return b.ymd.localeCompare(a.ymd);
-    return (b.registradoAtMs || 0) - (a.registradoAtMs || 0);
-  });
+  return [...items]
+    .filter((it) => planBonosYaIniciado(it.ymd))
+    .sort((a, b) => {
+      if (a.ymd !== b.ymd) return b.ymd.localeCompare(a.ymd);
+      return (b.registradoAtMs || 0) - (a.registradoAtMs || 0);
+    });
 }
 
 export function etiquetaQuincenaDesdeId(quincenaId: string): string {
@@ -308,6 +319,7 @@ function upsertHistorialBono(
 ): void {
   const pv = puntoVenta.trim();
   const y = ymd.trim();
+  if (!planBonosYaIniciado(y)) return;
   const qId = idQuincenaColombia(y);
   if (!pv || qId === "invalid") return;
   const key = `${y}:${meta.id}`;
@@ -378,7 +390,11 @@ export function leerBilleteraArtesanos(puntoVenta: string, ymd: string): Billete
       .map((h) => h.key)
   );
   const items = cruda.items.filter(
-    (it) => it && typeof it.bonoCOP === "number" && !cancelados.has(it.key)
+    (it) =>
+      it &&
+      typeof it.bonoCOP === "number" &&
+      !cancelados.has(it.key) &&
+      planBonosYaIniciado(it.ymd)
   );
   const totalCOP = items.reduce((s, it) => s + Math.max(0, it.bonoCOP), 0);
   return { quincenaId: qId, items, totalCOP };
@@ -387,7 +403,7 @@ export function leerBilleteraArtesanos(puntoVenta: string, ymd: string): Billete
 /**
  * Acumula un bono ganado en la billetera de la quincena (idempotente por día+meta)
  * y lo deja en el historial del franquiciado.
- * Al pasar a la siguiente quincena, la billetera se reinicia sola.
+ * Solo suma desde PLAN_BONOS_INICIO_YMD. Al pasar de quincena, la billetera se reinicia.
  */
 export function registrarBonoEnBilletera(
   puntoVenta: string,
@@ -400,6 +416,9 @@ export function registrarBonoEnBilletera(
   const qId = idQuincenaColombia(y);
   if (!pv || qId === "invalid") {
     return { quincenaId: qId, items: [], totalCOP: 0 };
+  }
+  if (!planBonosYaIniciado(y)) {
+    return leerBilleteraArtesanos(pv, y);
   }
   upsertHistorialBono(pv, meta, y, artesanoNombre);
   const actual = leerBilleteraArtesanos(pv, y);

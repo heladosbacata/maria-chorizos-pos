@@ -5,6 +5,7 @@ import {
   idQuincenaColombia,
   metasAlcanzadas,
   pctBarraPlanBonos,
+  planBonosYaIniciado,
   rangoEtiquetaQuincena,
   siguienteMetaPendiente,
   totalReaccionesPlanBonos,
@@ -60,5 +61,11 @@ describe("plan-bonos-artesanos", () => {
     expect(esEmojiFelicitarPlanBonos("🔥")).toBe(true);
     expect(esEmojiFelicitarPlanBonos("pizza")).toBe(false);
     expect(totalReaccionesPlanBonos({ "👏": ["a", "b"], "🔥": ["c"] })).toBe(3);
+  });
+
+  it("billetera solo desde el 23 de octubre 2026", () => {
+    expect(planBonosYaIniciado("2026-10-22")).toBe(false);
+    expect(planBonosYaIniciado("2026-10-23")).toBe(true);
+    expect(planBonosYaIniciado("2026-10-24")).toBe(true);
   });
 });
