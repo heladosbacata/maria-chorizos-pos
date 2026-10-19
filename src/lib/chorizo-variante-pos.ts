@@ -50,12 +50,37 @@ export function productoRequiereChorizoYArepa(p: ProductoPOS): boolean {
   return d.includes("arepa");
 }
 
+/** Chorizo solo (ej. «Chorizo Solo», SKU LMO-SOLO / CHO-SOLO): el cajero elige picante o tradicional. */
+function productoEsChorizoSolo(p: ProductoPOS): boolean {
+  const d = `${p.descripcion ?? ""}`
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+  const sku = `${p.sku ?? ""}`.toUpperCase();
+  if (/\bchorizo\s+solo\b/.test(d) || d.replace(/\s/g, "").includes("chorizosolo")) return true;
+  return (
+    sku.includes("CHO-SOLO") ||
+    sku.includes("CHORIZO-SOLO") ||
+    sku.includes("CHORIZO_SOLO") ||
+    sku.includes("LMO-SOLO")
+  );
+}
+
+/** Variables guardadas en el WMS con claves picante y tradicional. */
+function productoTienePicanteYTradicional(p: ProductoPOS): boolean {
+  const claves = (p.variantes ?? []).map((v) => normalizarVarianteLibre(v.clave));
+  const coincide = (clave: string, token: string) =>
+    clave === token || clave.endsWith(`_${token}`) || clave.endsWith(token);
+  return claves.some((c) => coincide(c, "TRADICIONAL")) && claves.some((c) => coincide(c, "PICANTE"));
+}
+
 /**
- * Chorizo con pan, arepa paisa, o hawaiano/choripan: solo Picante / Tradicional (sin subtipo de arepa).
+ * Chorizo con pan, chorizo solo, arepa paisa, o hawaiano/choripan: solo Picante / Tradicional (sin subtipo de arepa).
  */
 export function productoRequiereSoloChorizoPan(p: ProductoPOS): boolean {
   if (productoRequiereChorizoYArepa(p)) return false;
   if (productoEsHawaiano(p)) return true;
+  if (productoEsChorizoSolo(p) || productoTienePicanteYTradicional(p)) return true;
   const d = `${p.descripcion ?? ""}`.toLowerCase();
   const sku = `${p.sku ?? ""}`.toUpperCase();
   const pareceChorizoEnSku = /CHO|CHORIZO/i.test(sku);

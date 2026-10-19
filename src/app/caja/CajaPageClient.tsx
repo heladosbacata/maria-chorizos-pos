@@ -1673,7 +1673,7 @@ export default function CajaPageClient() {
     setEditingNombre("");
   };
 
-  /** Clic en catálogo: chorizo + arepa, chorizo con pan, o arepa de peto (solo tipo de arepa) */
+  /** Clic en catálogo: chorizo + arepa, chorizo solo o con pan, o arepa de peto (solo tipo de arepa) */
   const onClicProductoCatalogo = (producto: ProductoPOS) => {
     if (!turnoAbierto) return;
     if (productoRequiereTamanoBebida(producto)) {
