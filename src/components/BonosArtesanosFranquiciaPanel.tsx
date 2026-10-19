@@ -22,6 +22,7 @@ function dinero(n: number): string {
 
 function tonoBadge(tono: HistorialBonoArtesanos["tono"]): string {
   if (tono === "oro") return "bg-amber-100 text-amber-900 border-amber-300";
+  if (tono === "ambar") return "bg-yellow-100 text-yellow-900 border-yellow-300";
   if (tono === "plata") return "bg-slate-100 text-slate-800 border-slate-300";
   return "bg-orange-100 text-orange-900 border-orange-300";
 }

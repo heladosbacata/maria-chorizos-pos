@@ -4,11 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ymdColombia } from "@/lib/fecha-colombia";
 import { formatPesosCop } from "@/lib/pesos-cop-input";
 import {
+  felicitarLogroPlanBonos,
   listarLogrosPlanBonosHoy,
   publicarLogroPlanBonos,
 } from "@/lib/plan-bonos-artesanos-client";
 import {
   PLAN_BONOS_ARTESANOS_METAS,
+  PLAN_BONOS_EMOJIS_FELICITAR,
   PLAN_BONOS_ESCALA_MAX_COP,
   marcarCelebradoLocal,
   marcarVistoRemoto,
@@ -16,11 +18,18 @@ import {
   registrarBonoEnBilletera,
   siguienteMetaPendiente,
   storageKeyLogroLocal,
+  totalReaccionesPlanBonos,
   yaCelebradoLocal,
   yaVistoRemoto,
+  type PlanBonosEmojiFelicitar,
   type PlanBonosLogroPublicado,
   type PlanBonosMeta,
+  type PlanBonosReacciones,
 } from "@/lib/plan-bonos-artesanos";
+import {
+  logroPlanBonosPreview,
+  planBonosAvisoPreviewActivo,
+} from "@/lib/plan-bonos-aviso-preview";
 import { puntoVentaCoincide } from "@/lib/punto-venta-clave";
 
 type Props = {
@@ -30,13 +39,15 @@ type Props = {
   getIdToken: () => Promise<string | null>;
   /** Nombre del artesano/cajero en turno (historial franquiciado). */
   artesanoNombre?: string | null;
+  currentUid?: string | null;
 };
 
 type Celebracion =
-  | { tipo: "local"; meta: PlanBonosMeta; venta: number }
+  | { tipo: "local"; meta: PlanBonosMeta; venta: number; logroId?: string }
   | { tipo: "remoto"; logro: PlanBonosLogroPublicado };
 
-const POLL_REMOTO_MS = 25_000;
+const POLL_REMOTO_MS = 12_000;
+const POLL_REACCIONES_MS = 4_000;
 /** Aviso previo: visible hasta el 23-oct inclusive; desaparece el 24-oct-2026 (Colombia). */
 const AVISO_DISPONIBLE_HASTA_YMD = "2026-10-24";
 
@@ -53,22 +64,39 @@ function posBarraPct(montoCOP: number, maxCOP = PLAN_BONOS_ESCALA_MAX_COP): numb
 
 function colorTono(tono: PlanBonosMeta["tono"]): string {
   if (tono === "oro") return "from-amber-300 via-yellow-400 to-amber-500";
+  if (tono === "ambar") return "from-yellow-200 via-amber-400 to-orange-500";
   if (tono === "plata") return "from-slate-200 via-slate-100 to-slate-300";
   return "from-amber-700 via-orange-600 to-amber-800";
+}
+
+function etiquetaMedallaCorta(tono: PlanBonosMeta["tono"]): string {
+  if (tono === "oro") return "1M";
+  if (tono === "ambar") return "800";
+  if (tono === "plata") return "700";
+  return "500";
+}
+
+function emojiMetaTono(tono: PlanBonosMeta["tono"]): string {
+  if (tono === "oro") return "👑";
+  if (tono === "ambar") return "🏅";
+  if (tono === "plata") return "🥈";
+  return "🥉";
 }
 
 function IconoMetaMedalla({ tono, activo }: { tono: PlanBonosMeta["tono"]; activo: boolean }) {
   const grad =
     tono === "oro"
       ? { a: "#FDE68A", b: "#F59E0B", c: "#B45309" }
-      : tono === "plata"
-        ? { a: "#F8FAFC", b: "#CBD5E1", c: "#64748B" }
-        : { a: "#FDBA74", b: "#C2410C", c: "#7C2D12" };
+      : tono === "ambar"
+        ? { a: "#FDE68A", b: "#FBBF24", c: "#D97706" }
+        : tono === "plata"
+          ? { a: "#F8FAFC", b: "#CBD5E1", c: "#64748B" }
+          : { a: "#FDBA74", b: "#C2410C", c: "#7C2D12" };
   const id = `plan-bonos-medal-${tono}`;
   return (
     <svg
       viewBox="0 0 32 36"
-      className={`h-7 w-7 drop-shadow-md transition-opacity ${activo ? "opacity-100" : "opacity-75"}`}
+      className={`h-6 w-6 drop-shadow-md transition-opacity sm:h-7 sm:w-7 ${activo ? "opacity-100" : "opacity-75"}`}
       aria-hidden
     >
       <defs>
@@ -85,34 +113,58 @@ function IconoMetaMedalla({ tono, activo }: { tono: PlanBonosMeta["tono"]; activ
         x="16"
         y="25.5"
         textAnchor="middle"
-        fontSize="9"
+        fontSize="8"
         fontWeight="800"
         fill="#1a1510"
         fontFamily="system-ui,sans-serif"
       >
-        {tono === "oro" ? "1M" : tono === "plata" ? "700" : "500"}
+        {etiquetaMedallaCorta(tono)}
       </text>
     </svg>
   );
 }
 
+function emojiElegidoPorUid(reacciones: PlanBonosReacciones | undefined, uid: string | null | undefined): string | null {
+  if (!uid || !reacciones) return null;
+  for (const [emoji, uids] of Object.entries(reacciones)) {
+    if (uids.includes(uid)) return emoji;
+  }
+  return null;
+}
+
 function CelebracionOverlay({
   data,
   onCerrar,
+  currentUid,
+  reacciones,
+  enviandoEmoji,
+  onFelicitar,
+  esVistaPrevia = false,
 }: {
   data: Celebracion;
   onCerrar: () => void;
+  currentUid?: string | null;
+  reacciones?: PlanBonosReacciones;
+  enviandoEmoji: boolean;
+  onFelicitar: (emoji: PlanBonosEmojiFelicitar) => void;
+  esVistaPrevia?: boolean;
 }) {
   const esLocal = data.tipo === "local";
   const meta = esLocal ? data.meta : null;
   const logro = !esLocal ? data.logro : null;
   const tono = esLocal ? meta!.tono : logro!.tono;
+  const artesanoRemoto = !esLocal ? logro!.artesanoNombre?.trim() : "";
   const titulo = esLocal
     ? "¡Felicitaciones, artesanos!"
-    : `¡${logro!.puntoVenta} alcanzó una meta!`;
+    : artesanoRemoto
+      ? `¡${artesanoRemoto} lo logró!`
+      : `¡${logro!.puntoVenta} alcanzó una meta!`;
   const subtitulo = esLocal
     ? `${meta!.etiqueta}: venta de ${dinero(meta!.umbralCOP)} · bono ${dinero(meta!.bonoCOP)}`
-    : `${logro!.etiqueta}: llegó a ${dinero(logro!.umbralCOP)} y gana ${dinero(logro!.bonoCOP)} hoy`;
+    : `${logro!.puntoVenta} · ${logro!.etiqueta}: llegó a ${dinero(logro!.umbralCOP)} y gana ${dinero(logro!.bonoCOP)}`;
+  const totalFeliz = totalReaccionesPlanBonos(reacciones);
+  const miEmoji = emojiElegidoPorUid(reacciones, currentUid);
+  const puedeFelicitar = !esLocal && Boolean(logro?.id);
 
   return (
     <div className="fixed inset-0 z-[240] flex items-center justify-center bg-black/80 p-4 backdrop-blur-md">
@@ -154,8 +206,13 @@ function CelebracionOverlay({
           style={{ animation: "plan-bonos-pulse 2s ease-in-out infinite" }}
           aria-hidden
         >
-          {tono === "oro" ? "👑" : tono === "plata" ? "🥈" : "🥉"}
+          {emojiMetaTono(tono)}
         </div>
+        {esVistaPrevia ? (
+          <p className="mb-2 rounded-full border border-sky-300/50 bg-sky-500/20 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-sky-100">
+            Vista previa · aviso a otros POS
+          </p>
+        ) : null}
         <p className="mt-4 text-[10px] font-black uppercase tracking-[0.28em] text-[#FFC81C]">
           Plan de bonos · Artesanos
         </p>
@@ -166,10 +223,73 @@ function CelebracionOverlay({
         {esLocal ? (
           <p className="mt-2 text-xs text-[#9A8B74]">
             Venta del turno: <strong className="text-[#FFE9B8]">{dinero(data.venta)}</strong>
+            {totalFeliz > 0 ? (
+              <span className="mt-1 block text-[#FFE08A]">
+                ¡{totalFeliz} felicitación{totalFeliz === 1 ? "" : "es"} de otros POS!
+              </span>
+            ) : (
+              <span className="mt-1 block">Los demás puntos pueden felicitarte con un emoji.</span>
+            )}
           </p>
         ) : (
-          <p className="mt-2 text-xs text-[#9A8B74]">Aviso en vivo para todos los POS del día.</p>
+          <p className="mt-2 text-xs text-[#FFE08A]">
+            ¡Felicitalos con un emoji y seguí motivando al equipo nacional!
+          </p>
         )}
+
+        {totalFeliz > 0 ? (
+          <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
+            {PLAN_BONOS_EMOJIS_FELICITAR.map((emoji) => {
+              const n = reacciones?.[emoji]?.length ?? 0;
+              if (!n) return null;
+              return (
+                <span
+                  key={emoji}
+                  className="inline-flex items-center gap-1 rounded-full border border-[#FFE08A]/35 bg-black/35 px-2 py-1 text-sm"
+                >
+                  <span aria-hidden>{emoji}</span>
+                  <span className="text-[11px] font-bold tabular-nums text-[#FFF4DC]">{n}</span>
+                </span>
+              );
+            })}
+          </div>
+        ) : null}
+
+        {puedeFelicitar ? (
+          <div className="mt-4">
+            <p className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[#C4B49A]">
+              Enviar felicitación
+            </p>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {PLAN_BONOS_EMOJIS_FELICITAR.map((emoji) => {
+                const activo = miEmoji === emoji;
+                return (
+                  <button
+                    key={emoji}
+                    type="button"
+                    disabled={enviandoEmoji}
+                    onClick={() => onFelicitar(emoji)}
+                    className={`flex h-11 w-11 items-center justify-center rounded-full text-xl transition ${
+                      activo
+                        ? "bg-[#FFC81C] shadow-lg ring-2 ring-white/80"
+                        : "border border-[#FFE08A]/40 bg-white/10 hover:bg-white/20"
+                    } disabled:opacity-50`}
+                    aria-label={`Felicitar con ${emoji}`}
+                    aria-pressed={activo}
+                  >
+                    {emoji}
+                  </button>
+                );
+              })}
+            </div>
+            {miEmoji ? (
+              <p className="mt-2 text-[11px] font-semibold text-emerald-300">
+                Gracias — tu {miEmoji} ya motivó al artesano
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
         <button
           type="button"
           onClick={onCerrar}
@@ -191,6 +311,7 @@ export default function PosPlanBonosArtesanos({
   ventaActual,
   getIdToken,
   artesanoNombre,
+  currentUid,
 }: Props) {
   const pv = puntoVenta?.trim() || "";
   const artesano = artesanoNombre?.trim() || "";
@@ -201,30 +322,46 @@ export default function PosPlanBonosArtesanos({
   const alcanzadas = useMemo(() => metasAlcanzadas(venta), [venta]);
 
   const [celebracion, setCelebracion] = useState<Celebracion | null>(null);
+  const [reacciones, setReacciones] = useState<PlanBonosReacciones>({});
+  const [enviandoEmoji, setEnviandoEmoji] = useState(false);
+  const [vistaPrevia, setVistaPrevia] = useState(false);
   const celebracionRef = useRef<Celebracion | null>(null);
   const publicandoRef = useRef<Set<string>>(new Set());
   celebracionRef.current = celebracion;
+
+  /** Vista previa del aviso que ven los demás POS: ?planBonosAviso=1 */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!planBonosAvisoPreviewActivo(window.location.search)) return;
+    const demo = logroPlanBonosPreview();
+    setVistaPrevia(true);
+    setReacciones(demo.reacciones ?? {});
+    setCelebracion({ tipo: "remoto", logro: demo });
+  }, []);
 
   const cerrarCelebracion = useCallback(() => {
     setCelebracion((prev) => {
       if (prev?.tipo === "local") {
         marcarCelebradoLocal(storageKeyLogroLocal(pv, ymd, prev.meta.id));
-      } else if (prev?.tipo === "remoto") {
+      } else if (prev?.tipo === "remoto" && prev.logro.id !== "preview_plan_bonos_aviso") {
         marcarVistoRemoto(prev.logro.id);
       }
       return null;
     });
+    setReacciones({});
+    setVistaPrevia(false);
   }, [pv, ymd]);
 
   /** Celebraciones locales pendientes (una a la vez). */
   useEffect(() => {
-    if (!pv || celebracion) return;
+    if (!pv || celebracion || vistaPrevia) return;
     const pendientes = alcanzadas.filter(
       (m) => !yaCelebradoLocal(storageKeyLogroLocal(pv, ymd, m.id))
     );
     if (pendientes.length === 0) return;
     setCelebracion({ tipo: "local", meta: pendientes[0], venta });
-  }, [alcanzadas, celebracion, pv, venta, ymd]);
+    setReacciones({});
+  }, [alcanzadas, celebracion, pv, venta, vistaPrevia, ymd]);
 
   /** Publica logro + acumula en billetera quincenal. */
   useEffect(() => {
@@ -238,11 +375,18 @@ export default function PosPlanBonosArtesanos({
       try {
         const token = await getIdToken();
         if (!token) return;
-        await publicarLogroPlanBonos(token, {
+        const r = await publicarLogroPlanBonos(token, {
           metaId: meta.id,
           ventaAlcanzada: venta,
           puntoVenta: pv,
+          artesanoNombre: artesano || undefined,
         });
+        if (r.ok) {
+          setCelebracion((prev) =>
+            prev?.tipo === "local" ? { ...prev, logroId: r.logro.id } : prev
+          );
+          setReacciones(r.logro.reacciones ?? {});
+        }
       } finally {
         publicandoRef.current.delete(key);
       }
@@ -261,7 +405,7 @@ export default function PosPlanBonosArtesanos({
 
   /** Poll de logros de otros puntos. */
   useEffect(() => {
-    if (!pv) return;
+    if (!pv || vistaPrevia) return;
     let cancelled = false;
 
     const poll = async () => {
@@ -277,6 +421,7 @@ export default function PosPlanBonosArtesanos({
           Date.now() - l.createdAtMs < 1000 * 60 * 60 * 12
       );
       if (ajeno) {
+        setReacciones(ajeno.reacciones ?? {});
         setCelebracion({ tipo: "remoto", logro: ajeno });
       }
     };
@@ -287,7 +432,76 @@ export default function PosPlanBonosArtesanos({
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [getIdToken, pv]);
+  }, [getIdToken, pv, vistaPrevia]);
+
+  const logroIdActivo =
+    celebracion?.tipo === "remoto"
+      ? celebracion.logro.id
+      : celebracion?.tipo === "local"
+        ? celebracion.logroId
+        : undefined;
+
+  /** Mientras hay aviso abierto, refresca reacciones en vivo. */
+  useEffect(() => {
+    if (!logroIdActivo || vistaPrevia || logroIdActivo === "preview_plan_bonos_aviso") return;
+    let cancelled = false;
+
+    const pollReacciones = async () => {
+      const token = await getIdToken();
+      if (!token || cancelled) return;
+      const r = await listarLogrosPlanBonosHoy(token);
+      if (!r.ok || cancelled) return;
+      const actual = r.logros.find((l) => l.id === logroIdActivo);
+      if (actual) {
+        setReacciones(actual.reacciones ?? {});
+        if (celebracionRef.current?.tipo === "remoto") {
+          setCelebracion({ tipo: "remoto", logro: actual });
+        }
+      }
+    };
+
+    void pollReacciones();
+    const id = window.setInterval(() => void pollReacciones(), POLL_REACCIONES_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [getIdToken, logroIdActivo, vistaPrevia]);
+
+  const felicitar = useCallback(
+    async (emoji: PlanBonosEmojiFelicitar) => {
+      if (celebracion?.tipo !== "remoto") return;
+      const logroId = celebracion.logro.id;
+      setEnviandoEmoji(true);
+      try {
+        // Vista previa: solo actualiza UI local (sin API).
+        if (vistaPrevia || logroId === "preview_plan_bonos_aviso") {
+          const uid = currentUid?.trim() || "preview-user";
+          setReacciones((prev) => {
+            const next: PlanBonosReacciones = {};
+            for (const [em, uids] of Object.entries(prev)) {
+              const filtered = uids.filter((u) => u !== uid);
+              if (filtered.length) next[em] = filtered;
+            }
+            const ya = (prev[emoji] ?? []).includes(uid);
+            if (!ya) next[emoji] = [...(next[emoji] ?? []), uid];
+            return next;
+          });
+          return;
+        }
+        const token = await getIdToken();
+        if (!token) return;
+        const r = await felicitarLogroPlanBonos(token, { logroId, emoji });
+        if (r.ok) {
+          setReacciones(r.logro.reacciones ?? {});
+          setCelebracion({ tipo: "remoto", logro: r.logro });
+        }
+      } finally {
+        setEnviandoEmoji(false);
+      }
+    },
+    [celebracion, currentUid, getIdToken, vistaPrevia]
+  );
 
   if (!pv) return null;
 
@@ -341,16 +555,16 @@ export default function PosPlanBonosArtesanos({
               return (
                 <div
                   key={m.id}
-                  className="absolute top-0 flex w-[6.25rem] -translate-x-1/2 flex-col items-center text-center"
+                  className="absolute top-0 flex w-[5.25rem] -translate-x-1/2 flex-col items-center text-center sm:w-[5.75rem]"
                   style={{ left: `${left}%` }}
                 >
                   <IconoMetaMedalla tono={m.tono} activo={ok} />
                   <span
-                    className={`mt-0.5 text-[9px] font-black uppercase tracking-wider ${
+                    className={`mt-0.5 text-[8px] font-black uppercase tracking-wider sm:text-[9px] ${
                       ok ? "text-[#FFC81C]" : "text-[#F5E6C8]"
                     }`}
                   >
-                    {m.tono}
+                    {m.tono === "ambar" ? "ámbar" : m.tono}
                   </span>
                   <span
                     className={`mt-2 h-2.5 w-2.5 shrink-0 rounded-full ring-2 ring-[#1a1510] ${
@@ -375,11 +589,24 @@ export default function PosPlanBonosArtesanos({
         </div>
 
         <p className="mt-2 text-[10px] leading-snug text-[#E8D5B0]">
-          Borrador: al cruzar cada meta sale felicitación en pantalla y se avisa a los demás POS del día.
+          Al cruzar cada meta: felicitación en pantalla, aviso a todos los POS y emojis para motivar.
         </p>
       </section>
 
-      {celebracion ? <CelebracionOverlay data={celebracion} onCerrar={cerrarCelebracion} /> : null}
+      {celebracion ? (
+        <CelebracionOverlay
+          data={celebracion}
+          onCerrar={cerrarCelebracion}
+          currentUid={currentUid}
+          reacciones={reacciones}
+          enviandoEmoji={enviandoEmoji}
+          onFelicitar={felicitar}
+          esVistaPrevia={
+            vistaPrevia ||
+            (celebracion.tipo === "remoto" && celebracion.logro.id === "preview_plan_bonos_aviso")
+          }
+        />
+      ) : null}
     </>
   );
 }

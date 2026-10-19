@@ -3,14 +3,14 @@
  * Metas por venta del turno/día en el punto de venta.
  */
 
-export type PlanBonosMetaId = "bronce_500" | "plata_700" | "oro_1000";
+export type PlanBonosMetaId = "bronce_500" | "plata_700" | "ambar_800" | "oro_1000";
 
 export type PlanBonosMeta = {
   id: PlanBonosMetaId;
   umbralCOP: number;
   bonoCOP: number;
   etiqueta: string;
-  tono: "bronce" | "plata" | "oro";
+  tono: "bronce" | "plata" | "ambar" | "oro";
 };
 
 export const PLAN_BONOS_ARTESANOS_METAS: readonly PlanBonosMeta[] = [
@@ -29,6 +29,13 @@ export const PLAN_BONOS_ARTESANOS_METAS: readonly PlanBonosMeta[] = [
     tono: "plata",
   },
   {
+    id: "ambar_800",
+    umbralCOP: 800_000,
+    bonoCOP: 30_000,
+    etiqueta: "Meta ámbar",
+    tono: "ambar",
+  },
+  {
     id: "oro_1000",
     umbralCOP: 1_000_000,
     bonoCOP: 100_000,
@@ -42,6 +49,13 @@ export const PLAN_BONOS_ESCALA_MAX_COP = 1_000_000;
 
 export const COL_PLAN_BONOS_ARTESANOS = "posPlanBonosArtesanos";
 
+/** Emojis disponibles para felicitar un logro desde otros POS. */
+export const PLAN_BONOS_EMOJIS_FELICITAR = ["👏", "🔥", "💪", "🎉", "❤️", "🏆", "⭐", "🙌"] as const;
+export type PlanBonosEmojiFelicitar = (typeof PLAN_BONOS_EMOJIS_FELICITAR)[number];
+
+/** emoji → uids que felicitaron */
+export type PlanBonosReacciones = Record<string, string[]>;
+
 export type PlanBonosLogroPublicado = {
   id: string;
   metaId: PlanBonosMetaId;
@@ -54,7 +68,18 @@ export type PlanBonosLogroPublicado = {
   ymd: string;
   createdAtMs: number;
   uid?: string;
+  artesanoNombre?: string;
+  reacciones?: PlanBonosReacciones;
 };
+
+export function esEmojiFelicitarPlanBonos(emoji: string): emoji is PlanBonosEmojiFelicitar {
+  return (PLAN_BONOS_EMOJIS_FELICITAR as readonly string[]).includes(emoji);
+}
+
+export function totalReaccionesPlanBonos(reacciones?: PlanBonosReacciones | null): number {
+  if (!reacciones) return 0;
+  return Object.values(reacciones).reduce((s, uids) => s + (Array.isArray(uids) ? uids.length : 0), 0);
+}
 
 const STORAGE_PREFIX = "pos_plan_bonos_artesanos_v1";
 

@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   docIdPlanBonosLogro,
+  esEmojiFelicitarPlanBonos,
   idQuincenaColombia,
   metasAlcanzadas,
   pctBarraPlanBonos,
   rangoEtiquetaQuincena,
   siguienteMetaPendiente,
+  totalReaccionesPlanBonos,
 } from "@/lib/plan-bonos-artesanos";
 
 describe("plan-bonos-artesanos", () => {
@@ -20,9 +22,15 @@ describe("plan-bonos-artesanos", () => {
     expect(metasAlcanzadas(499_999)).toHaveLength(0);
     expect(metasAlcanzadas(500_000).map((m) => m.id)).toEqual(["bronce_500"]);
     expect(metasAlcanzadas(700_000).map((m) => m.id)).toEqual(["bronce_500", "plata_700"]);
+    expect(metasAlcanzadas(800_000).map((m) => m.id)).toEqual([
+      "bronce_500",
+      "plata_700",
+      "ambar_800",
+    ]);
     expect(metasAlcanzadas(1_000_000).map((m) => m.id)).toEqual([
       "bronce_500",
       "plata_700",
+      "ambar_800",
       "oro_1000",
     ]);
   });
@@ -30,6 +38,8 @@ describe("plan-bonos-artesanos", () => {
   it("indica la siguiente meta pendiente", () => {
     expect(siguienteMetaPendiente(0)?.id).toBe("bronce_500");
     expect(siguienteMetaPendiente(500_000)?.id).toBe("plata_700");
+    expect(siguienteMetaPendiente(700_000)?.id).toBe("ambar_800");
+    expect(siguienteMetaPendiente(800_000)?.id).toBe("oro_1000");
     expect(siguienteMetaPendiente(1_000_000)).toBeNull();
   });
 
@@ -44,5 +54,11 @@ describe("plan-bonos-artesanos", () => {
     expect(idQuincenaColombia("2026-10-16")).toBe("2026-10-Q2");
     expect(rangoEtiquetaQuincena("2026-10-18").desde).toBe("2026-10-16");
     expect(rangoEtiquetaQuincena("2026-10-18").hasta).toBe("2026-10-31");
+  });
+
+  it("valida emojis de felicitación", () => {
+    expect(esEmojiFelicitarPlanBonos("🔥")).toBe(true);
+    expect(esEmojiFelicitarPlanBonos("pizza")).toBe(false);
+    expect(totalReaccionesPlanBonos({ "👏": ["a", "b"], "🔥": ["c"] })).toBe(3);
   });
 });

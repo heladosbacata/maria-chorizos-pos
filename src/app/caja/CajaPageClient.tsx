@@ -4301,6 +4301,7 @@ export default function CajaPageClient() {
                   puntoVenta={user.puntoVenta}
                   ventaActual={totalVentasEnTurno}
                   getIdToken={getIdTokenCajaMensajes}
+                  currentUid={user.uid}
                   artesanoNombre={
                     cajeroTurnoActivo?.nombreDisplay?.trim() ||
                     user.email?.split("@")[0]?.trim() ||
