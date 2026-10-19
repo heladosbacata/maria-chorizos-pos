@@ -62,7 +62,7 @@ function normalizarReacciones(raw: unknown): PlanBonosReacciones {
   for (const [emoji, uids] of Object.entries(raw as Record<string, unknown>)) {
     if (!esEmojiFelicitarPlanBonos(emoji) || !Array.isArray(uids)) continue;
     const clean = uids.filter((u): u is string => typeof u === "string" && Boolean(u.trim()));
-    if (clean.length) out[emoji] = [...new Set(clean)];
+    if (clean.length) out[emoji] = Array.from(new Set(clean));
   }
   return out;
 }

@@ -65,7 +65,7 @@ export default function BonosArtesanosFranquiciaPanel({ puntoVenta, onVolver }: 
       list.push(it);
       map.set(nombre, list);
     }
-    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0], "es"));
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0], "es"));
   }, [visibles]);
 
   const totalPendiente = useMemo(
@@ -148,8 +148,10 @@ export default function BonosArtesanosFranquiciaPanel({ puntoVenta, onVolver }: 
         </p>
       ) : (
         <div className="mt-4 space-y-4 overflow-y-auto pr-1">
-          {porArtesano.map(([artesano, bonos]) => {
-            const pend = bonos.filter((b) => !b.cancelado).reduce((s, b) => s + b.bonoCOP, 0);
+          {porArtesano.map(([artesano, bonos]: [string, HistorialBonoArtesanos[]]) => {
+            const pend = bonos
+              .filter((b: HistorialBonoArtesanos) => !b.cancelado)
+              .reduce((s: number, b: HistorialBonoArtesanos) => s + b.bonoCOP, 0);
             return (
               <section
                 key={artesano}
@@ -167,7 +169,7 @@ export default function BonosArtesanosFranquiciaPanel({ puntoVenta, onVolver }: 
                   </p>
                 </header>
                 <ul className="divide-y divide-gray-100">
-                  {bonos.map((b) => (
+                  {bonos.map((b: HistorialBonoArtesanos) => (
                     <li key={b.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
