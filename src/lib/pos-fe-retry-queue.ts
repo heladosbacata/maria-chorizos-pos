@@ -1,8 +1,10 @@
 /**
  * Cobros con factura electrónica cuya emisión falló tras registrar la venta en caja.
- * Reintenta POST emitir-cobro con el mismo payload (idempotencia depende de Alegra/WMS).
+ * Reintenta POST emitir-cobro solo ante fallos de red/5xx (idempotencia depende de Alegra/WMS).
+ * Rechazos DIAN permanentes (p. ej. Regla 90) no deben encolarse; si quedan en cola, se descartan.
  */
 
+import { esErrorFeReintentable } from "@/lib/pos-fe-emit-error";
 import { actualizarVentaLocalFacturaElectronica } from "@/lib/pos-ventas-local-storage";
 import { actualizarFeVentaPosCloud } from "@/lib/pos-ventas-cloud-client";
 import type { EmitirCobroPayload } from "@/lib/wms-pos-dian-client";
@@ -53,12 +55,18 @@ function escribir(lista: Stored[]) {
   }
 }
 
+/**
+ * Encola solo si el error es reintentable (red/5xx). Devuelve true si quedó en cola.
+ * Ante Regla 90 u otro rechazo DIAN, no encola (evitar quemar consecutivos y bloquear la cola).
+ */
 export function encolarFeEmitirPendiente(
   uid: string,
   ventaLocalId: string | null | undefined,
-  payload: EmitirCobroPayload
-): void {
-  if (typeof window === "undefined" || !uid.trim()) return;
+  payload: EmitirCobroPayload,
+  errorMotivo?: string
+): boolean {
+  if (typeof window === "undefined" || !uid.trim()) return false;
+  if (errorMotivo != null && !esErrorFeReintentable(errorMotivo)) return false;
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   const prev = leer();
   const body = JSON.parse(JSON.stringify(payload)) as EmitirCobroPayload;
@@ -72,6 +80,7 @@ export function encolarFeEmitirPendiente(
     },
   ];
   escribir(next.length > MAX ? next.slice(next.length - MAX) : next);
+  return true;
 }
 
 export function contarFeEmitirPendientes(): number {
@@ -105,7 +114,12 @@ export function removerFeEmitirPendientePorVenta(uid: string, ventaLocalId: stri
 
 let inflight = false;
 
-/** Procesa la cola en orden; ante el primer fallo deja el resto intacto. */
+/**
+ * Procesa la cola en orden.
+ * - Éxito: saca el ítem y continúa.
+ * - Fallo reintentable (red): deja el ítem y detiene (no quema el resto).
+ * - Fallo permanente (Regla 90, etc.): saca el ítem y continúa (no bloquea la cola).
+ */
 export async function procesarColaFeEmitir(getIdToken: () => Promise<string | null>): Promise<void> {
   if (typeof window === "undefined" || inflight) return;
   inflight = true;
@@ -116,7 +130,15 @@ export async function procesarColaFeEmitir(getIdToken: () => Promise<string | nu
       const token = await getIdToken();
       if (!token) break;
       const r = await wmsPosAlegraEmitirCobro(token, first.payload);
-      if (!r.ok) break;
+      if (!r.ok) {
+        if (esErrorFeReintentable(r.error)) {
+          break;
+        }
+        console.warn("[pos-fe-retry] descarte de cola (error no reintentable):", r.error);
+        lista = rest;
+        escribir(lista);
+        continue;
+      }
       if (first.ventaLocalId) {
         actualizarVentaLocalFacturaElectronica(first.uid, first.ventaLocalId, {
           numero: r.numeroFactura,
