@@ -85,8 +85,8 @@ export default function PosTurnoPausadoPantalla({ getIdToken, ejemplo }: Props) 
 
   async function enviar() {
     const texto = respuesta.trim();
-    if (texto.length < 8) {
-      setError("La respuesta es obligatoria. Escribe al menos 8 caracteres.");
+    if (texto.length < 2) {
+      setError("Escribe la respuesta para casa matriz.");
       return;
     }
     if (ejemplo) {
@@ -169,7 +169,7 @@ export default function PosTurnoPausadoPantalla({ getIdToken, ejemplo }: Props) 
             <button
               type="button"
               onClick={() => void enviar()}
-              disabled={enviando || respuesta.trim().length < 8}
+              disabled={enviando || respuesta.trim().length < 2}
               className="mt-4 inline-flex items-center gap-2 rounded-xl bg-amber-400 px-4 py-3 text-sm font-semibold text-slate-950 hover:bg-amber-300 disabled:opacity-50"
             >
               {enviando ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
