@@ -2924,6 +2924,17 @@ export default function CajaPageClient() {
     return auth.currentUser.getIdToken();
   }, []);
 
+  useEffect(() => {
+    if (!user) return;
+    const revisar = () => void verificarActualizacionPosTrasVenta();
+    const primera = window.setTimeout(revisar, 8000);
+    const id = window.setInterval(revisar, 45_000);
+    return () => {
+      window.clearTimeout(primera);
+      window.clearInterval(id);
+    };
+  }, [user]);
+
   const inicialesCajero = user?.email
     ? user.email
         .split("@")[0]
