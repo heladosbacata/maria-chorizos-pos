@@ -5,7 +5,6 @@ import QRCode from "qrcode";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import PosTurnoPausadoPantalla from "@/components/PosTurnoPausadoPantalla";
 import CajeroIdentificacionGateModal, {
   type CajeroIdentificacionMotivo,
 } from "@/components/CajeroIdentificacionGateModal";
@@ -5446,8 +5445,6 @@ export default function CajaPageClient() {
           window.location.reload();
         }}
       />
-
-      <PosTurnoPausadoPantalla getIdToken={getIdTokenCajaMensajes} />
 
       {serviciosSecundarios && turnoAbierto ? (
         <PosAnunciosCajaWatcher

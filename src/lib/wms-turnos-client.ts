@@ -3,6 +3,7 @@
  * Base: `getWmsPublicBaseUrl()` → NEXT_PUBLIC_WMS_URL o NEXT_PUBLIC_WMS_API_URL.
  */
 import { nombreDisplayCajeroTurno, type CajeroTurnoDoc } from "@/lib/cajeros-turno-firestore";
+import { emitirPausaTurnoPos, esPausaTurnoPos } from "@/lib/pos-turno-pausa-evento";
 import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
 
 const UEN_DEFAULT = "Maria Chorizos";
@@ -181,8 +182,13 @@ export async function wmsTurnosSincronizarSilent(
         },
         body: JSON.stringify(body),
       });
-      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
-      if (res.ok && data.ok === true) return;
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; pausa?: unknown };
+      if (res.ok && data.ok === true) {
+        if (Object.prototype.hasOwnProperty.call(data, "pausa")) {
+          emitirPausaTurnoPos(esPausaTurnoPos(data.pausa) ? data.pausa : null);
+        }
+        return;
+      }
       if (attempt < 2) {
         console.warn("[wms-turnos] sincronizar intento", attempt + 1, res.status, data.error ?? "");
       }

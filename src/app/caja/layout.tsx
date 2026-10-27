@@ -1,11 +1,15 @@
 import type { ReactNode } from "react";
 import { PosViewportFitProvider } from "@/context/PosViewportFitContext";
 import PosViewportFitShell from "@/components/PosViewportFitShell";
+import PosTurnoPausaLayout from "@/components/PosTurnoPausaLayout";
 
 export default function CajaLayout({ children }: { children: ReactNode }) {
   return (
     <PosViewportFitProvider>
-      <PosViewportFitShell>{children}</PosViewportFitShell>
+      <PosViewportFitShell>
+        {children}
+        <PosTurnoPausaLayout />
+      </PosViewportFitShell>
     </PosViewportFitProvider>
   );
 }

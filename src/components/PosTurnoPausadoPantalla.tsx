@@ -2,15 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, PauseCircle } from "lucide-react";
+import PosBodyPortal from "@/components/PosBodyPortal";
+import { EVENTO_POS_TURNO_PAUSA, esPausaTurnoPos, type PausaTurnoPos } from "@/lib/pos-turno-pausa-evento";
 import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
 
-type PausaCaja = {
-  motivo: string;
-  pausadoPor: string;
-  pausadoEn: string | null;
-  respuesta: string | null;
-  respondidoEn: string | null;
-};
+type PausaCaja = PausaTurnoPos;
+
+const CONSULTA_PAUSA_MS = 2_000;
 
 type Props = {
   getIdToken: () => Promise<string | null>;
@@ -42,6 +40,15 @@ export default function PosTurnoPausadoPantalla({ getIdToken, ejemplo }: Props) 
   const [error, setError] = useState<string | null>(null);
   const sonoRef = useRef(false);
 
+  const aplicarPausa = useCallback((next: PausaCaja | null) => {
+    setPausa(next);
+    if (!next) {
+      sonoRef.current = false;
+      setRespuesta("");
+      setError(null);
+    }
+  }, []);
+
   const consultar = useCallback(async () => {
     const token = await getIdToken();
     if (!token) return;
@@ -50,25 +57,35 @@ export default function PosTurnoPausadoPantalla({ getIdToken, ejemplo }: Props) 
         headers: { Authorization: `Bearer ${token}` },
         cache: "no-store",
       });
-      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; pausa?: PausaCaja | null };
+      const json = (await res.json().catch(() => ({}))) as { ok?: boolean; pausa?: unknown };
       if (!res.ok || !json.ok) return;
-      setPausa(json.pausa ?? null);
-      if (!json.pausa) {
-        sonoRef.current = false;
-        setRespuesta("");
-        setError(null);
-      }
+      aplicarPausa(esPausaTurnoPos(json.pausa) ? json.pausa : null);
     } catch {
-      /* Si el WMS no responde, la caja sigue operando. El siguiente intento reintenta. */
+      /* Si el WMS no responde, el siguiente intento reintenta. */
     }
-  }, [getIdToken]);
+  }, [aplicarPausa, getIdToken]);
 
   useEffect(() => {
     if (ejemplo) return;
+    const tick = () => {
+      if (document.visibilityState === "visible") void consultar();
+    };
     void consultar();
-    const id = window.setInterval(() => void consultar(), 4000);
-    return () => window.clearInterval(id);
-  }, [consultar, ejemplo]);
+    const id = window.setInterval(tick, CONSULTA_PAUSA_MS);
+    const onPausa = (ev: Event) => {
+      const detail = (ev as CustomEvent<unknown>).detail;
+      aplicarPausa(esPausaTurnoPos(detail) ? detail : null);
+    };
+    document.addEventListener("visibilitychange", tick);
+    window.addEventListener("focus", tick);
+    window.addEventListener(EVENTO_POS_TURNO_PAUSA, onPausa);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", tick);
+      window.removeEventListener("focus", tick);
+      window.removeEventListener(EVENTO_POS_TURNO_PAUSA, onPausa);
+    };
+  }, [aplicarPausa, consultar, ejemplo]);
 
   useEffect(() => {
     if (!pausa) return;
@@ -122,8 +139,10 @@ export default function PosTurnoPausadoPantalla({ getIdToken, ejemplo }: Props) 
   if (!pausa) return null;
 
   return (
+    <PosBodyPortal open lockScroll>
     <div
-      className="fixed inset-0 z-[240] flex items-center justify-center bg-slate-950 px-4 py-8 text-white"
+      id="pos-turno-pausado-root"
+      className="fixed inset-0 z-[400] flex items-center justify-center bg-slate-950 px-4 py-8 text-white"
       role="alertdialog"
       aria-modal="true"
       aria-labelledby="turno-pausado-titulo"
@@ -179,5 +198,6 @@ export default function PosTurnoPausadoPantalla({ getIdToken, ejemplo }: Props) 
         )}
       </div>
     </div>
+    </PosBodyPortal>
   );
 }

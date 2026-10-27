@@ -101,7 +101,7 @@ type Props = {
   onUnreadChange?: (count: number) => void;
 };
 
-const POLL_UNREAD_MS = 30_000;
+const POLL_UNREAD_MS = 8_000;
 const POLL_HILO_ABIERTO_MS = 15_000;
 const EMOJIS_CHAT_RAPIDO = ["😀", "😊", "👍", "🙏", "🎉", "🔥", "❤️", "👏", "💪", "🏆", "✅", "📌"] as const;
 
