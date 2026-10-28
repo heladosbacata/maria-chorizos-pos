@@ -140,6 +140,13 @@ En Sheets debe existir fila de `DB_ResolucionesDian` para el NIT del franquiciad
 
 **Criterio de hecho:** Desde el POS, con usuario POS habilitado y NIT/resolución correctos en Sheets, **ping OK** y **emitir-cobro** devuelve `ok: true` con `alegraCufe` y `numeroFactura`; errores Alegra se muestran con el `error` devuelto por el WMS.
 
+### Regla 90 DIAN («Documento procesado anteriormente»)
+
+La DIAN ya aceptó ese prefijo+consecutivo. Causas típicas: contador Firestore/`pos_dian_consecutivo` atrasado respecto a Alegra/DIAN, o reintento tras un envío que sí llegó a la DIAN pero el POS no recibió OK.
+
+- **WMS / admin:** alinear el siguiente consecutivo del emisor con el portal Alegra/Alanube (siguiente libre) y `DB_ResolucionesDian`.
+- **POS:** no encola reintento ante Regla 90 u otros rechazos DIAN permanentes (`src/lib/pos-fe-emit-error.ts`); solo reintenta red/5xx. El mensaje al cajero ya no dice «al recuperar conexión» en ese caso.
+
 ---
 
 ## Implementación en este repo (`maria-chorizos-pos`)
