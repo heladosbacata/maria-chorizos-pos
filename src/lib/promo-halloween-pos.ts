@@ -7,6 +7,12 @@ const DIAS_PROMO = new Set(["10-30", "10-31", "11-01"]);
 /** Unidades de la promo por punto de venta, cada año. */
 export const PROMO_HALLOWEEN_CUPO_MAX = 5;
 
+/** Texto del paquete en ticket y factura, sin emojis. */
+export const TEXTO_PAQUETE_PROMO_HALLOWEEN = "Paquete chorizos + choriarepa paisa";
+
+/** Descripción que ve el cajero en la tarjeta durante los días de la promo. */
+export const DESCRIPCION_VISIBLE_PROMO_HALLOWEEN = `🎃👻 ${TEXTO_PAQUETE_PROMO_HALLOWEEN} 🦇🕸️`;
+
 export const EVENTO_CUPO_PROMO_HALLOWEEN = "pos-promo-halloween-cupo";
 
 export type ProductoPromoHalloweenRef = {
@@ -34,6 +40,15 @@ export function esProductoPromoHalloween(producto: ProductoPromoHalloweenRef): b
   const desc = norm(producto.descripcion);
   if (sku === "promoha" || sku.includes("halloween")) return true;
   return desc.includes("halloween");
+}
+
+/** Nombre con emojis para la tarjeta, la cuenta y el resumen en pantalla. */
+export function descripcionVisiblePromoHalloween(
+  producto: ProductoPromoHalloweenRef,
+  ahora: Date = new Date()
+): string | null {
+  if (!esVentanaPromoHalloween(ahora) || !esProductoPromoHalloween(producto)) return null;
+  return DESCRIPCION_VISIBLE_PROMO_HALLOWEEN;
 }
 
 export function priorizarPromoHalloween<T extends ProductoPromoHalloweenRef>(

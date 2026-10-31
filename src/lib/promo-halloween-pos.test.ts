@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  DESCRIPCION_VISIBLE_PROMO_HALLOWEEN,
   PROMO_HALLOWEEN_CUPO_MAX,
   cantidadUnidadesPromoHalloween,
+  descripcionVisiblePromoHalloween,
   disponiblesPromoHalloween,
   esProductoPromoHalloween,
   esVentanaPromoHalloween,
@@ -17,6 +19,15 @@ describe("promo halloween POS", () => {
     expect(esVentanaPromoHalloween(new Date("2026-11-01T12:00:00-05:00"))).toBe(true);
     expect(esVentanaPromoHalloween(new Date("2026-10-29T21:00:00-05:00"))).toBe(false);
     expect(esVentanaPromoHalloween(new Date("2026-11-02T00:30:00-05:00"))).toBe(false);
+  });
+
+  it("muestra el paquete con emojis de Halloween", () => {
+    const producto = { sku: "promoha", descripcion: "Promocion Halloween" };
+    const visible = descripcionVisiblePromoHalloween(producto, new Date("2026-10-30T12:00:00-05:00"));
+    expect(visible).toBe(DESCRIPCION_VISIBLE_PROMO_HALLOWEEN);
+    expect(visible).toContain("🎃");
+    expect(visible).toContain("Paquete chorizos + choriarepa paisa");
+    expect(descripcionVisiblePromoHalloween(producto, new Date("2026-11-02T12:00:00-05:00"))).toBeNull();
   });
 
   it("reconoce la promo por sku o por nombre", () => {

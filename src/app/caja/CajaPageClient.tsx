@@ -98,7 +98,9 @@ import { getCatalogoPOS, leerCatalogoCacheSync } from "@/lib/catalogo-pos";
 import {
   EVENTO_CUPO_PROMO_HALLOWEEN,
   PROMO_HALLOWEEN_CUPO_MAX,
+  TEXTO_PAQUETE_PROMO_HALLOWEEN,
   cantidadUnidadesPromoHalloween,
+  descripcionVisiblePromoHalloween,
   esProductoPromoHalloween,
   esVentanaPromoHalloween,
   priorizarPromoHalloween,
@@ -352,6 +354,15 @@ function itemCuentaEsBebidaConInventarioDirecto(it: ItemCuenta): boolean {
   return productoRequiereTamanoBebida(it.producto) || `${it.producto.categoria ?? ""}`.toLowerCase().includes("bebida");
 }
 
+function nombreProductoEnCaja(producto: ProductoPOS): string {
+  return descripcionVisiblePromoHalloween(producto) ?? descripcionBebidaParaUi(producto);
+}
+
+function descripcionPromoEnComprobante(producto: ProductoPOS): string {
+  if (esVentanaPromoHalloween() && esProductoPromoHalloween(producto)) return TEXTO_PAQUETE_PROMO_HALLOWEEN;
+  return descripcionBebidaParaUi(producto);
+}
+
 function lineasTicketDesdeItemsCuenta(items: ItemCuenta[]): TicketVentaLinea[] {
   return items.map((it) => {
     const li = lineInputDesdeItemCuentaLike(it);
@@ -359,7 +370,7 @@ function lineasTicketDesdeItemsCuenta(items: ItemCuenta[]): TicketVentaLinea[] {
     const qty = Math.max(0.0001, it.cantidad);
     const precioUnitario = Math.round((sub / qty) * 100) / 100;
     return {
-      descripcion: it.producto.descripcion,
+      descripcion: descripcionPromoEnComprobante(it.producto),
       cantidad: it.cantidad,
       precioUnitario,
       subtotal: sub,
@@ -2486,7 +2497,7 @@ export default function CajaPageClient() {
             lineId: it.lineId,
             inventarioLookupKey: it.lineId,
             sku: it.lineId.trim() || it.producto.sku,
-            descripcion: it.producto.descripcion,
+            descripcion: descripcionPromoEnComprobante(it.producto),
             cantidad: it.cantidad,
             precioUnitario: Math.round((sub / qty) * 100) / 100,
             detalleVariante: detalleVarianteTicketLinea(it),
@@ -2658,7 +2669,7 @@ export default function CajaPageClient() {
             }
             const lineasFe = itemsSnap.map((it) => {
               const varTxt = detalleVarianteTicketLinea(it);
-              const desc = [descripcionBebidaParaUi(it.producto).trim(), varTxt].filter(Boolean).join(" · ");
+              const desc = [descripcionPromoEnComprobante(it.producto).trim(), varTxt].filter(Boolean).join(" · ");
               const montoLinea = totalLineaItem(it);
               return {
                 descripcion: (desc.slice(0, 500) || "Ítem").trim(),
@@ -4683,7 +4694,7 @@ export default function CajaPageClient() {
                         .reduce((s, i) => s + i.cantidad, 0);
                       const enDomicilios = productoHabilitadoEnDomiciliosPunto(p.sku, catalogoDomiciliosPorSku);
                       const guardandoEste = guardandoDomiciliosSku === p.sku;
-                      const nombreCatalogo = descripcionBebidaParaUi(p);
+                      const nombreCatalogo = nombreProductoEnCaja(p);
                       const promoHalloween = promoHalloweenActiva && esProductoPromoHalloween(p);
                       const promoAgotada = promoHalloween && cupoPromoDisponibles === 0;
                       return (
@@ -4744,7 +4755,13 @@ export default function CajaPageClient() {
                                   Precio autorizado
                                 </span>
                               ) : null}
-                              <p className="mt-0.5 line-clamp-2 text-[11px] font-medium leading-snug text-gray-900 sm:text-xs">
+                              <p
+                                className={
+                                  promoHalloween
+                                    ? "mt-0.5 text-[11px] font-semibold leading-snug text-gray-900 sm:text-xs"
+                                    : "mt-0.5 line-clamp-2 text-[11px] font-medium leading-snug text-gray-900 sm:text-xs"
+                                }
+                              >
                                 {nombreCatalogo}
                               </p>
                               {p.categoria && (
@@ -4844,7 +4861,7 @@ export default function CajaPageClient() {
                           >
                             <td className="px-3 py-2 font-mono text-xs text-gray-700">{p.sku}</td>
                             <td className="px-3 py-2 text-gray-900">
-                              {descripcionBebidaParaUi(p)}
+                              {nombreProductoEnCaja(p)}
                               {promoHalloween ? (
                                 <span className="ml-2 inline-flex rounded-full bg-gradient-to-r from-orange-500 to-purple-700 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
                                   Promo Halloween
@@ -5189,7 +5206,7 @@ export default function CajaPageClient() {
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-medium text-gray-900">{descripcionBebidaParaUi(it.producto)}</p>
+                        <p className="text-sm font-medium text-gray-900">{nombreProductoEnCaja(it.producto)}</p>
                         {it.varianteChorizo && (
                           <p className="mt-0.5 text-xs font-semibold text-primary-700">
                             Chorizo: {etiquetaVarianteChorizo(it.varianteChorizo)}
@@ -5311,7 +5328,7 @@ export default function CajaPageClient() {
                       return (
                         <tr key={it.lineId} className="border-b border-gray-50 last:border-0">
                           <td className="py-2 pl-2 font-medium text-gray-800">
-                            {descripcionBebidaParaUi(it.producto)}
+                            {nombreProductoEnCaja(it.producto)}
                             {detalleVariante ? (
                               <span className="block text-[11px] font-normal text-gray-500">({detalleVariante})</span>
                             ) : null}
