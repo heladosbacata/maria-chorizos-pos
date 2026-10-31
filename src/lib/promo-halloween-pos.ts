@@ -1,7 +1,13 @@
 import { ymdColombia } from "@/lib/fecha-colombia";
+import { normalizarPuntoVentaClave } from "@/lib/punto-venta-clave";
 
 /** 30 y 31 de octubre, y 1 de noviembre (hora de Colombia). */
 const DIAS_PROMO = new Set(["10-30", "10-31", "11-01"]);
+
+/** Unidades de la promo por punto de venta, cada año. */
+export const PROMO_HALLOWEEN_CUPO_MAX = 5;
+
+export const EVENTO_CUPO_PROMO_HALLOWEEN = "pos-promo-halloween-cupo";
 
 export type ProductoPromoHalloweenRef = {
   sku?: string;
@@ -43,4 +49,48 @@ export function priorizarPromoHalloween<T extends ProductoPromoHalloweenRef>(
   }
   if (promo.length === 0) return productos;
   return [...promo, ...resto];
+}
+
+/** Documento de cupo del punto, separado por año para que el 30 de octubre siguiente vuelva a 5. */
+export function idDocumentoCupoPromoHalloween(puntoVenta: string, ahora: Date = new Date()): string {
+  const anio = ymdColombia(ahora).slice(0, 4);
+  const base = normalizarPuntoVentaClave(puntoVenta)
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_|_$/g, "");
+  return `${base || "punto"}__promoha__${anio}`;
+}
+
+export function disponiblesPromoHalloween(
+  vendidos: number,
+  cupoMax: number = PROMO_HALLOWEEN_CUPO_MAX
+): number {
+  const v = Number.isFinite(vendidos) ? Math.max(0, Math.floor(vendidos)) : 0;
+  const max = Number.isFinite(cupoMax) ? Math.max(0, Math.floor(cupoMax)) : PROMO_HALLOWEEN_CUPO_MAX;
+  return Math.max(0, max - v);
+}
+
+export function textoMarcadorPromoHalloween(disponibles: number | null): string {
+  if (disponibles == null) return "Disponible: …";
+  const n = Math.max(0, Math.floor(disponibles));
+  if (n <= 0) return "Promo no disponible";
+  return `Disponible: ${n} ${n === 1 ? "unidad" : "unidades"}`;
+}
+
+type ItemPromoRef = {
+  cantidad: number;
+  sku?: string;
+  descripcion?: string;
+  producto?: ProductoPromoHalloweenRef;
+};
+
+export function cantidadUnidadesPromoHalloween(items: ItemPromoRef[]): number {
+  let total = 0;
+  for (const item of items) {
+    const sku = item.producto?.sku ?? item.sku;
+    const descripcion = item.producto?.descripcion ?? item.descripcion;
+    if (!esProductoPromoHalloween({ sku, descripcion })) continue;
+    const cantidad = Number(item.cantidad);
+    if (Number.isFinite(cantidad) && cantidad > 0) total += Math.round(cantidad);
+  }
+  return total;
 }

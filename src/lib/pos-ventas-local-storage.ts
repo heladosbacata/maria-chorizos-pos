@@ -226,12 +226,16 @@ export function ymdDesdeFechaLocal(d: Date): string {
 
 export function appendVentaLocal(
   uid: string,
-  venta: Omit<VentaGuardadaLocal, "id" | "isoTimestamp" | "uidSesion"> & { isoTimestamp?: string }
+  venta: Omit<VentaGuardadaLocal, "id" | "isoTimestamp" | "uidSesion"> & {
+    id?: string;
+    isoTimestamp?: string;
+  }
 ): string | null {
   if (typeof window === "undefined" || !uid.trim()) return null;
-  const id = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-  const isoTimestamp = venta.isoTimestamp ?? new Date().toISOString();
-  const row: VentaGuardadaLocal = { ...venta, id, isoTimestamp, uidSesion: uid.trim() };
+  const { id: idPedido, isoTimestamp: isoPedido, ...resto } = venta;
+  const id = idPedido?.trim() || `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  const isoTimestamp = isoPedido ?? new Date().toISOString();
+  const row: VentaGuardadaLocal = { ...resto, id, isoTimestamp, uidSesion: uid.trim() };
   const prev = leerRaw(uid);
   const next = [...prev, row];
   const trimmed = next.length > MAX_VENTAS ? next.slice(next.length - MAX_VENTAS) : next;

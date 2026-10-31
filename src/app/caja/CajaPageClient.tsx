@@ -96,10 +96,19 @@ import {
 import { fetchCatalogoInsumosDesdeSheet } from "@/lib/catalogo-insumos-sheet-client";
 import { getCatalogoPOS, leerCatalogoCacheSync } from "@/lib/catalogo-pos";
 import {
+  EVENTO_CUPO_PROMO_HALLOWEEN,
+  PROMO_HALLOWEEN_CUPO_MAX,
+  cantidadUnidadesPromoHalloween,
   esProductoPromoHalloween,
   esVentanaPromoHalloween,
   priorizarPromoHalloween,
+  textoMarcadorPromoHalloween,
 } from "@/lib/promo-halloween-pos";
+import {
+  consumirCupoPromoHalloween,
+  devolverCupoPromoHalloween,
+  leerCupoPromoHalloween,
+} from "@/lib/promo-halloween-cupo-client";
 import { solicitarCambioPrecioProductoPos } from "@/lib/pos-solicitud-cambio-precio";
 import { catalogoInsumosParaCargue } from "@/lib/inventario-pos-catalogo";
 import {
@@ -457,6 +466,7 @@ export default function CajaPageClient() {
   const [activePrecuentaId, setActivePrecuentaId] = useState("1");
   /** Ítems de la cuenta a cobrar por pre-cuenta (panel derecho) */
   const [itemsPorPrecuenta, setItemsPorPrecuenta] = useState<Record<string, ItemCuenta[]>>({ "1": [] });
+  const [cupoPromoDisponibles, setCupoPromoDisponibles] = useState<number | null>(null);
   /** El turno inicia cerrado: al abrirlo se elige el cajero operativo. */
   const [turnoAbierto, setTurnoAbierto] = useState(false);
   const [turnoInicio, setTurnoInicio] = useState<Date>(() => new Date());
@@ -1173,6 +1183,33 @@ export default function CajaPageClient() {
   }, [showModalAbrirTurno, user?.puntoVenta, cajeroIdentificado]);
 
   const promoHalloweenActiva = esVentanaPromoHalloween();
+
+  useEffect(() => {
+    if (!promoHalloweenActiva || !user?.puntoVenta?.trim()) {
+      setCupoPromoDisponibles(null);
+      return;
+    }
+    let cancelled = false;
+    const cargar = async () => {
+      const token = await auth?.currentUser?.getIdToken();
+      if (!token || cancelled) return;
+      const lectura = await leerCupoPromoHalloween(token);
+      if (!cancelled && lectura.ok) setCupoPromoDisponibles(lectura.disponibles);
+    };
+    void cargar();
+    const timer = window.setInterval(() => void cargar(), 8000);
+    const alActualizar = (ev: Event) => {
+      const disponibles = (ev as CustomEvent<{ disponibles?: number }>).detail?.disponibles;
+      if (typeof disponibles === "number") setCupoPromoDisponibles(disponibles);
+    };
+    window.addEventListener(EVENTO_CUPO_PROMO_HALLOWEEN, alActualizar);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener(EVENTO_CUPO_PROMO_HALLOWEEN, alActualizar);
+    };
+  }, [promoHalloweenActiva, user?.puntoVenta]);
+
   const catalogosFiltrados = useMemo(() => {
     const q = busquedaCatalogo.trim().toLowerCase();
     const base = !q
@@ -1710,8 +1747,25 @@ export default function CajaPageClient() {
     agregarProductoACuenta(producto);
   };
 
+  const cabeUnidadPromoHalloween = (unidadesExtra: number): boolean => {
+    if (!promoHalloweenActiva || unidadesExtra <= 0) return true;
+    const disponibles = cupoPromoDisponibles ?? PROMO_HALLOWEEN_CUPO_MAX;
+    const enCuentas = Object.values(itemsPorPrecuenta).reduce(
+      (suma, items) => suma + cantidadUnidadesPromoHalloween(items),
+      0
+    );
+    if (disponibles <= 0 || enCuentas + unidadesExtra > disponibles) {
+      window.alert(
+        disponibles <= 0 ? "Promo no disponible" : `Solo quedan ${disponibles} unidades de la promo.`
+      );
+      return false;
+    }
+    return true;
+  };
+
   /** Agregar producto a la cuenta (variantes opcionales: chorizo y/o arepa en combo) */
   const agregarProductoACuenta = (producto: ProductoPOS, opts?: OpcionesVariantesLineaPos) => {
+    if (esProductoPromoHalloween(producto) && !cabeUnidadPromoHalloween(1)) return;
     const lineId = buildLineIdPos(producto.sku, opts);
     const precioVariante =
       opts?.variantes?.length
@@ -2042,6 +2096,10 @@ export default function CajaPageClient() {
   }, [itemsCuentaActiva.length]);
 
   const cambiarCantidad = (lineId: string, delta: number) => {
+    if (delta > 0) {
+      const linea = (itemsPorPrecuenta[activePrecuentaId] ?? []).find((it) => it.lineId === lineId);
+      if (linea && esProductoPromoHalloween(linea.producto) && !cabeUnidadPromoHalloween(delta)) return;
+    }
     setItemsPorPrecuenta((prev) => {
       const items = prev[activePrecuentaId] ?? [];
       const next = items
@@ -2061,6 +2119,11 @@ export default function CajaPageClient() {
   };
 
   const guardarItemCuentaEditado = (actualizado: ItemCuenta) => {
+    if (esProductoPromoHalloween(actualizado.producto)) {
+      const anterior = (itemsPorPrecuenta[activePrecuentaId] ?? []).find((it) => it.lineId === actualizado.lineId);
+      const extra = Math.round(actualizado.cantidad) - Math.round(anterior?.cantidad ?? 0);
+      if (extra > 0 && !cabeUnidadPromoHalloween(extra)) return;
+    }
     setItemsPorPrecuenta((prev) => {
       const items = [...(prev[activePrecuentaId] ?? [])];
       const idx = items.findIndex((i) => i.lineId === actualizado.lineId);
@@ -2303,8 +2366,40 @@ export default function CajaPageClient() {
       const mediosPago =
         mediosPagoRaw != null && total > 0 ? normalizarMediosPagoVenta(mediosPagoRaw, total) : undefined;
 
+      let promoVentaId: string | null = null;
+      let promoCantidad = 0;
+      let promoReservada = false;
+      let promoConfirmada = false;
       setCobrando(true);
       try {
+        promoCantidad = esVentanaPromoHalloween() ? cantidadUnidadesPromoHalloween(itemsSnap) : 0;
+        if (promoCantidad > 0) {
+          promoVentaId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+          const tokenPromo = await auth?.currentUser?.getIdToken();
+          if (!tokenPromo) {
+            window.alert("No hay sesión para reservar las unidades de la promo Halloween.");
+            return false;
+          }
+          let cupo: Awaited<ReturnType<typeof consumirCupoPromoHalloween>>;
+          try {
+            cupo = await consumirCupoPromoHalloween(tokenPromo, {
+              ventaId: promoVentaId,
+              cantidad: promoCantidad,
+            });
+          } catch (errorCupo) {
+            promoReservada = true;
+            console.warn("No se pudo reservar la promo Halloween.", errorCupo);
+            window.alert("No se pudo reservar la promo Halloween. Intentá de nuevo.");
+            return false;
+          }
+          if (!cupo.ok) {
+            window.alert(cupo.message || "Promo no disponible");
+            if (typeof cupo.disponibles === "number") setCupoPromoDisponibles(cupo.disponibles);
+            return false;
+          }
+          promoReservada = true;
+          setCupoPromoDisponibles(cupo.disponibles);
+        }
         const ct = cajeroTurnoActivo;
         const cr = clienteActivoPrecuenta;
         const filaVenta: VentaReporte = {
@@ -2357,6 +2452,7 @@ export default function CajaPageClient() {
             return false;
           }
         }
+        if (promoReservada) promoConfirmada = true;
 
         setTotalVentasEnTurno((prev) => {
           const next = prev + total;
@@ -2398,6 +2494,7 @@ export default function CajaPageClient() {
         });
 
         const ventaLocalId = appendVentaLocal(user.uid, {
+          ...(promoVentaId ? { id: promoVentaId } : {}),
           fechaYmd: ymdColombia(),
           isoTimestamp: isoVenta,
           puntoVenta: pv,
@@ -2754,6 +2851,20 @@ export default function CajaPageClient() {
 
         return true;
       } finally {
+        if (promoReservada && !promoConfirmada && promoVentaId) {
+          try {
+            const tokenPromo = await auth?.currentUser?.getIdToken();
+            if (tokenPromo) {
+              const devuelto = await devolverCupoPromoHalloween(tokenPromo, {
+                ventaId: promoVentaId,
+                cantidad: promoCantidad,
+              });
+              if (devuelto.ok) setCupoPromoDisponibles(devuelto.disponibles);
+            }
+          } catch (errorCupo) {
+            console.warn("No se pudo devolver el cupo de la promo Halloween.", errorCupo);
+          }
+        }
         setCobrando(false);
       }
     },
@@ -4574,6 +4685,7 @@ export default function CajaPageClient() {
                       const guardandoEste = guardandoDomiciliosSku === p.sku;
                       const nombreCatalogo = descripcionBebidaParaUi(p);
                       const promoHalloween = promoHalloweenActiva && esProductoPromoHalloween(p);
+                      const promoAgotada = promoHalloween && cupoPromoDisponibles === 0;
                       return (
                         <div
                           key={p.sku}
@@ -4586,7 +4698,7 @@ export default function CajaPageClient() {
                           <button
                             type="button"
                             onClick={() => onClicProductoCatalogo(p)}
-                            disabled={!turnoAbierto}
+                            disabled={!turnoAbierto || promoAgotada}
                             className="flex flex-1 flex-col text-left focus:outline-none focus:ring-2 focus:ring-inset focus:ring-primary-400 disabled:cursor-not-allowed disabled:opacity-60"
                           >
                             <div className="relative aspect-[5/4] w-full bg-gray-200">
@@ -4598,6 +4710,17 @@ export default function CajaPageClient() {
                               {promoHalloween && (
                                 <span className="absolute right-1 top-1 rounded-full bg-gradient-to-r from-orange-500 to-purple-700 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white shadow">
                                   Promo Halloween
+                                </span>
+                              )}
+                              {promoHalloween && (
+                                <span
+                                  className={
+                                    promoAgotada
+                                      ? "absolute inset-x-1 bottom-1 rounded-md bg-gray-900/95 px-1.5 py-1 text-center text-[10px] font-bold uppercase tracking-wide text-white"
+                                      : "absolute inset-x-1 bottom-1 rounded-md bg-emerald-700/95 px-1.5 py-1 text-center text-[10px] font-bold text-white shadow"
+                                  }
+                                >
+                                  {textoMarcadorPromoHalloween(cupoPromoDisponibles)}
                                 </span>
                               )}
                               {p.urlImagen ? (
@@ -4631,6 +4754,17 @@ export default function CajaPageClient() {
                                 ${Number(p.precioUnitario).toLocaleString("es-CO")}
                                 {p.unidad ? ` / ${p.unidad}` : ""}
                               </p>
+                              {promoHalloween && (
+                                <p
+                                  className={
+                                    promoAgotada
+                                      ? "mt-1.5 rounded-md bg-gray-900 px-1.5 py-1 text-center text-[10px] font-bold uppercase tracking-wide text-white sm:text-[11px]"
+                                      : "mt-1.5 rounded-md bg-emerald-700 px-1.5 py-1 text-center text-[10px] font-bold text-white sm:text-[11px]"
+                                  }
+                                >
+                                  {textoMarcadorPromoHalloween(cupoPromoDisponibles)}
+                                </p>
+                              )}
                               {bebidaConTamano && (
                                 <p className="mt-1 text-[10px] font-medium leading-tight text-sky-800 sm:text-[11px]">
                                   {varsBebidaUi.length === 1
@@ -4714,6 +4848,17 @@ export default function CajaPageClient() {
                               {promoHalloween ? (
                                 <span className="ml-2 inline-flex rounded-full bg-gradient-to-r from-orange-500 to-purple-700 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
                                   Promo Halloween
+                                </span>
+                              ) : null}
+                              {promoHalloween ? (
+                                <span
+                                  className={
+                                    cupoPromoDisponibles === 0
+                                      ? "ml-2 inline-flex rounded-full bg-gray-900 px-2 py-0.5 text-[10px] font-bold uppercase text-white"
+                                      : "ml-2 inline-flex rounded-full bg-emerald-700 px-2 py-0.5 text-[10px] font-bold text-white"
+                                  }
+                                >
+                                  {textoMarcadorPromoHalloween(cupoPromoDisponibles)}
                                 </span>
                               ) : null}
                             </td>

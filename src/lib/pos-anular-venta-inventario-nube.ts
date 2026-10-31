@@ -8,6 +8,8 @@ import {
   registrarMovimientoInventario,
 } from "@/lib/inventario-pos-firestore";
 import { anularVentaPosCloud } from "@/lib/pos-ventas-cloud-client";
+import { cantidadUnidadesPromoHalloween } from "@/lib/promo-halloween-pos";
+import { devolverCupoPromoHalloween } from "@/lib/promo-halloween-cupo-client";
 import { emitirMetasVentasActualizadas } from "@/lib/pos-metas-ventas-event";
 import { marcarVentaAnuladaLocal, type VentaGuardadaLocal } from "@/lib/pos-ventas-local-storage";
 import type { InsumoKitItem } from "@/types/inventario-pos";
@@ -80,6 +82,13 @@ export async function anularVentaEnEquipoInventarioYNube(params: {
   try {
     const token = await auth?.currentUser?.getIdToken();
     if (token) {
+      const unidadesPromo = cantidadUnidadesPromoHalloween(actualizada.lineas);
+      if (unidadesPromo > 0) {
+        const cupo = await devolverCupoPromoHalloween(token, { ventaId, cantidad: unidadesPromo });
+        if (!cupo.ok) {
+          fallosSku.push(cupo.message || "Promo Halloween: no se pudo devolver el disponible.");
+        }
+      }
       const sync = await anularVentaPosCloud(token, {
         ventaLocalId: ventaId,
         motivo: motivoTrim,
