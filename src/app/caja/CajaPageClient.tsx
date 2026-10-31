@@ -95,6 +95,11 @@ import {
 } from "@/lib/pos-geb-print";
 import { fetchCatalogoInsumosDesdeSheet } from "@/lib/catalogo-insumos-sheet-client";
 import { getCatalogoPOS, leerCatalogoCacheSync } from "@/lib/catalogo-pos";
+import {
+  esProductoPromoHalloween,
+  esVentanaPromoHalloween,
+  priorizarPromoHalloween,
+} from "@/lib/promo-halloween-pos";
 import { solicitarCambioPrecioProductoPos } from "@/lib/pos-solicitud-cambio-precio";
 import { catalogoInsumosParaCargue } from "@/lib/inventario-pos-catalogo";
 import {
@@ -1167,15 +1172,18 @@ export default function CajaPageClient() {
     };
   }, [showModalAbrirTurno, user?.puntoVenta, cajeroIdentificado]);
 
+  const promoHalloweenActiva = esVentanaPromoHalloween();
   const catalogosFiltrados = useMemo(() => {
     const q = busquedaCatalogo.trim().toLowerCase();
-    if (!q) return catalogoProductos;
-    return catalogoProductos.filter(
-      (p) =>
-        p.sku.toLowerCase().includes(q) ||
-        (p.descripcion && p.descripcion.toLowerCase().includes(q)) ||
-        (p.categoria && p.categoria.toLowerCase().includes(q))
-    );
+    const base = !q
+      ? catalogoProductos
+      : catalogoProductos.filter(
+          (p) =>
+            p.sku.toLowerCase().includes(q) ||
+            (p.descripcion && p.descripcion.toLowerCase().includes(q)) ||
+            (p.categoria && p.categoria.toLowerCase().includes(q))
+        );
+    return priorizarPromoHalloween(base);
   }, [catalogoProductos, busquedaCatalogo]);
 
   const abrirModalSolicitudPrecio = useCallback((producto: ProductoPOS) => {
@@ -4565,10 +4573,15 @@ export default function CajaPageClient() {
                       const enDomicilios = productoHabilitadoEnDomiciliosPunto(p.sku, catalogoDomiciliosPorSku);
                       const guardandoEste = guardandoDomiciliosSku === p.sku;
                       const nombreCatalogo = descripcionBebidaParaUi(p);
+                      const promoHalloween = promoHalloweenActiva && esProductoPromoHalloween(p);
                       return (
                         <div
                           key={p.sku}
-                          className="flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-gray-50/50 transition-shadow hover:border-primary-300 hover:shadow-sm"
+                          className={
+                            promoHalloween
+                              ? "relative flex flex-col overflow-hidden rounded-lg border-2 border-orange-500 bg-gradient-to-b from-orange-50 via-white to-purple-50 shadow-[0_0_0_3px_rgba(124,58,237,0.45)] ring-2 ring-orange-400 transition-shadow hover:shadow-md"
+                              : "flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-gray-50/50 transition-shadow hover:border-primary-300 hover:shadow-sm"
+                          }
                         >
                           <button
                             type="button"
@@ -4580,6 +4593,11 @@ export default function CajaPageClient() {
                               {qty > 0 && (
                                 <span className="absolute left-1 top-1 flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-emerald-500 px-0.5 text-[10px] font-bold text-white shadow">
                                   {qty}
+                                </span>
+                              )}
+                              {promoHalloween && (
+                                <span className="absolute right-1 top-1 rounded-full bg-gradient-to-r from-orange-500 to-purple-700 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white shadow">
+                                  Promo Halloween
                                 </span>
                               )}
                               {p.urlImagen ? (
@@ -4679,10 +4697,26 @@ export default function CajaPageClient() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100 bg-white">
-                        {catalogosFiltrados.map((p) => (
-                          <tr key={`sol-${p.sku}`} className="hover:bg-gray-50/80">
+                        {catalogosFiltrados.map((p) => {
+                          const promoHalloween = promoHalloweenActiva && esProductoPromoHalloween(p);
+                          return (
+                          <tr
+                            key={`sol-${p.sku}`}
+                            className={
+                              promoHalloween
+                                ? "bg-orange-50/80 shadow-[inset_3px_0_0_0_#f97316] hover:bg-orange-50"
+                                : "hover:bg-gray-50/80"
+                            }
+                          >
                             <td className="px-3 py-2 font-mono text-xs text-gray-700">{p.sku}</td>
-                            <td className="px-3 py-2 text-gray-900">{descripcionBebidaParaUi(p)}</td>
+                            <td className="px-3 py-2 text-gray-900">
+                              {descripcionBebidaParaUi(p)}
+                              {promoHalloween ? (
+                                <span className="ml-2 inline-flex rounded-full bg-gradient-to-r from-orange-500 to-purple-700 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                                  Promo Halloween
+                                </span>
+                              ) : null}
+                            </td>
                             <td className="px-3 py-2 text-right font-semibold tabular-nums text-gray-900">
                               ${Number(p.precioUnitario).toLocaleString("es-CO")}
                             </td>
@@ -4705,7 +4739,8 @@ export default function CajaPageClient() {
                               </button>
                             </td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
