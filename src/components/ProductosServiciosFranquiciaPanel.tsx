@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { auth } from "@/lib/firebase";
 import { getCatalogoPOS } from "@/lib/catalogo-pos";
-import { solicitarCambioPrecioProductoPos } from "@/lib/pos-solicitud-cambio-precio";
+import { MENSAJE_SOLICITUD_PRECIO_ENVIADA, solicitarCambioPrecioProductoPos } from "@/lib/pos-solicitud-cambio-precio";
 import { solicitarNuevoProductoPos } from "@/lib/pos-solicitud-nuevo-producto";
 import type { ProductoPOS } from "@/types";
 
@@ -26,6 +26,7 @@ export default function ProductosServiciosFranquiciaPanel({
   const [descripcion, setDescripcion] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [mensajeOk, setMensajeOk] = useState<string | null>(null);
+  const [solicitudPrecioConfirmada, setSolicitudPrecioConfirmada] = useState(false);
   const [mensajeError, setMensajeError] = useState<string | null>(null);
   const [modalNuevoProductoOpen, setModalNuevoProductoOpen] = useState(false);
   const [nuevoSkuSugerido, setNuevoSkuSugerido] = useState("");
@@ -88,6 +89,7 @@ export default function ProductosServiciosFranquiciaPanel({
     setMotivo("");
     setDescripcion("");
     setMensajeError(null);
+    setSolicitudPrecioConfirmada(false);
   }, []);
 
   const cerrarModal = useCallback(() => {
@@ -97,6 +99,7 @@ export default function ProductosServiciosFranquiciaPanel({
     setMotivo("");
     setDescripcion("");
     setMensajeError(null);
+    setSolicitudPrecioConfirmada(false);
   }, [enviando]);
 
   const enviarSolicitud = useCallback(async () => {
@@ -132,11 +135,8 @@ export default function ProductosServiciosFranquiciaPanel({
       setMensajeError(res.message ?? "No se pudo enviar la solicitud.");
       return;
     }
-    setMensajeOk(`${res.message ?? "Solicitud enviada correctamente."}${res.idSolicitud ? ` Código: ${res.idSolicitud}.` : ""}`);
-    setProductoSolicitud(null);
-    setPrecioSolicitado("");
-    setMotivo("");
-    setDescripcion("");
+    setMensajeOk(MENSAJE_SOLICITUD_PRECIO_ENVIADA);
+    setSolicitudPrecioConfirmada(true);
   }, [descripcion, motivo, precioSolicitado, productoSolicitud]);
 
   const limpiarFormularioNuevoProducto = useCallback(() => {
@@ -328,6 +328,23 @@ export default function ProductosServiciosFranquiciaPanel({
           />
           <div className="relative z-[1] w-full max-w-lg rounded-xl border border-gray-200 bg-white p-6 shadow-xl">
             <h3 className="text-lg font-semibold text-gray-900">Solicitar cambio de precio</h3>
+            {solicitudPrecioConfirmada ? (
+              <>
+                <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-relaxed text-emerald-950">
+                  {MENSAJE_SOLICITUD_PRECIO_ENVIADA}
+                </div>
+                <div className="mt-4 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={cerrarModal}
+                    className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700"
+                  >
+                    Entendido
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
             <p className="mt-1 text-sm text-gray-600">
               <span className="font-mono text-xs text-gray-700">{productoSolicitud.sku}</span> - {productoSolicitud.descripcion}
             </p>
@@ -368,6 +385,8 @@ export default function ProductosServiciosFranquiciaPanel({
               </label>
             </div>
 
+            {mensajeError ? <p className="mt-3 text-sm text-red-700">{mensajeError}</p> : null}
+
             <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"
@@ -386,6 +405,8 @@ export default function ProductosServiciosFranquiciaPanel({
                 {enviando ? "Enviando..." : "Enviar solicitud"}
               </button>
             </div>
+              </>
+            )}
           </div>
         </div>
       ) : null}

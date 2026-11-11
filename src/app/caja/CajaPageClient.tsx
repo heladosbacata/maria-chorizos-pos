@@ -111,7 +111,7 @@ import {
   devolverCupoPromoHalloween,
   leerCupoPromoHalloween,
 } from "@/lib/promo-halloween-cupo-client";
-import { solicitarCambioPrecioProductoPos } from "@/lib/pos-solicitud-cambio-precio";
+import { MENSAJE_SOLICITUD_PRECIO_ENVIADA, solicitarCambioPrecioProductoPos } from "@/lib/pos-solicitud-cambio-precio";
 import { catalogoInsumosParaCargue } from "@/lib/inventario-pos-catalogo";
 import {
   insumoBolsaPapelParaLlevarResolver,
@@ -728,6 +728,7 @@ export default function CajaPageClient() {
   const [descripcionSolicitudPrecio, setDescripcionSolicitudPrecio] = useState("");
   const [enviandoSolicitudPrecio, setEnviandoSolicitudPrecio] = useState(false);
   const [mensajeSolicitudPrecio, setMensajeSolicitudPrecio] = useState<string | null>(null);
+  const [solicitudPrecioConfirmada, setSolicitudPrecioConfirmada] = useState(false);
   const [errorSolicitudPrecio, setErrorSolicitudPrecio] = useState<string | null>(null);
   /** Tipo de comprobante: Doc. interno (predeterminado) o Factura electrónica */
   const [tipoComprobante, setTipoComprobante] = useState<TipoComprobante>("documento_interno");
@@ -1243,6 +1244,7 @@ export default function CajaPageClient() {
     setDescripcionSolicitudPrecio("");
     setErrorSolicitudPrecio(null);
     setMensajeSolicitudPrecio(null);
+    setSolicitudPrecioConfirmada(false);
   }, []);
 
   const cerrarModalSolicitudPrecio = useCallback(() => {
@@ -1252,6 +1254,7 @@ export default function CajaPageClient() {
     setMotivoSolicitudPrecio("");
     setDescripcionSolicitudPrecio("");
     setErrorSolicitudPrecio(null);
+    setSolicitudPrecioConfirmada(false);
   }, [enviandoSolicitudPrecio]);
 
   const enviarSolicitudCambioPrecio = useCallback(async () => {
@@ -1288,13 +1291,8 @@ export default function CajaPageClient() {
       setErrorSolicitudPrecio(res.message ?? "No se pudo enviar la solicitud de cambio de precio.");
       return;
     }
-    setMensajeSolicitudPrecio(
-      `${res.message ?? "Solicitud enviada correctamente."}${res.idSolicitud ? ` Código: ${res.idSolicitud}.` : ""}`
-    );
-    setProductoSolicitudPrecio(null);
-    setPrecioSolicitadoInput("");
-    setMotivoSolicitudPrecio("");
-    setDescripcionSolicitudPrecio("");
+    setMensajeSolicitudPrecio(MENSAJE_SOLICITUD_PRECIO_ENVIADA);
+    setSolicitudPrecioConfirmada(true);
   }, [descripcionSolicitudPrecio, motivoSolicitudPrecio, precioSolicitadoInput, productoSolicitudPrecio]);
 
   const clienteActivoPrecuenta: ClienteVentaRef = clientePorPrecuenta[activePrecuentaId] ?? {
@@ -5045,6 +5043,23 @@ export default function CajaPageClient() {
           />
           <div className="relative z-[1] w-full max-w-lg rounded-xl border border-gray-200 bg-white p-6 shadow-xl">
             <h3 className="text-lg font-semibold text-gray-900">Solicitar cambio de precio</h3>
+            {solicitudPrecioConfirmada ? (
+              <>
+                <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-relaxed text-emerald-950">
+                  {MENSAJE_SOLICITUD_PRECIO_ENVIADA}
+                </div>
+                <div className="mt-4 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={cerrarModalSolicitudPrecio}
+                    className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700"
+                  >
+                    Entendido
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
             <p className="mt-1 text-sm text-gray-600">
               <span className="font-mono text-xs text-gray-700">{productoSolicitudPrecio.sku}</span> -{" "}
               {productoSolicitudPrecio.descripcion}
@@ -5109,6 +5124,8 @@ export default function CajaPageClient() {
                 {enviandoSolicitudPrecio ? "Enviando..." : "Enviar solicitud"}
               </button>
             </div>
+              </>
+            )}
           </div>
         </div>
       )}
