@@ -240,10 +240,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         : "";
   if (auth) headers.Authorization = auth;
 
+  const fresh = req.query.fresh === "1" || (Array.isArray(req.query.fresh) && req.query.fresh[0] === "1");
   const cacheKey = catalogoApiCacheKey(puntoVenta, typeof auth === "string" ? auth : undefined);
-  const body = await withCatalogoApiCache(cacheKey, () =>
-    fetchCatalogoBody(primaryBase, headers, puntoVenta)
-  );
+  const body = fresh
+    ? await fetchCatalogoBody(primaryBase, headers, puntoVenta)
+    : await withCatalogoApiCache(cacheKey, () => fetchCatalogoBody(primaryBase, headers, puntoVenta));
 
   return sendJson(res, 200, body);
 }

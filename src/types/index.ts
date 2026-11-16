@@ -59,6 +59,8 @@ export interface ProductoPOS {
   urlImagen: string | null;
   /** Producto creado por un franquiciado: solo existe en el POS que lo solicitó. */
   soloEstePunto?: boolean;
+  /** Posición definida en el WMS (columna ORDEN). Menor número = más a la izquierda. */
+  orden?: number;
   variantes?: Array<{
     clave: string;
     etiqueta: string;

@@ -1188,7 +1188,7 @@ function PedidosLandingClient() {
     let cancelled = false;
     setLoadingCatalogo(true);
     setErrorCatalogo(null);
-    void getCatalogoPOS(null, puntoVenta)
+    void getCatalogoPOS(null, puntoVenta, { forceRefresh: true })
       .then((res) => {
         if (cancelled) return;
         if (!res.ok || !res.productos?.length) {

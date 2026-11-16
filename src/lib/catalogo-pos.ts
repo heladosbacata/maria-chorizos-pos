@@ -12,7 +12,7 @@ export interface CatalogoPOSResult {
 const CATALOGO_CACHE_TTL_MS = 300_000;
 /** Catálogo obsoleto aún usable mientras se actualiza (servidor propio / red lenta). */
 const CATALOGO_STALE_TTL_MS = 86_400_000;
-const CATALOGO_CACHE_PREFIX = "pos_mc_catalogo_pos_cache_v1";
+const CATALOGO_CACHE_PREFIX = "pos_mc_catalogo_pos_cache_v2";
 
 type CatalogoPosCache = {
   savedAtMs: number;
@@ -80,6 +80,7 @@ interface PosProductoItem {
   };
   preciosPorVariante?: Record<string, number>;
   puntosIncluidos?: unknown;
+  orden?: unknown;
   [key: string]: unknown;
 }
 
@@ -92,6 +93,21 @@ function pickProductosRawArray(...cands: unknown[]): unknown[] {
     if (Array.isArray(c)) return c;
   }
   return [];
+}
+
+function numeroOrdenCatalogo(v: unknown): number | undefined {
+  const n = numPrecio(v);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function ordenarCatalogoComoWms(productos: ProductoPOS[]): void {
+  if (!productos.some((p) => typeof p.orden === "number")) return;
+  productos.sort((a, b) => {
+    const ao = typeof a.orden === "number" ? a.orden : Number.MAX_SAFE_INTEGER;
+    const bo = typeof b.orden === "number" ? b.orden : Number.MAX_SAFE_INTEGER;
+    if (ao !== bo) return ao - bo;
+    return a.sku.localeCompare(b.sku, "es");
+  });
 }
 
 function numPrecio(v: unknown): number {
@@ -173,6 +189,7 @@ function toProductoPOS(item: PosProductoItem): ProductoPOS | null {
     unidad: item.unidad ?? undefined,
     urlImagen: item.urlImagen ?? null,
     variantes,
+    orden: numeroOrdenCatalogo(item.orden),
     soloEstePunto: Array.isArray(item.puntosIncluidos) && item.puntosIncluidos.some((p) => String(p ?? "").trim()),
     preciosPorVariante:
       item.preciosPorVariante && typeof item.preciosPorVariante === "object"
@@ -201,7 +218,11 @@ export async function getCatalogoPOS(
   const urlBase = isBrowser
     ? "/api/productos_listar"
     : `${getWmsPublicBaseUrl()}/api/pos/productos/listar`;
-  const url = pv ? `${urlBase}?puntoVenta=${encodeURIComponent(pv)}` : urlBase;
+  const params = new URLSearchParams();
+  if (pv) params.set("puntoVenta", pv);
+  if (opts?.forceRefresh) params.set("fresh", "1");
+  const qs = params.toString();
+  const url = qs ? `${urlBase}?${qs}` : urlBase;
   let token = idToken ?? null;
   if (!token && isBrowser) {
     token = (await auth?.currentUser?.getIdToken().catch(() => null)) ?? null;
@@ -275,6 +296,7 @@ export async function getCatalogoPOS(
       const p = toProductoPOS(item as PosProductoItem);
       if (p) productos.push(p);
     }
+    ordenarCatalogoComoWms(productos);
 
     if (isBrowser) {
       try {

@@ -1074,7 +1074,7 @@ export default function CajaPageClient() {
     setCatalogoError(null);
     const tokenPromise = auth?.currentUser ? auth.currentUser.getIdToken() : Promise.resolve(null);
     tokenPromise
-      .then((token) => getCatalogoPOS(token, pv))
+      .then((token) => getCatalogoPOS(token, pv, { forceRefresh: true }))
       .then((res) => {
         if (cancelled) return;
         if (res.ok && res.productos) setCatalogoProductos(res.productos ?? []);
