@@ -22,6 +22,11 @@ export interface InsumoKitItem {
    * Según la columna Unidad del ítem: COP por unidad o por paquete.
    */
   precioCompraUnitario?: number;
+  /**
+   * Bebida o producto propio del punto: se muestra en inventario para cargue, consulta y descuento,
+   * aunque la categoría coincida con un ensamble.
+   */
+  inventarioDirecto?: boolean;
 }
 
 export type TipoMovimientoInventario =

@@ -1,5 +1,6 @@
 import { fetchCatalogoInsumosDesdeSheet } from "@/lib/catalogo-insumos-sheet-client";
-import { catalogoInsumosParaCargue } from "@/lib/inventario-pos-catalogo";
+import { armarCatalogoInventarioOperativo } from "@/lib/inventario-pos-catalogo";
+import { getCatalogoPOS } from "@/lib/catalogo-pos";
 import {
   claveParaConsolidarSaldoKit,
   listarInsumosKitPorPuntoVenta,
@@ -349,17 +350,18 @@ export async function cargarDatosAuditoriaInventarioPos(puntoVenta: string): Pro
   const pv = puntoVenta.replace(/\u00a0/g, " ").trim();
   const generadoIso = new Date().toISOString();
 
-  const [sheetRes, saldosPack, listaFs, movimientos] = await Promise.all([
+  const [sheetRes, saldosPack, listaFs, movimientos, catalogoPos] = await Promise.all([
     fetchCatalogoInsumosDesdeSheet(pv),
     listarSaldosInventarioConFuentePorPuntoVenta(pv),
     listarInsumosKitPorPuntoVenta(pv),
     listarMovimientosInventario(pv, LIMITE_MOVIMIENTOS_AUDITORIA_INVENTARIO),
+    getCatalogoPOS(null, pv),
   ]);
 
   const sheet = sheetRes.ok ? sheetRes.data : [];
   const crudo = recolectarCatalogoCrudo(sheet, listaFs);
 
-  const insumos = catalogoInsumosParaCargue(sheet, listaFs);
+  const insumos = armarCatalogoInventarioOperativo(sheet, listaFs, catalogoPos.productos ?? []);
   const fuenteCatalogo: "sheet" | "firestore" | "wms" =
     sheet.length > 0 ? "sheet" : listaFs.length > 0 ? "firestore" : "wms";
 

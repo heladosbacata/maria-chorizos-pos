@@ -1,5 +1,6 @@
-import { buildLineIdPos } from "@/lib/chorizo-variante-pos";
+import { buildLineIdPos, productoRequiereTamanoBebida } from "@/lib/chorizo-variante-pos";
 import { normSkuInventario } from "@/lib/inventario-pos-firestore";
+import { productoEsBebidasTab } from "@/lib/pos-pedidos-catalogo-tabs";
 import { precioEfectivoCarrito, type ProductoCarritoPrecio } from "@/lib/precios-compra-carrito";
 import type { ProductoPOS } from "@/types";
 import type { InsumoKitItem } from "@/types/inventario-pos";
@@ -44,9 +45,22 @@ export function itemEsUtilFranquiciadoNoEnsamble(item: InsumoKitItem): boolean {
   return Boolean(catNorm && RUBRO_UTIL_FRANQUICIADO_RE.test(catNorm));
 }
 
+/**
+ * Bebidas del catálogo y productos creados por este POS se cargan, consultan y descuentan
+ * como inventario del punto. El resto de productos de venta sigue por ensamble.
+ */
+export function productoDescuentaInventarioDirecto(p: ProductoPOS): boolean {
+  if (p.soloEstePunto) return true;
+  const cat = textoSinAcentos(p.categoria ?? "");
+  if (cat.includes("bebida")) return true;
+  return productoEsBebidasTab(p) || productoRequiereTamanoBebida(p);
+}
+
 /** Solo insumos de receta/cargue; excluye ensambles, productos POS y útiles administrativos. */
 export function filtrarCatalogoSoloInsumos(items: InsumoKitItem[]): InsumoKitItem[] {
-  return items.filter((item) => !itemEsEnsambleOCatalogoPos(item) && !itemEsUtilFranquiciadoNoEnsamble(item));
+  return items.filter(
+    (item) => item.inventarioDirecto === true || (!itemEsEnsambleOCatalogoPos(item) && !itemEsUtilFranquiciadoNoEnsamble(item))
+  );
 }
 
 function clavesLookupFirestoreInsumo(item: InsumoKitItem): string[] {
@@ -137,6 +151,7 @@ export function insumoKitItemDesdeProductoPos(producto: ProductoPOS): InsumoKitI
     descripcion: producto.descripcion?.trim() || sku,
     unidad: producto.unidad?.trim() || "und",
     categoria: producto.categoria?.trim() || "DB_POS_Productos",
+    inventarioDirecto: true,
   };
 }
 
@@ -170,7 +185,8 @@ function itemsInventarioDesdeProductoPos(producto: ProductoPOS): ItemInventarioP
       sku: codigoVisibleVariantePos(producto.sku.trim(), etiqueta),
       descripcion: `${producto.descripcion?.trim() || producto.sku.trim()} (${etiqueta})`,
       unidad: producto.unidad?.trim() || "und",
-      categoria: producto.categoria?.trim() || "DB_POS_Productos",
+      categoria: producto.categoria?.trim() || "Bebidas",
+      inventarioDirecto: true,
     };
     return {
       item,
@@ -227,12 +243,25 @@ export function mergeCatalogoInventarioConProductosPos(
             : itemPos.descripcion,
         unidad: actual.unidad.trim() || itemPos.unidad,
         categoria: actual.categoria?.trim() || itemPos.categoria,
+        inventarioDirecto: actual.inventarioDirecto === true || itemPos.inventarioDirecto === true,
       });
     }
   }
 
   const items = Array.from(merged.values()).sort((a, b) => a.descripcion.localeCompare(b.descripcion, "es"));
   return { items, agregados };
+}
+
+/** Insumos del punto más bebidas y productos propios de ese POS, listos para cargue y descuento. */
+export function armarCatalogoInventarioOperativo(
+  sheet: InsumoKitItem[],
+  firestore: InsumoKitItem[],
+  productosPos: ProductoPOS[],
+  carrito: ProductoCarritoPrecio[] = []
+): InsumoKitItem[] {
+  const base = catalogoInsumosParaCargue(sheet, firestore, carrito);
+  const directos = productosPos.filter(productoDescuentaInventarioDirecto);
+  return mergeCatalogoInventarioConProductosPos(base, directos).items;
 }
 
 /** Todas las líneas de inventario derivadas de productos POS (variantes incluidas), sin fusionar con el catálogo base. */

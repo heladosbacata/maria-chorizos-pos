@@ -79,6 +79,7 @@ interface PosProductoItem {
     }>;
   };
   preciosPorVariante?: Record<string, number>;
+  puntosIncluidos?: unknown;
   [key: string]: unknown;
 }
 
@@ -172,6 +173,7 @@ function toProductoPOS(item: PosProductoItem): ProductoPOS | null {
     unidad: item.unidad ?? undefined,
     urlImagen: item.urlImagen ?? null,
     variantes,
+    soloEstePunto: Array.isArray(item.puntosIncluidos) && item.puntosIncluidos.some((p) => String(p ?? "").trim()),
     preciosPorVariante:
       item.preciosPorVariante && typeof item.preciosPorVariante === "object"
         ? Object.fromEntries(

@@ -112,7 +112,8 @@ import {
   leerCupoPromoHalloween,
 } from "@/lib/promo-halloween-cupo-client";
 import { MENSAJE_SOLICITUD_PRECIO_ENVIADA, solicitarCambioPrecioProductoPos } from "@/lib/pos-solicitud-cambio-precio";
-import { catalogoInsumosParaCargue } from "@/lib/inventario-pos-catalogo";
+import { solicitarNuevoProductoPos } from "@/lib/pos-solicitud-nuevo-producto";
+import { armarCatalogoInventarioOperativo, productoDescuentaInventarioDirecto } from "@/lib/inventario-pos-catalogo";
 import {
   insumoBolsaPapelParaLlevarResolver,
   insumoKitDesdeCatalogoPorSku,
@@ -343,15 +344,20 @@ function detalleVarianteTicketLinea(it: ItemCuenta): string | undefined {
 }
 
 async function cargarCatalogoInventarioUnificado(puntoVenta: string) {
-  const [sheetRes, desdeFs] = await Promise.all([
+  const [sheetRes, desdeFs, catalogoPos] = await Promise.all([
     fetchCatalogoInsumosDesdeSheet(puntoVenta),
     listarInsumosKitPorPuntoVenta(puntoVenta),
+    getCatalogoPOS(null, puntoVenta),
   ]);
-  return catalogoInsumosParaCargue(sheetRes.ok ? sheetRes.data : [], desdeFs);
+  return armarCatalogoInventarioOperativo(
+    sheetRes.ok ? sheetRes.data : [],
+    desdeFs,
+    catalogoPos.productos ?? []
+  );
 }
 
 function itemCuentaEsBebidaConInventarioDirecto(it: ItemCuenta): boolean {
-  return productoRequiereTamanoBebida(it.producto) || `${it.producto.categoria ?? ""}`.toLowerCase().includes("bebida");
+  return productoDescuentaInventarioDirecto(it.producto);
 }
 
 function nombreProductoEnCaja(producto: ProductoPOS): string {
@@ -730,6 +736,17 @@ export default function CajaPageClient() {
   const [mensajeSolicitudPrecio, setMensajeSolicitudPrecio] = useState<string | null>(null);
   const [solicitudPrecioConfirmada, setSolicitudPrecioConfirmada] = useState(false);
   const [errorSolicitudPrecio, setErrorSolicitudPrecio] = useState<string | null>(null);
+  const [modalNuevoProductoAbierto, setModalNuevoProductoAbierto] = useState(false);
+  const [nuevoProductoSku, setNuevoProductoSku] = useState("");
+  const [nuevoProductoNombre, setNuevoProductoNombre] = useState("");
+  const [nuevoProductoCategoria, setNuevoProductoCategoria] = useState("");
+  const [nuevoProductoUnidad, setNuevoProductoUnidad] = useState("");
+  const [nuevoProductoPrecio, setNuevoProductoPrecio] = useState("");
+  const [nuevoProductoDescripcion, setNuevoProductoDescripcion] = useState("");
+  const [nuevoProductoJustificacion, setNuevoProductoJustificacion] = useState("");
+  const [enviandoNuevoProducto, setEnviandoNuevoProducto] = useState(false);
+  const [nuevoProductoConfirmado, setNuevoProductoConfirmado] = useState(false);
+  const [errorNuevoProducto, setErrorNuevoProducto] = useState<string | null>(null);
   /** Tipo de comprobante: Doc. interno (predeterminado) o Factura electrónica */
   const [tipoComprobante, setTipoComprobante] = useState<TipoComprobante>("documento_interno");
   const tipoComprobanteDefaultAplicadoKeyRef = useRef<string | null>(null);
@@ -1294,6 +1311,96 @@ export default function CajaPageClient() {
     setMensajeSolicitudPrecio(MENSAJE_SOLICITUD_PRECIO_ENVIADA);
     setSolicitudPrecioConfirmada(true);
   }, [descripcionSolicitudPrecio, motivoSolicitudPrecio, precioSolicitadoInput, productoSolicitudPrecio]);
+
+  const abrirModalNuevoProducto = useCallback(() => {
+    setNuevoProductoSku("");
+    setNuevoProductoNombre("");
+    setNuevoProductoCategoria("");
+    setNuevoProductoUnidad("");
+    setNuevoProductoPrecio("");
+    setNuevoProductoDescripcion("");
+    setNuevoProductoJustificacion("");
+    setErrorNuevoProducto(null);
+    setNuevoProductoConfirmado(false);
+    setModalNuevoProductoAbierto(true);
+  }, []);
+
+  const cerrarModalNuevoProducto = useCallback(() => {
+    if (enviandoNuevoProducto) return;
+    setModalNuevoProductoAbierto(false);
+    setErrorNuevoProducto(null);
+    setNuevoProductoConfirmado(false);
+  }, [enviandoNuevoProducto]);
+
+  const enviarSolicitudNuevoProducto = useCallback(async () => {
+    setErrorNuevoProducto(null);
+    const precioSugerido = parseFloat(nuevoProductoPrecio.replace(/,/g, "."));
+    if (!nuevoProductoSku.trim()) {
+      setErrorNuevoProducto("El SKU es obligatorio.");
+      return;
+    }
+    if (!nuevoProductoNombre.trim()) {
+      setErrorNuevoProducto("El nombre del producto es obligatorio.");
+      return;
+    }
+    if (!nuevoProductoCategoria.trim()) {
+      setErrorNuevoProducto("La categoría es obligatoria.");
+      return;
+    }
+    if (!nuevoProductoUnidad.trim()) {
+      setErrorNuevoProducto("La unidad es obligatoria.");
+      return;
+    }
+    if (!nuevoProductoDescripcion.trim()) {
+      setErrorNuevoProducto("La descripción es obligatoria.");
+      return;
+    }
+    if (!nuevoProductoJustificacion.trim()) {
+      setErrorNuevoProducto("La justificación es obligatoria.");
+      return;
+    }
+    if (!Number.isFinite(precioSugerido) || precioSugerido <= 0) {
+      setErrorNuevoProducto("El precio sugerido debe ser mayor a 0.");
+      return;
+    }
+    const token = await auth?.currentUser?.getIdToken().catch(() => null);
+    if (!token) {
+      setErrorNuevoProducto("No se pudo validar tu sesión. Inicia sesión nuevamente.");
+      return;
+    }
+    setEnviandoNuevoProducto(true);
+    setMensajeSolicitudPrecio(null);
+    setErrorSolicitudPrecio(null);
+    const res = await solicitarNuevoProductoPos(
+      {
+        skuSugerido: nuevoProductoSku.trim(),
+        nombreProducto: nuevoProductoNombre.trim(),
+        categoria: nuevoProductoCategoria.trim(),
+        precioSugerido,
+        unidad: nuevoProductoUnidad.trim(),
+        descripcion: nuevoProductoDescripcion.trim(),
+        justificacion: nuevoProductoJustificacion.trim(),
+      },
+      token
+    );
+    setEnviandoNuevoProducto(false);
+    if (!res.ok) {
+      const msg = res.message ?? "No se pudo enviar la solicitud de nuevo producto.";
+      setErrorNuevoProducto(msg);
+      setErrorSolicitudPrecio(msg);
+      return;
+    }
+    setMensajeSolicitudPrecio(MENSAJE_SOLICITUD_PRECIO_ENVIADA);
+    setNuevoProductoConfirmado(true);
+  }, [
+    nuevoProductoCategoria,
+    nuevoProductoDescripcion,
+    nuevoProductoJustificacion,
+    nuevoProductoNombre,
+    nuevoProductoPrecio,
+    nuevoProductoSku,
+    nuevoProductoUnidad,
+  ]);
 
   const clienteActivoPrecuenta: ClienteVentaRef = clientePorPrecuenta[activePrecuentaId] ?? {
     id: CONSUMIDOR_FINAL_ID,
@@ -2554,7 +2661,7 @@ export default function CajaPageClient() {
           }
           if (fallosBebidas.length > 0) {
             window.alert(
-              `La venta se registró, pero no se pudo descontar inventario para estas bebidas: ${fallosBebidas.join(", ")}.`
+              `La venta se registró, pero no se pudo descontar inventario para: ${fallosBebidas.join(", ")}.`
             );
           }
         }
@@ -4833,6 +4940,18 @@ export default function CajaPageClient() {
                     {busquedaCatalogo.trim() ? "No hay productos que coincidan con la búsqueda." : "No hay productos en el catálogo."}
                   </p>
                 )}
+                {!catalogoLoading && !catalogoError && (
+                  <button
+                    type="button"
+                    onClick={abrirModalNuevoProducto}
+                    className="mt-5 flex w-full items-center justify-center gap-3 rounded-2xl bg-brand-yellow px-6 py-6 text-lg font-bold text-gray-900 shadow-md ring-2 ring-amber-300 transition-opacity hover:opacity-90"
+                  >
+                    <svg className="h-7 w-7" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+                    </svg>
+                    Crear nuevo producto
+                  </button>
+                )}
                 {!catalogoLoading && !catalogoError && catalogosFiltrados.length > 0 && (
                   <div className="mt-6 overflow-x-auto rounded-xl border border-gray-200">
                     <table className="min-w-full text-left text-sm">
@@ -5124,6 +5243,135 @@ export default function CajaPageClient() {
                 {enviandoSolicitudPrecio ? "Enviando..." : "Enviar solicitud"}
               </button>
             </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {modalNuevoProductoAbierto && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/45"
+            aria-label="Cerrar modal"
+            disabled={enviandoNuevoProducto}
+            onClick={cerrarModalNuevoProducto}
+          />
+          <div className="relative z-[1] max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-gray-200 bg-white p-6 shadow-xl">
+            <h3 className="text-lg font-semibold text-gray-900">Crear nuevo producto</h3>
+            {nuevoProductoConfirmado ? (
+              <>
+                <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm leading-relaxed text-emerald-950">
+                  {MENSAJE_SOLICITUD_PRECIO_ENVIADA}
+                </div>
+                <div className="mt-4 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={cerrarModalNuevoProducto}
+                    className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700"
+                  >
+                    Entendido
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <p className="mt-1 text-sm text-gray-600">
+                  La solicitud queda pendiente de confirmación y autorización de casa matriz, igual que un cambio de precio.
+                </p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-gray-700">SKU</span>
+                    <input
+                      type="text"
+                      value={nuevoProductoSku}
+                      onChange={(e) => setNuevoProductoSku(e.target.value)}
+                      placeholder="Ej. CHO-NUEVO-001"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-gray-700">Nombre del producto</span>
+                    <input
+                      type="text"
+                      value={nuevoProductoNombre}
+                      onChange={(e) => setNuevoProductoNombre(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-gray-700">Categoría</span>
+                    <input
+                      type="text"
+                      value={nuevoProductoCategoria}
+                      onChange={(e) => setNuevoProductoCategoria(e.target.value)}
+                      placeholder="Ej. Comidas"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-xs font-medium text-gray-700">Unidad</span>
+                    <input
+                      type="text"
+                      value={nuevoProductoUnidad}
+                      onChange={(e) => setNuevoProductoUnidad(e.target.value)}
+                      placeholder="Ej. unidad"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+                    />
+                  </label>
+                  <label className="block sm:col-span-2">
+                    <span className="mb-1 block text-xs font-medium text-gray-700">Precio sugerido</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={nuevoProductoPrecio}
+                      onChange={(e) => setNuevoProductoPrecio(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+                    />
+                  </label>
+                  <label className="block sm:col-span-2">
+                    <span className="mb-1 block text-xs font-medium text-gray-700">Descripción</span>
+                    <textarea
+                      rows={3}
+                      value={nuevoProductoDescripcion}
+                      onChange={(e) => setNuevoProductoDescripcion(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+                    />
+                  </label>
+                  <label className="block sm:col-span-2">
+                    <span className="mb-1 block text-xs font-medium text-gray-700">Justificación</span>
+                    <textarea
+                      rows={3}
+                      value={nuevoProductoJustificacion}
+                      onChange={(e) => setNuevoProductoJustificacion(e.target.value)}
+                      placeholder="Por qué este punto necesita el producto"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-100"
+                    />
+                  </label>
+                </div>
+                <div className="mt-2 min-h-5">
+                  {errorNuevoProducto && <p className="text-sm text-red-700">{errorNuevoProducto}</p>}
+                </div>
+                <div className="mt-4 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    disabled={enviandoNuevoProducto}
+                    onClick={cerrarModalNuevoProducto}
+                    className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={enviandoNuevoProducto}
+                    onClick={() => void enviarSolicitudNuevoProducto()}
+                    className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50"
+                  >
+                    {enviandoNuevoProducto ? "Enviando..." : "Enviar solicitud"}
+                  </button>
+                </div>
               </>
             )}
           </div>

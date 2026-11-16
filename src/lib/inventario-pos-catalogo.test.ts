@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  armarCatalogoInventarioOperativo,
   catalogoInsumosParaCargue,
   filtrarCatalogoSoloInsumos,
   itemEsEnsambleOCatalogoPos,
 } from "./inventario-pos-catalogo";
 import type { InsumoKitItem } from "@/types/inventario-pos";
+import type { ProductoPOS } from "@/types";
 
 const insumo: InsumoKitItem = {
   id: "fran-kit-5",
@@ -102,5 +104,38 @@ describe("filtrarCatalogoSoloInsumos", () => {
         precioCompraUnitario: 16800,
       },
     ]);
+  });
+
+  it("muestra bebidas y el producto propio del punto, y oculta el resto del catálogo POS", () => {
+    const bebida: ProductoPOS = {
+      sku: "GAS-COLA",
+      descripcion: "Gaseosa cola",
+      categoria: "Bebidas",
+      precioUnitario: 3000,
+      urlImagen: null,
+      variantes: [{ clave: "350", etiqueta: "350 ml" }],
+    };
+    const propio: ProductoPOS = {
+      sku: "POSTRE-PV",
+      descripcion: "Postre de la tienda",
+      categoria: "Postres",
+      precioUnitario: 8000,
+      urlImagen: null,
+      soloEstePunto: true,
+    };
+    const combo: ProductoPOS = {
+      sku: "COMBO-01",
+      descripcion: "Combo chorizo",
+      categoria: "Combos",
+      precioUnitario: 20000,
+      urlImagen: null,
+    };
+    const items = armarCatalogoInventarioOperativo([insumo], [], [bebida, propio, combo]);
+    const skus = items.map((i) => i.sku);
+    expect(skus).toContain("FRAN-KIT-5");
+    expect(skus).toContain("GAS-COLA · 350 ml");
+    expect(skus).toContain("POSTRE-PV");
+    expect(skus).not.toContain("COMBO-01");
+    expect(filtrarCatalogoSoloInsumos(items).map((i) => i.sku)).toEqual(skus);
   });
 });

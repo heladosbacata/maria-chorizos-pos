@@ -15,7 +15,8 @@ import {
 } from "@/lib/inventario-pos-firestore";
 import ModalReiniciarInventarioConfirmacion from "@/components/ModalReiniciarInventarioConfirmacion";
 import ModalInformeInventarioActual from "@/components/ModalInformeInventarioActual";
-import { catalogoInsumosParaCargue } from "@/lib/inventario-pos-catalogo";
+import { armarCatalogoInventarioOperativo } from "@/lib/inventario-pos-catalogo";
+import { getCatalogoPOS } from "@/lib/catalogo-pos";
 import {
   contarInsumosConPrecioCompra,
   contarInsumosConPrecioHoja,
@@ -92,15 +93,16 @@ export default function CargueInventarioMasivoPanel({ puntoVenta, uid, email }: 
     setFuenteCat(null);
     setSheetSetupAyuda(null);
     try {
-      const [sheet, saldosR, listaFs, carritoPrecios] = await Promise.all([
+      const [sheet, saldosR, listaFs, carritoPrecios, catalogoPos] = await Promise.all([
         fetchCatalogoInsumosDesdeSheet(pv),
         listarSaldosInventarioPorPuntoVenta(pv),
         listarInsumosKitPorPuntoVenta(pv),
         fetchMapaPreciosCarritoCompras(),
+        getCatalogoPOS(null, pv),
       ]);
       setSaldoRows(saldosR);
       const sheetItems = sheet.ok ? sheet.data : [];
-      const items = catalogoInsumosParaCargue(sheetItems, listaFs, carritoPrecios.productos);
+      const items = armarCatalogoInventarioOperativo(sheetItems, listaFs, catalogoPos.productos ?? [], carritoPrecios.productos);
       const fuenteItems: "sheet" | "firestore" | "wms" | null =
         listaFs.length > 0
           ? "firestore"

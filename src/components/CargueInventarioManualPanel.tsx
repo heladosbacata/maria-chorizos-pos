@@ -6,7 +6,8 @@ import {
   type CatalogoSheetSetupHint,
 } from "@/lib/catalogo-insumos-sheet-client";
 import { fechaColombia, fechaHoraColombia, mediodiaColombiaDesdeYmd, ymdColombia } from "@/lib/fecha-colombia";
-import { catalogoInsumosParaCargue } from "@/lib/inventario-pos-catalogo";
+import { armarCatalogoInventarioOperativo } from "@/lib/inventario-pos-catalogo";
+import { getCatalogoPOS } from "@/lib/catalogo-pos";
 import {
   cantidadInventarioDesdeCargue,
   notaConversionCargue,
@@ -182,14 +183,15 @@ export default function CargueInventarioManualPanel({ puntoVenta, uid, email }: 
     setErrorCat(null);
     setFuenteCat(null);
     try {
-      const [sheet, listaFs, carritoPrecios] = await Promise.all([
+      const [sheet, listaFs, carritoPrecios, catalogoPos] = await Promise.all([
         fetchCatalogoInsumosDesdeSheet(pv),
         listarInsumosKitPorPuntoVenta(pv),
         fetchMapaPreciosCarritoCompras(),
+        getCatalogoPOS(null, pv),
       ]);
       setPreciosCarritoMap(carritoPrecios.ok ? carritoPrecios.mapa : mapaPreciosCarritoVacio());
       const sheetItems = sheet.ok ? sheet.data : [];
-      const items = catalogoInsumosParaCargue(sheetItems, listaFs, carritoPrecios.productos);
+      const items = armarCatalogoInventarioOperativo(sheetItems, listaFs, catalogoPos.productos ?? [], carritoPrecios.productos);
       const fuenteItems: "sheet" | "firestore" | "wms" | null =
         listaFs.length > 0
           ? "firestore"

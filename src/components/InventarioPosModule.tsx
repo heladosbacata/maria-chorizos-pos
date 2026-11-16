@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { collection, onSnapshot, query, where } from "firebase/firestore";
 import { fetchCatalogoInsumosDesdeSheet } from "@/lib/catalogo-insumos-sheet-client";
+import { getCatalogoPOS } from "@/lib/catalogo-pos";
 import { db } from "@/lib/firebase";
 import {
   escribirMinimoInventarioLocal,
   leerMinimosInventarioLocal,
 } from "@/lib/inventario-minimos-local-storage";
-import { catalogoInsumosParaCargue, filtrarCatalogoSoloInsumos } from "@/lib/inventario-pos-catalogo";
+import { armarCatalogoInventarioOperativo, filtrarCatalogoSoloInsumos } from "@/lib/inventario-pos-catalogo";
 import type { InsumoKitItem, InventarioMovimientoDoc, TipoMovimientoInventario } from "@/types/inventario-pos";
 import { fechaColombia, fechaHoraColombia, mediodiaColombiaDesdeYmd } from "@/lib/fecha-colombia";
 import { normPuntoVentaCatalogo } from "@/lib/punto-venta-catalogo-norm";
@@ -58,8 +59,8 @@ import { vistaSaldoConEmpaque } from "@/lib/inventario-cargue-presentacion";
 type Pestaña = "stock" | "movimiento" | "historial" | "ajuste";
 type FuenteCatalogoInventario = "sheet" | "firestore" | "wms";
 
-/** v7: Firestore kit o DB_Carrito ganan sobre hojas de producción INS-*. */
-const INVENTARIO_CATALOGO_CACHE_PREFIX = "pos_mc_inventario_catalogo_v7";
+/** v8: incluye bebidas y productos propios del punto en el inventario. */
+const INVENTARIO_CATALOGO_CACHE_PREFIX = "pos_mc_inventario_catalogo_v8";
 const HISTORIAL_LIMITE_STOCK = 80;
 const HISTORIAL_LIMITE_COMPLETO = 150;
 
@@ -336,11 +337,12 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
     setAvisoPvHoja(null);
     const cacheExistente = leerCacheCatalogoInventario(pv);
     try {
-      const [sheetRes, saldosPack, listaFs, carritoPrecios] = await Promise.all([
+      const [sheetRes, saldosPack, listaFs, carritoPrecios, catalogoPos] = await Promise.all([
         fetchCatalogoInsumosDesdeSheet(pv),
         listarSaldosInventarioConFuentePorPuntoVenta(pv),
         listarInsumosKitPorPuntoVenta(pv),
         fetchMapaPreciosCarritoCompras(),
+        getCatalogoPOS(null, pv),
       ]);
       setMapaPreciosCarritoRespaldo(carritoPrecios.ok ? carritoPrecios.mapa : mapaPreciosCarritoVacio());
       setSaldoRows(saldosPack.saldoRows);
@@ -350,7 +352,7 @@ export default function InventarioPosModule({ puntoVenta, uid, email }: Inventar
       setProductosPosAgregados(0);
 
       const sheetItems = sheetRes.ok ? sheetRes.data : [];
-      const items = catalogoInsumosParaCargue(sheetItems, listaFs, carritoPrecios.productos);
+      const items = armarCatalogoInventarioOperativo(sheetItems, listaFs, catalogoPos.productos ?? [], carritoPrecios.productos);
       const fuenteItems: FuenteCatalogoInventario | null =
         listaFs.length > 0
           ? "firestore"

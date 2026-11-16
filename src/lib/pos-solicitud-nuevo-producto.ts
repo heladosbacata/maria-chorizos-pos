@@ -1,6 +1,9 @@
 import type { SolicitarNuevoProductoRequest, SolicitarNuevoProductoResponse } from "@/types";
 import { getWmsPublicBaseUrl } from "@/lib/wms-public-base";
 
+export const MENSAJE_SOLICITUD_NUEVO_PRODUCTO_ENVIADA =
+  "La solicitud ha sido enviada y está pendiente por confirmación y autorización de casa matriz.";
+
 function errorLegible(data: unknown, status: number): string {
   if (data && typeof data === "object") {
     const o = data as { message?: unknown; error?: unknown };
@@ -18,6 +21,7 @@ export async function solicitarNuevoProductoPos(
   idToken: string
 ): Promise<SolicitarNuevoProductoResponse> {
   if (!idToken.trim()) return { ok: false, message: "Tu sesión expiró. Inicia sesión nuevamente." };
+  if (!payload.skuSugerido.trim()) return { ok: false, message: "El SKU es obligatorio." };
   if (!payload.nombreProducto.trim()) return { ok: false, message: "El nombre del producto es obligatorio." };
   if (!payload.categoria.trim()) return { ok: false, message: "La categoría es obligatoria." };
   if (!payload.unidad.trim()) return { ok: false, message: "La unidad es obligatoria." };
@@ -46,12 +50,7 @@ export async function solicitarNuevoProductoPos(
     return {
       ok: d.ok === true,
       idSolicitud: typeof d.idSolicitud === "string" ? d.idSolicitud : undefined,
-      message:
-        typeof d.message === "string"
-          ? d.message
-          : d.ok === true
-            ? "Solicitud enviada correctamente."
-            : "No se pudo enviar la solicitud.",
+      message: d.ok === true ? MENSAJE_SOLICITUD_NUEVO_PRODUCTO_ENVIADA : "No se pudo enviar la solicitud.",
     };
   } catch (error) {
     return {

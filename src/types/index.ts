@@ -57,6 +57,8 @@ export interface ProductoPOS {
   precioPersonalizado?: boolean;
   unidad?: string;
   urlImagen: string | null;
+  /** Producto creado por un franquiciado: solo existe en el POS que lo solicitó. */
+  soloEstePunto?: boolean;
   variantes?: Array<{
     clave: string;
     etiqueta: string;
